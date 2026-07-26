@@ -2,11 +2,53 @@ import CryptoKit
 import Foundation
 import Security
 
+public enum AppleAppIdentity {
+    public static let bundleIdentifier = "com.kunchenguid.eddieswallet"
+    public static let backendAppleAudience = bundleIdentifier
+    public static let testBundleIdentifier = "\(bundleIdentifier).tests"
+}
+
 public enum APIConfiguration {
     /// The only shipped API environment. The backend operator must provision this
     /// host and TLS before a real-account simulator test can pass.
     public static let productionBaseURL = URL(string: "https://eddieswallet.kunchenguid.com")!
     public static let productionBaseURLString = "https://eddieswallet.kunchenguid.com"
+}
+
+enum KeychainServiceMigration {
+    static let currentSessionService = "\(AppleAppIdentity.bundleIdentifier).session"
+    // Compatibility aliases for pre-correction builds. Migration changes only the service attribute.
+    static let legacySessionService = "com.kunchenguid.eddyswallet.session"
+    static let currentParentPINService = "\(AppleAppIdentity.bundleIdentifier).parent-pin"
+    static let legacyParentPINService = "com.kunchenguid.eddyswallet.parent-pin"
+
+    static func legacyService(forCurrentService service: String) -> String? {
+        switch service {
+        case currentSessionService: legacySessionService
+        case currentParentPINService: legacyParentPINService
+        default: nil
+        }
+    }
+
+    /// Rename only the keychain item's service attribute. This does not read,
+    /// log, or copy the protected value.
+    static func renameItemIfNeeded(currentService: String, legacyService: String, account: String) {
+        guard currentService != legacyService else { return }
+        let currentQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: currentService,
+            kSecAttrAccount as String: account
+        ]
+        guard SecItemCopyMatching(currentQuery as CFDictionary, nil) == errSecItemNotFound else { return }
+
+        let legacyQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: legacyService,
+            kSecAttrAccount as String: account
+        ]
+        let attributes: [String: Any] = [kSecAttrService as String: currentService]
+        _ = SecItemUpdate(legacyQuery as CFDictionary, attributes as CFDictionary)
+    }
 }
 
 public enum WalletAPIError: Error, Equatable, LocalizedError {
@@ -47,11 +89,12 @@ public final class KeychainSessionStore: SessionStore {
     private let service: String
     private let account = "parent-session"
 
-    public init(service: String = "com.kunchenguid.eddyswallet.session") {
+    public init(service: String = "\(AppleAppIdentity.bundleIdentifier).session") {
         self.service = service
     }
 
     public var session: AuthSession? {
+        migrateLegacyItemIfNeeded()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -71,6 +114,7 @@ public final class KeychainSessionStore: SessionStore {
     }
 
     public func save(_ session: AuthSession) throws {
+        migrateLegacyItemIfNeeded()
         let data = try JSONEncoder().encode(session)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -93,12 +137,22 @@ public final class KeychainSessionStore: SessionStore {
     }
 
     public func clear() {
+        migrateLegacyItemIfNeeded()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
         SecItemDelete(query as CFDictionary)
+    }
+
+    private func migrateLegacyItemIfNeeded() {
+        guard let legacyService = KeychainServiceMigration.legacyService(forCurrentService: service) else { return }
+        KeychainServiceMigration.renameItemIfNeeded(
+            currentService: service,
+            legacyService: legacyService,
+            account: account
+        )
     }
 
     private struct KeychainError: Error {
@@ -115,12 +169,13 @@ public protocol ParentPINStore: AnyObject {
 
 @MainActor
 public final class KeychainParentPINStore: ParentPINStore {
-    private let service = "com.kunchenguid.eddyswallet.parent-pin"
+    private let service = KeychainServiceMigration.currentParentPINService
     private let account = "parent-pin"
 
     public init() {}
 
     public var pin: String? {
+        migrateLegacyItemIfNeeded()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -137,6 +192,7 @@ public final class KeychainParentPINStore: ParentPINStore {
     }
 
     public func save(pin: String) throws {
+        migrateLegacyItemIfNeeded()
         guard pin.count == 4, pin.allSatisfy(\.isNumber) else {
             throw WalletAPIError.invalidResponse("The parent PIN must contain four digits.")
         }
@@ -162,12 +218,21 @@ public final class KeychainParentPINStore: ParentPINStore {
     }
 
     public func clear() {
+        migrateLegacyItemIfNeeded()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
         SecItemDelete(query as CFDictionary)
+    }
+
+    private func migrateLegacyItemIfNeeded() {
+        KeychainServiceMigration.renameItemIfNeeded(
+            currentService: service,
+            legacyService: KeychainServiceMigration.legacyParentPINService,
+            account: account
+        )
     }
 }
 
