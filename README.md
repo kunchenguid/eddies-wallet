@@ -8,7 +8,7 @@
 
 Eddie's Wallet is a calm, parent-managed family ledger that helps Eddie practice everyday money concepts. Parents record changes. Eddie can understand and review them. The balance uses familiar local currency vocabulary, initially US dollars, but it is always **virtual, pretend, and nonredeemable**. No real money moves through the product.
 
-This document is the product starting point for the first MVP. It is documentation only. It does not commit the project to an iOS implementation, Xcode project, backend implementation, database migration, or HTML prototype.
+This document is the product starting point for the first MVP. The public repository is frontend-only; the service implementation and operations are maintained separately. This README defines client-facing behavior and does not include service or deployment implementation.
 
 ## 1. Settled decisions
 
@@ -16,15 +16,15 @@ These decisions are the current product direction and should not be reopened dur
 
 - Use familiar local currency vocabulary, initially **US dollars**. Every balance and money event must be labeled as virtual, pretend, and nonredeemable.
 - Do not connect to banks, cards, payment processors, cash, or any other real-money rail.
-- Parent mode on a shared iPad is protected by a **parent-set PIN**. The PIN is a local gate against casual switching; backend authorization remains authoritative.
+- Parent mode on a shared iPad is protected by a **parent-set PIN**. The PIN is a local gate against casual switching; service authorization remains authoritative.
 - The first child experience is a **parent-managed child profile**, not an independent child login or Apple identity.
 - **Apple Sign In is required** for the parent MVP. Google Sign In is future scope only.
 - Do not include child-initiated money requests in the smallest MVP.
 - Show loans as a secondary card on the wallet with a detail flow. Do not make Loans a prominent top-level navigation area.
 - Use a short, linear starter lesson path rather than exposing a large lesson library.
 - Show Recent Activity directly on the wallet. Do not add a duplicate Recent Activity entry point when the activity list is already visible there.
-- The cost-sensitive backend direction to validate is a low-cost **Hetzner VPS with a lightweight API and Postgres**. The final deployment choice remains an open technical decision until the cost and operations plan is confirmed.
-- The initial recovery posture is daily backups plus a nightly encrypted export. This is intentionally a minimal recovery plan, not an enterprise audit specification.
+- The external service must remain vendor-neutral from the app's perspective. Its implementation and hosting are outside this public frontend repository.
+- The initial recovery expectation for the external service is daily backups plus a nightly encrypted export. This is intentionally a minimal recovery plan, not an enterprise audit specification.
 
 Research reports are context, not hidden requirements. In particular, a research recommendation for a hosted service, extra authentication mode, interest-bearing loans, or a larger education system is not adopted unless this PRD says so.
 
@@ -103,7 +103,7 @@ Eddie is the first child profile. He uses a simple child view to check his virtu
 - Automating a full household allowance and chore system.
 - Supporting arbitrary family roles, permissions, or account recovery policies.
 - Optimizing for engagement through streaks, competition, rewards, or notifications.
-- Choosing a final hosting vendor before cost, backup, monitoring, and on-call responsibilities are confirmed.
+- Choosing a particular service implementation or hosting vendor before cost, backup, monitoring, and on-call responsibilities are confirmed.
 
 ## 6. Money model and vocabulary
 
@@ -160,7 +160,7 @@ If setup loses connectivity before the family is created, the app must retain fo
 4. A wrong PIN leaves the user in the current mode and does not reveal parent data. PIN changes require the existing PIN and parent authorization.
 5. Signing out or revoking access returns to a neutral state with no usable family data.
 
-The PIN is a local gate. It does not grant a role, change backend permissions, or make a child session into a parent session.
+The PIN is a local gate. It does not grant a role, change service permissions, or make a child session into a parent session.
 
 ### Journey C: parent records a money event
 
@@ -328,7 +328,7 @@ Lessons should be short, readable aloud, and age-band appropriate. No countdowns
 | Initiate a money request | No MVP workflow | No |
 | Export or delete family data | Parent-only, behind the gate | No |
 
-The backend or service layer must enforce the same boundary as the UI. A local child profile selection or PIN must never be treated as proof that a client may write parent data.
+The external service must enforce the same boundary as the UI. A local child profile selection or PIN must never be treated as proof that a client may write parent data.
 
 ## 10. State, sync, and error behavior
 
@@ -342,7 +342,7 @@ Use the same status words everywhere:
 | **Last updated** | Child or parent is viewing a cached snapshot whose freshness is shown. |
 | **Draft on this iPad** | A setup or allowance form is local only and has not created a family rule. |
 
-Acceptance and rejection must use text and icons, not color alone. A stale child screen may remain readable, but it must not call its balance current. A backend outage must preserve the last good view and offer retry rather than showing an empty wallet.
+Acceptance and rejection must use text and icons, not color alone. A stale child screen may remain readable, but it must not call its balance current. A service outage must preserve the last good view and offer retry rather than showing an empty wallet.
 
 ## 11. Privacy and safety
 
@@ -355,18 +355,17 @@ Acceptance and rejection must use text and icons, not color alone. A stale child
 - Explain that the PIN protects this shared iPad from casual switching. It is not device-wide parental control and is not a substitute for server-side authorization.
 - Keep child language calm and nonjudgmental. Do not call Eddie “in debt,” “bad with money,” or “behind.” Show repayment as a practice concept, not a punishment.
 - Provide parent-controlled data export and deletion behavior before public launch, subject to the final retention policy.
-- Use the agreed minimal recovery posture: daily backups and a nightly encrypted export, with a tested restore procedure. Do not add an enterprise audit console to the MVP.
+- Require the external service to meet the minimal recovery posture: daily backups and a nightly encrypted export, with a tested restore procedure. Do not add an enterprise audit console to the MVP.
 
-## 12. Backend and operations direction
+## 12. External service boundary
 
-This is a product constraint and decision boundary, not an implementation plan.
+This is a product constraint and client integration boundary, not an implementation plan. The service is maintained outside this public frontend repository.
 
 - The service must be authoritative for family membership, parent permissions, accepted ledger events, balances, allowance rules, and loans.
 - The service must support idempotent parent commands so retries cannot duplicate deposits, withdrawals, loans, or repayments.
 - Child reads must not have a path to mutate wallet, profile, allowance, loan, membership, or parent-PIN data.
-- The cost-sensitive direction to validate is a Hetzner VPS with a lightweight API and Postgres. The final choice is open until the team confirms monthly cost, patching, monitoring, backup ownership, restore testing, and on-call responsibility.
-- Daily backups and a nightly encrypted export are the minimum recovery posture for the initial release. The product does not require point-in-time recovery or enterprise retention controls at this stage.
-- Keep the app's product boundary independent of the final hosting vendor. Do not expose provider-specific behavior in parent or child copy.
+- The service must meet the recovery expectations in this document, including daily backups, a nightly encrypted export, and restore testing before launch.
+- Keep the app's product boundary independent of the service implementation and hosting. Do not expose provider-specific behavior in parent or child copy.
 
 Apple Sign In is the only parent authentication method in the MVP. Google Sign In, identity linking, independent child authentication, and other providers are future scope.
 
@@ -395,7 +394,7 @@ These questions do not block the product boundary above, but must be answered be
 5. What is the exact offline queue policy and how recent must the cached balance be before queuing a parent command?
 6. What age band and launch countries determine lesson content, privacy review, and distribution decisions?
 7. Is a local-only lesson completion state sufficient, or should child progress sync in a later release?
-8. Which deployment option wins after the Hetzner/API/Postgres cost and operations validation, and who owns incidents and restores?
+8. Which service implementation and operations plan meet the cost and recovery requirements, and who owns service incidents and restores?
 9. What retention period and parent deletion behavior apply to family data and accepted ledger history?
 10. Is the one-parent MVP sufficient for the pilot, or is a second authenticated parent a launch requirement?
 
@@ -413,7 +412,7 @@ The MVP is product-complete when all of the following are true:
 8. Eddie can read the accepted balance, activity, loan details, and linear starter lessons, but cannot create or change any wallet, profile, allowance, loan, repayment, or request.
 9. Offline views show the last update time. Queued parent actions are visibly pending, and rejected actions never appear as accepted balance changes.
 10. The app collects no unnecessary child identity data and ships without real-money rails, ads, tracking, chat, or public sharing.
-11. Daily backups and a nightly encrypted export are configured and a restore check has been completed before launch.
+11. The external service meets the daily backup and nightly encrypted export requirements, and a restore check has been completed before launch.
 12. A pilot parent and child can explain that the displayed US-dollar amounts are practice values that cannot be redeemed or spent.
 
 ## 16. Success criteria
@@ -426,6 +425,6 @@ Early MVP success is demonstrated by a small family pilot, not by transaction vo
 - No pilot participant mistakes the balance for spendable or redeemable money.
 - Offline and rejected states do not produce a false accepted balance in testing.
 - Privacy review confirms that the child profile contains only the intended minimal data.
-- The team can restore the minimal production data posture from the daily backup and nightly encrypted export.
+- The service owner can restore the minimal production data posture from the daily backup and nightly encrypted export.
 
 The MVP should be considered ready for implementation only after the open questions that affect data, scheduling, recovery, and launch compliance have named owners and decisions.
