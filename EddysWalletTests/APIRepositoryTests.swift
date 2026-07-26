@@ -4,6 +4,28 @@ import XCTest
 
 @MainActor
 final class APIRepositoryTests: XCTestCase {
+    func testBuiltBundleAndBackendAudienceUseRegisteredAppleAppID() {
+        XCTAssertEqual(AppleAppIdentity.bundleIdentifier, "com.kunchenguid.eddieswallet")
+        XCTAssertEqual(AppleAppIdentity.backendAppleAudience, "com.kunchenguid.eddieswallet")
+        XCTAssertEqual(AppleAppIdentity.testBundleIdentifier, "com.kunchenguid.eddieswallet.tests")
+        XCTAssertEqual(Bundle(for: APIRepositoryTests.self).bundleIdentifier, AppleAppIdentity.testBundleIdentifier)
+        XCTAssertEqual(Bundle(identifier: AppleAppIdentity.bundleIdentifier)?.bundleIdentifier, AppleAppIdentity.bundleIdentifier)
+    }
+
+    func testKeychainServiceMigrationUsesInPlaceLegacyRenameWithoutSecretData() {
+        XCTAssertEqual(KeychainServiceMigration.currentSessionService, "com.kunchenguid.eddieswallet.session")
+        XCTAssertEqual(KeychainServiceMigration.currentParentPINService, "com.kunchenguid.eddieswallet.parent-pin")
+        XCTAssertEqual(
+            KeychainServiceMigration.legacyService(forCurrentService: KeychainServiceMigration.currentSessionService),
+            "com.kunchenguid.eddyswallet.session"
+        )
+        XCTAssertEqual(
+            KeychainServiceMigration.legacyService(forCurrentService: KeychainServiceMigration.currentParentPINService),
+            "com.kunchenguid.eddyswallet.parent-pin"
+        )
+        XCTAssertNil(KeychainServiceMigration.legacyService(forCurrentService: "com.example.other"))
+    }
+
     func testProductionConfigurationShipsTheRealBackendURL() {
         XCTAssertEqual(APIConfiguration.productionBaseURLString, "https://eddieswallet.kunchenguid.com")
         XCTAssertEqual(APIConfiguration.productionBaseURL.absoluteString, "https://eddieswallet.kunchenguid.com")
