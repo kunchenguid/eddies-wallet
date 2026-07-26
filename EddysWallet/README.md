@@ -2,13 +2,40 @@
 
 `EddysWallet.xcodeproj` is a SwiftUI iOS/iPadOS app targeting iOS 17 and device families 1 and 2. The UI uses adaptive `horizontalSizeClass` layouts and native sheets, forms, navigation, Dynamic Type-friendly system fonts, and accessibility labels.
 
-## Local development
+## Production configuration
+
+The app has one shipped API environment. `APIConfiguration.productionBaseURL` is the explicit production base URL:
+
+```text
+https://api.eddyswallet.com
+```
+
+There is no staging or development API configuration in this client. The backend contract is the private service's `/v1` API: Apple session exchange, family setup, wallet and child-view reads, activity and loan details, weekly allowance rules and occurrences, deposits, withdrawals, loans, repayments, and required `Idempotency-Key` headers. `APIWalletRepository` is the concrete HTTP implementation behind `WalletRepository`; `MockWalletRepository` remains available for previews and unit tests.
+
+The opaque session token is stored with `KeychainSessionStore` using an after-first-unlock, this-device-only keychain item. Identity tokens and Apple private keys are not stored. A cached accepted snapshot is used for offline display and is marked stale when it cannot be refreshed. A command that has not received an authoritative accepted response is shown as **Waiting to sync** and does not change the accepted balance.
+
+## Local development and tests
 
 ```sh
 xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4' test
 ```
 
-The app starts with fixture data after the local Sign in with Apple integration point. The fixture parent PIN is `1234` for the role-gate test path. No network call or private backend is used.
+Unit and contract-style transport tests cover Apple session exchange, bearer sessions, idempotency headers, authoritative virtual-money responses, pending network commands, expired sessions, and invalid responses. Tests inject `HTTPTransport` and `InMemorySessionStore`; they do not call the production service.
 
-`WalletRepository` is the boundary for a future authoritative API. `MockWalletRepository` is the only current implementation and keeps accepted balance, pending commands, rejected commands, stale time, and loan rules local to the fixture.
+## Manual simulator sequence
+
+This is the exact final-account test sequence. It has **not** been run to claim live end-to-end success because the production endpoint still needs to be available.
+
+1. In Apple Developer, confirm the explicit App ID `com.kunchenguid.eddyswallet` has Sign in with Apple enabled. In Xcode, select a locally configured signing team for the target; do not commit that Team ID.
+2. The service operator configures the single production host and TLS for `https://api.eddyswallet.com`, sets the backend Apple audience to `com.kunchenguid.eddyswallet`, and verifies `GET https://api.eddyswallet.com/healthz` is healthy. No Apple private key is needed by this native flow.
+3. Build and run the `EddysWallet` scheme on an iOS 17+ simulator with the app's registered bundle identifier. Sign in with Apple using the simulator's Apple ID/test account.
+4. Confirm the app reaches the parent setup form. Enter a nickname, lesson age band, and a four-digit parent PIN, create the wallet, and confirm that setup only appears as complete after the service accepts `POST /v1/family/setup`. The PIN is stored only in the platform keychain and gates parent mode locally.
+5. Confirm the parent wallet shows the accepted virtual balance and the fixed notice: “Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.”
+6. Set the weekly allowance rule. Then record a deposit, an allowed withdrawal, a loan, a partial repayment, and a full repayment. For every action, verify the review screen, `Recorded` result, activity row, exact minor-unit balance, and the loan's remaining amount.
+7. Switch to Eddie's view. Entering child mode must refresh through `/v1/child-view`; confirm the view is read-only and contains no parent money actions. Confirm activity and loan details remain readable.
+8. Turn off network access, refresh, and confirm the last accepted snapshot says `Last updated`/stale. Submit a parent command and verify `Waiting to sync` without an accepted-balance change. Restore network, refresh, and verify the server accepts it once using its idempotency key or rejects it as `Not recorded` without changing accepted money.
+9. Expire or revoke the session on the service, make a request, and confirm the app clears the keychain session and returns to the Apple sign-in screen without displaying usable family data.
+10. Record the result as an operator test report. Do not mark this repository or pull request as live end-to-end verified until the real production endpoint and real-account simulator run are complete.
+
+Remaining operator configuration is intentionally outside this repository: Apple Developer capability/signing configuration, DNS and TLS for `api.eddyswallet.com`, backend `APPLE_AUDIENCES=com.kunchenguid.eddyswallet`, and the production service's backups, exports, and deployment health checks. No Team ID, token, credential, or private key belongs in Git.

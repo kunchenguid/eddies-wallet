@@ -20,6 +20,14 @@ struct WalletView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: EW.Space.six) {
                     roleSwitcher
+                    if let errorMessage = store.errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .font(EW.Font.caption)
+                            .foregroundStyle(EW.Color.red600)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(EW.Space.three)
+                            .background(EW.Color.dangerTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                    }
                     if store.role == .parent {
                         parentWallet
                     } else {
@@ -48,6 +56,12 @@ struct WalletView: View {
                     .accessibilityLabel("Wallet menu")
                 }
             }
+        }
+        .task(id: store.role) {
+            await store.refresh()
+        }
+        .refreshable {
+            await store.refresh()
         }
         .sheet(item: $selectedEvent) { event in
             ActivityDetailView(event: event)
@@ -450,11 +464,11 @@ private struct LoanCardView: View {
 }
 
 #Preview("Parent wallet") {
-    WalletView().environmentObject(WalletStore())
+    WalletView().environmentObject(WalletStore.preview())
 }
 
 #Preview("Child wallet") {
-    let store = WalletStore()
+    let store = WalletStore.preview()
     store.switchRole(to: .child)
     return WalletView().environmentObject(store)
 }

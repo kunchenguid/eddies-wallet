@@ -21,12 +21,27 @@ final class WalletTests: XCTestCase {
         XCTAssertFalse(store.isShowingPinGate)
     }
 
-    func testChildModeCannotSubmitParentMoneyCommand() {
+    func testParentPINMustBeConfirmedBeforeParentMode() {
+        let pinStore = InMemoryParentPINStore()
+        let store = WalletStore(
+            repository: MockWalletRepository(snapshot: .fixture()),
+            initiallySignedIn: true,
+            pinStore: pinStore
+        )
+        XCTAssertTrue(store.needsPINSetup)
+        XCTAssertFalse(store.setParentPIN("1234", confirmation: "1235"))
+        XCTAssertTrue(store.needsPINSetup)
+        XCTAssertTrue(store.setParentPIN("1234", confirmation: "1234"))
+        XCTAssertFalse(store.needsPINSetup)
+        XCTAssertEqual(pinStore.pin, "1234")
+    }
+
+    func testChildModeCannotSubmitParentMoneyCommand() async {
         let store = WalletStore(repository: MockWalletRepository(snapshot: .fixture()))
         let originalBalance = store.snapshot.acceptedBalanceCents
         store.switchRole(to: .child)
 
-        let result = store.submit(WalletCommand(kind: .deposit, amountCents: 1_000))
+        let result = await store.submit(WalletCommand(kind: .deposit, amountCents: 1_000))
         guard case .rejected(let event) = result else {
             return XCTFail("Child mode must reject money commands")
         }
@@ -55,10 +70,10 @@ final class WalletTests: XCTestCase {
         XCTAssertTrue(fixture.pendingEvents.contains { $0.syncState == .rejected })
     }
 
-    func testRejectedWithdrawalDoesNotChangeAcceptedBalance() {
+    func testRejectedWithdrawalDoesNotChangeAcceptedBalance() async {
         let repository = MockWalletRepository(snapshot: .fixture())
         let before = repository.snapshot().acceptedBalanceCents
-        let result = repository.submit(WalletCommand(kind: .withdrawal, amountCents: before + 1))
+        let result = try! await repository.submit(WalletCommand(kind: .withdrawal, amountCents: before + 1))
 
         guard case .rejected(let event) = result else {
             return XCTFail("Overdraft must be rejected")
@@ -67,7 +82,7 @@ final class WalletTests: XCTestCase {
         XCTAssertEqual(repository.snapshot().acceptedBalanceCents, before)
     }
 
-    func testLoanAndPartialRepaymentUseExactMinorUnits() {
+    func testLoanAndPartialRepaymentUseExactMinorUnits() async {
         let base = WalletSnapshot(
             acceptedBalanceCents: 1_000,
             activities: [],
@@ -78,11 +93,11 @@ final class WalletTests: XCTestCase {
             isStale: false
         )
         let repository = MockWalletRepository(snapshot: base)
-        _ = repository.submit(WalletCommand(kind: .loan, amountCents: 1_000, reason: "Bike helmet"))
+        _ = try! await repository.submit(WalletCommand(kind: .loan, amountCents: 1_000, reason: "Bike helmet"))
         XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 2_000)
         XCTAssertEqual(repository.snapshot().loan?.remainingCents, 1_000)
 
-        _ = repository.submit(WalletCommand(kind: .repayment, amountCents: 250))
+        _ = try! await repository.submit(WalletCommand(kind: .repayment, amountCents: 250))
         XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 1_750)
         XCTAssertEqual(repository.snapshot().loan?.remainingCents, 750)
     }

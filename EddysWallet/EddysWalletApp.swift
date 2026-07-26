@@ -18,10 +18,14 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if store.isSignedIn {
-                WalletView()
-            } else {
+            if !store.isSignedIn {
                 WelcomeView()
+            } else if store.needsSetup {
+                SetupView()
+            } else if store.needsPINSetup {
+                ParentPINSetupView()
+            } else {
+                WalletView()
             }
         }
         .preferredColorScheme(.light)
