@@ -1,4 +1,4 @@
-# Eddy's Wallet
+# Eddie's Wallet
 
 ## Product requirements document
 
@@ -6,7 +6,7 @@
 **Product:** iPad/iOS virtual allowance app for Eddie
 **Audience:** Product, design, engineering, and review collaborators
 
-Eddy's Wallet is a calm, parent-managed family ledger that helps Eddie practice everyday money concepts. Parents record changes. Eddie can understand and review them. The balance uses familiar local currency vocabulary, initially US dollars, but it is always **virtual, pretend, and nonredeemable**. No real money moves through the product.
+Eddie's Wallet is a calm, parent-managed family ledger that helps Eddie practice everyday money concepts. Parents record changes. Eddie can understand and review them. The balance uses familiar local currency vocabulary, initially US dollars, but it is always **virtual, pretend, and nonredeemable**. No real money moves through the product.
 
 This document is the product starting point for the first MVP. It is documentation only. It does not commit the project to an iOS implementation, Xcode project, backend implementation, database migration, or HTML prototype.
 
@@ -32,7 +32,7 @@ Research reports are context, not hidden requirements. In particular, a research
 
 Parents want a simple way to give children practice with allowance, spending, borrowing, and repayment without opening a bank account, handing over a payment card, or moving real money. Existing allowance products tend to provide only a ledger, permit child money changes, use real-money rails, or omit loans and structured learning.
 
-Eddy's Wallet addresses the gap with a small, closed virtual economy:
+Eddie's Wallet addresses the gap with a small, closed virtual economy:
 
 1. A parent creates and controls Eddie's profile.
 2. The parent records allowance, deposits, withdrawals, loans, and repayments.
@@ -109,7 +109,7 @@ Eddie is the first child profile. He uses a simple child view to check his virtu
 
 ### Virtual balance
 
-The wallet displays US-dollar vocabulary such as **US$24.00 virtual balance**. The amount is a simulated accounting value only. It is not a dollar claim, stored cash, credit, or promise from the parent or Eddy's Wallet.
+The wallet displays US-dollar vocabulary such as **US$24.00 virtual balance**. The amount is a simulated accounting value only. It is not a dollar claim, stored cash, credit, or promise from the parent or Eddie's Wallet.
 
 The following copy must be persistent and easy to find, not hidden only in onboarding or settings:
 
@@ -264,7 +264,7 @@ Editing or pausing a rule affects future occurrences only. It must not rewrite p
 4. Confirmation creates one parent-recorded deposit, or a clearly pending command while offline.
 5. Eddie sees it only after it is accepted and synced.
 
-A deposit is bookkeeping inside Eddy's Wallet. It never charges, moves, or reserves real money.
+A deposit is bookkeeping inside Eddie's Wallet. It never charges, moves, or reserves real money.
 
 ### 8.8 Withdrawal flow
 
@@ -305,7 +305,7 @@ The child sees one short, linear next step instead of a full lesson library:
 1. **Your virtual balance:** added, used, and remaining.
 2. **Making a plan:** allowance, saving, and spending choices.
 3. **Borrow and repay:** what a loan means and how repayment reduces what is owed.
-4. **Cards and payments:** adults may use payment methods, but Eddy's Wallet does not connect to one and never moves real money.
+4. **Cards and payments:** adults may use payment methods, but Eddie's Wallet does not connect to one and never moves real money.
 
 Lessons should be short, readable aloud, and age-band appropriate. No countdowns, leaderboards, debt scores, shame language, or wallet-dollar rewards. Lesson completion may change local lesson presentation, but it cannot create or alter a money event. Synced child lesson progress is not required for the smallest read-only MVP.
 
