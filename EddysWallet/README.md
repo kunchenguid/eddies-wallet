@@ -23,11 +23,29 @@ xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet \
 
 Unit and contract-style transport tests cover Apple session exchange, bearer sessions, idempotency headers, authoritative virtual-money responses, pending network commands, expired sessions, and invalid responses. Tests inject `HTTPTransport` and `InMemorySessionStore`; they do not call the production service.
 
+## Apple Sign In signing prerequisite
+
+The source project declares the Sign in with Apple capability and `EddysWallet/EddysWallet.entitlements` contains `com.apple.developer.applesignin`. That source configuration does not guarantee that a locally built app is entitled: the captain must be signed into Xcode with the Apple Development team that owns the explicit App ID `com.kunchenguid.eddyswallet`, with Sign in with Apple enabled and a usable Apple Development certificate/account setup. This is an external prerequisite and cannot be supplied by this public repository. Do not commit a Team ID, provisioning profile, certificate, private key, or Apple account data.
+
+After building, inspect the signed bundle rather than only the project settings:
+
+```sh
+rm -rf .derived
+xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4' \
+  -derivedDataPath .derived build
+codesign -d --entitlements :- \
+  .derived/Build/Products/Debug-iphonesimulator/EddysWallet.app 2>&1
+```
+
+The output must contain `com.apple.developer.applesignin` with the `Default` value. If it is absent, the bundle is locally/ad hoc signed without the capability and the Apple Development signing setup must be fixed before testing native Apple authorization. A correctly entitled bundle is required but does not by itself prove that an Apple-side 401 or `AKAuthenticationError -7026` has been resolved.
+
 ## Manual simulator sequence
 
 This is the exact final-account test sequence. It has **not** been run to claim live end-to-end success because the production endpoint still needs to be available.
 
-1. In Apple Developer, confirm the explicit App ID `com.kunchenguid.eddyswallet` has Sign in with Apple enabled. In Xcode, select a locally configured signing team for the target; do not commit that Team ID.
+1. Complete the Apple Development signing prerequisite above. In Apple Developer, confirm the explicit App ID `com.kunchenguid.eddyswallet` has Sign in with Apple enabled. Do not commit the Team ID.
 2. The service operator configures the single production host and TLS for `https://eddieswallet.kunchenguid.com`, sets the backend Apple audience to `com.kunchenguid.eddyswallet`, and verifies `GET https://eddieswallet.kunchenguid.com/healthz` is healthy. No Apple private key is needed by this native flow.
 3. Build and run the `EddysWallet` scheme on an iOS 17+ simulator with the app's registered bundle identifier. Sign in with Apple using the simulator's Apple ID/test account.
 4. Confirm the app reaches the parent setup form. Enter a nickname, lesson age band, and a four-digit parent PIN, create the wallet, and confirm that setup only appears as complete after the service accepts `POST /v1/family/setup`. The PIN is stored only in the platform keychain and gates parent mode locally.
@@ -38,4 +56,4 @@ This is the exact final-account test sequence. It has **not** been run to claim 
 9. Expire or revoke the session on the service, make a request, and confirm the app clears the keychain session and returns to the Apple sign-in screen without displaying usable family data.
 10. Record the result as an operator test report. Do not mark this repository or pull request as live end-to-end verified until the real production endpoint and real-account simulator run are complete.
 
-Remaining operator configuration is intentionally outside this repository: Apple Developer capability/signing configuration, DNS and TLS for `eddieswallet.kunchenguid.com`, backend `APPLE_AUDIENCES=com.kunchenguid.eddyswallet`, and the production service's backups, exports, and deployment health checks. No Team ID, token, credential, or private key belongs in Git.
+Remaining operator configuration is intentionally outside this repository: the Apple Development account/certificate and capability setup described above, DNS and TLS for `eddieswallet.kunchenguid.com`, backend `APPLE_AUDIENCES=com.kunchenguid.eddyswallet`, and the production service's backups, exports, and deployment health checks. No Team ID, token, credential, or private key belongs in Git.

@@ -14,6 +14,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
     case unauthorized
     case familyNotSetup
     case cancelled
+    case timedOut
     case server(statusCode: Int, code: String, message: String)
     case network(String)
     case invalidResponse(String)
@@ -25,6 +26,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         case .unauthorized: "Your parent session expired. Sign in with Apple again."
         case .familyNotSetup: "Finish parent and child setup before opening the wallet."
         case .cancelled: "Sign in was cancelled."
+        case .timedOut: "Apple Sign In took too long. Please try again."
         case let .server(_, _, message): message
         case let .network(message): message
         case let .invalidResponse(message): message
@@ -542,7 +544,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
                 let event = makeLocalEvent(for: command, state: .rejected, message: message, rejectionReason: message)
                 rejectedEvents.insert(event, at: 0)
                 return .rejected(event)
-            case .cancelled, .familyNotSetup:
+            case .cancelled, .timedOut, .familyNotSetup:
                 throw error
             case .server, .network, .invalidResponse, .invalidConfiguration:
                 pendingCommands[command.idempotencyKey] = command
