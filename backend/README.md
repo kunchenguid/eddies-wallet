@@ -24,6 +24,8 @@ npm run dev
 
 The Compose database uses PostgreSQL's `trust` mode and contains no useful credentials. It is for a disposable local database only. Do not use that setting for deployment. The Compose API can also be started with `docker compose up --build`.
 
+The production image defaults to `PORT=8080` and exposes `8080`, matching `deploy/compose.yaml` and Caddy's `reverse_proxy backend:8080`. The local Compose service explicitly overrides `PORT=3000` and maps `3000:3000`, so local development remains on port 3000. The production migration command is `node dist/src/db/migrate.js`, matching the compiled image layout and `deploy/.env.example`.
+
 `npm test` runs the unit tests and skips the PostgreSQL integration suite when `DATABASE_URL` is unset. The integration command above is the strongest local check: it runs migrations and exercises the HTTP API, PostgreSQL transactions, database triggers, authorization ownership, and idempotency. Tests create only local-auth identities and need no Apple or production credentials.
 
 ## Configuration and authentication

@@ -34,8 +34,9 @@ until a backend image is selected and reviewed.
 3. Copy this directory with `REMOTE_HOST` set in the invoking shell. Create the
    host-only `deploy/.env` from `.env.example`, using an immutable backend image
    reference and real database credentials only on the host.
-4. Set `MIGRATION_COMMAND` to the backend's reviewed migration command and run
-   `migrate.sh` before `deploy.sh` starts the Compose project.
+4. Set `MIGRATION_COMMAND=node dist/src/db/migrate.js` to the backend
+   image's reviewed migration command and run `migrate.sh` before `deploy.sh`
+   starts the Compose project.
 5. Set `HEALTHCHECK_URL` to the later domain's health endpoint and run
    `healthcheck.sh` after deployment.
 
@@ -43,7 +44,7 @@ Example command shapes, with placeholders intentionally left unresolved:
 
 ```sh
 REMOTE_HOST='<server-address>' REMOTE_USER=eddies ./deploy/deploy.sh
-REMOTE_HOST='<server-address>' MIGRATION_COMMAND='./bin/migrate' ./deploy/migrate.sh
+REMOTE_HOST='<server-address>' MIGRATION_COMMAND='node dist/src/db/migrate.js' ./deploy/migrate.sh
 HEALTHCHECK_URL='https://<domain>/healthz' ./deploy/healthcheck.sh
 REMOTE_HOST='<server-address>' ROLLBACK_BACKEND_IMAGE='<old-immutable-image>' ./deploy/rollback.sh
 ```
