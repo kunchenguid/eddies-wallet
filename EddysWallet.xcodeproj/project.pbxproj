@@ -16,6 +16,11 @@
 		301000000000000000000007 /* LessonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207000000000000000000001 /* LessonView.swift */; };
 		301000000000000000000008 /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 208000000000000000000001 /* WalletView.swift */; };
 		301000000000000000000009 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 209000000000000000000001 /* WelcomeView.swift */; };
+		301000000000000000000010 /* WalletAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 204000000000000000000002 /* WalletAPI.swift */; };
+		301000000000000000000011 /* AppleSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 204000000000000000000003 /* AppleSignIn.swift */; };
+		301000000000000000000012 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D000000000000000000001 /* SetupView.swift */; };
+		301000000000000000000014 /* ParentPINSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000001 /* ParentPINSetupView.swift */; };
+		301000000000000000000013 /* APIRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000001 /* APIRepositoryTests.swift */; };
 		30100000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20A000000000000000000001 /* Assets.xcassets */; };
 		30100000000000000000000B /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B000000000000000000001 /* WalletTests.swift */; };
 /* End PBXBuildFile section */
@@ -32,6 +37,12 @@
 		209000000000000000000001 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		20A000000000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		20B000000000000000000001 /* WalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletTests.swift; sourceTree = "<group>"; };
+		20C000000000000000000001 /* EddysWallet.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = EddysWallet.entitlements; sourceTree = "<group>"; };
+		20D000000000000000000001 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
+		20E000000000000000000001 /* APIRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIRepositoryTests.swift; sourceTree = "<group>"; };
+		20F000000000000000000001 /* ParentPINSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParentPINSetupView.swift; sourceTree = "<group>"; };
+		204000000000000000000002 /* WalletAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletAPI.swift; sourceTree = "<group>"; };
+		204000000000000000000003 /* AppleSignIn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSignIn.swift; sourceTree = "<group>"; };
 		210000000000000000000001 /* EddysWallet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EddysWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		211000000000000000000001 /* EddysWalletTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -62,6 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				201000000000000000000001 /* EddysWalletApp.swift */,
+				20C000000000000000000001 /* EddysWallet.entitlements */,
 				120000000000000000000001 /* DesignSystem */,
 				119000000000000000000001 /* Models */,
 				121000000000000000000001 /* Views */,
@@ -75,6 +87,8 @@
 			children = (
 				203000000000000000000001 /* WalletModels.swift */,
 				204000000000000000000001 /* WalletStore.swift */,
+				204000000000000000000002 /* WalletAPI.swift */,
+				204000000000000000000003 /* AppleSignIn.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -92,6 +106,8 @@
 			children = (
 				205000000000000000000001 /* DetailViews.swift */,
 				206000000000000000000001 /* FlowViews.swift */,
+				20D000000000000000000001 /* SetupView.swift */,
+				20F000000000000000000001 /* ParentPINSetupView.swift */,
 				207000000000000000000001 /* LessonView.swift */,
 				208000000000000000000001 /* WalletView.swift */,
 				209000000000000000000001 /* WelcomeView.swift */,
@@ -103,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				20B000000000000000000001 /* WalletTests.swift */,
+				20E000000000000000000001 /* APIRepositoryTests.swift */,
 			);
 			path = EddysWalletTests;
 			sourceTree = "<group>";
@@ -151,7 +168,12 @@
 				BuildIndependentTargetsInParallel = 1;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
-					114000000000000000000001 = { CreatedOnToolsVersion = 26.4; };
+					114000000000000000000001 = {
+						CreatedOnToolsVersion = 26.4;
+						SystemCapabilities = {
+							com.apple.SignInWithApple = { enabled = 1; };
+						};
+					};
 					115000000000000000000001 = { CreatedOnToolsVersion = 26.4; TestTargetID = 114000000000000000000001; };
 				};
 			};
@@ -205,6 +227,10 @@
 				301000000000000000000007 /* LessonView.swift in Sources */,
 				301000000000000000000008 /* WalletView.swift in Sources */,
 				301000000000000000000009 /* WelcomeView.swift in Sources */,
+				301000000000000000000010 /* WalletAPI.swift in Sources */,
+				301000000000000000000011 /* AppleSignIn.swift in Sources */,
+				301000000000000000000012 /* SetupView.swift in Sources */,
+				301000000000000000000014 /* ParentPINSetupView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -213,6 +239,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				30100000000000000000000B /* WalletTests.swift in Sources */,
+				301000000000000000000013 /* APIRepositoryTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -259,6 +286,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = EddysWallet/EddysWallet.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -286,6 +314,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = EddysWallet/EddysWallet.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;

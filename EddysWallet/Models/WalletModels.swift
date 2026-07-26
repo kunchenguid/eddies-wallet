@@ -92,8 +92,11 @@ public struct Money: Hashable, Codable, Sendable, ExpressibleByIntegerLiteral {
 
 public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
     public let id: UUID
+    public let remoteID: String?
     public let type: ActivityType
     public let amountCents: Int
+    public let balanceBeforeCents: Int?
+    public let balanceAfterCents: Int?
     public let reason: String?
     public let date: Date
     public let syncState: SyncState
@@ -102,8 +105,11 @@ public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
 
     public init(
         id: UUID = UUID(),
+        remoteID: String? = nil,
         type: ActivityType,
         amountCents: Int,
+        balanceBeforeCents: Int? = nil,
+        balanceAfterCents: Int? = nil,
         reason: String? = nil,
         date: Date = .now,
         syncState: SyncState = .recorded,
@@ -111,8 +117,11 @@ public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
         rejectionReason: String? = nil
     ) {
         self.id = id
+        self.remoteID = remoteID
         self.type = type
         self.amountCents = amountCents
+        self.balanceBeforeCents = balanceBeforeCents
+        self.balanceAfterCents = balanceAfterCents
         self.reason = reason
         self.date = date
         self.syncState = syncState
@@ -134,12 +143,20 @@ public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
 }
 
 public struct Loan: Hashable, Codable, Sendable {
+    public let remoteID: String?
     public let originalCents: Int
     public var remainingCents: Int
     public let purpose: String?
     public let dueDate: Date?
 
-    public init(originalCents: Int, remainingCents: Int, purpose: String? = nil, dueDate: Date? = nil) {
+    public init(
+        remoteID: String? = nil,
+        originalCents: Int,
+        remainingCents: Int,
+        purpose: String? = nil,
+        dueDate: Date? = nil
+    ) {
+        self.remoteID = remoteID
         self.originalCents = originalCents
         self.remainingCents = remainingCents
         self.purpose = purpose
@@ -154,15 +171,32 @@ public struct Loan: Hashable, Codable, Sendable {
 }
 
 public struct AllowancePlan: Hashable, Codable, Sendable {
+    public let remoteID: String?
     public let amountCents: Int
     public let cadence: String
+    public let weekday: Int
     public let nextDate: Date
+    public let endDate: Date?
+    public let nextOccurrenceID: String?
     public let syncState: SyncState
 
-    public init(amountCents: Int, cadence: String, nextDate: Date, syncState: SyncState = .recorded) {
+    public init(
+        remoteID: String? = nil,
+        amountCents: Int,
+        cadence: String,
+        weekday: Int = 5,
+        nextDate: Date,
+        endDate: Date? = nil,
+        nextOccurrenceID: String? = nil,
+        syncState: SyncState = .recorded
+    ) {
+        self.remoteID = remoteID
         self.amountCents = amountCents
         self.cadence = cadence
+        self.weekday = weekday
         self.nextDate = nextDate
+        self.endDate = endDate
+        self.nextOccurrenceID = nextOccurrenceID
         self.syncState = syncState
     }
 }
@@ -194,6 +228,18 @@ public struct WalletSnapshot: Hashable, Codable, Sendable {
         self.isStale = isStale
     }
 
+    public static func empty(now: Date = .now) -> WalletSnapshot {
+        WalletSnapshot(
+            acceptedBalanceCents: 0,
+            activities: [],
+            loan: nil,
+            allowance: nil,
+            pendingEvents: [],
+            lastUpdated: now,
+            isStale: true
+        )
+    }
+
     public static func fixture(now: Date = .now) -> WalletSnapshot {
         let calendar = Calendar.current
         let loanDate = calendar.date(byAdding: .day, value: -8, to: now) ?? now
@@ -219,7 +265,7 @@ public struct WalletSnapshot: Hashable, Codable, Sendable {
     }
 }
 
-public enum WalletCommandKind: String, Sendable {
+public enum WalletCommandKind: String, Sendable, Codable {
     case allowance
     case deposit
     case withdrawal
@@ -227,17 +273,91 @@ public enum WalletCommandKind: String, Sendable {
     case repayment
 }
 
-public struct WalletCommand: Sendable {
+public struct WalletCommand: Sendable, Codable {
     public let kind: WalletCommandKind
     public let amountCents: Int
     public let reason: String?
     public let dueDate: Date?
+    public let idempotencyKey: String
 
-    public init(kind: WalletCommandKind, amountCents: Int, reason: String? = nil, dueDate: Date? = nil) {
+    public init(
+        kind: WalletCommandKind,
+        amountCents: Int,
+        reason: String? = nil,
+        dueDate: Date? = nil,
+        idempotencyKey: String = UUID().uuidString
+    ) {
         self.kind = kind
         self.amountCents = amountCents
         self.reason = reason
         self.dueDate = dueDate
+        self.idempotencyKey = idempotencyKey
+    }
+}
+
+public struct AllowanceRuleCommand: Sendable, Codable {
+    public let amountCents: Int
+    public let weekday: Int
+    public let startDate: Date
+    public let endDate: Date?
+    public let idempotencyKey: String
+
+    public init(
+        amountCents: Int,
+        weekday: Int,
+        startDate: Date,
+        endDate: Date? = nil,
+        idempotencyKey: String = UUID().uuidString
+    ) {
+        self.amountCents = amountCents
+        self.weekday = weekday
+        self.startDate = startDate
+        self.endDate = endDate
+        self.idempotencyKey = idempotencyKey
+    }
+}
+
+public struct ParentSetup: Sendable, Codable {
+    public let familyName: String?
+    public let nickname: String
+    public let lessonAgeBand: String
+    public let avatarURL: URL?
+    public let idempotencyKey: String
+
+    public init(
+        familyName: String? = nil,
+        nickname: String,
+        lessonAgeBand: String,
+        avatarURL: URL? = nil,
+        idempotencyKey: String = UUID().uuidString
+    ) {
+        self.familyName = familyName
+        self.nickname = nickname
+        self.lessonAgeBand = lessonAgeBand
+        self.avatarURL = avatarURL
+        self.idempotencyKey = idempotencyKey
+    }
+}
+
+public struct AuthSession: Codable, Hashable, Sendable {
+    public let token: String
+    public let expiresAt: Date
+
+    public init(token: String, expiresAt: Date) {
+        self.token = token
+        self.expiresAt = expiresAt
+    }
+
+    public var isExpired: Bool { expiresAt <= .now }
+}
+
+public struct LoanDetail: Sendable {
+    public let loan: Loan
+    public let entries: [WalletEvent]
+
+    public init(loan: Loan, entries: [WalletEvent]) {
+        self.loan = loan
+        self.entries = entries
     }
 }
 
@@ -249,8 +369,21 @@ public enum CommandResult: Sendable {
 
 @MainActor
 public protocol WalletRepository: AnyObject {
+    var isAuthenticated: Bool { get }
     func snapshot() -> WalletSnapshot
-    func submit(_ command: WalletCommand) -> CommandResult
+    func refresh(for role: UserRole) async throws -> WalletSnapshot
+    func activity(limit: Int) async throws -> [WalletEvent]
+    func activityDetail(remoteID: String) async throws -> WalletEvent
+    func loanDetail(remoteID: String) async throws -> LoanDetail
+    func submit(_ command: WalletCommand) async throws -> CommandResult
+    func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot
+    func setup(_ setup: ParentSetup) async throws -> WalletSnapshot
+    func clearSession()
+}
+
+@MainActor
+public protocol ParentAuthenticator: AnyObject {
+    func authenticateApple(identityToken: String, nonce: String) async throws -> AuthSession
 }
 
 @MainActor
@@ -261,9 +394,44 @@ public final class MockWalletRepository: WalletRepository {
         self.current = snapshot
     }
 
+    public var isAuthenticated: Bool { true }
     public func snapshot() -> WalletSnapshot { current }
+    public func refresh(for _: UserRole) async throws -> WalletSnapshot { current }
+    public func activity(limit: Int) async throws -> [WalletEvent] { Array(current.activities.prefix(max(1, min(limit, 100)))) }
+    public func activityDetail(remoteID: String) async throws -> WalletEvent {
+        guard let event = current.activities.first(where: { $0.remoteID == remoteID }) else {
+            throw WalletAPIError.server(statusCode: 404, code: "ACTIVITY_NOT_FOUND", message: "The activity entry was not found.")
+        }
+        return event
+    }
+    public func loanDetail(remoteID: String) async throws -> LoanDetail {
+        guard let loan = current.loan, loan.remoteID == remoteID else {
+            throw WalletAPIError.server(statusCode: 404, code: "LOAN_NOT_FOUND", message: "The loan was not found.")
+        }
+        return LoanDetail(loan: loan, entries: current.activities.filter { $0.type == .loan || $0.type == .repayment })
+    }
+    public func clearSession() {}
 
-    public func submit(_ command: WalletCommand) -> CommandResult {
+    public func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {
+        guard !setup.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return current }
+        return current
+    }
+
+    public func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {
+        guard command.amountCents > 0 else { return current }
+        current.allowance = AllowancePlan(
+            amountCents: command.amountCents,
+            cadence: "every week",
+            weekday: command.weekday,
+            nextDate: command.startDate,
+            endDate: command.endDate
+        )
+        current.lastUpdated = .now
+        current.isStale = false
+        return current
+    }
+
+    public func submit(_ command: WalletCommand) async throws -> CommandResult {
         guard command.amountCents > 0 else {
             return .rejected(makeEvent(for: command, state: .rejected, explanation: "This amount was not recorded.", rejectionReason: "Enter an amount greater than US$0.00."))
         }
@@ -293,7 +461,6 @@ public final class MockWalletRepository: WalletRepository {
             current.acceptedBalanceCents += command.amountCents
         case .allowance:
             current.acceptedBalanceCents += command.amountCents
-            current.allowance = AllowancePlan(amountCents: command.amountCents, cadence: "every Friday", nextDate: command.dueDate ?? .now)
         }
 
         let event = makeEvent(for: command, state: .recorded, explanation: explanation(for: command))

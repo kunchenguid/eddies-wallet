@@ -39,13 +39,26 @@ struct WelcomeView: View {
 
                     VStack(spacing: EW.Space.three) {
                         Button {
-                            // This is deliberately a local integration point. Real AuthenticationServices wiring is future scope.
-                            store.signInWithAppleIntegrationPoint()
+                            Task { await store.signInWithApple() }
                         } label: {
-                            Label("Sign in with Apple", systemImage: "apple.logo")
+                            if store.isSigningIn {
+                                ProgressView()
+                                    .tint(.white)
+                                    .frame(maxWidth: .infinity, minHeight: 52)
+                            } else {
+                                Label("Sign in with Apple", systemImage: "apple.logo")
+                            }
                         }
                         .buttonStyle(AppleSignInButtonStyle())
-                        .accessibilityHint("Parent sign-in integration point")
+                        .disabled(store.isSigningIn)
+                        .accessibilityHint("Parent sign-in only. Eddie does not need an account.")
+
+                        if let errorMessage = store.errorMessage {
+                            Text(errorMessage)
+                                .font(EW.Font.caption)
+                                .foregroundStyle(EW.Color.red600)
+                                .multilineTextAlignment(.center)
+                        }
 
                         Text("Parent sign-in only. Eddie does not need an account.")
                             .font(EW.Font.caption)

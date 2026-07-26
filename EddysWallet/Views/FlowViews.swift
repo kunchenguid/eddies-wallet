@@ -40,6 +40,7 @@ struct MoneyFlowView: View {
     @State private var step: Step = .amount
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
+    @State private var isSubmitting = false
 
     private enum Step { case amount, review, result }
 
@@ -183,9 +184,11 @@ struct MoneyFlowView: View {
                     .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
 
                 Button("Confirm \(kind.title.lowercased())") {
-                    confirm()
+                    Task { await confirm() }
                 }
                 .buttonStyle(PrimaryButtonStyle())
+                .disabled(isSubmitting)
+                .opacity(isSubmitting ? 0.45 : 1)
                 Button("Back") { step = .amount }
                     .buttonStyle(SecondaryButtonStyle(compact: true))
             }
@@ -240,15 +243,16 @@ struct MoneyFlowView: View {
         }
     }
 
-    private func confirm() {
-        guard let cents = parsedCents else { return }
+    private func confirm() async {
+        guard let cents = parsedCents, !isSubmitting else { return }
+        isSubmitting = true
         let command = WalletCommand(
             kind: kind.commandKind,
             amountCents: cents,
             reason: reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : reason,
             dueDate: kind == .loan ? dueDate : nil
         )
-        let result = store.submit(command)
+        let result = await store.submit(command)
         switch result {
         case .accepted:
             resultState = .recorded
@@ -260,6 +264,7 @@ struct MoneyFlowView: View {
             resultState = .rejected
             resultMessage = event.rejectionReason ?? "This action was not recorded and did not change the accepted balance."
         }
+        isSubmitting = false
         step = .result
     }
 }
@@ -272,6 +277,7 @@ struct AllowanceView: View {
     @State private var showDraft = false
     @State private var showReview = false
     @State private var resultState: SyncState?
+    @State private var resultMessage = ""
 
     var body: some View {
         NavigationStack {
@@ -308,6 +314,11 @@ struct AllowanceView: View {
                     }
                     if let resultState {
                         StatusPill(state: resultState)
+                        if !resultMessage.isEmpty {
+                            Text(resultMessage)
+                                .font(EW.Font.caption)
+                                .foregroundStyle(EW.Color.textSecondary)
+                        }
                     }
 
                     Button("Review allowance") { showReview = true }
@@ -329,9 +340,18 @@ struct AllowanceView: View {
             }
             .sheet(isPresented: $showReview) {
                 AllowanceReviewView(amountCents: Money.parse(amount)?.cents ?? 0, startDate: startDate) {
-                    let command = WalletCommand(kind: .allowance, amountCents: Money.parse(amount)?.cents ?? 0, reason: "Weekly", dueDate: startDate)
-                    _ = store.submit(command)
-                    resultState = .recorded
+                    let calendar = Calendar(identifier: .gregorian)
+                    let weekday = calendar.component(.weekday, from: startDate) - 1
+                    let command = AllowanceRuleCommand(
+                        amountCents: Money.parse(amount)?.cents ?? 0,
+                        weekday: weekday,
+                        startDate: startDate
+                    )
+                    let accepted = await store.setAllowance(command)
+                    resultState = accepted ? .recorded : .rejected
+                    resultMessage = accepted
+                        ? "The weekly allowance plan was recorded. Its next occurrence is separate from an allowance event until your parent records it."
+                        : (store.errorMessage ?? "The allowance plan was not recorded.")
                     showReview = false
                     showDraft = false
                 }
@@ -345,22 +365,24 @@ private struct AllowanceReviewView: View {
     @Environment(\.dismiss) private var dismiss
     let amountCents: Int
     let startDate: Date
-    let confirm: () -> Void
+    let confirm: () async -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: EW.Space.five) {
             Text("Review allowance")
                 .font(EW.Font.heading)
                 .foregroundStyle(EW.Color.textPrimary)
-            Text("Add \(Money(cents: amountCents).display) virtual dollars every Friday starting \(startDate.formatted(.dateTime.month(.abbreviated).day())).")
+            Text("Add \(Money(cents: amountCents).display) virtual dollars each week starting \(startDate.formatted(.dateTime.month(.abbreviated).day())).")
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
             Text("This creates a plan for future occurrences. The plan is not an allowance event until it is accepted.")
                 .font(EW.Font.caption)
                 .foregroundStyle(EW.Color.textTertiary)
             Button("Confirm allowance") {
-                confirm()
-                dismiss()
+                Task {
+                    await confirm()
+                    dismiss()
+                }
             }
             .buttonStyle(PrimaryButtonStyle())
             Button("Back") { dismiss() }
@@ -443,5 +465,5 @@ struct PinGateView: View {
 }
 
 #Preview("Deposit flow") {
-    MoneyFlowView(kind: .deposit).environmentObject(WalletStore())
+    MoneyFlowView(kind: .deposit).environmentObject(WalletStore.preview())
 }
