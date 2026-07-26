@@ -19,7 +19,7 @@ function WelcomeScreen({ onSignIn }) {
         <button onClick={onSignIn} style={{ height: 52, borderRadius: 14, background: '#000', color: '#fff', border: 'none', font: '600 17px -apple-system,sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
            Sign in with Apple
         </button>
-        <div style={{ font: 'var(--text-caption)', color: 'var(--text-tertiary)' }}>Parent sign-in only — Eddie doesn't need an account.</div>
+        <div style={{ font: 'var(--text-caption)', color: 'var(--text-tertiary)' }}>Parent sign-in only - your child doesn't need an account.</div>
       </div>
     </div>
   );

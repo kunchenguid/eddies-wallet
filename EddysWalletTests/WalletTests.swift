@@ -3,6 +3,15 @@ import XCTest
 
 @MainActor
 final class WalletTests: XCTestCase {
+    func testMissingNicknameUsesNeutralFallbacksAndSetupStartsBlank() {
+        XCTAssertTrue(SetupView.initialNickname.isEmpty)
+        XCTAssertNil(ChildProfileCopy.configuredNickname(from: "   "))
+        XCTAssertEqual(ChildProfileCopy.walletTitle(nickname: nil), "Your wallet")
+        XCTAssertEqual(ChildProfileCopy.roleTitle(nickname: nil), "Child's view")
+        XCTAssertEqual(ChildProfileCopy.childReference(nickname: nil), "your child")
+        XCTAssertEqual(ChildProfileCopy.walletReference(nickname: nil), "your child's wallet")
+    }
+
     func testParentModeRequiresPINWhenSwitchingFromChild() {
         let store = WalletStore(repository: MockWalletRepository(snapshot: .fixture(now: Date(timeIntervalSince1970: 1_700_000_000))))
         store.switchRole(to: .child)

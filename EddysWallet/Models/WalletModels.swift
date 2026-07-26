@@ -5,7 +5,61 @@ public enum UserRole: String, CaseIterable, Identifiable, Sendable {
     case child
 
     public var id: String { rawValue }
-    public var title: String { self == .parent ? "Parent" : "Eddie's view" }
+    public var title: String { self == .parent ? "Parent" : "Child's view" }
+}
+
+public enum ChildProfileCopy {
+    public static func configuredNickname(from rawNickname: String?) -> String? {
+        guard let nickname = rawNickname?.trimmingCharacters(in: .whitespacesAndNewlines), !nickname.isEmpty else {
+            return nil
+        }
+        return nickname
+    }
+
+    public static func roleTitle(nickname: String?) -> String {
+        guard let nickname = configuredNickname(from: nickname) else { return "Child's view" }
+        return "\(nickname)'s view"
+    }
+
+    public static func walletTitle(nickname: String?) -> String {
+        guard let nickname = configuredNickname(from: nickname) else { return "Your wallet" }
+        return "\(nickname)'s wallet"
+    }
+
+    public static func parentBalanceTitle(nickname: String?) -> String {
+        guard let nickname = configuredNickname(from: nickname) else { return "Your child's virtual balance" }
+        return "\(nickname)'s virtual balance"
+    }
+
+    public static func childBalanceTitle(nickname: String?) -> String {
+        guard let nickname = configuredNickname(from: nickname) else { return "Your virtual balance" }
+        return "\(nickname)'s virtual balance"
+    }
+
+    public static func childGreeting(nickname: String?) -> String {
+        guard let nickname = configuredNickname(from: nickname) else { return "Your wallet" }
+        return "Hi, \(nickname)"
+    }
+
+    public static func childReference(nickname: String?) -> String {
+        configuredNickname(from: nickname) ?? "your child"
+    }
+
+    public static func childSubject(nickname: String?) -> String {
+        configuredNickname(from: nickname) ?? "Your child"
+    }
+
+    public static func walletReference(nickname: String?) -> String {
+        guard let nickname = configuredNickname(from: nickname) else { return "your child's wallet" }
+        return "\(nickname)'s wallet"
+    }
+
+    public static func readOnlyMessage(nickname: String?) -> String {
+        guard let nickname = configuredNickname(from: nickname) else {
+            return "The child view is read-only. This action was not recorded."
+        }
+        return "\(nickname)'s view is read-only. This action was not recorded."
+    }
 }
 
 public enum ActivityType: String, CaseIterable, Codable, Sendable {
@@ -203,6 +257,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
 
 public struct WalletSnapshot: Hashable, Codable, Sendable {
     public var acceptedBalanceCents: Int
+    public var childNickname: String?
     public var activities: [WalletEvent]
     public var loan: Loan?
     public var allowance: AllowancePlan?
@@ -217,15 +272,21 @@ public struct WalletSnapshot: Hashable, Codable, Sendable {
         allowance: AllowancePlan?,
         pendingEvents: [WalletEvent],
         lastUpdated: Date,
-        isStale: Bool
+        isStale: Bool,
+        childNickname: String? = nil
     ) {
         self.acceptedBalanceCents = acceptedBalanceCents
+        self.childNickname = childNickname
         self.activities = activities
         self.loan = loan
         self.allowance = allowance
         self.pendingEvents = pendingEvents
         self.lastUpdated = lastUpdated
         self.isStale = isStale
+    }
+
+    public var configuredChildNickname: String? {
+        ChildProfileCopy.configuredNickname(from: childNickname)
     }
 
     public static func empty(now: Date = .now) -> WalletSnapshot {
@@ -260,7 +321,8 @@ public struct WalletSnapshot: Hashable, Codable, Sendable {
                 WalletEvent(type: .withdrawal, amountCents: 3_000, reason: "New bicycle", syncState: .rejected, explanation: "This withdrawal was not recorded because it is greater than the accepted wallet balance.", rejectionReason: "The amount is greater than the accepted balance.")
             ],
             lastUpdated: now.addingTimeInterval(-120),
-            isStale: true
+            isStale: true,
+            childNickname: "Eddie" // Preview and test fixture data only.
         )
     }
 }

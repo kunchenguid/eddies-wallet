@@ -3,6 +3,6 @@ A bottom sheet for confirmation/review steps — "Review deposit before confirmi
 ```jsx
 <Modal open={reviewing} onClose={() => setReviewing(false)} title="Review deposit"
   footer={<Button variant="primary">Confirm</Button>}>
-  <p>US$10.00 will be added to Eddie's wallet.</p>
+  <p>US$10.00 will be added to the child's wallet.</p>
 </Modal>
 ```

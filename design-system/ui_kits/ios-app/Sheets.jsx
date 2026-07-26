@@ -81,7 +81,7 @@ function MoneyFlowSheet({ kind, onClose, onConfirm }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ font: 'var(--text-body-md)', color: 'var(--text-primary)' }}>
-              US${amount || '0.00'} will be {kind === 'withdrawal' ? 'recorded as used from' : kind === 'repay' ? 'repaid toward' : 'added to'} Eddie's wallet.
+              US${amount || '0.00'} will be {kind === 'withdrawal' ? 'recorded as used from' : kind === 'repay' ? 'repaid toward' : 'added to'} the child's wallet.
             </div>
             <div style={{ font: 'var(--text-body-sm)', color: 'var(--text-tertiary)' }}>Virtual practice only — never real money.</div>
             <Button variant="primary" onClick={() => onConfirm(amount || '0.00')}>Confirm</Button>

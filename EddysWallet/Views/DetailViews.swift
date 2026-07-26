@@ -121,7 +121,7 @@ struct LoanDetailView: View {
                                 detailRow(label: "Purpose", value: purpose)
                             }
                             Text(isParent
-                                 ? "This virtual loan adds pretend dollars to Eddie's accepted balance and keeps an amount to give back over time."
+                                 ? "This virtual loan adds pretend dollars to the accepted balance in \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)) and keeps an amount to give back over time."
                                  : "Your parent gave you virtual dollars to use now. You give them back a little at a time - that is a repayment.")
                                 .font(EW.Font.body)
                                 .foregroundStyle(EW.Color.textSecondary)
