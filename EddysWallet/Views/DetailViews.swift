@@ -29,6 +29,12 @@ struct ActivityDetailView: View {
                         detailRow(label: event.type == .loan ? "Purpose" : "Reason", value: reason)
                     }
                     detailRow(label: "Recorded by", value: "Parent")
+                    if let before = event.balanceBeforeCents, let after = event.balanceAfterCents {
+                        detailRow(
+                            label: "Accepted balance",
+                            value: "\(Money(cents: before).display) -> \(Money(cents: after).display)"
+                        )
+                    }
                     if let rejectionReason = event.rejectionReason {
                         detailRow(label: "Why", value: rejectionReason)
                             .foregroundStyle(EW.Color.red600)
