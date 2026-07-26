@@ -1,6 +1,0 @@
-# Set SITE_ADDRESS to a real domain in the host-only .env only after DNS and
-# the captain's TLS/email decisions are complete. This placeholder deliberately
-# does not configure production DNS or certificates.
-{$SITE_ADDRESS} {
-  reverse_proxy backend:8080
-}

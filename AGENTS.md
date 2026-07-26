@@ -1,9 +1,8 @@
 # Project agent memory
 
-This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
+This public repository is the frontend and product home for Eddie's Wallet. Keep client behavior aligned with the product requirements in `README.md`, especially the virtual-money language, parent/child permissions, and offline states.
 
-- Add durable project-specific notes here as they are discovered through real work.
-- OpenTofu infrastructure is the source of truth under `infra/`; host and Compose deployment assets are under `deploy/`. Use the attended commands in those directories and keep state, plans, and host-only environment files untracked.
+The app's service implementation and operations are maintained separately. Keep this repository frontend-only: do not add backend source, migrations, credentials, deployment assets, or infrastructure configuration here.
 
 ## Maintaining this file
 
