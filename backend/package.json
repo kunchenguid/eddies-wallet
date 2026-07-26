@@ -1,0 +1,33 @@
+{
+  "name": "eddys-wallet-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Authoritative API for Eddie's Wallet's virtual family ledger",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/src/index.js",
+    "migrate": "tsx src/db/migrate.ts",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/money.test.ts tests/config.test.ts",
+    "test:integration": "vitest run tests/api.integration.test.ts",
+    "lint": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "fastify": "^5.4.0",
+    "jose": "^6.0.10",
+    "pg": "^8.13.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
