@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 /**
- * @startingPoint section="Components" subtitle="Parent / Eddie's-view segmented switch" viewport="700x140"
+ * @startingPoint section="Components" subtitle="Parent / Child-view segmented switch" viewport="700x140"
  */
 export interface RoleSwitchProps {
   role: 'parent' | 'child';

@@ -221,12 +221,14 @@ struct MoneyFlowView: View {
     }
 
     private var formIntro: String {
-        switch kind {
-        case .deposit: "Add pretend dollars to Eddie's accepted wallet balance."
-        case .withdrawal: "Record virtual dollars as used from Eddie's wallet."
-        case .loan: "Give Eddie virtual dollars to use now and give back over time."
+        let walletReference = ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)
+        let childReference = ChildProfileCopy.childReference(nickname: store.snapshot.configuredChildNickname)
+        return switch kind {
+        case .deposit: "Add pretend dollars to the accepted balance in \(walletReference)."
+        case .withdrawal: "Record virtual dollars as used from \(walletReference)."
+        case .loan: "Give \(childReference) virtual dollars to use now and give back over time."
         case .repayment: "Record virtual dollars returned toward the open loan."
-        case .allowance: "Record this virtual allowance in Eddie's wallet."
+        case .allowance: "Record this virtual allowance in \(walletReference)."
         }
     }
 
@@ -256,7 +258,7 @@ struct MoneyFlowView: View {
         switch result {
         case .accepted:
             resultState = .recorded
-            resultMessage = "This virtual money event was accepted and added to Eddie's wallet."
+            resultMessage = "This virtual money event was accepted and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
         case .pending:
             resultState = .pending
             resultMessage = "This parent action is queued locally. It is not included in the accepted balance until it syncs."
@@ -283,7 +285,7 @@ struct AllowanceView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: EW.Space.five) {
-                    Text("Set one simple weekly plan for Eddie. A plan is separate from an allowance event until it is recorded.")
+                    Text("Set one simple weekly plan for \(ChildProfileCopy.childReference(nickname: store.snapshot.configuredChildNickname)). A plan is separate from an allowance event until it is recorded.")
                         .font(EW.Font.body)
                         .foregroundStyle(EW.Color.textSecondary)
                     VStack(alignment: .leading, spacing: EW.Space.three) {

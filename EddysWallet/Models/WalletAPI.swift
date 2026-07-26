@@ -23,7 +23,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         switch self {
         case .noSession: "Sign in with Apple before opening the wallet."
         case .unauthorized: "Your parent session expired. Sign in with Apple again."
-        case .familyNotSetup: "Finish parent and Eddie setup before opening the wallet."
+        case .familyNotSetup: "Finish parent and child setup before opening the wallet."
         case .cancelled: "Sign in was cancelled."
         case let .server(_, _, message): message
         case let .network(message): message
@@ -351,7 +351,12 @@ private struct AllowanceDTO: Decodable {
     let nextDueDate: String?
 }
 
+private struct ChildDTO: Decodable {
+    let nickname: String?
+}
+
 private struct SnapshotDTO: Decodable {
+    let child: ChildDTO?
     let wallet: WalletDTO
     let allowanceRule: AllowanceDTO?
     let loan: LoanDTO?
@@ -705,7 +710,8 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
             allowance: try response.allowanceRule.map(mapAllowance),
             pendingEvents: pendingEvents,
             lastUpdated: latest,
-            isStale: false
+            isStale: false,
+            childNickname: ChildProfileCopy.configuredNickname(from: response.child?.nickname)
         )
     }
 

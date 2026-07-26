@@ -2,14 +2,17 @@ import SwiftUI
 
 struct LessonView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: WalletStore
     @State private var lessonIndex = 2
 
-    private let lessons = [
-        (title: "Your virtual balance", icon: "wallet.pass", color: EW.Color.primary, text: "A balance shows the pretend dollars that have been accepted in your wallet. Added dollars make it go up. Dollars recorded as used make it go down."),
-        (title: "Making a plan", icon: "calendar", color: EW.Color.gold500, text: "An allowance is a plan for when virtual dollars may be added. You can think about what to save and what to use."),
-        (title: "Borrow and repay", icon: "hand.raised", color: EW.Color.peach500, text: "A loan means your parent gives you virtual dollars to use now. You can give them back a little at a time. Each repayment lowers what is left."),
-        (title: "Cards and payments", icon: "creditcard", color: EW.Color.green700, text: "Adults may use real-world payment methods. Eddie's Wallet does not connect to one and never moves real money.")
-    ]
+    private var lessons: [(title: String, icon: String, color: Color, text: String)] {
+        [
+            (title: "Your virtual balance", icon: "wallet.pass", color: EW.Color.primary, text: "A balance shows the pretend dollars that have been accepted in your wallet. Added dollars make it go up. Dollars recorded as used make it go down."),
+            (title: "Making a plan", icon: "calendar", color: EW.Color.gold500, text: "An allowance is a plan for when virtual dollars may be added. You can think about what to save and what to use."),
+            (title: "Borrow and repay", icon: "hand.raised", color: EW.Color.peach500, text: "A loan means your parent gives you virtual dollars to use now. You can give them back a little at a time. Each repayment lowers what is left."),
+            (title: "Cards and payments", icon: "creditcard", color: EW.Color.green700, text: "Adults may use real-world payment methods. Eddie's Wallet does not connect to one and never moves real money.")
+        ]
+    }
 
     private var lesson: (title: String, icon: String, color: Color, text: String) { lessons[lessonIndex] }
 
@@ -46,7 +49,7 @@ struct LessonView: View {
                             .fixedSize(horizontal: false, vertical: true)
 
                         Text(lessonIndex == 2
-                             ? "Right now, Eddie has US$6.00 left to repay from a US$10.00 virtual loan."
+                             ? "Right now, \(ChildProfileCopy.childSubject(nickname: store.snapshot.configuredChildNickname)) has US$6.00 left to repay from a US$10.00 virtual loan."
                              : "These lessons are for practice. Finishing a lesson never creates or changes a money event.")
                             .font(EW.Font.body)
                             .foregroundStyle(EW.Color.textSecondary)
@@ -90,5 +93,5 @@ struct LessonView: View {
 }
 
 #Preview("Lesson") {
-    LessonView()
+    LessonView().environmentObject(WalletStore.preview())
 }

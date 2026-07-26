@@ -14,7 +14,7 @@ function WalletScreen({ role, onRoleTap, activity, loan, onOpenActivity, onOpenL
           <div className="ewa-float" style={{ width: 72, height: 72, borderRadius: '50%', background: 'var(--white)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-md)' }}>
             <Icon name="piggy-bank" size={38} color="var(--brand-primary)" />
           </div>
-          <div style={{ font: '600 16px var(--font-display)', color: 'var(--white)', opacity: .9 }}>Hi, Eddie! 👋</div>
+          <div style={{ font: '600 16px var(--font-display)', color: 'var(--white)', opacity: .9 }}>Hi there! 👋</div>
           <div style={{ font: '700 56px var(--font-display)', color: 'var(--white)' }}>US$24.00</div>
           <div style={{ font: 'var(--text-body-sm)', color: 'var(--white)', opacity: .85, maxWidth: 260 }}>Pretend dollars for practice — not real money.</div>
         </div>

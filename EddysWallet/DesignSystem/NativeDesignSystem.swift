@@ -178,10 +178,12 @@ public struct StatusPill: View {
 
 public struct RoleSwitcher: View {
     @Binding public var role: UserRole
+    public let childTitle: String
     public let onSelect: (UserRole) -> Void
 
-    public init(role: Binding<UserRole>, onSelect: @escaping (UserRole) -> Void) {
+    public init(role: Binding<UserRole>, childTitle: String = "Child's view", onSelect: @escaping (UserRole) -> Void) {
         self._role = role
+        self.childTitle = childTitle
         self.onSelect = onSelect
     }
 
@@ -191,7 +193,7 @@ public struct RoleSwitcher: View {
                 Button {
                     onSelect(item)
                 } label: {
-                    Text(item.title)
+                    Text(item == .child ? childTitle : item.title)
                         .font(EW.Font.bodyBold)
                         .foregroundStyle(role == item ? EW.Color.white : EW.Color.textSecondary)
                         .padding(.horizontal, EW.Space.four)

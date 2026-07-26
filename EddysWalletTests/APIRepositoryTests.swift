@@ -9,6 +9,20 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(APIConfiguration.productionBaseURL.absoluteString, "https://eddieswallet.kunchenguid.com")
     }
 
+    func testWalletSnapshotMapsConfiguredChildNicknameFromService() async throws {
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: StubHTTPTransport(responses: [StubHTTPTransport.Response(statusCode: 200, body: snapshotBody(balance: 150, nickname: "Maya"))]),
+            cache: TestSnapshotCache()
+        )
+
+        _ = try await repository.refresh(for: .parent)
+
+        XCTAssertEqual(repository.snapshot().childNickname, "Maya")
+        XCTAssertEqual(repository.snapshot().configuredChildNickname, "Maya")
+    }
+
     func testAppleSessionRequestUsesIdentityTokenAndNonceAndStoresOpaqueSession() async throws {
         let transport = StubHTTPTransport(responses: [
             StubHTTPTransport.Response(
@@ -152,11 +166,11 @@ final class APIRepositoryTests: XCTestCase {
         AuthSession(token: "opaque-session", expiresAt: Date(timeIntervalSince1970: 4_000_000_000))
     }
 
-    private func snapshotBody(balance: Int) -> Data {
+    private func snapshotBody(balance: Int, nickname: String = "Eddie") -> Data {
         Data("""
         {
           "family": {"id":"family","name":"Eddie's family"},
-          "child": {"id":"child","nickname":"Eddie","avatarUrl":null,"lessonAgeBand":"school-age"},
+          "child": {"id":"child","nickname":"\(nickname)","avatarUrl":null,"lessonAgeBand":"school-age"},
           "wallet": {"id":"wallet","currency":"USD","balanceCents":\(balance),"virtualNotice":"Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."},
           "allowanceRule": null,
           "loan": null,

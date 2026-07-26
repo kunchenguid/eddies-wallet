@@ -41,7 +41,7 @@ struct WalletView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
             }
             .background(EW.Color.appBackground.ignoresSafeArea())
-            .navigationTitle("Eddie's wallet")
+            .navigationTitle(ChildProfileCopy.walletTitle(nickname: store.snapshot.configuredChildNickname))
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -95,7 +95,10 @@ struct WalletView: View {
 
     private var roleSwitcher: some View {
         HStack {
-            RoleSwitcher(role: Binding(get: { store.role }, set: { store.switchRole(to: $0) })) { nextRole in
+            RoleSwitcher(
+                role: Binding(get: { store.role }, set: { store.switchRole(to: $0) }),
+                childTitle: ChildProfileCopy.roleTitle(nickname: store.snapshot.configuredChildNickname)
+            ) { nextRole in
                 store.switchRole(to: nextRole)
             }
             Spacer()
@@ -153,7 +156,7 @@ struct WalletView: View {
 
     private var parentBalanceCard: some View {
         VStack(alignment: .leading, spacing: EW.Space.three) {
-            Text("Eddie's virtual balance")
+            Text(ChildProfileCopy.parentBalanceTitle(nickname: store.snapshot.configuredChildNickname))
                 .font(EW.Font.captionUpper)
                 .foregroundStyle(EW.Color.textTertiary)
                 .textCase(.uppercase)
@@ -174,7 +177,7 @@ struct WalletView: View {
                 .scaledToFit()
                 .frame(width: 68, height: 68)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            Text("Hi, Eddie")
+            Text(ChildProfileCopy.childGreeting(nickname: store.snapshot.configuredChildNickname))
                 .font(EW.Font.headingSmall)
                 .foregroundStyle(EW.Color.white.opacity(0.92))
             MoneyAmount(cents: store.snapshot.acceptedBalanceCents, font: EW.Font.displayBalance, color: EW.Color.white)
@@ -198,7 +201,7 @@ struct WalletView: View {
                 .padding(EW.Space.four)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Eddie's virtual balance \(Money(cents: store.snapshot.acceptedBalanceCents).display). Pretend dollars for practice, not real money.")
+        .accessibilityLabel("\(ChildProfileCopy.childBalanceTitle(nickname: store.snapshot.configuredChildNickname)) \(Money(cents: store.snapshot.acceptedBalanceCents).display). Pretend dollars for practice, not real money.")
     }
 
     private var allowanceCard: some View {
