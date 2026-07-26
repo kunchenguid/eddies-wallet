@@ -9,6 +9,7 @@ protocol AppleAuthorizationController: AnyObject {
         presentationContextProvider: ASAuthorizationControllerPresentationContextProviding
     )
     func performRequests()
+    func cancel()
 }
 
 typealias AppleAuthorizationControllerFactory = @MainActor (ASAuthorizationRequest) -> any AppleAuthorizationController
@@ -33,6 +34,10 @@ private final class SystemAppleAuthorizationController: AppleAuthorizationContro
 
     func performRequests() {
         controller.performRequests()
+    }
+
+    func cancel() {
+        controller.cancel()
     }
 }
 
@@ -100,11 +105,11 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
             try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
                 guard self.activeAttemptID == attemptID else {
-                    self.finish(.failure(CancellationError()), attemptID: attemptID)
+                    self.finish(.failure(CancellationError()), attemptID: attemptID, cancelController: true)
                     return
                 }
                 if self.cancellationRequestedFor == attemptID || Task.isCancelled {
-                    self.finish(.failure(CancellationError()), attemptID: attemptID)
+                    self.finish(.failure(CancellationError()), attemptID: attemptID, cancelController: true)
                     return
                 }
 
@@ -199,20 +204,25 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
             cancellationRequestedFor = attemptID
             return
         }
-        finish(.failure(CancellationError()), attemptID: attemptID)
+        finish(.failure(CancellationError()), attemptID: attemptID, cancelController: true)
     }
 
     private func timedOut(attemptID: UUID) {
-        finish(.failure(WalletAPIError.timedOut), attemptID: attemptID)
+        finish(.failure(WalletAPIError.timedOut), attemptID: attemptID, cancelController: true)
     }
 
-    private func finish(_ result: Result<AuthSession, Error>, attemptID: UUID? = nil) {
+    private func finish(
+        _ result: Result<AuthSession, Error>,
+        attemptID: UUID? = nil,
+        cancelController: Bool = false
+    ) {
         guard let activeAttemptID,
               attemptID == nil || attemptID == activeAttemptID else {
             return
         }
 
         let continuation = continuation
+        let adapter = authorizationControllerAdapter
         self.continuation = nil
         self.activeAttemptID = nil
         self.cancellationRequestedFor = nil
@@ -222,8 +232,11 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
         timeoutTask = nil
         exchangeTask?.cancel()
         exchangeTask = nil
-        authorizationControllerAdapter = nil
         activeAuthorizationControllerID = nil
+        if cancelController {
+            adapter?.cancel()
+        }
+        authorizationControllerAdapter = nil
         continuation?.resume(with: result)
     }
 }

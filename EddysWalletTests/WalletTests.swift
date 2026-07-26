@@ -119,6 +119,12 @@ final class WalletTests: XCTestCase {
             timeoutNanoseconds: 20_000_000,
             controllerFactory: { _ in controller }
         )
+        controller.onCancel = {
+            coordinator.authorizationControllerDidCompleteWithError(
+                ASAuthorizationError(.failed),
+                controllerID: controller.identifier
+            )
+        }
         let store = WalletStore(
             repository: MockWalletRepository(),
             appleSignInCoordinator: coordinator,
@@ -130,6 +136,7 @@ final class WalletTests: XCTestCase {
         XCTAssertFalse(store.isSigningIn)
         XCTAssertEqual(store.errorMessage, WalletAPIError.timedOut.localizedDescription)
         XCTAssertEqual(controller.performCount, 1)
+        XCTAssertEqual(controller.cancelCount, 1)
 
         do {
             _ = try await coordinator.signIn()
@@ -140,6 +147,7 @@ final class WalletTests: XCTestCase {
             XCTFail("Unexpected retry error: \(error)")
         }
         XCTAssertEqual(controller.performCount, 2)
+        XCTAssertEqual(controller.cancelCount, 2)
     }
 
     func testAppleSignInCancellationCleansUpContinuation() async {
@@ -165,6 +173,7 @@ final class WalletTests: XCTestCase {
         } catch {
             XCTFail("Unexpected cancellation error: \(error)")
         }
+        XCTAssertEqual(controller.cancelCount, 1)
 
         let retryTask = Task { @MainActor () throws -> AuthSession in
             try await coordinator.signIn()
@@ -182,6 +191,7 @@ final class WalletTests: XCTestCase {
             XCTFail("Unexpected retry error: \(error)")
         }
         XCTAssertEqual(controller.performCount, 2)
+        XCTAssertEqual(controller.cancelCount, 2)
     }
 
     func testAppleAuthorizationErrorCleansUpAndDoesNotExposeAppleErrorData() async {
@@ -211,6 +221,7 @@ final class WalletTests: XCTestCase {
         } catch {
             XCTFail("Unexpected authorization error: \(error)")
         }
+        XCTAssertEqual(controller.cancelCount, 0)
 
         do {
             _ = try await coordinator.signIn()
@@ -220,6 +231,7 @@ final class WalletTests: XCTestCase {
         } catch {
             XCTFail("Unexpected retry error: \(error)")
         }
+        XCTAssertEqual(controller.cancelCount, 1)
     }
 
     func testAppleAuthorizationCancellationCleansUpContinuation() async {
@@ -265,6 +277,7 @@ final class WalletTests: XCTestCase {
         } catch {
             XCTFail("Unexpected retry error: \(error)")
         }
+        XCTAssertEqual(controller.cancelCount, 1)
     }
 
     func testStaleAuthorizationCallbackCannotCompleteANewAttempt() async {
@@ -313,6 +326,8 @@ final class WalletTests: XCTestCase {
         } catch {
             XCTFail("Unexpected second-attempt error: \(error)")
         }
+        XCTAssertEqual(firstController.cancelCount, 1)
+        XCTAssertEqual(secondController.cancelCount, 1)
     }
 }
 
@@ -327,6 +342,8 @@ private final class TestParentAuthenticator: ParentAuthenticator {
 private final class TestAppleAuthorizationController: AppleAuthorizationController {
     private let token = NSObject()
     private(set) var performCount = 0
+    private(set) var cancelCount = 0
+    var onCancel: (() -> Void)?
 
     var identifier: ObjectIdentifier { ObjectIdentifier(token) }
 
@@ -337,5 +354,10 @@ private final class TestAppleAuthorizationController: AppleAuthorizationControll
 
     func performRequests() {
         performCount += 1
+    }
+
+    func cancel() {
+        cancelCount += 1
+        onCancel?()
     }
 }
