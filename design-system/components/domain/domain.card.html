@@ -1,0 +1,26 @@
+<!-- @dsCard group="Components" viewport="700x520" name="Domain: Balance, Activity, Loan, PinPad" subtitle="Wallet-specific composite components" -->
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<div id="root" style="padding:20px;background:var(--surface-app);display:flex;flex-direction:column;gap:20px"></div>
+<script type="text/babel">
+const { BalanceDisplay, ActivityRow, LoanCard, PinPad, Card } = window.EddieSWalletDesignSystem_b072eb;
+function Demo(){
+  const [pin,setPin]=React.useState('12');
+  return <>
+    <Card><BalanceDisplay amount="24.00" lastUpdated="2 min ago"/></Card>
+    <Card style={{display:'flex',flexDirection:'column'}}>
+      <ActivityRow type="allowance" title="Allowance" subtitle="Jul 21 · Weekly" amount="10.00" onClick={()=>{}}/>
+      <ActivityRow type="loan" title="Loan" subtitle="Jul 18 · Bike helmet" amount="10.00" onClick={()=>{}}/>
+      <ActivityRow type="withdrawal" title="Withdrawal" subtitle="Jul 15 · Comic book" amount="4.00" positive={false} onClick={()=>{}}/>
+    </Card>
+    <div style={{display:'flex',gap:16}}>
+      <LoanCard remaining="6.00" total={10} dueDate="Aug 15" onRepay={()=>{}} style={{flex:1}}/>
+      <div style={{flex:1}}><PinPad value={pin} onChange={setPin}/></div>
+    </div>
+  </>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>

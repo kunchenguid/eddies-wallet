@@ -1,0 +1,25 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Surfaces: Card, Modal" subtitle="Base card surface and confirm/review bottom sheet" -->
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<div id="root" style="padding:20px;background:var(--surface-app);font-family:var(--font-body)"></div>
+<script type="text/babel">
+const { Card, Modal, Button } = window.EddieSWalletDesignSystem_b072eb;
+function Demo(){
+  const [open,setOpen]=React.useState(true);
+  return <div style={{display:'flex',gap:16,position:'relative'}}>
+    <Card style={{width:220}}><div style={{font:'var(--text-heading-md)',color:'var(--text-primary)'}}>Standard card</div></Card>
+    <Card variant="alt" style={{width:220}}><div style={{font:'var(--text-heading-md)',color:'var(--text-primary)'}}>Alt-tint card</div></Card>
+    <div style={{position:'relative',width:260,height:220,overflow:'hidden',borderRadius:16,border:'1px dashed var(--border-strong)'}}>
+      <Modal open={open} onClose={()=>setOpen(false)} title="Review deposit"
+        footer={<><Button variant="primary" size="sm">Confirm</Button><Button variant="ghost" size="sm" onClick={()=>setOpen(false)}>Cancel</Button></>}>
+        <p style={{font:'var(--text-body-sm)',color:'var(--text-secondary)',margin:0}}>US$10.00 will be added to Eddie's wallet.</p>
+      </Modal>
+      {!open && <Button variant="secondary" size="sm" onClick={()=>setOpen(true)} style={{margin:16}}>Reopen sheet</Button>}
+    </div>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>

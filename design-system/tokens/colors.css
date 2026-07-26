@@ -1,0 +1,19 @@
+:root{
+--green-50:oklch(0.97 0.02 158);--green-100:oklch(0.94 0.045 158);--green-300:oklch(0.82 0.09 158);--green-500:oklch(0.62 0.14 158);--green-600:oklch(0.54 0.15 158);--green-700:oklch(0.46 0.15 158);--green-900:oklch(0.30 0.09 158);
+--gold-50:oklch(0.97 0.02 82);--gold-100:oklch(0.95 0.05 82);--gold-300:oklch(0.88 0.10 82);--gold-500:oklch(0.78 0.15 82);--gold-600:oklch(0.70 0.155 82);--gold-700:oklch(0.58 0.14 68);
+--peach-50:oklch(0.97 0.018 40);--peach-100:oklch(0.95 0.04 40);--peach-300:oklch(0.87 0.08 40);--peach-500:oklch(0.74 0.13 38);--peach-600:oklch(0.65 0.14 34);--peach-700:oklch(0.55 0.13 32);
+--red-50:oklch(0.96 0.02 24);--red-100:oklch(0.94 0.05 24);--red-500:oklch(0.58 0.17 24);--red-600:oklch(0.50 0.17 24);
+--ink-900:oklch(0.27 0.02 224);--ink-800:oklch(0.34 0.02 224);--ink-700:oklch(0.44 0.02 224);--ink-500:oklch(0.58 0.015 224);--ink-300:oklch(0.78 0.01 224);--ink-200:oklch(0.87 0.008 224);--ink-100:oklch(0.93 0.006 224);
+--cream-50:oklch(0.995 0.006 85);--cream-100:oklch(0.98 0.012 85);--cream-200:oklch(0.955 0.02 85);--cream-300:oklch(0.92 0.025 85);
+--white:#ffffff;
+--surface-app:var(--cream-100);--surface-card:var(--white);--surface-card-alt:var(--cream-200);--surface-sunken:var(--cream-200);
+--border-subtle:var(--ink-100);--border-strong:var(--ink-200);
+--text-primary:var(--ink-900);--text-secondary:var(--ink-700);--text-tertiary:var(--ink-500);--text-on-primary:var(--white);--text-on-dark:var(--cream-50);
+--brand-primary:var(--green-500);--brand-primary-hover:var(--green-600);--brand-primary-active:var(--green-700);--brand-primary-tint:var(--green-100);
+--accent-gold:var(--gold-500);--accent-gold-tint:var(--gold-100);--accent-gold-strong:var(--gold-700);
+--accent-peach:var(--peach-500);--accent-peach-tint:var(--peach-100);--accent-peach-strong:var(--peach-700);
+--state-success:var(--green-600);--state-success-tint:var(--green-100);
+--state-pending:var(--gold-600);--state-pending-tint:var(--gold-100);
+--state-danger:var(--red-600);--state-danger-tint:var(--red-100);
+--link:var(--green-700);--link-hover:var(--green-900);
+}
