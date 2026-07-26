@@ -15,7 +15,7 @@ function Demo(){
     <div style={{position:'relative',width:260,height:220,overflow:'hidden',borderRadius:16,border:'1px dashed var(--border-strong)'}}>
       <Modal open={open} onClose={()=>setOpen(false)} title="Review deposit"
         footer={<><Button variant="primary" size="sm">Confirm</Button><Button variant="ghost" size="sm" onClick={()=>setOpen(false)}>Cancel</Button></>}>
-        <p style={{font:'var(--text-body-sm)',color:'var(--text-secondary)',margin:0}}>US$10.00 will be added to Eddie's wallet.</p>
+        <p style={{font:'var(--text-body-sm)',color:'var(--text-secondary)',margin:0}}>US$10.00 will be added to the child's wallet.</p>
       </Modal>
       {!open && <Button variant="secondary" size="sm" onClick={()=>setOpen(true)} style={{margin:16}}>Reopen sheet</Button>}
     </div>

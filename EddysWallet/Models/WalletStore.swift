@@ -200,7 +200,7 @@ public final class WalletStore: ObservableObject {
                 type: .deposit,
                 amountCents: command.amountCents,
                 syncState: .rejected,
-                explanation: "Eddie's view is read-only. This action was not recorded.",
+                explanation: ChildProfileCopy.readOnlyMessage(nickname: snapshot.configuredChildNickname),
                 rejectionReason: "Only parent mode can record virtual money events."
             )
             return .rejected(event)

@@ -51,7 +51,7 @@ struct WelcomeView: View {
                         }
                         .buttonStyle(AppleSignInButtonStyle())
                         .disabled(store.isSigningIn)
-                        .accessibilityHint("Parent sign-in only. Eddie does not need an account.")
+                        .accessibilityHint("Parent sign-in only. Your child does not need an account.")
 
                         if let errorMessage = store.errorMessage {
                             Text(errorMessage)
@@ -60,7 +60,7 @@ struct WelcomeView: View {
                                 .multilineTextAlignment(.center)
                         }
 
-                        Text("Parent sign-in only. Eddie does not need an account.")
+                        Text("Parent sign-in only. Your child does not need an account.")
                             .font(EW.Font.caption)
                             .foregroundStyle(EW.Color.textTertiary)
                             .multilineTextAlignment(.center)

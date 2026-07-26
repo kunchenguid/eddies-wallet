@@ -1,8 +1,10 @@
 import SwiftUI
 
 struct SetupView: View {
+    static let initialNickname = ""
+
     @EnvironmentObject private var store: WalletStore
-    @State private var nickname = "Eddie"
+    @State private var nickname = SetupView.initialNickname
     @State private var familyName = ""
     @State private var ageBand = "school-age"
     @State private var pin = ""
@@ -20,7 +22,7 @@ struct SetupView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: EW.Space.six) {
                     VStack(alignment: .leading, spacing: EW.Space.two) {
-                        Text("Set up Eddie's wallet")
+                        Text("Set up your child's wallet")
                             .font(EW.Font.display)
                             .foregroundStyle(EW.Color.textPrimary)
                         Text("Create one parent-managed child profile. No child login or Apple identity is needed.")
@@ -29,8 +31,8 @@ struct SetupView: View {
                     }
 
                     VStack(alignment: .leading, spacing: EW.Space.four) {
-                        field(title: "Eddie's nickname", text: $nickname, placeholder: "Eddie")
-                        field(title: "Family name (optional)", text: $familyName, placeholder: "Eddie's family")
+                        field(title: "Child nickname", text: $nickname, placeholder: "Child's nickname")
+                        field(title: "Family name (optional)", text: $familyName, placeholder: "Your family")
                         VStack(alignment: .leading, spacing: EW.Space.two) {
                             Text("Lesson age band")
                                 .font(EW.Font.captionUpper)
@@ -93,7 +95,7 @@ struct SetupView: View {
                             ProgressView()
                                 .frame(maxWidth: .infinity, minHeight: 52)
                         } else {
-                            Text("Create Eddie's wallet")
+                            Text("Create your child's wallet")
                                 .frame(maxWidth: .infinity, minHeight: 52)
                         }
                     }
