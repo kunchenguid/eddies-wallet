@@ -1,0 +1,13 @@
+<!-- @dsCard group="Brand" viewport="700x220" name="Iconography" subtitle="Lucide-derived line icons, 2px stroke, currentColor" -->
+<link rel="stylesheet" href="../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../_ds_bundle.js"></script>
+<div id="root" style="padding:20px;background:var(--surface-app);display:flex;gap:16px;flex-wrap:wrap"></div>
+<script type="text/babel">
+const { Icon } = window.EddieSWalletDesignSystem_b072eb;
+const names=["wallet","piggy-bank","hand-coins","gift","circle-arrow-down","circle-arrow-up","repeat","lock","shield-check","book-open","circle-check","clock","circle-alert","calendar","users","smile","settings"];
+function Demo(){return names.map(n=><div key={n} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,width:64}}><Icon name={n} size={26} color="var(--text-primary)"/><span style={{font:'10px var(--font-body)',color:'var(--text-tertiary)'}}>{n}</span></div>);}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>

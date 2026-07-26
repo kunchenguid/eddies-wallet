@@ -1,0 +1,65 @@
+[
+  {
+    "family": "Baloo 2",
+    "style": "normal",
+    "weight": "500",
+    "url": "https://fonts.gstatic.com/s/baloo2/v23/wXKrE3kTposypRyd51jcAM4olXc.woff2",
+    "file": "assets/fonts/Baloo2-500.woff2"
+  },
+  {
+    "family": "Baloo 2",
+    "style": "normal",
+    "weight": "600",
+    "url": "https://fonts.gstatic.com/s/baloo2/v23/wXKrE3kTposypRyd51jcAM4olXc.woff2",
+    "file": "assets/fonts/Baloo2-600.woff2"
+  },
+  {
+    "family": "Baloo 2",
+    "style": "normal",
+    "weight": "700",
+    "url": "https://fonts.gstatic.com/s/baloo2/v23/wXKrE3kTposypRyd51jcAM4olXc.woff2",
+    "file": "assets/fonts/Baloo2-700.woff2"
+  },
+  {
+    "family": "Baloo 2",
+    "style": "normal",
+    "weight": "800",
+    "url": "https://fonts.gstatic.com/s/baloo2/v23/wXKrE3kTposypRyd51jcAM4olXc.woff2",
+    "file": "assets/fonts/Baloo2-800.woff2"
+  },
+  {
+    "family": "Nunito Sans",
+    "style": "italic",
+    "weight": "400",
+    "url": "https://fonts.gstatic.com/s/nunitosans/v19/pe1kMImSLYBIv1o4X1M8cce4OdVisMz5nZRqy6cmmmU3t2FQWEAEOvV9wNvrwlNstMKW3Y6K5WMwXeVy3GboJ0kTHmqP92UnK_IWrgVcw5g.woff2",
+    "file": "assets/fonts/NunitoSans-400i.woff2"
+  },
+  {
+    "family": "Nunito Sans",
+    "style": "normal",
+    "weight": "400",
+    "url": "https://fonts.gstatic.com/s/nunitosans/v19/pe0TMImSLYBIv1o4X1M8ce2xCx3yop4tQpF_MeTm0lfGWVpNn64CL7U8upHZIbMV51Q42ptCp7t1R-tQKr51.woff2",
+    "file": "assets/fonts/NunitoSans-400.woff2"
+  },
+  {
+    "family": "Nunito Sans",
+    "style": "normal",
+    "weight": "600",
+    "url": "https://fonts.gstatic.com/s/nunitosans/v19/pe0TMImSLYBIv1o4X1M8ce2xCx3yop4tQpF_MeTm0lfGWVpNn64CL7U8upHZIbMV51Q42ptCp7t1R-tQKr51.woff2",
+    "file": "assets/fonts/NunitoSans-600.woff2"
+  },
+  {
+    "family": "Nunito Sans",
+    "style": "normal",
+    "weight": "700",
+    "url": "https://fonts.gstatic.com/s/nunitosans/v19/pe0TMImSLYBIv1o4X1M8ce2xCx3yop4tQpF_MeTm0lfGWVpNn64CL7U8upHZIbMV51Q42ptCp7t1R-tQKr51.woff2",
+    "file": "assets/fonts/NunitoSans-700.woff2"
+  },
+  {
+    "family": "Nunito Sans",
+    "style": "normal",
+    "weight": "800",
+    "url": "https://fonts.gstatic.com/s/nunitosans/v19/pe0TMImSLYBIv1o4X1M8ce2xCx3yop4tQpF_MeTm0lfGWVpNn64CL7U8upHZIbMV51Q42ptCp7t1R-tQKr51.woff2",
+    "file": "assets/fonts/NunitoSans-800.woff2"
+  }
+]

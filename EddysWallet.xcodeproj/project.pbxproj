@@ -1,0 +1,377 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		301000000000000000000001 /* EddysWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 201000000000000000000001 /* EddysWalletApp.swift */; };
+		301000000000000000000002 /* NativeDesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 202000000000000000000001 /* NativeDesignSystem.swift */; };
+		301000000000000000000003 /* WalletModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 203000000000000000000001 /* WalletModels.swift */; };
+		301000000000000000000004 /* WalletStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 204000000000000000000001 /* WalletStore.swift */; };
+		301000000000000000000005 /* DetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 205000000000000000000001 /* DetailViews.swift */; };
+		301000000000000000000006 /* FlowViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206000000000000000000001 /* FlowViews.swift */; };
+		301000000000000000000007 /* LessonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207000000000000000000001 /* LessonView.swift */; };
+		301000000000000000000008 /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 208000000000000000000001 /* WalletView.swift */; };
+		301000000000000000000009 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 209000000000000000000001 /* WelcomeView.swift */; };
+		30100000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20A000000000000000000001 /* Assets.xcassets */; };
+		30100000000000000000000B /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B000000000000000000001 /* WalletTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		201000000000000000000001 /* EddysWalletApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EddysWalletApp.swift; sourceTree = "<group>"; };
+		202000000000000000000001 /* NativeDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDesignSystem.swift; sourceTree = "<group>"; };
+		203000000000000000000001 /* WalletModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletModels.swift; sourceTree = "<group>"; };
+		204000000000000000000001 /* WalletStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletStore.swift; sourceTree = "<group>"; };
+		205000000000000000000001 /* DetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailViews.swift; sourceTree = "<group>"; };
+		206000000000000000000001 /* FlowViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowViews.swift; sourceTree = "<group>"; };
+		207000000000000000000001 /* LessonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LessonView.swift; sourceTree = "<group>"; };
+		208000000000000000000001 /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
+		209000000000000000000001 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		20A000000000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		20B000000000000000000001 /* WalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletTests.swift; sourceTree = "<group>"; };
+		210000000000000000000001 /* EddysWallet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EddysWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		211000000000000000000001 /* EddysWalletTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		112000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				118000000000000000000001 /* EddysWallet */,
+				122000000000000000000001 /* EddysWalletTests */,
+				113000000000000000000001 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		113000000000000000000001 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				210000000000000000000001 /* EddysWallet.app */,
+				211000000000000000000001 /* EddysWalletTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		118000000000000000000001 /* EddysWallet */ = {
+			isa = PBXGroup;
+			children = (
+				201000000000000000000001 /* EddysWalletApp.swift */,
+				120000000000000000000001 /* DesignSystem */,
+				119000000000000000000001 /* Models */,
+				121000000000000000000001 /* Views */,
+				20A000000000000000000001 /* Assets.xcassets */,
+			);
+			path = EddysWallet;
+			sourceTree = "<group>";
+		};
+		119000000000000000000001 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				203000000000000000000001 /* WalletModels.swift */,
+				204000000000000000000001 /* WalletStore.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		120000000000000000000001 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				202000000000000000000001 /* NativeDesignSystem.swift */,
+			);
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
+		121000000000000000000001 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				205000000000000000000001 /* DetailViews.swift */,
+				206000000000000000000001 /* FlowViews.swift */,
+				207000000000000000000001 /* LessonView.swift */,
+				208000000000000000000001 /* WalletView.swift */,
+				209000000000000000000001 /* WelcomeView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		122000000000000000000001 /* EddysWalletTests */ = {
+			isa = PBXGroup;
+			children = (
+				20B000000000000000000001 /* WalletTests.swift */,
+			);
+			path = EddysWalletTests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		114000000000000000000001 /* EddysWallet */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 400000000000000000000001 /* Build configuration list for PBXNativeTarget "EddysWallet" */;
+			buildPhases = (
+				310000000000000000000001 /* Sources */,
+				311000000000000000000001 /* Frameworks */,
+				312000000000000000000001 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = EddysWallet;
+			productName = EddysWallet;
+			productReference = 210000000000000000000001 /* EddysWallet.app */;
+			productType = "com.apple.product-type.application";
+		};
+		115000000000000000000001 /* EddysWalletTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 401000000000000000000001 /* Build configuration list for PBXNativeTarget "EddysWalletTests" */;
+			buildPhases = (
+				313000000000000000000001 /* Sources */,
+				314000000000000000000001 /* Frameworks */,
+				315000000000000000000001 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = (
+				316000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = EddysWalletTests;
+			productName = EddysWalletTests;
+			productReference = 211000000000000000000001 /* EddysWalletTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		111000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2640;
+				TargetAttributes = {
+					114000000000000000000001 = { CreatedOnToolsVersion = 26.4; };
+					115000000000000000000001 = { CreatedOnToolsVersion = 26.4; TestTargetID = 114000000000000000000001; };
+				};
+			};
+			buildConfigurationList = 402000000000000000000001 /* Build configuration list for PBXProject "EddysWallet" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 112000000000000000000001;
+			productRefGroup = 113000000000000000000001 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				114000000000000000000001 /* EddysWallet */,
+				115000000000000000000001 /* EddysWalletTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		312000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				30100000000000000000000A /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		315000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		310000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				301000000000000000000001 /* EddysWalletApp.swift in Sources */,
+				301000000000000000000002 /* NativeDesignSystem.swift in Sources */,
+				301000000000000000000003 /* WalletModels.swift in Sources */,
+				301000000000000000000004 /* WalletStore.swift in Sources */,
+				301000000000000000000005 /* DetailViews.swift in Sources */,
+				301000000000000000000006 /* FlowViews.swift in Sources */,
+				301000000000000000000007 /* LessonView.swift in Sources */,
+				301000000000000000000008 /* WalletView.swift in Sources */,
+				301000000000000000000009 /* WelcomeView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		313000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				30100000000000000000000B /* WalletTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		311000000000000000000001 /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		314000000000000000000001 /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		316000000000000000000001 /* PBXTargetDependency */ = { isa = PBXTargetDependency; target = 114000000000000000000001 /* EddysWallet */; targetProxy = 317000000000000000000001 /* PBXContainerItemProxy */; };
+/* End PBXTargetDependency section */
+
+/* Begin PBXContainerItemProxy section */
+		317000000000000000000001 /* PBXContainerItemProxy */ = { isa = PBXContainerItemProxy; containerPortal = 111000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = 114000000000000000000001; remoteInfo = EddysWallet; };
+/* End PBXContainerItemProxy section */
+
+/* Begin XCBuildConfiguration section */
+		500000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = (UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight);
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		500000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = (UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight);
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		501000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Eddie's Wallet";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDarkContent;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+				PRODUCT_BUNDLE_IDENTIFIER = com.kunchenguid.eddyswallet;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		501000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Eddie's Wallet";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDarkContent;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+				PRODUCT_BUNDLE_IDENTIFIER = com.kunchenguid.eddyswallet;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		502000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kunchenguid.eddyswallet.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/EddysWallet.app/EddysWallet";
+			};
+			name = Debug;
+		};
+		502000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kunchenguid.eddyswallet.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/EddysWallet.app/EddysWallet";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		400000000000000000000001 /* Build configuration list for PBXNativeTarget "EddysWallet" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				501000000000000000000001 /* Debug */,
+				501000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		401000000000000000000001 /* Build configuration list for PBXNativeTarget "EddysWalletTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				502000000000000000000001 /* Debug */,
+				502000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		402000000000000000000001 /* Build configuration list for PBXProject "EddysWallet" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				500000000000000000000001 /* Debug */,
+				500000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 111000000000000000000001 /* Project object */;
+}

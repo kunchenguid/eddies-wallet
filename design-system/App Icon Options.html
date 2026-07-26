@@ -1,0 +1,89 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="_ds_bundle.js"></script>
+<style>
+body{margin:0;font-family:var(--font-body)}
+.tile{position:absolute;display:flex;flex-direction:column;align-items:center;gap:14px}
+.badge{position:absolute;top:-14px;left:0;background:var(--ink-900);color:var(--white);font:var(--text-caption);padding:3px 9px;border-radius:var(--radius-pill)}
+.icon-sq{width:220px;height:220px;border-radius:49px;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-lg);position:relative;overflow:hidden}
+.label{font:700 15px var(--font-display);color:var(--text-primary)}
+</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel">
+const { Icon } = window.EddieSWalletDesignSystem_b072eb;
+
+function Tile({x,y,id,label,children}){
+  return <div className="tile" style={{left:x,top:y}}>
+    <div style={{position:'relative'}}><span className="badge">{id}</span>{children}</div>
+    <span className="label">{label}</span>
+  </div>;
+}
+
+function Dots({color}){
+  return <div style={{position:'absolute',inset:0,backgroundImage:`radial-gradient(${color} 3px,transparent 3px)`,backgroundSize:'28px 28px',opacity:.5}}/>;
+}
+
+function App(){
+  return <>
+    <Tile x={40} y={60} id="1a" label="Piggy bank, solid green">
+      <div className="icon-sq" style={{background:'var(--green-500)'}}>
+        <Icon name="piggy-bank" size={110} color="var(--white)"/>
+      </div>
+    </Tile>
+
+    <Tile x={340} y={60} id="1b" label="Piggy on gold coin disc">
+      <div className="icon-sq" style={{background:'var(--gold-500)'}}>
+        <div style={{width:150,height:150,borderRadius:'50%',background:'var(--white)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <Icon name="piggy-bank" size={82} color="var(--gold-700)"/>
+        </div>
+      </div>
+    </Tile>
+
+    <Tile x={640} y={60} id="1c" label="Two-tone block, wallet mark">
+      <div className="icon-sq" style={{background:'var(--green-500)'}}>
+        <div style={{position:'absolute',left:0,right:0,bottom:0,height:'42%',background:'var(--gold-500)'}}/>
+        <Icon name="wallet" size={104} color="var(--white)" style={{position:'relative'}}/>
+      </div>
+    </Tile>
+
+    <Tile x={940} y={60} id="1d" label="Cream bg, green glyph + dot pattern">
+      <div className="icon-sq" style={{background:'var(--cream-50)'}}>
+        <Dots color="var(--green-100)"/>
+        <Icon name="piggy-bank" size={104} color="var(--brand-primary)" style={{position:'relative'}}/>
+      </div>
+    </Tile>
+
+    <Tile x={40} y={380} id="1e" label="Monogram E, bold display type">
+      <div className="icon-sq" style={{background:'var(--green-500)'}}>
+        <span style={{font:'800 128px var(--font-display)',color:'var(--white)'}}>E</span>
+      </div>
+    </Tile>
+
+    <Tile x={340} y={380} id="1f" label="Peach ring, hand-coins glyph">
+      <div className="icon-sq" style={{background:'var(--white)',border:'14px solid var(--accent-peach)'}}>
+        <Icon name="hand-coins" size={96} color="var(--accent-peach-strong)"/>
+      </div>
+    </Tile>
+
+    <Tile x={640} y={380} id="1g" label="Coins glyph, solid gold">
+      <div className="icon-sq" style={{background:'var(--gold-500)'}}>
+        <Icon name="coins" size={108} color="var(--white)"/>
+      </div>
+    </Tile>
+
+    <Tile x={940} y={380} id="1h" label="Green circle badge on cream">
+      <div className="icon-sq" style={{background:'var(--cream-100)'}}>
+        <div style={{width:168,height:168,borderRadius:'50%',background:'var(--brand-primary)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'var(--shadow-sm)'}}>
+          <Icon name="piggy-bank" size={92} color="var(--white)"/>
+        </div>
+      </div>
+    </Tile>
+  </>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body></html>
