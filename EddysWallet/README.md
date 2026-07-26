@@ -1,6 +1,6 @@
 # Native app
 
-`EddysWallet.xcodeproj` is a SwiftUI iOS/iPadOS app targeting iOS 17 and device families 1 and 2. The UI uses adaptive `horizontalSizeClass` layouts and native sheets, forms, navigation, Dynamic Type-friendly system fonts, and accessibility labels.
+`EddysWallet.xcodeproj` is a SwiftUI iOS/iPadOS app targeting iOS 17 and device families 1 and 2. The built app bundle identifier is `com.kunchenguid.eddieswallet`, matching the registered Apple App ID and the production Apple audience. The UI uses adaptive `horizontalSizeClass` layouts and native sheets, forms, navigation, Dynamic Type-friendly system fonts, and accessibility labels.
 
 ## Production configuration
 
@@ -12,7 +12,7 @@ https://eddieswallet.kunchenguid.com
 
 There is no staging or development API configuration in this client. The backend contract is the private service's `/v1` API: Apple session exchange, family setup, wallet and child-view reads, activity and loan details, weekly allowance rules and occurrences, deposits, withdrawals, loans, repayments, and required `Idempotency-Key` headers. `APIWalletRepository` is the concrete HTTP implementation behind `WalletRepository`; `MockWalletRepository` remains available for previews and unit tests.
 
-The opaque session token is stored with `KeychainSessionStore` using an after-first-unlock, this-device-only keychain item. Identity tokens and Apple private keys are not stored. A cached accepted snapshot is used for offline display and is marked stale when it cannot be refreshed. A command that has not received an authoritative accepted response is shown as **Waiting to sync** and does not change the accepted balance.
+The opaque session token is stored with `KeychainSessionStore` using the `com.kunchenguid.eddieswallet.session` service and an after-first-unlock, this-device-only keychain item. The parent PIN uses `com.kunchenguid.eddieswallet.parent-pin`. Identity tokens and Apple private keys are not stored. On upgrade, each store attempts a narrowly scoped in-place keychain service rename from its prior service before reading or writing; this uses `SecItemUpdate` and never logs or copies secret data. If the operating system does not permit access to the prior item after the App ID change, the user must sign in again or set a new PIN. A cached accepted snapshot is used for offline display and is marked stale when it cannot be refreshed. A command that has not received an authoritative accepted response is shown as **Waiting to sync** and does not change the accepted balance.
 
 ## Local development and tests
 
@@ -25,7 +25,7 @@ Unit and contract-style transport tests cover Apple session exchange, bearer ses
 
 ## Apple Sign In signing prerequisite
 
-The source project declares the Sign in with Apple capability and `EddysWallet/EddysWallet.entitlements` contains `com.apple.developer.applesignin`. That source configuration does not guarantee that a locally built app is entitled: the captain must be signed into Xcode with the Apple Development team that owns the explicit App ID `com.kunchenguid.eddyswallet`, with Sign in with Apple enabled and a usable Apple Development certificate/account setup. This is an external prerequisite and cannot be supplied by this public repository. Do not commit a Team ID, provisioning profile, certificate, private key, or Apple account data.
+The source project declares the Sign in with Apple capability and `EddysWallet/EddysWallet.entitlements` contains `com.apple.developer.applesignin`. That source configuration does not guarantee that a locally built app is entitled: the captain must be signed into Xcode with the Apple Development team that owns the explicit App ID `com.kunchenguid.eddieswallet`, with Sign in with Apple enabled and a usable Apple Development certificate/account setup. This is an external prerequisite and cannot be supplied by this public repository. Do not commit a Team ID, provisioning profile, certificate, private key, or Apple account data.
 
 After building, inspect the signed bundle rather than only the project settings:
 
@@ -45,8 +45,8 @@ The output must contain `com.apple.developer.applesignin` with the `Default` val
 
 This is the exact final-account test sequence. It has **not** been run to claim live end-to-end success because the production endpoint still needs to be available.
 
-1. Complete the Apple Development signing prerequisite above. In Apple Developer, confirm the explicit App ID `com.kunchenguid.eddyswallet` has Sign in with Apple enabled. Do not commit the Team ID.
-2. The service operator configures the single production host and TLS for `https://eddieswallet.kunchenguid.com`, sets the backend Apple audience to `com.kunchenguid.eddyswallet`, and verifies `GET https://eddieswallet.kunchenguid.com/healthz` is healthy. No Apple private key is needed by this native flow.
+1. Complete the Apple Development signing prerequisite above. In Apple Developer, confirm the explicit App ID `com.kunchenguid.eddieswallet` has Sign in with Apple enabled. Do not commit the Team ID.
+2. The service operator configures the single production host and TLS for `https://eddieswallet.kunchenguid.com`, sets the backend Apple audience to `com.kunchenguid.eddieswallet`, and verifies `GET https://eddieswallet.kunchenguid.com/healthz` is healthy. No Apple private key is needed by this native flow.
 3. Build and run the `EddysWallet` scheme on an iOS 17+ simulator with the app's registered bundle identifier. Sign in with Apple using the simulator's Apple ID/test account.
 4. Confirm the app reaches the parent setup form. Enter a nickname, lesson age band, and a four-digit parent PIN, create the wallet, and confirm that setup only appears as complete after the service accepts `POST /v1/family/setup`. The PIN is stored only in the platform keychain and gates parent mode locally.
 5. Confirm the parent wallet shows the accepted virtual balance and the fixed notice: “Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.”
@@ -56,4 +56,4 @@ This is the exact final-account test sequence. It has **not** been run to claim 
 9. Expire or revoke the session on the service, make a request, and confirm the app clears the keychain session and returns to the Apple sign-in screen without displaying usable family data.
 10. Record the result as an operator test report. Do not mark this repository or pull request as live end-to-end verified until the real production endpoint and real-account simulator run are complete.
 
-Remaining operator configuration is intentionally outside this repository: the Apple Development account/certificate and capability setup described above, DNS and TLS for `eddieswallet.kunchenguid.com`, backend `APPLE_AUDIENCES=com.kunchenguid.eddyswallet`, and the production service's backups, exports, and deployment health checks. No Team ID, token, credential, or private key belongs in Git.
+Remaining operator configuration is intentionally outside this repository: the Apple Development account/certificate and capability setup described above, DNS and TLS for `eddieswallet.kunchenguid.com`, backend `APPLE_AUDIENCES=com.kunchenguid.eddieswallet`, and the production service's backups, exports, and deployment health checks. No Team ID, token, credential, or private key belongs in Git.
