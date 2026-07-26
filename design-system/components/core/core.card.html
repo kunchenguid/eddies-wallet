@@ -1,0 +1,30 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Core: Button, IconButton, Icon" subtitle="Buttons, icon buttons, and inline icon glyphs" -->
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<div id="root" style="padding:20px;background:var(--surface-app);font-family:var(--font-body)"></div>
+<script type="text/babel">
+const { Button, IconButton, Icon } = window.EddieSWalletDesignSystem_b072eb;
+function Demo(){
+  return <div style={{display:'flex',flexDirection:'column',gap:16}}>
+    <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center'}}>
+      <Button variant="primary" icon={<Icon name="plus" size={18}/>}>Add deposit</Button>
+      <Button variant="secondary">Cancel</Button>
+      <Button variant="ghost">Not now</Button>
+      <Button variant="danger" size="sm">Delete data</Button>
+      <Button variant="primary" disabled>Saving…</Button>
+    </div>
+    <div style={{display:'flex',gap:12,alignItems:'center'}}>
+      <IconButton icon={<Icon name="settings" size={20}/>} aria-label="Settings"/>
+      <IconButton icon={<Icon name="x" size={20}/>} aria-label="Close"/>
+      <IconButton variant="primary" icon={<Icon name="plus" size={20}/>} aria-label="Add"/>
+      <Icon name="piggy-bank" size={28} color="var(--brand-primary)"/>
+      <Icon name="hand-coins" size={28} color="var(--accent-peach-strong)"/>
+      <Icon name="shield-check" size={28} color="var(--gold-700)"/>
+    </div>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>

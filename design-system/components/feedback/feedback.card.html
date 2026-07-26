@@ -1,0 +1,24 @@
+<!-- @dsCard group="Components" viewport="700x220" name="Feedback: StatusPill, Badge" subtitle="Sync-state pills and category tags" -->
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<div id="root" style="padding:20px;background:var(--surface-app);font-family:var(--font-body)"></div>
+<script type="text/babel">
+const { StatusPill, Badge } = window.EddieSWalletDesignSystem_b072eb;
+function Demo(){
+  return <div style={{display:'flex',flexDirection:'column',gap:14}}>
+    <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+      <StatusPill status="recorded"/><StatusPill status="pending"/><StatusPill status="rejected"/><StatusPill status="draft"/>
+    </div>
+    <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+      <Badge variant="gold">Allowance</Badge>
+      <Badge variant="green">Deposit</Badge>
+      <Badge variant="peach">Loan</Badge>
+      <Badge variant="neutral">Age 6-8</Badge>
+    </div>
+  </div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo/>);
+</script>
