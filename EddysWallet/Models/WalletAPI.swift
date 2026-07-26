@@ -5,8 +5,8 @@ import Security
 public enum APIConfiguration {
     /// The only shipped API environment. The backend operator must provision this
     /// host and TLS before a real-account simulator test can pass.
-    public static let productionBaseURL = URL(string: "https://api.eddyswallet.com")!
-    public static let productionBaseURLString = "https://api.eddyswallet.com"
+    public static let productionBaseURL = URL(string: "https://eddieswallet.kunchenguid.com")!
+    public static let productionBaseURLString = "https://eddieswallet.kunchenguid.com"
 }
 
 public enum WalletAPIError: Error, Equatable, LocalizedError {

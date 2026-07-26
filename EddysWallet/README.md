@@ -7,7 +7,7 @@
 The app has one shipped API environment. `APIConfiguration.productionBaseURL` is the explicit production base URL:
 
 ```text
-https://api.eddyswallet.com
+https://eddieswallet.kunchenguid.com
 ```
 
 There is no staging or development API configuration in this client. The backend contract is the private service's `/v1` API: Apple session exchange, family setup, wallet and child-view reads, activity and loan details, weekly allowance rules and occurrences, deposits, withdrawals, loans, repayments, and required `Idempotency-Key` headers. `APIWalletRepository` is the concrete HTTP implementation behind `WalletRepository`; `MockWalletRepository` remains available for previews and unit tests.
@@ -28,7 +28,7 @@ Unit and contract-style transport tests cover Apple session exchange, bearer ses
 This is the exact final-account test sequence. It has **not** been run to claim live end-to-end success because the production endpoint still needs to be available.
 
 1. In Apple Developer, confirm the explicit App ID `com.kunchenguid.eddyswallet` has Sign in with Apple enabled. In Xcode, select a locally configured signing team for the target; do not commit that Team ID.
-2. The service operator configures the single production host and TLS for `https://api.eddyswallet.com`, sets the backend Apple audience to `com.kunchenguid.eddyswallet`, and verifies `GET https://api.eddyswallet.com/healthz` is healthy. No Apple private key is needed by this native flow.
+2. The service operator configures the single production host and TLS for `https://eddieswallet.kunchenguid.com`, sets the backend Apple audience to `com.kunchenguid.eddyswallet`, and verifies `GET https://eddieswallet.kunchenguid.com/healthz` is healthy. No Apple private key is needed by this native flow.
 3. Build and run the `EddysWallet` scheme on an iOS 17+ simulator with the app's registered bundle identifier. Sign in with Apple using the simulator's Apple ID/test account.
 4. Confirm the app reaches the parent setup form. Enter a nickname, lesson age band, and a four-digit parent PIN, create the wallet, and confirm that setup only appears as complete after the service accepts `POST /v1/family/setup`. The PIN is stored only in the platform keychain and gates parent mode locally.
 5. Confirm the parent wallet shows the accepted virtual balance and the fixed notice: “Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.”
@@ -38,4 +38,4 @@ This is the exact final-account test sequence. It has **not** been run to claim 
 9. Expire or revoke the session on the service, make a request, and confirm the app clears the keychain session and returns to the Apple sign-in screen without displaying usable family data.
 10. Record the result as an operator test report. Do not mark this repository or pull request as live end-to-end verified until the real production endpoint and real-account simulator run are complete.
 
-Remaining operator configuration is intentionally outside this repository: Apple Developer capability/signing configuration, DNS and TLS for `api.eddyswallet.com`, backend `APPLE_AUDIENCES=com.kunchenguid.eddyswallet`, and the production service's backups, exports, and deployment health checks. No Team ID, token, credential, or private key belongs in Git.
+Remaining operator configuration is intentionally outside this repository: Apple Developer capability/signing configuration, DNS and TLS for `eddieswallet.kunchenguid.com`, backend `APPLE_AUDIENCES=com.kunchenguid.eddyswallet`, and the production service's backups, exports, and deployment health checks. No Team ID, token, credential, or private key belongs in Git.

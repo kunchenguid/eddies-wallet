@@ -4,6 +4,11 @@ import XCTest
 
 @MainActor
 final class APIRepositoryTests: XCTestCase {
+    func testProductionConfigurationShipsTheRealBackendURL() {
+        XCTAssertEqual(APIConfiguration.productionBaseURLString, "https://eddieswallet.kunchenguid.com")
+        XCTAssertEqual(APIConfiguration.productionBaseURL.absoluteString, "https://eddieswallet.kunchenguid.com")
+    }
+
     func testAppleSessionRequestUsesIdentityTokenAndNonceAndStoresOpaqueSession() async throws {
         let transport = StubHTTPTransport(responses: [
             StubHTTPTransport.Response(
