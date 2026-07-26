@@ -2,25 +2,88 @@ import AuthenticationServices
 import UIKit
 
 @MainActor
+protocol AppleAuthorizationController: AnyObject {
+    var identifier: ObjectIdentifier { get }
+    func configure(
+        delegate: ASAuthorizationControllerDelegate,
+        presentationContextProvider: ASAuthorizationControllerPresentationContextProviding
+    )
+    func performRequests()
+}
+
+typealias AppleAuthorizationControllerFactory = @MainActor (ASAuthorizationRequest) -> any AppleAuthorizationController
+
+@MainActor
+private final class SystemAppleAuthorizationController: AppleAuthorizationController {
+    private let controller: ASAuthorizationController
+
+    init(request: ASAuthorizationRequest) {
+        controller = ASAuthorizationController(authorizationRequests: [request])
+    }
+
+    var identifier: ObjectIdentifier { ObjectIdentifier(controller) }
+
+    func configure(
+        delegate: ASAuthorizationControllerDelegate,
+        presentationContextProvider: ASAuthorizationControllerPresentationContextProviding
+    ) {
+        controller.delegate = delegate
+        controller.presentationContextProvider = presentationContextProvider
+    }
+
+    func performRequests() {
+        controller.performRequests()
+    }
+}
+
+@MainActor
 public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    private static let defaultTimeoutNanoseconds: UInt64 = 30_000_000_000
+
     private let authenticator: any ParentAuthenticator
+    private let controllerFactory: AppleAuthorizationControllerFactory
+    private let timeoutNanoseconds: UInt64
     private var continuation: CheckedContinuation<AuthSession, Error>?
     private var expectedState: String?
     private var expectedSignedNonce: String?
+    private var activeAttemptID: UUID?
+    private var cancellationRequestedFor: UUID?
+    private var authorizationControllerAdapter: (any AppleAuthorizationController)?
+    private var activeAuthorizationControllerID: ObjectIdentifier?
+    private var timeoutTask: Task<Void, Never>?
+    private var exchangeTask: Task<Void, Never>?
 
-    public init(authenticator: any ParentAuthenticator) {
+    public convenience init(authenticator: any ParentAuthenticator) {
+        self.init(
+            authenticator: authenticator,
+            timeoutNanoseconds: Self.defaultTimeoutNanoseconds,
+            controllerFactory: { request in SystemAppleAuthorizationController(request: request) }
+        )
+    }
+
+    init(
+        authenticator: any ParentAuthenticator,
+        timeoutNanoseconds: UInt64,
+        controllerFactory: @escaping AppleAuthorizationControllerFactory
+    ) {
         self.authenticator = authenticator
+        self.timeoutNanoseconds = timeoutNanoseconds
+        self.controllerFactory = controllerFactory
     }
 
     public func signIn() async throws -> AuthSession {
-        guard continuation == nil else {
+        guard continuation == nil, activeAttemptID == nil else {
             throw WalletAPIError.server(statusCode: 409, code: "AUTHENTICATION_IN_PROGRESS", message: "Sign in is already in progress.")
         }
+
         let rawNonce = try AppleNonce.randomString()
         let signedNonce = AppleNonce.sha256(rawNonce)
         let state = try AppleNonce.randomString()
+        let attemptID = UUID()
         expectedState = state
         expectedSignedNonce = signedNonce
+        activeAttemptID = attemptID
+        cancellationRequestedFor = nil
 
         let request = ASAuthorizationAppleIDProvider().createRequest()
         request.requestedScopes = [.email]
@@ -28,20 +91,47 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
         // nonce is sent to the API, which verifies it against that claim.
         request.nonce = signedNonce
         request.state = state
-        let controller = ASAuthorizationController(authorizationRequests: [request])
-        controller.delegate = self
-        controller.presentationContextProvider = self
+        let adapter = controllerFactory(request)
+        authorizationControllerAdapter = adapter
+        activeAuthorizationControllerID = adapter.identifier
+        adapter.configure(delegate: self, presentationContextProvider: self)
 
-        return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            controller.performRequests()
-        }
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+                guard self.activeAttemptID == attemptID else {
+                    self.finish(.failure(CancellationError()), attemptID: attemptID)
+                    return
+                }
+                if self.cancellationRequestedFor == attemptID || Task.isCancelled {
+                    self.finish(.failure(CancellationError()), attemptID: attemptID)
+                    return
+                }
+
+                let timeoutNanoseconds = self.timeoutNanoseconds
+                self.timeoutTask = Task { [weak self] in
+                    do {
+                        try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled else { return }
+                    await self?.timedOut(attemptID: attemptID)
+                }
+                adapter.performRequests()
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancel(attemptID: attemptID)
+            }
+        })
     }
 
     public func authorizationController(
         controller: ASAuthorizationController,
         didCompleteWithAuthorization authorization: ASAuthorization
     ) {
+        guard isActive(ObjectIdentifier(controller)) else { return }
         guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
             finish(.failure(WalletAPIError.invalidResponse("Apple Sign In returned an unsupported credential.")))
             return
@@ -58,13 +148,14 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
             return
         }
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        let attemptID = activeAttemptID
+        exchangeTask = Task { @MainActor [weak self] in
+            guard let self, let attemptID else { return }
             do {
-                let session = try await authenticator.authenticateApple(identityToken: identityTokenString, nonce: signedNonce)
-                finish(.success(session))
+                let session = try await self.authenticator.authenticateApple(identityToken: identityTokenString, nonce: signedNonce)
+                self.finish(.success(session), attemptID: attemptID)
             } catch {
-                finish(.failure(error))
+                self.finish(.failure(error), attemptID: attemptID)
             }
         }
     }
@@ -73,6 +164,11 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
         controller: ASAuthorizationController,
         didCompleteWithError error: Error
     ) {
+        authorizationControllerDidCompleteWithError(error, controllerID: ObjectIdentifier(controller))
+    }
+
+    func authorizationControllerDidCompleteWithError(_ error: Error, controllerID: ObjectIdentifier) {
+        guard isActive(controllerID) else { return }
         if let authorizationError = error as? ASAuthorizationError,
            authorizationError.code == .canceled {
             finish(.failure(WalletAPIError.cancelled))
@@ -89,11 +185,45 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
             ?? ASPresentationAnchor()
     }
 
-    private func finish(_ result: Result<AuthSession, Error>) {
+    private func isActive(_ controllerID: ObjectIdentifier) -> Bool {
+        guard continuation != nil,
+              let activeControllerID = activeAuthorizationControllerID else {
+            return false
+        }
+        return activeControllerID == controllerID
+    }
+
+    private func cancel(attemptID: UUID) {
+        guard activeAttemptID == attemptID else { return }
+        guard continuation != nil else {
+            cancellationRequestedFor = attemptID
+            return
+        }
+        finish(.failure(CancellationError()), attemptID: attemptID)
+    }
+
+    private func timedOut(attemptID: UUID) {
+        finish(.failure(WalletAPIError.timedOut), attemptID: attemptID)
+    }
+
+    private func finish(_ result: Result<AuthSession, Error>, attemptID: UUID? = nil) {
+        guard let activeAttemptID,
+              attemptID == nil || attemptID == activeAttemptID else {
+            return
+        }
+
         let continuation = continuation
         self.continuation = nil
-        expectedState = nil
-        expectedSignedNonce = nil
+        self.activeAttemptID = nil
+        self.cancellationRequestedFor = nil
+        self.expectedState = nil
+        self.expectedSignedNonce = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        exchangeTask?.cancel()
+        exchangeTask = nil
+        authorizationControllerAdapter = nil
+        activeAuthorizationControllerID = nil
         continuation?.resume(with: result)
     }
 }

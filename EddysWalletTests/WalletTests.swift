@@ -1,3 +1,4 @@
+import AuthenticationServices
 import XCTest
 @testable import EddysWallet
 
@@ -109,5 +110,232 @@ final class WalletTests: XCTestCase {
         _ = try! await repository.submit(WalletCommand(kind: .repayment, amountCents: 250))
         XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 1_750)
         XCTAssertEqual(repository.snapshot().loan?.remainingCents, 750)
+    }
+
+    func testAppleSignInTimeoutCleansUpAndLeavesRetryableStoreState() async {
+        let controller = TestAppleAuthorizationController()
+        let coordinator = AppleSignInCoordinator(
+            authenticator: TestParentAuthenticator(),
+            timeoutNanoseconds: 20_000_000,
+            controllerFactory: { _ in controller }
+        )
+        let store = WalletStore(
+            repository: MockWalletRepository(),
+            appleSignInCoordinator: coordinator,
+            initiallySignedIn: false
+        )
+
+        await store.signInWithApple()
+
+        XCTAssertFalse(store.isSigningIn)
+        XCTAssertEqual(store.errorMessage, WalletAPIError.timedOut.localizedDescription)
+        XCTAssertEqual(controller.performCount, 1)
+
+        do {
+            _ = try await coordinator.signIn()
+            XCTFail("A timed-out authorization must fail")
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error, .timedOut)
+        } catch {
+            XCTFail("Unexpected retry error: \(error)")
+        }
+        XCTAssertEqual(controller.performCount, 2)
+    }
+
+    func testAppleSignInCancellationCleansUpContinuation() async {
+        let controller = TestAppleAuthorizationController()
+        let coordinator = AppleSignInCoordinator(
+            authenticator: TestParentAuthenticator(),
+            timeoutNanoseconds: 1_000_000_000,
+            controllerFactory: { _ in controller }
+        )
+        let task = Task { @MainActor () throws -> AuthSession in
+            try await coordinator.signIn()
+        }
+        while controller.performCount == 0 {
+            await Task.yield()
+        }
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Cancellation must finish the authorization continuation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected cancellation error: \(error)")
+        }
+
+        let retryTask = Task { @MainActor () throws -> AuthSession in
+            try await coordinator.signIn()
+        }
+        while controller.performCount < 2 {
+            await Task.yield()
+        }
+        retryTask.cancel()
+        do {
+            _ = try await retryTask.value
+            XCTFail("A cancelled retry must fail")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected retry error: \(error)")
+        }
+        XCTAssertEqual(controller.performCount, 2)
+    }
+
+    func testAppleAuthorizationErrorCleansUpAndDoesNotExposeAppleErrorData() async {
+        let controller = TestAppleAuthorizationController()
+        let coordinator = AppleSignInCoordinator(
+            authenticator: TestParentAuthenticator(),
+            timeoutNanoseconds: 1_000_000_000,
+            controllerFactory: { _ in controller }
+        )
+        let task = Task { @MainActor () throws -> AuthSession in
+            try await coordinator.signIn()
+        }
+        while controller.performCount == 0 {
+            await Task.yield()
+        }
+
+        coordinator.authorizationControllerDidCompleteWithError(
+            ASAuthorizationError(.failed),
+            controllerID: controller.identifier
+        )
+
+        do {
+            _ = try await task.value
+            XCTFail("An authorization error must fail the sign-in")
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error, .network("Apple Sign In could not be completed. Please try again."))
+        } catch {
+            XCTFail("Unexpected authorization error: \(error)")
+        }
+
+        do {
+            _ = try await coordinator.signIn()
+            XCTFail("An authorization error must clean up the active attempt")
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error, .timedOut)
+        } catch {
+            XCTFail("Unexpected retry error: \(error)")
+        }
+    }
+
+    func testAppleAuthorizationCancellationCleansUpContinuation() async {
+        let controller = TestAppleAuthorizationController()
+        let coordinator = AppleSignInCoordinator(
+            authenticator: TestParentAuthenticator(),
+            timeoutNanoseconds: 1_000_000_000,
+            controllerFactory: { _ in controller }
+        )
+        let task = Task { @MainActor () throws -> AuthSession in
+            try await coordinator.signIn()
+        }
+        while controller.performCount == 0 {
+            await Task.yield()
+        }
+
+        coordinator.authorizationControllerDidCompleteWithError(
+            ASAuthorizationError(.canceled),
+            controllerID: controller.identifier
+        )
+
+        do {
+            _ = try await task.value
+            XCTFail("Apple cancellation must fail the sign-in")
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error, .cancelled)
+        } catch {
+            XCTFail("Unexpected Apple cancellation error: \(error)")
+        }
+
+        let retryTask = Task { @MainActor () throws -> AuthSession in
+            try await coordinator.signIn()
+        }
+        while controller.performCount < 2 {
+            await Task.yield()
+        }
+        retryTask.cancel()
+        do {
+            _ = try await retryTask.value
+            XCTFail("The retry must remain cancellable")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected retry error: \(error)")
+        }
+    }
+
+    func testStaleAuthorizationCallbackCannotCompleteANewAttempt() async {
+        let firstController = TestAppleAuthorizationController()
+        let secondController = TestAppleAuthorizationController()
+        var controllers = [firstController, secondController]
+        let coordinator = AppleSignInCoordinator(
+            authenticator: TestParentAuthenticator(),
+            timeoutNanoseconds: 1_000_000_000,
+            controllerFactory: { _ in controllers.removeFirst() }
+        )
+
+        let firstTask = Task { @MainActor () throws -> AuthSession in
+            try await coordinator.signIn()
+        }
+        while firstController.performCount == 0 {
+            await Task.yield()
+        }
+        firstTask.cancel()
+        do {
+            _ = try await firstTask.value
+            XCTFail("The first attempt should be cancelled")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected first-attempt error: \(error)")
+        }
+
+        let secondTask = Task { @MainActor () throws -> AuthSession in
+            try await coordinator.signIn()
+        }
+        while secondController.performCount == 0 {
+            await Task.yield()
+        }
+        coordinator.authorizationControllerDidCompleteWithError(
+            ASAuthorizationError(.failed),
+            controllerID: firstController.identifier
+        )
+        secondTask.cancel()
+
+        do {
+            _ = try await secondTask.value
+            XCTFail("A stale callback must not complete the new attempt")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected second-attempt error: \(error)")
+        }
+    }
+}
+
+@MainActor
+private final class TestParentAuthenticator: ParentAuthenticator {
+    func authenticateApple(identityToken: String, nonce: String) async throws -> AuthSession {
+        AuthSession(token: "test-session", expiresAt: Date(timeIntervalSince1970: 4_000_000_000))
+    }
+}
+
+@MainActor
+private final class TestAppleAuthorizationController: AppleAuthorizationController {
+    private let token = NSObject()
+    private(set) var performCount = 0
+
+    var identifier: ObjectIdentifier { ObjectIdentifier(token) }
+
+    func configure(
+        delegate: ASAuthorizationControllerDelegate,
+        presentationContextProvider: ASAuthorizationControllerPresentationContextProviding
+    ) {}
+
+    func performRequests() {
+        performCount += 1
     }
 }
