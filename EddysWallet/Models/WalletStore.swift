@@ -48,6 +48,7 @@ public final class WalletStore: ObservableObject {
     private var failedPINAttempts = 0
     private var cooldownUntil: Date?
     private var cooldownTask: Task<Void, Never>?
+    private var refreshGeneration = 0
 
     public init(
         repository: (any WalletRepository)? = nil,
@@ -59,8 +60,9 @@ public final class WalletStore: ObservableObject {
     ) {
         let resolvedRepository = repository ?? APIWalletRepository()
         self.repository = resolvedRepository
-        self.snapshot = resolvedRepository.snapshot()
-        self.isSignedIn = initiallySignedIn ?? resolvedRepository.isAuthenticated
+        self.snapshot = resolvedRepository.childSnapshot()
+        self.isSignedIn = initiallySignedIn ?? (resolvedRepository.isAuthenticated || resolvedRepository.hasConfiguredKid)
+        self.sessionExpired = resolvedRepository.hasConfiguredKid && !resolvedRepository.isAuthenticated
         self.gatePolicy = gatePolicy
         let isMockRepository = resolvedRepository is MockWalletRepository
         self.pinStore = pinStore ?? (isMockRepository ? InMemoryParentPINStore(pin: "1234") : KeychainParentPINStore())
@@ -110,7 +112,16 @@ public final class WalletStore: ObservableObject {
         errorMessage = nil
         do {
             let outcome = try await appleSignInProvider.signIn(requiredAppleUserID: nil)
-            try? identityStore.save(appleUserID: outcome.appleUserID)
+            do {
+                try identityStore.save(appleUserID: outcome.appleUserID)
+            } catch {
+                repository.clearAuthentication()
+                isSignedIn = repository.hasConfiguredKid
+                sessionExpired = repository.hasConfiguredKid
+                errorMessage = userMessage(for: error)
+                isSigningIn = false
+                return
+            }
             isSignedIn = true
             sessionExpired = false
             await refresh()
@@ -251,7 +262,6 @@ public final class WalletStore: ObservableObject {
     public func exitParentArea() {
         guard elevation == .active else { return }
         deElevate()
-        Task { [weak self] in await self?.refresh() }
     }
 
     /// Called when the scene leaves the foreground. Any parent elevation and
@@ -289,9 +299,13 @@ public final class WalletStore: ObservableObject {
 
     public func refresh() async {
         guard isSignedIn else { return }
+        let requestedRole = viewRole
+        let generation = refreshGeneration
         isLoading = true
         do {
-            snapshot = try await repository.refresh(for: viewRole)
+            let refreshed = try await repository.refresh(for: requestedRole)
+            guard generation == refreshGeneration, requestedRole == viewRole else { return }
+            snapshot = refreshed
             needsSetup = false
             errorMessage = nil
             isOffline = false
@@ -299,29 +313,41 @@ public final class WalletStore: ObservableObject {
         } catch let error as WalletAPIError {
             switch error {
             case .familyNotSetup:
+                guard generation == refreshGeneration, requestedRole == viewRole else { return }
                 needsSetup = true
                 errorMessage = nil
             case .unauthorized, .noSession:
-                // The service session ended. Keep the cached read-only kid
-                // snapshot instead of dumping the kid to the Welcome screen;
-                // the Grown-ups door asks for a fresh Sign in with Apple.
-                sessionExpired = true
-                errorMessage = "Your parent session expired. Sign in with Apple again."
-                snapshot = repository.snapshot()
-                if elevation != .none { deElevate() }
+                if repository.hasConfiguredKid {
+                    sessionExpired = true
+                    errorMessage = "Your parent session expired. Sign in with Apple again."
+                    snapshot = repository.childSnapshot()
+                    if elevation != .none { deElevate() }
+                } else {
+                    isSignedIn = false
+                    needsSetup = false
+                    sessionExpired = false
+                    errorMessage = "Sign in with Apple again to continue setup."
+                    snapshot = .empty()
+                    if elevation != .none { deElevate() }
+                }
             case .network:
+                guard generation == refreshGeneration, requestedRole == viewRole else { return }
                 isOffline = true
                 errorMessage = userMessage(for: error)
-                snapshot = repository.snapshot()
+                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             default:
+                guard generation == refreshGeneration, requestedRole == viewRole else { return }
                 errorMessage = userMessage(for: error)
-                snapshot = repository.snapshot()
+                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             }
         } catch {
+            guard generation == refreshGeneration, requestedRole == viewRole else { return }
             errorMessage = "The wallet could not be updated. Your last accepted balance is still shown."
-            snapshot = repository.snapshot()
+            snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
         }
-        isLoading = false
+        if generation == refreshGeneration {
+            isLoading = false
+        }
     }
 
     public func setupParent(_ setup: ParentSetup, pin: String, confirmation: String) async -> Bool {
@@ -354,6 +380,10 @@ public final class WalletStore: ObservableObject {
 
     @discardableResult
     public func setAllowance(_ command: AllowanceRuleCommand) async -> Bool {
+        guard elevation == .active else {
+            errorMessage = "Only the Parent area can change the allowance rule."
+            return false
+        }
         isLoading = true
         errorMessage = nil
         do {
@@ -412,10 +442,12 @@ public final class WalletStore: ObservableObject {
     }
 
     /// Removes the local session, parent PIN, owner identity evidence, and
-    /// cached snapshot from this device. Reachable only from the Parent area,
-    /// the pre-family setup escape, or the unverifiable-identity fallback.
+    /// cached snapshot from this device. Reachable only from the Parent area
+    /// or the pre-family setup escape.
     public func signOut() {
-        guard elevation == .active || needsSetup || !canVerifyOwningParent else { return }
+        let isPreFamilySetup = isSignedIn && needsSetup && !repository.hasConfiguredKid
+        guard elevation == .active || isPreFamilySetup else { return }
+        refreshGeneration += 1
         repository.clearSession()
         isSignedIn = false
         needsSetup = false
@@ -433,6 +465,7 @@ public final class WalletStore: ObservableObject {
     // MARK: - Private helpers
 
     private func enterParentArea() {
+        refreshGeneration += 1
         pin = ""
         pinError = false
         gateErrorMessage = nil
@@ -442,12 +475,18 @@ public final class WalletStore: ObservableObject {
     }
 
     private func deElevate() {
+        refreshGeneration += 1
         elevation = .none
         gateRoute = .pinEntry
         pin = ""
         pinError = false
         gateErrorMessage = nil
         showsFirstActionsHandoff = false
+        snapshot = repository.childSnapshot()
+        isLoading = false
+        if repository.isAuthenticated {
+            Task { [weak self] in await self?.refresh() }
+        }
     }
 
     private func clearPINFailureState() {

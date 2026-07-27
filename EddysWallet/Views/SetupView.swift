@@ -9,6 +9,7 @@ struct SetupView: View {
     @State private var ageBand = "school-age"
     @State private var pin = ""
     @State private var confirmationPIN = ""
+    @State private var isConfirmingSignOut = false
 
     private let ageBands = [
         (id: "early-years", title: "Early years"),
@@ -103,8 +104,18 @@ struct SetupView: View {
                     .disabled(store.isLoading || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pin.count != 4 || pin != confirmationPIN)
                     .opacity(store.isLoading || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pin.count != 4 || pin != confirmationPIN ? 0.45 : 1)
 
-                    Button("Sign out") { store.signOut() }
+                    Button("Sign out") { isConfirmingSignOut = true }
                         .buttonStyle(SecondaryButtonStyle(compact: true))
+                        .confirmationDialog(
+                            "Sign out before setup?",
+                            isPresented: $isConfirmingSignOut,
+                            titleVisibility: .visible
+                        ) {
+                            Button("Sign out", role: .destructive) { store.signOut() }
+                            Button("Keep setting up", role: .cancel) {}
+                        } message: {
+                            Text("This removes the new parent sign-in from this \(DeviceCopy.deviceNoun). No family wallet has been created yet.")
+                        }
                 }
                 .padding(EW.Space.screenMargin)
                 .frame(maxWidth: 620)

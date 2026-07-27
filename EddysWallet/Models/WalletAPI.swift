@@ -364,6 +364,13 @@ public protocol WalletSnapshotCache: AnyObject {
 }
 
 @MainActor
+public protocol ConfiguredKidStore: AnyObject {
+    var isConfigured: Bool { get }
+    func markConfigured()
+    func clear()
+}
+
+@MainActor
 public protocol PendingCommandStore: AnyObject {
     func load() -> [WalletCommand]
     func save(_ commands: [WalletCommand])
@@ -408,7 +415,7 @@ public final class InMemoryPendingCommandStore: PendingCommandStore {
 @MainActor
 public final class UserDefaultsWalletSnapshotCache: WalletSnapshotCache {
     private let defaults: UserDefaults
-    private let key = "wallet.snapshot.v1"
+    private let key = "wallet.child-snapshot.v2"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -425,6 +432,32 @@ public final class UserDefaultsWalletSnapshotCache: WalletSnapshotCache {
     }
 
     public func clear() { defaults.removeObject(forKey: key) }
+}
+
+@MainActor
+public final class UserDefaultsConfiguredKidStore: ConfiguredKidStore {
+    private let defaults: UserDefaults
+    private let key = "wallet.configured-kid.v1"
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    public var isConfigured: Bool { defaults.bool(forKey: key) }
+    public func markConfigured() { defaults.set(true, forKey: key) }
+    public func clear() { defaults.removeObject(forKey: key) }
+}
+
+@MainActor
+public final class InMemoryConfiguredKidStore: ConfiguredKidStore {
+    public private(set) var isConfigured: Bool
+
+    public init(isConfigured: Bool = false) {
+        self.isConfigured = isConfigured
+    }
+
+    public func markConfigured() { isConfigured = true }
+    public func clear() { isConfigured = false }
 }
 
 private enum WalletVocabulary {
@@ -542,8 +575,10 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
     private let sessionStore: any SessionStore
     private let transport: any HTTPTransport
     private let cache: any WalletSnapshotCache
+    private let configuredKidStore: any ConfiguredKidStore
     private let pendingStore: any PendingCommandStore
     private var current: WalletSnapshot
+    private var currentChild: WalletSnapshot
     private var pendingCommands: [String: WalletCommand]
     private var rejectedEvents: [WalletEvent] = []
 
@@ -552,21 +587,30 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         sessionStore: (any SessionStore)? = nil,
         transport: any HTTPTransport = URLSessionTransport(),
         cache: (any WalletSnapshotCache)? = nil,
+        configuredKidStore: (any ConfiguredKidStore)? = nil,
         pendingStore: (any PendingCommandStore)? = nil
     ) {
         self.baseURL = baseURL
         self.sessionStore = sessionStore ?? KeychainSessionStore()
         self.transport = transport
         self.cache = cache ?? UserDefaultsWalletSnapshotCache()
+        self.configuredKidStore = configuredKidStore ?? UserDefaultsConfiguredKidStore()
         self.pendingStore = pendingStore ?? (baseURL == APIConfiguration.productionBaseURL ? UserDefaultsPendingCommandStore() : InMemoryPendingCommandStore())
-        self.current = self.cache.load() ?? .empty()
+        let cachedChild = self.cache.load() ?? .empty()
+        self.current = cachedChild
+        self.currentChild = cachedChild
         self.pendingCommands = Dictionary(uniqueKeysWithValues: self.pendingStore.load().map { ($0.idempotencyKey, $0) })
     }
 
     public var isAuthenticated: Bool { sessionStore.session?.isExpired == false }
+    public var hasConfiguredKid: Bool { configuredKidStore.isConfigured }
 
     public func snapshot() -> WalletSnapshot {
         snapshotWithPending()
+    }
+
+    public func childSnapshot() -> WalletSnapshot {
+        currentChild
     }
 
     public func authenticateApple(identityToken: String, nonce: String) async throws -> AuthSession {
@@ -590,7 +634,9 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
 
     public func refresh(for role: UserRole) async throws -> WalletSnapshot {
         guard isAuthenticated else { throw WalletAPIError.noSession }
-        try await flushPendingCommands()
+        if role == .parent {
+            try await flushPendingCommands()
+        }
         do {
             let path = role == .child ? "/v1/child-view" : "/v1/wallet"
             let data = try await request(path: path, method: "GET", body: nil, authenticated: true, idempotencyKey: nil)
@@ -598,15 +644,24 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
             if role == .child && response.readOnly != true {
                 throw WalletAPIError.invalidResponse("The child wallet response was not marked read-only.")
             }
-            current = try mapSnapshot(response)
+            let refreshed = try mapSnapshot(response, includesParentLocalState: role == .parent)
+            if role == .child {
+                currentChild = refreshed
+                currentChild.isStale = false
+                cache.save(currentChild)
+                configuredKidStore.markConfigured()
+                return currentChild
+            }
+            current = refreshed
             current.isStale = false
-            cache.save(current)
             return snapshotWithPending()
         } catch let error as WalletAPIError {
             switch error {
             case .network, .invalidResponse:
-                current.isStale = true
-                cache.save(current)
+                if role == .child {
+                    currentChild.isStale = true
+                    cache.save(currentChild)
+                }
             default:
                 break
             }
@@ -655,7 +710,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         let response = try decode(SnapshotDTO.self, from: data)
         current = try mapSnapshot(response)
         current.isStale = false
-        cache.save(current)
+        configuredKidStore.markConfigured()
         return snapshotWithPending()
     }
 
@@ -671,7 +726,6 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         let response = try decode(SnapshotDTO.self, from: data)
         current = try mapSnapshot(response)
         current.isStale = false
-        cache.save(current)
         return snapshotWithPending()
     }
 
@@ -702,13 +756,19 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         }
     }
 
+    public func clearAuthentication() {
+        sessionStore.clear()
+    }
+
     public func clearSession() {
         sessionStore.clear()
         pendingCommands.removeAll()
         rejectedEvents.removeAll()
         pendingStore.clear()
         current = .empty()
+        currentChild = .empty()
         cache.clear()
+        configuredKidStore.clear()
     }
 
     private func flushPendingCommands() async throws {
@@ -786,7 +846,6 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         }
         current.lastUpdated = event.date
         current.isStale = false
-        cache.save(current)
         return .accepted(event)
     }
 
@@ -846,7 +905,10 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         return data
     }
 
-    private func mapSnapshot(_ response: SnapshotDTO) throws -> WalletSnapshot {
+    private func mapSnapshot(
+        _ response: SnapshotDTO,
+        includesParentLocalState: Bool = true
+    ) throws -> WalletSnapshot {
         guard response.wallet.balanceCents.value >= 0,
               response.wallet.virtualNotice == WalletVocabulary.virtualNotice else {
             throw WalletAPIError.invalidResponse("The server returned an invalid virtual wallet.")
@@ -858,7 +920,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
             activities: activities,
             loan: try response.loan.map(mapLoan),
             allowance: try response.allowanceRule.map(mapAllowance),
-            pendingEvents: pendingEvents,
+            pendingEvents: includesParentLocalState ? pendingEvents : [],
             lastUpdated: latest,
             isStale: false,
             childNickname: ChildProfileCopy.configuredNickname(from: response.child?.nickname)

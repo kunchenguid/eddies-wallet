@@ -36,7 +36,8 @@ final class APIRepositoryTests: XCTestCase {
             baseURL: URL(string: "https://api.example.test")!,
             sessionStore: InMemorySessionStore(session: validSession),
             transport: StubHTTPTransport(responses: [StubHTTPTransport.Response(statusCode: 200, body: snapshotBody(balance: 150, nickname: "Maya"))]),
-            cache: TestSnapshotCache()
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore()
         )
 
         _ = try await repository.refresh(for: .parent)
@@ -57,7 +58,8 @@ final class APIRepositoryTests: XCTestCase {
             baseURL: URL(string: "https://api.example.test")!,
             sessionStore: sessions,
             transport: transport,
-            cache: TestSnapshotCache()
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore()
         )
 
         let session = try await repository.authenticateApple(identityToken: "native.identity.token", nonce: "signed-nonce")
@@ -87,7 +89,8 @@ final class APIRepositoryTests: XCTestCase {
             baseURL: URL(string: "https://api.example.test")!,
             sessionStore: InMemorySessionStore(session: validSession),
             transport: transport,
-            cache: TestSnapshotCache()
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore()
         )
 
         _ = try await repository.refresh(for: .parent)
@@ -109,7 +112,8 @@ final class APIRepositoryTests: XCTestCase {
             baseURL: URL(string: "https://api.example.test")!,
             sessionStore: InMemorySessionStore(session: validSession),
             transport: transport,
-            cache: TestSnapshotCache()
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore()
         )
         _ = try? await repository.refresh(for: .parent)
 
@@ -128,7 +132,8 @@ final class APIRepositoryTests: XCTestCase {
             baseURL: URL(string: "https://api.example.test")!,
             sessionStore: sessions,
             transport: transport,
-            cache: TestSnapshotCache()
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore()
         )
 
         do {
@@ -155,7 +160,8 @@ final class APIRepositoryTests: XCTestCase {
             baseURL: URL(string: "https://api.example.test")!,
             sessionStore: InMemorySessionStore(session: validSession),
             transport: StubHTTPTransport(responses: [StubHTTPTransport.Response(statusCode: 200, body: body)]),
-            cache: TestSnapshotCache()
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore()
         )
 
         do {
@@ -172,7 +178,8 @@ final class APIRepositoryTests: XCTestCase {
             baseURL: URL(string: "https://api.example.test")!,
             sessionStore: InMemorySessionStore(session: validSession),
             transport: StubHTTPTransport(responses: [StubHTTPTransport.Response(statusCode: 200, body: invalid)]),
-            cache: TestSnapshotCache()
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore()
         )
 
         do {
@@ -184,19 +191,62 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 0)
     }
 
+    func testOnlyValidatedChildViewPopulatesKidCache() async throws {
+        let cache = TestSnapshotCache()
+        let configuredKid = InMemoryConfiguredKidStore()
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: StubHTTPTransport(responses: [
+                StubHTTPTransport.Response(statusCode: 200, body: snapshotBody(balance: 100, readOnly: true)),
+                StubHTTPTransport.Response(statusCode: 200, body: snapshotBody(balance: 900))
+            ]),
+            cache: cache,
+            configuredKidStore: configuredKid
+        )
+
+        _ = try await repository.refresh(for: .child)
+        _ = try await repository.refresh(for: .parent)
+
+        XCTAssertEqual(repository.childSnapshot().acceptedBalanceCents, 100)
+        XCTAssertEqual(cache.value?.acceptedBalanceCents, 100)
+        XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 900)
+        XCTAssertTrue(configuredKid.isConfigured)
+    }
+
+    func testExplicitSessionClearRemovesKidCacheAndConfiguredMarker() {
+        let cache = TestSnapshotCache()
+        cache.value = .fixture()
+        let configuredKid = InMemoryConfiguredKidStore(isConfigured: true)
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: StubHTTPTransport(),
+            cache: cache,
+            configuredKidStore: configuredKid
+        )
+
+        repository.clearSession()
+
+        XCTAssertNil(cache.value)
+        XCTAssertFalse(configuredKid.isConfigured)
+        XCTAssertEqual(repository.childSnapshot().acceptedBalanceCents, 0)
+    }
+
     private var validSession: AuthSession {
         AuthSession(token: "opaque-session", expiresAt: Date(timeIntervalSince1970: 4_000_000_000))
     }
 
-    private func snapshotBody(balance: Int, nickname: String = "Eddie") -> Data {
-        Data("""
+    private func snapshotBody(balance: Int, nickname: String = "Eddie", readOnly: Bool? = nil) -> Data {
+        let readOnlyField = readOnly.map { ",\n          \"readOnly\": \($0)" } ?? ""
+        return Data("""
         {
           "family": {"id":"family","name":"Eddie's family"},
           "child": {"id":"child","nickname":"\(nickname)","avatarUrl":null,"lessonAgeBand":"school-age"},
           "wallet": {"id":"wallet","currency":"USD","balanceCents":\(balance),"virtualNotice":"Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."},
           "allowanceRule": null,
           "loan": null,
-          "recentActivity": []
+          "recentActivity": []\(readOnlyField)
         }
         """.utf8)
     }

@@ -161,6 +161,26 @@ final class WalletTests: XCTestCase {
         XCTAssertEqual(store.elevation, .none)
     }
 
+    func testMissingOwnerIdentityDoesNotAuthorizeSignOut() {
+        let store = makeConfiguredStore(identityStore: InMemoryParentIdentityStore())
+
+        store.signOut()
+
+        XCTAssertTrue(store.isSignedIn)
+        XCTAssertTrue(store.repository.hasConfiguredKid)
+        XCTAssertNotEqual(store.snapshot.acceptedBalanceCents, 0)
+    }
+
+    func testAllowanceRuleCannotReachRepositoryOutsideParentArea() async {
+        let repository = FailingRefreshRepository(snapshot: .fixture(), error: nil)
+        let store = makeConfiguredStore(repository: repository)
+        let command = AllowanceRuleCommand(amountCents: 500, weekday: 1, startDate: .now)
+
+        let wasSet = await store.setAllowance(command)
+        XCTAssertFalse(wasSet)
+        XCTAssertEqual(repository.setAllowanceCallCount, 0)
+    }
+
     func testChangeParentPINRequiresParentAreaAndCurrentPIN() {
         let pinStore = InMemoryParentPINStore(pin: "1234")
         let store = makeConfiguredStore(pinStore: pinStore)
@@ -270,6 +290,24 @@ final class WalletTests: XCTestCase {
         XCTAssertTrue(store.sessionExpired)
     }
 
+    func testConfiguredKidShellSurvivesRelaunchWithoutAuthentication() {
+        let repository = FailingRefreshRepository(
+            snapshot: .fixture(),
+            error: .noSession,
+            authenticated: false
+        )
+
+        let store = WalletStore(
+            repository: repository,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner-1")
+        )
+
+        XCTAssertTrue(store.isSignedIn)
+        XCTAssertTrue(store.sessionExpired)
+        XCTAssertEqual(store.snapshot.configuredChildNickname, "Eddie")
+    }
+
     func testOfflineRefreshKeepsSnapshotAndSetsKidOfflineState() async {
         let repository = FailingRefreshRepository(
             snapshot: .fixture(),
@@ -295,6 +333,11 @@ final class WalletTests: XCTestCase {
         XCTAssertTrue(banner.hasPrefix("You're offline"))
     }
 
+    func testDeviceCopyAdaptsForPhoneAndPad() {
+        XCTAssertEqual(DeviceCopy.deviceNoun(for: .phone), "iPhone")
+        XCTAssertEqual(DeviceCopy.deviceNoun(for: .pad), "iPad")
+    }
+
     // MARK: - Setup handoff (report criteria 6, 9)
 
     func testSetupCompletionEntersParentAreaWithFirstActionsHandoff() async {
@@ -318,6 +361,49 @@ final class WalletTests: XCTestCase {
         let created = await store.setupParent(setup, pin: "1234", confirmation: "1235")
         XCTAssertFalse(created)
         XCTAssertEqual(store.elevation, .none)
+    }
+
+    func testFreshAuthenticatedSetupMaySignOutBeforeFamilyCreation() async {
+        let repository = FailingRefreshRepository(
+            snapshot: .empty(),
+            error: .familyNotSetup,
+            hasConfiguredKid: false
+        )
+        let store = WalletStore(
+            repository: repository,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner-1")
+        )
+        await store.refresh()
+        XCTAssertTrue(store.needsSetup)
+
+        store.signOut()
+
+        XCTAssertFalse(store.isSignedIn)
+        XCTAssertFalse(repository.hasConfiguredKid)
+    }
+
+    func testOwnerIdentityPersistenceFailureRollsBackAuthentication() async {
+        let repository = FailingRefreshRepository(
+            snapshot: .empty(),
+            error: nil,
+            authenticated: true,
+            hasConfiguredKid: false
+        )
+        let store = WalletStore(
+            repository: repository,
+            appleSignInProvider: FakeAppleSignInProvider(appleUserID: "owner-1"),
+            initiallySignedIn: false,
+            pinStore: InMemoryParentPINStore(),
+            identityStore: FailingParentIdentityStore()
+        )
+
+        await store.signInWithApple()
+
+        XCTAssertFalse(store.isSignedIn)
+        XCTAssertEqual(repository.clearAuthenticationCallCount, 1)
+        XCTAssertNotNil(store.errorMessage)
     }
 
     // MARK: - Money and honesty invariants (unchanged behavior)
@@ -651,14 +737,25 @@ private final class FakeAppleSignInProvider: AppleSignInProviding {
 private final class FailingRefreshRepository: WalletRepository {
     private let inner: MockWalletRepository
     var error: WalletAPIError?
+    private(set) var authenticated: Bool
+    private(set) var clearAuthenticationCallCount = 0
+    private(set) var setAllowanceCallCount = 0
 
-    init(snapshot: WalletSnapshot, error: WalletAPIError?) {
-        self.inner = MockWalletRepository(snapshot: snapshot)
+    init(
+        snapshot: WalletSnapshot,
+        error: WalletAPIError?,
+        authenticated: Bool = true,
+        hasConfiguredKid: Bool = true
+    ) {
+        self.inner = MockWalletRepository(snapshot: snapshot, hasConfiguredKid: hasConfiguredKid)
         self.error = error
+        self.authenticated = authenticated
     }
 
-    var isAuthenticated: Bool { true }
+    var isAuthenticated: Bool { authenticated }
+    var hasConfiguredKid: Bool { inner.hasConfiguredKid }
     func snapshot() -> WalletSnapshot { inner.snapshot() }
+    func childSnapshot() -> WalletSnapshot { inner.childSnapshot() }
     func refresh(for role: UserRole) async throws -> WalletSnapshot {
         if let error { throw error }
         return try await inner.refresh(for: role)
@@ -667,9 +764,28 @@ private final class FailingRefreshRepository: WalletRepository {
     func activityDetail(remoteID: String) async throws -> WalletEvent { try await inner.activityDetail(remoteID: remoteID) }
     func loanDetail(remoteID: String) async throws -> LoanDetail { try await inner.loanDetail(remoteID: remoteID) }
     func submit(_ command: WalletCommand) async throws -> CommandResult { try await inner.submit(command) }
-    func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot { try await inner.setAllowance(command) }
+    func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {
+        setAllowanceCallCount += 1
+        return try await inner.setAllowance(command)
+    }
     func setup(_ setup: ParentSetup) async throws -> WalletSnapshot { try await inner.setup(setup) }
+    func clearAuthentication() {
+        clearAuthenticationCallCount += 1
+        authenticated = false
+        inner.clearAuthentication()
+    }
     func clearSession() { inner.clearSession() }
+}
+
+@MainActor
+private final class FailingParentIdentityStore: ParentIdentityStore {
+    var appleUserID: String? { nil }
+
+    func save(appleUserID _: String) throws {
+        throw WalletAPIError.invalidResponse("The parent identity could not be stored securely.")
+    }
+
+    func clear() {}
 }
 
 @MainActor

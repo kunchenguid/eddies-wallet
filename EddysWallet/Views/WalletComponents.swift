@@ -5,9 +5,13 @@ import UIKit
 /// vocabulary ("Draft on this iPad", PRD 10) is deliberately not derived
 /// from this.
 enum DeviceCopy {
+    static func deviceNoun(for idiom: UIUserInterfaceIdiom) -> String {
+        idiom == .pad ? "iPad" : "iPhone"
+    }
+
     @MainActor
     static var deviceNoun: String {
-        UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+        deviceNoun(for: UIDevice.current.userInterfaceIdiom)
     }
 }
 

@@ -3,6 +3,12 @@ import SwiftUI
 struct ActivityDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let event: WalletEvent
+    var audience: Audience = .parent
+
+    enum Audience {
+        case kid
+        case parent
+    }
 
     private var amountColor: Color { event.isPositive ? EW.Color.green700 : EW.Color.textPrimary }
 
@@ -20,7 +26,9 @@ struct ActivityDetailView: View {
                                 .foregroundStyle(EW.Color.textTertiary)
                         }
                         Spacer()
-                        StatusPill(state: event.syncState)
+                        if audience == .parent {
+                            StatusPill(state: event.syncState)
+                        }
                     }
 
                     MoneyAmount(cents: event.signedAmount.cents, font: EW.Font.displayLarge, color: amountColor)
@@ -28,10 +36,10 @@ struct ActivityDetailView: View {
                     if let reason = event.reason, !reason.isEmpty {
                         detailRow(label: event.type == .loan ? "Purpose" : "Reason", value: reason)
                     }
-                    detailRow(label: "Recorded by", value: "Parent")
+                    detailRow(label: audience == .kid ? "Added by" : "Recorded by", value: "Parent")
                     if let before = event.balanceBeforeCents, let after = event.balanceAfterCents {
                         detailRow(
-                            label: "Accepted balance",
+                            label: audience == .kid ? "Wallet changed" : "Accepted balance",
                             value: "\(Money(cents: before).display) -> \(Money(cents: after).display)"
                         )
                     }

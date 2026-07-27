@@ -74,7 +74,7 @@ private struct PINEntryGate: View {
         VStack(spacing: EW.Space.five) {
             GateHeader(
                 title: "Grown-ups only",
-                subtitle: "This protects \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)) on this \(DeviceCopy.deviceNoun)."
+                subtitle: "Enter the parent PIN for this \(DeviceCopy.deviceNoun)."
             )
 
             statusLine
@@ -193,7 +193,6 @@ struct PINKeypad: View {
 private struct ReauthGate: View {
     @EnvironmentObject private var store: WalletStore
     let reason: ParentReauthReason
-    @State private var isConfirmingStartOver = false
 
     var body: some View {
         VStack(spacing: EW.Space.five) {
@@ -220,27 +219,10 @@ private struct ReauthGate: View {
                     .foregroundStyle(EW.Color.textTertiary)
                     .multilineTextAlignment(.center)
             } else {
-                // Anomaly fallback: no owning-parent identity evidence exists
-                // on this device, so recovery cannot verify anyone. The only
-                // honest way forward is a confirmed local reset.
-                Text("This \(DeviceCopy.deviceNoun) cannot confirm which Apple account manages this wallet, so the PIN cannot be reset here. A parent can start over by signing out and setting up again.")
+                Text("This \(DeviceCopy.deviceNoun) cannot confirm which Apple account manages this wallet, so recovery is unavailable here. The wallet and family data have not been changed.")
                     .font(EW.Font.body)
                     .foregroundStyle(EW.Color.textSecondary)
                     .multilineTextAlignment(.center)
-                Button("Sign out and start over") {
-                    isConfirmingStartOver = true
-                }
-                .buttonStyle(SecondaryButtonStyle(compact: true))
-                .confirmationDialog(
-                    "Sign out and start over?",
-                    isPresented: $isConfirmingStartOver,
-                    titleVisibility: .visible
-                ) {
-                    Button("Sign out", role: .destructive) { store.signOut() }
-                    Button("Keep the wallet", role: .cancel) {}
-                } message: {
-                    Text("This removes the parent session, parent PIN, and the saved wallet view from this \(DeviceCopy.deviceNoun) until a parent signs in with Apple again. It does not delete the family's virtual wallet.")
-                }
             }
 
             if let gateErrorMessage = store.gateErrorMessage {
@@ -264,11 +246,11 @@ private struct ReauthGate: View {
     private var subtitle: String {
         switch reason {
         case .sessionExpired:
-            "The parent session on this iPad ended. Sign in with Apple to continue."
+            "The parent session on this \(DeviceCopy.deviceNoun) ended. Sign in with Apple to continue."
         case .forgotPIN:
             "Sign in with Apple as the parent who set up this wallet, then choose a new PIN. Nothing else changes."
         case .missingPIN:
-            "This iPad has no parent PIN yet. Sign in with Apple as the parent who set up this wallet, then choose one."
+            "This \(DeviceCopy.deviceNoun) has no parent PIN yet. Sign in with Apple as the parent who set up this wallet, then choose one."
         }
     }
 }

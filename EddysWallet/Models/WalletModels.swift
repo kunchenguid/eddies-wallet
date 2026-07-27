@@ -474,7 +474,9 @@ public enum CommandResult: Sendable {
 @MainActor
 public protocol WalletRepository: AnyObject {
     var isAuthenticated: Bool { get }
+    var hasConfiguredKid: Bool { get }
     func snapshot() -> WalletSnapshot
+    func childSnapshot() -> WalletSnapshot
     func refresh(for role: UserRole) async throws -> WalletSnapshot
     func activity(limit: Int) async throws -> [WalletEvent]
     func activityDetail(remoteID: String) async throws -> WalletEvent
@@ -482,6 +484,7 @@ public protocol WalletRepository: AnyObject {
     func submit(_ command: WalletCommand) async throws -> CommandResult
     func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot
     func setup(_ setup: ParentSetup) async throws -> WalletSnapshot
+    func clearAuthentication()
     func clearSession()
 }
 
@@ -493,14 +496,26 @@ public protocol ParentAuthenticator: AnyObject {
 @MainActor
 public final class MockWalletRepository: WalletRepository {
     private var current: WalletSnapshot
+    private var currentChild: WalletSnapshot
+    private var configuredKid: Bool
 
-    public init(snapshot: WalletSnapshot = .fixture()) {
+    public init(snapshot: WalletSnapshot = .fixture(), hasConfiguredKid: Bool = true) {
         self.current = snapshot
+        self.currentChild = snapshot
+        self.configuredKid = hasConfiguredKid
     }
 
     public var isAuthenticated: Bool { true }
+    public var hasConfiguredKid: Bool { configuredKid }
     public func snapshot() -> WalletSnapshot { current }
-    public func refresh(for _: UserRole) async throws -> WalletSnapshot { current }
+    public func childSnapshot() -> WalletSnapshot { currentChild }
+    public func refresh(for role: UserRole) async throws -> WalletSnapshot {
+        if role == .child {
+            currentChild = current
+            return currentChild
+        }
+        return current
+    }
     public func activity(limit: Int) async throws -> [WalletEvent] { Array(current.activities.prefix(max(1, min(limit, 100)))) }
     public func activityDetail(remoteID: String) async throws -> WalletEvent {
         guard let event = current.activities.first(where: { $0.remoteID == remoteID }) else {
@@ -514,10 +529,16 @@ public final class MockWalletRepository: WalletRepository {
         }
         return LoanDetail(loan: loan, entries: current.activities.filter { $0.type == .loan || $0.type == .repayment })
     }
-    public func clearSession() {}
+    public func clearAuthentication() {}
+    public func clearSession() {
+        configuredKid = false
+        current = .empty()
+        currentChild = .empty()
+    }
 
     public func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {
         guard !setup.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return current }
+        configuredKid = true
         return current
     }
 

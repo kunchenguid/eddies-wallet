@@ -115,7 +115,9 @@ final class ScriptedWalletRepository: WalletRepository {
     }
 
     var isAuthenticated: Bool { true }
+    var hasConfiguredKid: Bool { inner.hasConfiguredKid && !requiresSetup }
     func snapshot() -> WalletSnapshot { inner.snapshot() }
+    func childSnapshot() -> WalletSnapshot { inner.childSnapshot() }
 
     func refresh(for role: UserRole) async throws -> WalletSnapshot {
         if let refreshError { throw refreshError }
@@ -142,6 +144,7 @@ final class ScriptedWalletRepository: WalletRepository {
         return try await inner.setup(setup)
     }
 
+    func clearAuthentication() { inner.clearAuthentication() }
     func clearSession() { inner.clearSession() }
 }
 #endif

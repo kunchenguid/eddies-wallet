@@ -53,7 +53,7 @@ struct KidHomeView: View {
             await store.refresh()
         }
         .sheet(item: $selectedEvent) { event in
-            ActivityDetailView(event: event)
+            ActivityDetailView(event: event, audience: .kid)
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $isShowingLoan) {
