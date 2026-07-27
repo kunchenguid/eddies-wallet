@@ -267,7 +267,11 @@ public final class WalletStore: ObservableObject {
     /// Called when the scene leaves the foreground. Any parent elevation and
     /// in-progress parent flow drops immediately; kid data may stay visible.
     public func handleAppBackgrounded() {
-        guard elevation != .none else { return }
+        if elevation == .none {
+            refreshGeneration += 1
+            isLoading = false
+            return
+        }
         deElevate()
     }
 
@@ -355,13 +359,25 @@ public final class WalletStore: ObservableObject {
             errorMessage = "Choose and confirm a four-digit parent PIN."
             return false
         }
+        let generation = refreshGeneration
         isLoading = true
         errorMessage = nil
         do {
             _ = try await repository.setup(setup)
         } catch {
+            guard generation == refreshGeneration else { return false }
             errorMessage = userMessage(for: error)
             isLoading = false
+            return false
+        }
+        guard generation == refreshGeneration else {
+            needsSetup = false
+            isSignedIn = true
+            isLoading = false
+            snapshot = repository.childSnapshot()
+            elevation = .none
+            gateRoute = .pinEntry
+            Task { [weak self] in await self?.refresh() }
             return false
         }
         do {

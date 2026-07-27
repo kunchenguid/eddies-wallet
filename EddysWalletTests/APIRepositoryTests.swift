@@ -269,8 +269,156 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertFalse(relaunched.isSignedIn)
     }
 
+    func testInflightCommandSuccessCannotRestoreStateAfterSessionClear() async {
+        let pending = TestPendingCommandStore()
+        let transport = SuspendingHTTPTransport()
+        let repository = makeSuspendingRepository(transport: transport, pending: pending)
+        let command = WalletCommand(kind: .deposit, amountCents: 150, idempotencyKey: "stale-success")
+
+        let submission = Task { try await repository.submit(command) }
+        await waitForRequestCount(1, transport: transport)
+
+        repository.clearSession()
+        transport.complete(statusCode: 201, body: commandBody(balance: 150))
+
+        await assertCancelled(submission)
+        XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 0)
+        XCTAssertTrue(repository.snapshot().activities.isEmpty)
+        XCTAssertTrue(pending.commands.isEmpty)
+    }
+
+    func testInflightCommandNetworkFailureCannotRequeueAfterSessionClear() async {
+        let pending = TestPendingCommandStore()
+        let transport = SuspendingHTTPTransport()
+        let repository = makeSuspendingRepository(transport: transport, pending: pending)
+        let command = WalletCommand(kind: .deposit, amountCents: 150, idempotencyKey: "stale-network")
+
+        let submission = Task { try await repository.submit(command) }
+        await waitForRequestCount(1, transport: transport)
+
+        repository.clearSession()
+        transport.fail(URLError(.notConnectedToInternet))
+
+        await assertCancelled(submission)
+        XCTAssertTrue(repository.snapshot().pendingEvents.isEmpty)
+        XCTAssertTrue(pending.commands.isEmpty)
+    }
+
+    func testInflightCommandRejectionCannotRestoreStateAfterSessionClear() async {
+        let pending = TestPendingCommandStore()
+        let transport = SuspendingHTTPTransport()
+        let repository = makeSuspendingRepository(transport: transport, pending: pending)
+        let command = WalletCommand(kind: .deposit, amountCents: 150, idempotencyKey: "stale-rejection")
+
+        let submission = Task { try await repository.submit(command) }
+        await waitForRequestCount(1, transport: transport)
+
+        repository.clearSession()
+        transport.complete(
+            statusCode: 422,
+            body: Data(#"{"error":{"code":"INVALID_AMOUNT","message":"Not recorded"}}"#.utf8)
+        )
+
+        await assertCancelled(submission)
+        XCTAssertTrue(repository.snapshot().pendingEvents.isEmpty)
+        XCTAssertTrue(pending.commands.isEmpty)
+    }
+
+    func testPendingFlushCrossingSessionClearCannotReplayUnderNewSession() async throws {
+        let command = WalletCommand(kind: .deposit, amountCents: 150, idempotencyKey: "old-session-command")
+        let pending = TestPendingCommandStore(commands: [command])
+        let transport = SuspendingHTTPTransport()
+        let sessions = InMemorySessionStore(session: validSession)
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: sessions,
+            transport: transport,
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore(),
+            pendingStore: pending
+        )
+
+        let firstRefresh = Task { try await repository.refresh(for: .parent) }
+        await waitForRequestCount(1, transport: transport)
+        XCTAssertEqual(transport.requests.first?.httpMethod, "POST")
+
+        repository.clearSession()
+        transport.complete(statusCode: 201, body: commandBody(balance: 150))
+        await assertCancelled(firstRefresh)
+        XCTAssertTrue(pending.commands.isEmpty)
+
+        try sessions.save(AuthSession(token: "different-session", expiresAt: Date(timeIntervalSince1970: 4_000_000_000)))
+        let secondRefresh = Task { try await repository.refresh(for: .parent) }
+        await waitForRequestCount(2, transport: transport)
+        XCTAssertEqual(transport.requests.last?.httpMethod, "GET")
+        XCTAssertEqual(transport.requests.last?.url?.path, "/v1/wallet")
+
+        transport.complete(statusCode: 200, body: snapshotBody(balance: 25))
+        _ = try await secondRefresh.value
+
+        XCTAssertEqual(transport.requests.count, 2)
+        XCTAssertTrue(pending.commands.isEmpty)
+        XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 25)
+    }
+
     private var validSession: AuthSession {
         AuthSession(token: "opaque-session", expiresAt: Date(timeIntervalSince1970: 4_000_000_000))
+    }
+
+    private func makeSuspendingRepository(
+        transport: SuspendingHTTPTransport,
+        pending: TestPendingCommandStore
+    ) -> APIWalletRepository {
+        APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: transport,
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore(),
+            pendingStore: pending
+        )
+    }
+
+    private func waitForRequestCount(_ count: Int, transport: SuspendingHTTPTransport) async {
+        while transport.requests.count < count {
+            await Task.yield()
+        }
+    }
+
+    private func assertCancelled<T>(_ task: Task<T, Error>, file: StaticString = #filePath, line: UInt = #line) async {
+        do {
+            _ = try await task.value
+            XCTFail("The stale operation must be cancelled", file: file, line: line)
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error, .cancelled, file: file, line: line)
+        } catch {
+            XCTFail("Unexpected stale-operation error: \(error)", file: file, line: line)
+        }
+    }
+
+    private func commandBody(balance: Int) -> Data {
+        Data("""
+        {
+          "entry": {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "type": "deposit",
+            "direction": "credit",
+            "amountCents": 150,
+            "balanceBeforeCents": 0,
+            "balanceAfterCents": \(balance),
+            "reason": null,
+            "loanId": null,
+            "recordedBy": "parent",
+            "recordedAt": "2099-01-01T00:00:00Z"
+          },
+          "wallet": {
+            "id": "wallet",
+            "currency": "USD",
+            "balanceCents": \(balance),
+            "virtualNotice": "Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."
+          }
+        }
+        """.utf8)
     }
 
     private func snapshotBody(balance: Int, nickname: String = "Eddie", readOnly: Bool? = nil) -> Data {
@@ -325,7 +473,7 @@ private final class SuspendingHTTPTransport: HTTPTransport {
     }
 
     func complete(statusCode: Int, body: Data) {
-        guard let request = requests.first, let continuation else { return }
+        guard let request = requests.last, let continuation else { return }
         self.continuation = nil
         let response = HTTPURLResponse(
             url: request.url!,
@@ -335,6 +483,12 @@ private final class SuspendingHTTPTransport: HTTPTransport {
         )!
         continuation.resume(returning: (body, response))
     }
+
+    func fail(_ error: Error) {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(throwing: error)
+    }
 }
 
 @MainActor
@@ -343,6 +497,19 @@ private final class TestSnapshotCache: WalletSnapshotCache {
     func load() -> WalletSnapshot? { value }
     func save(_ snapshot: WalletSnapshot) { value = snapshot }
     func clear() { value = nil }
+}
+
+@MainActor
+private final class TestPendingCommandStore: PendingCommandStore {
+    private(set) var commands: [WalletCommand]
+
+    init(commands: [WalletCommand] = []) {
+        self.commands = commands
+    }
+
+    func load() -> [WalletCommand] { commands }
+    func save(_ commands: [WalletCommand]) { self.commands = commands }
+    func clear() { commands = [] }
 }
 
 private extension Data {
