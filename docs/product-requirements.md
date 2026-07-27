@@ -12,7 +12,7 @@ Eddie's Wallet is the product brand: a calm, parent-managed family ledger that h
 
 **Naming note:** The child nickname is configured during parent setup and returned by the service in each wallet snapshot. The app uses that nickname in parent and child-facing copy when available; otherwise it uses neutral language such as “your child” or “your wallet.” “Eddie's Wallet” is the application brand and does not set or imply a child nickname.
 
-This document is the product starting point for the first MVP. The public repository is frontend-only; the service implementation and operations are maintained separately. This README defines client-facing behavior and does not include service or deployment implementation.
+This document is the product starting point for the first MVP. The public repository is frontend-only; the service implementation and operations are maintained separately. This document defines client-facing behavior and does not include service or deployment implementation.
 
 ## 1. Settled decisions
 
