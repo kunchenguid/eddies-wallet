@@ -14,12 +14,17 @@
 		301000000000000000000005 /* DetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 205000000000000000000001 /* DetailViews.swift */; };
 		301000000000000000000006 /* FlowViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206000000000000000000001 /* FlowViews.swift */; };
 		301000000000000000000007 /* LessonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207000000000000000000001 /* LessonView.swift */; };
-		301000000000000000000008 /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 208000000000000000000001 /* WalletView.swift */; };
 		301000000000000000000009 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 209000000000000000000001 /* WelcomeView.swift */; };
 		301000000000000000000010 /* WalletAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 204000000000000000000002 /* WalletAPI.swift */; };
 		301000000000000000000011 /* AppleSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 204000000000000000000003 /* AppleSignIn.swift */; };
+		301000000000000000000015 /* KidHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000002 /* KidHomeView.swift */; };
+		301000000000000000000016 /* ParentAreaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000003 /* ParentAreaView.swift */; };
+		301000000000000000000017 /* ParentGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000004 /* ParentGateView.swift */; };
+		301000000000000000000018 /* WalletComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000005 /* WalletComponents.swift */; };
+		301000000000000000000019 /* DebugScenarios.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000006 /* DebugScenarios.swift */; };
+		30100000000000000000001A /* EddysWalletUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000007 /* EddysWalletUITests.swift */; };
+		30100000000000000000001B /* EvidenceCaptureUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000008 /* EvidenceCaptureUITests.swift */; };
 		301000000000000000000012 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D000000000000000000001 /* SetupView.swift */; };
-		301000000000000000000014 /* ParentPINSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000001 /* ParentPINSetupView.swift */; };
 		301000000000000000000013 /* APIRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000001 /* APIRepositoryTests.swift */; };
 		30100000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20A000000000000000000001 /* Assets.xcassets */; };
 		30100000000000000000000B /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B000000000000000000001 /* WalletTests.swift */; };
@@ -33,16 +38,22 @@
 		205000000000000000000001 /* DetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailViews.swift; sourceTree = "<group>"; };
 		206000000000000000000001 /* FlowViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowViews.swift; sourceTree = "<group>"; };
 		207000000000000000000001 /* LessonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LessonView.swift; sourceTree = "<group>"; };
-		208000000000000000000001 /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
 		209000000000000000000001 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		20A000000000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		20B000000000000000000001 /* WalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletTests.swift; sourceTree = "<group>"; };
 		20C000000000000000000001 /* EddysWallet.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = EddysWallet.entitlements; sourceTree = "<group>"; };
 		20D000000000000000000001 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		20E000000000000000000001 /* APIRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIRepositoryTests.swift; sourceTree = "<group>"; };
-		20F000000000000000000001 /* ParentPINSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParentPINSetupView.swift; sourceTree = "<group>"; };
 		204000000000000000000002 /* WalletAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletAPI.swift; sourceTree = "<group>"; };
 		204000000000000000000003 /* AppleSignIn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSignIn.swift; sourceTree = "<group>"; };
+		20F000000000000000000002 /* KidHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KidHomeView.swift; sourceTree = "<group>"; };
+		20F000000000000000000003 /* ParentAreaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParentAreaView.swift; sourceTree = "<group>"; };
+		20F000000000000000000004 /* ParentGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParentGateView.swift; sourceTree = "<group>"; };
+		20F000000000000000000005 /* WalletComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletComponents.swift; sourceTree = "<group>"; };
+		20F000000000000000000006 /* DebugScenarios.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugScenarios.swift; sourceTree = "<group>"; };
+		20F000000000000000000007 /* EddysWalletUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EddysWalletUITests.swift; sourceTree = "<group>"; };
+		20F000000000000000000008 /* EvidenceCaptureUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EvidenceCaptureUITests.swift; sourceTree = "<group>"; };
+		212000000000000000000001 /* EddysWalletUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		210000000000000000000001 /* EddysWallet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EddysWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		211000000000000000000001 /* EddysWalletTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -56,6 +67,7 @@
 			children = (
 				118000000000000000000001 /* EddysWallet */,
 				122000000000000000000001 /* EddysWalletTests */,
+				123000000000000000000001 /* EddysWalletUITests */,
 				113000000000000000000001 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -65,6 +77,7 @@
 			children = (
 				210000000000000000000001 /* EddysWallet.app */,
 				211000000000000000000001 /* EddysWalletTests.xctest */,
+				212000000000000000000001 /* EddysWalletUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -73,6 +86,7 @@
 			isa = PBXGroup;
 			children = (
 				201000000000000000000001 /* EddysWalletApp.swift */,
+				20F000000000000000000006 /* DebugScenarios.swift */,
 				20C000000000000000000001 /* EddysWallet.entitlements */,
 				120000000000000000000001 /* DesignSystem */,
 				119000000000000000000001 /* Models */,
@@ -107,9 +121,11 @@
 				205000000000000000000001 /* DetailViews.swift */,
 				206000000000000000000001 /* FlowViews.swift */,
 				20D000000000000000000001 /* SetupView.swift */,
-				20F000000000000000000001 /* ParentPINSetupView.swift */,
+				20F000000000000000000002 /* KidHomeView.swift */,
+				20F000000000000000000003 /* ParentAreaView.swift */,
+				20F000000000000000000004 /* ParentGateView.swift */,
+				20F000000000000000000005 /* WalletComponents.swift */,
 				207000000000000000000001 /* LessonView.swift */,
-				208000000000000000000001 /* WalletView.swift */,
 				209000000000000000000001 /* WelcomeView.swift */,
 			);
 			path = Views;
@@ -122,6 +138,15 @@
 				20E000000000000000000001 /* APIRepositoryTests.swift */,
 			);
 			path = EddysWalletTests;
+			sourceTree = "<group>";
+		};
+		123000000000000000000001 /* EddysWalletUITests */ = {
+			isa = PBXGroup;
+			children = (
+				20F000000000000000000007 /* EddysWalletUITests.swift */,
+				20F000000000000000000008 /* EvidenceCaptureUITests.swift */,
+			);
+			path = EddysWalletUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -159,6 +184,23 @@
 			productReference = 211000000000000000000001 /* EddysWalletTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		116000000000000000000001 /* EddysWalletUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 403000000000000000000001 /* Build configuration list for PBXNativeTarget "EddysWalletUITests" */;
+			buildPhases = (
+				318000000000000000000001 /* Sources */,
+				319000000000000000000001 /* Frameworks */,
+				31A000000000000000000001 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = (
+				31B000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = EddysWalletUITests;
+			productName = EddysWalletUITests;
+			productReference = 212000000000000000000001 /* EddysWalletUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -175,6 +217,7 @@
 						};
 					};
 					115000000000000000000001 = { CreatedOnToolsVersion = 26.4; TestTargetID = 114000000000000000000001; };
+					116000000000000000000001 = { CreatedOnToolsVersion = 26.4; TestTargetID = 114000000000000000000001; };
 				};
 			};
 			buildConfigurationList = 402000000000000000000001 /* Build configuration list for PBXProject "EddysWallet" */;
@@ -192,6 +235,7 @@
 			targets = (
 				114000000000000000000001 /* EddysWallet */,
 				115000000000000000000001 /* EddysWalletTests */,
+				116000000000000000000001 /* EddysWalletUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -211,6 +255,12 @@
 			files = ();
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		31A000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -225,12 +275,15 @@
 				301000000000000000000005 /* DetailViews.swift in Sources */,
 				301000000000000000000006 /* FlowViews.swift in Sources */,
 				301000000000000000000007 /* LessonView.swift in Sources */,
-				301000000000000000000008 /* WalletView.swift in Sources */,
 				301000000000000000000009 /* WelcomeView.swift in Sources */,
 				301000000000000000000010 /* WalletAPI.swift in Sources */,
 				301000000000000000000011 /* AppleSignIn.swift in Sources */,
 				301000000000000000000012 /* SetupView.swift in Sources */,
-				301000000000000000000014 /* ParentPINSetupView.swift in Sources */,
+				301000000000000000000015 /* KidHomeView.swift in Sources */,
+				301000000000000000000016 /* ParentAreaView.swift in Sources */,
+				301000000000000000000017 /* ParentGateView.swift in Sources */,
+				301000000000000000000018 /* WalletComponents.swift in Sources */,
+				301000000000000000000019 /* DebugScenarios.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -243,19 +296,31 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		318000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				30100000000000000000001A /* EddysWalletUITests.swift in Sources */,
+				30100000000000000000001B /* EvidenceCaptureUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		311000000000000000000001 /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		314000000000000000000001 /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		319000000000000000000001 /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXTargetDependency section */
 		316000000000000000000001 /* PBXTargetDependency */ = { isa = PBXTargetDependency; target = 114000000000000000000001 /* EddysWallet */; targetProxy = 317000000000000000000001 /* PBXContainerItemProxy */; };
+		31B000000000000000000001 /* PBXTargetDependency */ = { isa = PBXTargetDependency; target = 114000000000000000000001 /* EddysWallet */; targetProxy = 31C000000000000000000001 /* PBXContainerItemProxy */; };
 /* End PBXTargetDependency section */
 
 /* Begin PBXContainerItemProxy section */
 		317000000000000000000001 /* PBXContainerItemProxy */ = { isa = PBXContainerItemProxy; containerPortal = 111000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = 114000000000000000000001; remoteInfo = EddysWallet; };
+		31C000000000000000000001 /* PBXContainerItemProxy */ = { isa = PBXContainerItemProxy; containerPortal = 111000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = 114000000000000000000001; remoteInfo = EddysWallet; };
 /* End PBXContainerItemProxy section */
 
 /* Begin XCBuildConfiguration section */
@@ -266,6 +331,8 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = (UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight);
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -369,6 +436,40 @@
 			};
 			name = Release;
 		};
+		503000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kunchenguid.eddieswallet.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = EddysWallet;
+			};
+			name = Debug;
+		};
+		503000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kunchenguid.eddieswallet.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = EddysWallet;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -386,6 +487,15 @@
 			buildConfigurations = (
 				502000000000000000000001 /* Debug */,
 				502000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		403000000000000000000001 /* Build configuration list for PBXNativeTarget "EddysWalletUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				503000000000000000000001 /* Debug */,
+				503000000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

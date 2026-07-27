@@ -56,7 +56,7 @@ struct SetupView: View {
                             Text("Parent PIN")
                                 .font(EW.Font.captionUpper)
                                 .foregroundStyle(EW.Color.textTertiary)
-                            Text("This four-digit PIN protects parent mode on this iPad.")
+                            Text("This four-digit PIN protects the Parent area on this \(DeviceCopy.deviceNoun).")
                                 .font(EW.Font.caption)
                                 .foregroundStyle(EW.Color.textSecondary)
                             SecureField("Four digits", text: $pin)

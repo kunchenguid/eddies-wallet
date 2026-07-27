@@ -8,6 +8,30 @@ public enum UserRole: String, CaseIterable, Identifiable, Sendable {
     public var title: String { self == .parent ? "Parent" : "Child's view" }
 }
 
+/// Transient parent elevation over the kid-home root. Lives only in memory:
+/// there is deliberately no code path that writes it to disk, so every cold
+/// launch of a configured app rests on the kid home.
+public enum ParentElevation: Equatable, Sendable {
+    case none
+    case gate
+    case active
+}
+
+/// Why the parent gate is asking for a fresh Sign in with Apple instead of
+/// (or before) the PIN pad.
+public enum ParentReauthReason: Equatable, Sendable {
+    case sessionExpired
+    case forgotPIN
+    case missingPIN
+}
+
+/// The screen the parent gate is currently showing.
+public enum ParentGateRoute: Equatable, Sendable {
+    case pinEntry
+    case reauth(ParentReauthReason)
+    case setPIN
+}
+
 public enum ChildProfileCopy {
     public static func configuredNickname(from rawNickname: String?) -> String? {
         guard let nickname = rawNickname?.trimmingCharacters(in: .whitespacesAndNewlines), !nickname.isEmpty else {
@@ -59,6 +83,24 @@ public enum ChildProfileCopy {
             return "The child view is read-only. This action was not recorded."
         }
         return "\(nickname)'s view is read-only. This action was not recorded."
+    }
+}
+
+/// Kid-facing status copy for the kid home. Short sentences, no parent or
+/// technical vocabulary ("accepted balance", "sync", "session") - PRD 11.
+public enum KidCopy {
+    public static func offlineBanner(lastUpdated: Date) -> String {
+        "You're offline - this is what your wallet looked like at \(lastUpdated.formatted(date: .omitted, time: .shortened))."
+    }
+
+    public static let sessionBanner = "A grown-up needs to sign in again."
+
+    public static let emptyWalletTitle = "Your wallet is ready!"
+
+    public static let emptyWalletMessage = "Your grown-up can add the first pretend dollars."
+
+    public static func grownUpsDoorAccessibilityLabel() -> String {
+        "Grown-ups area. Asks for the parent PIN."
     }
 }
 

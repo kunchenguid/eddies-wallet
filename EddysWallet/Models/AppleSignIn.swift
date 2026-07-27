@@ -41,16 +41,40 @@ private final class SystemAppleAuthorizationController: AppleAuthorizationContro
     }
 }
 
+/// The result of a completed Sign in with Apple: the exchanged parent session
+/// plus the stable Apple user identifier presented by the credential. The
+/// identifier is opaque identity evidence used to recognize the owning parent
+/// on this device; it is never sent anywhere by the client.
+public struct AppleSignInOutcome: Sendable {
+    public let session: AuthSession
+    public let appleUserID: String
+
+    public init(session: AuthSession, appleUserID: String) {
+        self.session = session
+        self.appleUserID = appleUserID
+    }
+}
+
+/// Seam for everything that performs a native Sign in with Apple. When
+/// `requiredAppleUserID` is provided, the sign-in must present exactly that
+/// Apple user identifier; any other account fails with
+/// `WalletAPIError.identityMismatch` before a token is exchanged or stored.
 @MainActor
-public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+public protocol AppleSignInProviding: AnyObject {
+    func signIn(requiredAppleUserID: String?) async throws -> AppleSignInOutcome
+}
+
+@MainActor
+public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding, AppleSignInProviding {
     private static let defaultTimeoutNanoseconds: UInt64 = 30_000_000_000
 
     private let authenticator: any ParentAuthenticator
     private let controllerFactory: AppleAuthorizationControllerFactory
     private let timeoutNanoseconds: UInt64
-    private var continuation: CheckedContinuation<AuthSession, Error>?
+    private var continuation: CheckedContinuation<AppleSignInOutcome, Error>?
     private var expectedState: String?
     private var expectedSignedNonce: String?
+    private var requiredAppleUserID: String?
     private var activeAttemptID: UUID?
     private var cancellationRequestedFor: UUID?
     private var authorizationControllerAdapter: (any AppleAuthorizationController)?
@@ -76,7 +100,7 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
         self.controllerFactory = controllerFactory
     }
 
-    public func signIn() async throws -> AuthSession {
+    public func signIn(requiredAppleUserID: String? = nil) async throws -> AppleSignInOutcome {
         guard continuation == nil, activeAttemptID == nil else {
             throw WalletAPIError.server(statusCode: 409, code: "AUTHENTICATION_IN_PROGRESS", message: "Sign in is already in progress.")
         }
@@ -87,6 +111,7 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
         let attemptID = UUID()
         expectedState = state
         expectedSignedNonce = signedNonce
+        self.requiredAppleUserID = requiredAppleUserID
         activeAttemptID = attemptID
         cancellationRequestedFor = nil
 
@@ -145,6 +170,17 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
             finish(.failure(WalletAPIError.invalidResponse("Apple Sign In state verification failed.")))
             return
         }
+        let appleUserID = credential.user
+        guard !appleUserID.isEmpty else {
+            finish(.failure(WalletAPIError.invalidResponse("Apple Sign In did not return a user identifier.")))
+            return
+        }
+        // Owning-parent check for recovery and renewal: refuse any other Apple
+        // account before a token is exchanged or a session is stored.
+        if let requiredAppleUserID, appleUserID != requiredAppleUserID {
+            finish(.failure(WalletAPIError.identityMismatch))
+            return
+        }
         guard let identityToken = credential.identityToken,
               let identityTokenString = String(data: identityToken, encoding: .utf8),
               !identityTokenString.isEmpty,
@@ -158,7 +194,7 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
             guard let self, let attemptID else { return }
             do {
                 let session = try await self.authenticator.authenticateApple(identityToken: identityTokenString, nonce: signedNonce)
-                self.finish(.success(session), attemptID: attemptID)
+                self.finish(.success(AppleSignInOutcome(session: session, appleUserID: appleUserID)), attemptID: attemptID)
             } catch {
                 self.finish(.failure(error), attemptID: attemptID)
             }
@@ -212,7 +248,7 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
     }
 
     private func finish(
-        _ result: Result<AuthSession, Error>,
+        _ result: Result<AppleSignInOutcome, Error>,
         attemptID: UUID? = nil,
         cancelController: Bool = false
     ) {
@@ -228,6 +264,7 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
         self.cancellationRequestedFor = nil
         self.expectedState = nil
         self.expectedSignedNonce = nil
+        self.requiredAppleUserID = nil
         timeoutTask?.cancel()
         timeoutTask = nil
         exchangeTask?.cancel()

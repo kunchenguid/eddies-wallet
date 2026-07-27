@@ -34,6 +34,20 @@
                ReferencedContainer = "container:EddysWallet.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "116000000000000000000001"
+               BuildableName = "EddysWalletUITests.xctest"
+               BlueprintName = "EddysWalletUITests"
+               ReferencedContainer = "container:EddysWallet.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -49,6 +63,16 @@
                BlueprintIdentifier = "115000000000000000000001"
                BuildableName = "EddysWalletTests.xctest"
                BlueprintName = "EddysWalletTests"
+               ReferencedContainer = "container:EddysWallet.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "116000000000000000000001"
+               BuildableName = "EddysWalletUITests.xctest"
+               BlueprintName = "EddysWalletUITests"
                ReferencedContainer = "container:EddysWallet.xcodeproj">
             </BuildableReference>
          </TestableReference>

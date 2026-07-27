@@ -57,6 +57,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
     case familyNotSetup
     case cancelled
     case timedOut
+    case identityMismatch
     case server(statusCode: Int, code: String, message: String)
     case network(String)
     case invalidResponse(String)
@@ -69,6 +70,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         case .familyNotSetup: "Finish parent and child setup before opening the wallet."
         case .cancelled: "Sign in was cancelled."
         case .timedOut: "Apple Sign In took too long. Please try again."
+        case .identityMismatch: "That is not the Apple account that manages this wallet."
         case let .server(_, _, message): message
         case let .network(message): message
         case let .invalidResponse(message): message
@@ -243,6 +245,87 @@ public final class InMemoryParentPINStore: ParentPINStore {
     public init(pin: String? = nil) { self.pin = pin }
     public func save(pin: String) throws { self.pin = pin }
     public func clear() { pin = nil }
+}
+
+/// Stores the stable Apple user identifier of the owning parent on this
+/// device. It is identity evidence for the forgotten-PIN recovery path: a
+/// fresh Sign in with Apple must present the same Apple user identifier
+/// before a new parent PIN may be set. The value is an opaque Apple-issued
+/// identifier, not a name, email, or credential.
+@MainActor
+public protocol ParentIdentityStore: AnyObject {
+    var appleUserID: String? { get }
+    func save(appleUserID: String) throws
+    func clear()
+}
+
+@MainActor
+public final class KeychainParentIdentityStore: ParentIdentityStore {
+    private let service = "\(AppleAppIdentity.bundleIdentifier).parent-apple-user"
+    private let account = "owning-parent"
+
+    public init() {}
+
+    public var appleUserID: String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              let value = String(data: data, encoding: .utf8),
+              !value.isEmpty else { return nil }
+        return value
+    }
+
+    public func save(appleUserID: String) throws {
+        guard !appleUserID.isEmpty else {
+            throw WalletAPIError.invalidResponse("Apple Sign In did not return a user identifier.")
+        }
+        let data = Data(appleUserID.utf8)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = query
+            attributes.forEach { item[$0.key] = $0.value }
+            let addStatus = SecItemAdd(item as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw WalletAPIError.invalidResponse("The parent identity could not be stored securely.")
+            }
+        } else if status != errSecSuccess {
+            throw WalletAPIError.invalidResponse("The parent identity could not be stored securely.")
+        }
+    }
+
+    public func clear() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
+
+@MainActor
+public final class InMemoryParentIdentityStore: ParentIdentityStore {
+    public private(set) var appleUserID: String?
+
+    public init(appleUserID: String? = nil) { self.appleUserID = appleUserID }
+    public func save(appleUserID: String) throws { self.appleUserID = appleUserID }
+    public func clear() { appleUserID = nil }
 }
 
 @MainActor
@@ -609,7 +692,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
                 let event = makeLocalEvent(for: command, state: .rejected, message: message, rejectionReason: message)
                 rejectedEvents.insert(event, at: 0)
                 return .rejected(event)
-            case .cancelled, .timedOut, .familyNotSetup:
+            case .cancelled, .timedOut, .familyNotSetup, .identityMismatch:
                 throw error
             case .server, .network, .invalidResponse, .invalidConfiguration:
                 pendingCommands[command.idempotencyKey] = command

@@ -211,6 +211,7 @@ struct MoneyFlowView: View {
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 420)
             Spacer()
             Button("Done") { dismiss() }
@@ -391,78 +392,6 @@ private struct AllowanceReviewView: View {
                 .buttonStyle(SecondaryButtonStyle(compact: true))
         }
         .padding(EW.Space.screenMargin)
-    }
-}
-
-struct PinGateView: View {
-    @EnvironmentObject private var store: WalletStore
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: EW.Space.five) {
-            Capsule()
-                .fill(EW.Color.ink200)
-                .frame(width: 36, height: 4)
-            Image(systemName: "lock.fill")
-                .font(.system(size: 28))
-                .foregroundStyle(EW.Color.primaryActive)
-            Text("Enter parent PIN")
-                .font(EW.Font.heading)
-                .foregroundStyle(EW.Color.textPrimary)
-            Text(store.pinError ? "Incorrect PIN. Try again." : "This protects parent mode on this iPad.")
-                .font(EW.Font.body)
-                .foregroundStyle(store.pinError ? EW.Color.red600 : EW.Color.textTertiary)
-            HStack(spacing: EW.Space.four) {
-                ForEach(0..<4, id: \.self) { index in
-                    Circle()
-                        .fill(index < store.pin.count ? EW.Color.primary : .clear)
-                        .frame(width: 14, height: 14)
-                        .overlay(Circle().stroke(index < store.pin.count ? EW.Color.primary : EW.Color.ink300, lineWidth: 1.5))
-                }
-            }
-            .accessibilityLabel("PIN, \(store.pin.count) of 4 digits entered")
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(64)), count: 3), spacing: EW.Space.four) {
-                ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9"], id: \.self) { digit in
-                    pinButton(digit)
-                }
-                Color.clear.frame(width: 64, height: 64)
-                pinButton("0")
-                Button {
-                    store.deletePINDigit()
-                } label: {
-                    Image(systemName: "delete.left")
-                        .font(EW.Font.heading)
-                        .frame(width: 64, height: 64)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(EW.Color.textSecondary)
-                .accessibilityLabel("Delete last PIN digit")
-            }
-            Button("Cancel") {
-                store.dismissPinGate()
-                dismiss()
-            }
-            .font(EW.Font.body)
-            .foregroundStyle(EW.Color.textTertiary)
-        }
-        .padding(EW.Space.screenMargin)
-        .frame(maxWidth: 420)
-        .frame(maxWidth: .infinity)
-        .background(EW.Color.card)
-    }
-
-    private func pinButton(_ digit: String) -> some View {
-        Button {
-            store.appendPINDigit(digit)
-        } label: {
-            Text(digit)
-                .font(EW.Font.heading)
-                .foregroundStyle(EW.Color.textPrimary)
-                .frame(width: 64, height: 64)
-                .background(EW.Color.cardAlt, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("PIN digit \(digit)")
     }
 }
 

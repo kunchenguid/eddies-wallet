@@ -20,7 +20,7 @@ These decisions are the current product direction and should not be reopened dur
 
 - Use familiar local currency vocabulary, initially **US dollars**. Every balance and money event must be labeled as virtual, pretend, and nonredeemable.
 - Do not connect to banks, cards, payment processors, cash, or any other real-money rail.
-- Parent mode on a shared iPad is protected by a **parent-set PIN**. The PIN is a local gate against casual switching; service authorization remains authoritative.
+- The Parent area on a shared iPad is protected by a **parent-set PIN** behind a visually secondary Grown-ups door on the kid home. The PIN is a local gate against casual access; service authorization remains authoritative.
 - The first child experience is a **parent-managed child profile**, not an independent child login or Apple identity.
 - **Apple Sign In is required** for the parent MVP. Google Sign In is future scope only.
 - Do not include child-initiated money requests in the smallest MVP.
@@ -67,7 +67,7 @@ The configured child profile uses a simple child view to check a virtual balance
 
 - One family, one parent owner, and one child profile for the smallest launch slice.
 - Parent authentication with Apple Sign In.
-- Parent-set local PIN for entering parent mode on a shared iPad.
+- Parent-set local PIN for entering the temporary Parent area on a shared iPad.
 - A single virtual wallet for the child profile.
 - A familiar US-dollar display vocabulary with persistent virtual/nonredeemable labeling.
 - Parent-created allowance, deposits, withdrawals, loans, and repayments.
@@ -151,18 +151,20 @@ The UI may use the familiar words deposit, withdrawal, loan, and repayment, but 
 1. The parent opens the app and sees the virtual/nonredeemable explanation.
 2. The parent signs in with Apple.
 3. The parent creates the family and the child profile with a nickname, optional avatar, and lesson age band. No child email or exact birth date is required.
-4. The parent sets a PIN. The app confirms that it protects parent mode on this iPad and is not a device-wide parental control.
-5. The parent lands on the wallet with a clear next action: set an allowance or add a first deposit.
+4. The parent sets a PIN. The app confirms that it protects the Parent area on this iPad and is not a device-wide parental control.
+5. The parent lands in the Parent area with a clear next action: set an allowance or add a first deposit, plus a prominent handoff that shows the child's wallet. Every later configured launch opens directly to the child's wallet.
 
 If setup loses connectivity before the family is created, the app must retain form input locally but must not imply that a family or child profile was saved.
 
-### Journey B: switching on a shared iPad
+### Journey B: shared-iPad access through the parent door
 
-1. The app shows the current role and a visible **Switch person** action.
-2. Choosing the child profile opens child mode without exposing parent controls.
-3. Choosing Parent requires the parent-set PIN.
-4. A wrong PIN leaves the user in the current mode and does not reveal parent data. PIN changes require the existing PIN and parent authorization.
-5. Signing out or revoking access returns to a neutral state with no usable family data.
+1. A configured, signed-in device always opens to the child's read-only wallet. The kid home is the app's resting state on every cold launch and relaunch; there is no permanently visible role switch.
+2. The kid home shows a small, clearly labeled **Grown-ups** door. Opening it always presents the full-screen PIN gate, which reveals no family or parent data.
+3. A correct parent-set PIN opens a visually distinct, temporary **Parent area** with an explicit, always-visible way back to the child's wallet.
+4. A wrong PIN stays on the gate without exposing parent content, and repeated failures pause the keypad briefly. PIN changes require the existing PIN and happen only inside the Parent area.
+5. Backgrounding, locking, or relaunching the app closes the Parent area and any parent flow in progress and returns to the child's wallet. Parent access is never persisted.
+6. A forgotten or missing parent PIN is recovered through a fresh Sign in with Apple by the owning parent, after which the parent chooses a new PIN. Family data is unchanged, and full sign-out or re-setup is not required. There is no recovery-code system.
+7. Signing out is available only inside the Parent area, asks for confirmation that explains the local removal, and returns the device to a neutral state with no usable family data.
 
 The PIN is a local gate. It does not grant a role, change service permissions, or make a child session into a parent session.
 
@@ -207,34 +209,38 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 - Parent can update the nickname, avatar, and age band behind the PIN.
 - The child profile is not an independent login and cannot be claimed by a child.
 
-### 8.3 Role picker and parent PIN gate
+### 8.3 Kid home, Grown-ups door, and Parent area
 
-- Show the current role as either Parent or the child's view, labeled with the configured nickname when available and a neutral child-view fallback otherwise.
-- Parent mode always requires the parent-set PIN after a role switch or when the app requires re-entry.
-- Never leave hidden or disabled parent money controls in child mode. Omit them and show the read-only role clearly.
-- PIN entry failures must not expose parent content. The exact retry lockout and recovery behavior are an open implementation question.
+- The child's read-only wallet, labeled with the configured nickname when available and neutral wording otherwise, is the home screen and the app's only persistent surface.
+- Parent access is a transient elevation entered through the labeled Grown-ups door and the parent-set PIN. It is never persisted: cold launch, relaunch, and backgrounding always return to the kid home and close any parent flow in progress.
+- The full-screen PIN gate always shows a visible Cancel, cannot be casually swiped away, and never exposes parent content on failure. Five consecutive misses pause the keypad for a short cooldown.
+- A missing or forgotten PIN is reset only after a fresh Sign in with Apple by the owning parent (Journey B). PIN setup is never reachable from an un-elevated child session outside initial authenticated setup.
+- Never leave hidden or disabled parent money controls in the child's wallet. Omit them; they exist only inside the visually distinct Parent area, together with PIN change and sign-out.
 
-### 8.4 Wallet screen
+### 8.4 Wallet screens
 
-The wallet is the primary screen for both roles, with role-specific behavior.
+The child's wallet is the app's home screen. The Parent area presents the parent view of the same wallet as a temporary, full-screen administrative space behind the PIN gate.
 
-**Parent view** includes:
+**Parent area** includes:
 
 1. The configured child profile's virtual balance and last sync state.
 2. Next allowance information.
 3. A secondary open-loan card, if a loan exists. Tapping it opens loan details.
 4. Recent Activity visible directly on the wallet, with rows opening activity details.
 5. Parent actions for allowance, deposit, withdrawal, loan, and repayment.
+6. A minimal settings surface for changing the parent PIN (with the current PIN) and signing out (with confirmation).
+7. An unmistakable Parent area header and a persistent, explicit exit back to the child's wallet.
 
-**Child view** includes:
+**Kid home** includes:
 
 1. The child's accepted virtual balance and a clear practice-only label.
-2. Recent Activity directly on the wallet. There is no separate Recent Activity navigation item in the MVP.
+2. Recent Activity directly on the wallet, or a friendly ready-state message while the wallet is still empty. There is no separate Recent Activity navigation item in the MVP.
 3. The open-loan card and read-only loan details when applicable.
 4. The next lesson and linear progress.
-5. Last-updated or stale status when offline.
+5. Last-updated or stale status when offline, in calm child wording.
+6. The Grown-ups door, visually secondary to the child content.
 
-The child wallet must not include a child request button, money action button, edit control, delete control, or approval control.
+The kid home must not include a child request button, money action button, edit control, delete control, approval control, sign-out, or any other parent control.
 
 ### 8.5 Activity list and details
 
@@ -318,7 +324,7 @@ Lessons should be short, readable aloud, and age-band appropriate. No countdowns
 | Capability | Parent | Child mode |
 | --- | --- | --- |
 | Sign in with Apple | Required | Not required |
-| Enter parent mode | PIN required | Never |
+| Enter the Parent area | PIN required | Never |
 | View accepted wallet and activity | Yes | Yes, read-only |
 | Create/edit/pause allowance rule | Yes | No |
 | Record deposit or withdrawal | Yes | No |
@@ -394,7 +400,7 @@ These questions do not block the product boundary above, but must be answered be
 1. Which exact iOS/iPadOS versions and oldest iPad models are supported? *(Current implementation answer: the Xcode project declares an iOS/iPadOS 17.0 minimum for iPhone and iPad; the oldest supported hardware has not been decided.)*
 2. Should the allowance MVP remain parent-confirmed on or after the due date, or should a reliable server job automatically record it?
 3. What additional allowance cadences, if any, belong in the first release?
-4. What is the parent PIN recovery path if the parent forgets it or changes devices?
+4. What is the parent PIN recovery path if the parent forgets it or changes devices? *(Decided 2026-07-27: a forgotten or missing parent PIN is recovered on-device through a fresh Sign in with Apple by the owning parent, who then sets a new PIN. Family data is untouched, full re-setup is not required, and no recovery-code system is added. The new-device path remains ordinary sign-in plus PIN setup.)*
 5. What is the exact offline queue policy and how recent must the cached balance be before queuing a parent command?
 6. What age band and launch countries determine lesson content, privacy review, and distribution decisions?
 7. Is a local-only lesson completion state sufficient, or should child progress sync in a later release?
@@ -407,7 +413,7 @@ These questions do not block the product boundary above, but must be answered be
 The MVP is product-complete when all of the following are true:
 
 1. A parent can sign in with Apple, create one family and a parent-managed child profile, and set a parent PIN without creating a child login.
-2. On a shared iPad, entering parent mode requires the parent-set PIN. Child mode never exposes parent money controls.
+2. On a shared iPad, the app rests on the child's read-only wallet, and entering the Parent area requires the parent-set PIN. The kid home never exposes parent money controls or sign-out.
 3. The wallet labels its US-dollar balance as virtual, pretend, and nonredeemable in the primary view and money detail views.
 4. A parent can create a simple allowance rule, record a deposit, record a withdrawal, create an interest-free loan, and record a partial or full repayment.
 5. Each accepted money event changes the accepted balance exactly once and appears in the wallet activity list with an understandable explanation.
