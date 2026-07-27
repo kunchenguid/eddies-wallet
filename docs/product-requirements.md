@@ -58,7 +58,7 @@ The configured child profile uses a simple child view to check a virtual balance
 
 - The MVP has one signed-in parent owner and one parent-managed child profile.
 - The parent is the only role that can create or change wallet data, the allowance rule, the child profile, or the parent PIN.
-- Child mode is a view of the configured child profile, not a second account with independent authority.
+- The kid home is a view of the configured child profile, not a second account with independent authority.
 - Future co-parent members and independent child-device identities must not be implied by MVP UI.
 
 ## 4. Product boundary
@@ -142,7 +142,7 @@ The same meaning should appear in the wallet header, activity details, loan deta
 | Repayment | Virtual dollars returned to the family wallet. |
 | Virtual balance | Pretend dollars for practice, not real money. |
 
-The UI may use the familiar words deposit, withdrawal, loan, and repayment, but must not use them to suggest a financial service.
+The UI may use the familiar words deposit, withdrawal, loan, and repayment, but must not use them to suggest a financial service. Kid-facing surfaces use calm, everyday language rather than technical phrases such as “accepted balance,” “sync,” or “session”; parent surfaces retain the precise ledger and status vocabulary.
 
 ## 7. Core user journeys
 
@@ -159,9 +159,9 @@ If setup loses connectivity before the family is created, the app must retain fo
 ### Journey B: shared-iPad access through the parent door
 
 1. A configured, signed-in device always opens to the child's read-only wallet. The kid home is the app's resting state on every cold launch and relaunch; there is no permanently visible role switch.
-2. The kid home shows a small, clearly labeled **Grown-ups** door. Opening it always presents the full-screen PIN gate, which reveals no family or parent data.
+2. The kid home shows a small, clearly labeled **Grown-ups** door with at least a 44-point touch target. Opening it always presents the full-screen PIN gate, which reveals no family or parent data.
 3. A correct parent-set PIN opens a visually distinct, temporary **Parent area** with an explicit, always-visible way back to the child's wallet.
-4. A wrong PIN stays on the gate without exposing parent content, and repeated failures pause the keypad briefly. PIN changes require the existing PIN and happen only inside the Parent area.
+4. A wrong PIN stays on the gate without exposing parent content. Five consecutive misses pause the keypad for 30 seconds; the cooldown survives closing and reopening the gate but not process death. PIN changes require the existing PIN and happen only inside the Parent area.
 5. Backgrounding, locking, or relaunching the app closes the Parent area and any parent flow in progress and returns to the child's wallet. Parent access is never persisted.
 6. A forgotten or missing parent PIN is recovered through a fresh Sign in with Apple by the owning parent, after which the parent chooses a new PIN. Family data is unchanged, and full sign-out or re-setup is not required. There is no recovery-code system.
 7. Signing out is available only inside the Parent area, asks for confirmation that explains the local removal, and returns the device to a neutral state with no usable family data.
@@ -185,13 +185,14 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 4. The child follows the next lesson in order.
 5. The child cannot add, withdraw, loan, repay, request, edit, delete, or approve virtual dollars.
 
-### Journey E: offline recovery
+### Journey E: offline and session recovery
 
 1. A child offline sees the last accepted snapshot with a **Last updated** time and can read cached lessons.
 2. A parent offline may queue an eligible money command only if the app has a recent accepted balance. The command is clearly marked **Waiting to sync**.
 3. On reconnect, the server or API revalidates the command and either accepts it once or rejects it with a plain-language reason.
 4. A rejected command never changes the accepted balance. Any provisional local display is reversed and the parent can retry after reviewing the reason.
 5. Offline allowance setup is a local draft until it is accepted. The app must not claim that a rule or allowance occurrence exists while offline.
+6. If the parent session expires, the app keeps the cached read-only kid snapshot and explains in kid wording that a grown-up needs to sign in again. The Grown-ups door then requires a fresh Sign in with Apple by the owning parent before the PIN gate; the child is not sent to Welcome and no parent content appears before reauthentication.
 
 ## 8. MVP screens and behavior
 
@@ -213,7 +214,7 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 
 - The child's read-only wallet, labeled with the configured nickname when available and neutral wording otherwise, is the home screen and the app's only persistent surface.
 - Parent access is a transient elevation entered through the labeled Grown-ups door and the parent-set PIN. It is never persisted: cold launch, relaunch, and backgrounding always return to the kid home and close any parent flow in progress.
-- The full-screen PIN gate always shows a visible Cancel, cannot be casually swiped away, and never exposes parent content on failure. Five consecutive misses pause the keypad for a short cooldown.
+- The full-screen PIN gate always shows a visible Cancel, cannot be casually swiped away, and never exposes parent content on failure. Five consecutive misses use the 30-second cooldown defined in Journey B.
 - A missing or forgotten PIN is reset only after a fresh Sign in with Apple by the owning parent (Journey B). PIN setup is never reachable from an un-elevated child session outside initial authenticated setup.
 - Never leave hidden or disabled parent money controls in the child's wallet. Omit them; they exist only inside the visually distinct Parent area, together with PIN change and sign-out.
 
@@ -321,7 +322,7 @@ Lessons should be short, readable aloud, and age-band appropriate. No countdowns
 
 ## 9. Roles and permissions
 
-| Capability | Parent | Child mode |
+| Capability | Parent | Kid home |
 | --- | --- | --- |
 | Sign in with Apple | Required | Not required |
 | Enter the Parent area | PIN required | Never |
@@ -400,13 +401,12 @@ These questions do not block the product boundary above, but must be answered be
 1. Which exact iOS/iPadOS versions and oldest iPad models are supported? *(Current implementation answer: the Xcode project declares an iOS/iPadOS 17.0 minimum for iPhone and iPad; the oldest supported hardware has not been decided.)*
 2. Should the allowance MVP remain parent-confirmed on or after the due date, or should a reliable server job automatically record it?
 3. What additional allowance cadences, if any, belong in the first release?
-4. What is the parent PIN recovery path if the parent forgets it or changes devices? *(Decided 2026-07-27: a forgotten or missing parent PIN is recovered on-device through a fresh Sign in with Apple by the owning parent, who then sets a new PIN. Family data is untouched, full re-setup is not required, and no recovery-code system is added. The new-device path remains ordinary sign-in plus PIN setup.)*
-5. What is the exact offline queue policy and how recent must the cached balance be before queuing a parent command?
-6. What age band and launch countries determine lesson content, privacy review, and distribution decisions?
-7. Is a local-only lesson completion state sufficient, or should child progress sync in a later release?
-8. Which service implementation and operations plan meet the cost and recovery requirements, and who owns service incidents and restores?
-9. What retention period and parent deletion behavior apply to family data and accepted ledger history?
-10. Is the one-parent MVP sufficient for the pilot, or is a second authenticated parent a launch requirement?
+4. What is the exact offline queue policy and how recent must the cached balance be before queuing a parent command?
+5. What age band and launch countries determine lesson content, privacy review, and distribution decisions?
+6. Is a local-only lesson completion state sufficient, or should child progress sync in a later release?
+7. Which service implementation and operations plan meet the cost and recovery requirements, and who owns service incidents and restores?
+8. What retention period and parent deletion behavior apply to family data and accepted ledger history?
+9. Is the one-parent MVP sufficient for the pilot, or is a second authenticated parent a launch requirement?
 
 ## 15. MVP acceptance criteria
 

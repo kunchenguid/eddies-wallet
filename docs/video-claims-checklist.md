@@ -8,7 +8,7 @@ Use this checklist while scripting and reviewing any video or public presentatio
 2. Every displayed dollar is virtual, pretend, nonredeemable, and never moves real money.
 3. Only a parent, inside the PIN-gated Parent area, records changes; the managed child profile is read-only and has no independent account.
 4. The app depends on a separately operated service and an Apple signing setup that are not part of this repository.
-5. Verification so far covers local tests, local builds, and the signed-out UI only, not live Apple sign-in or production wallet activity.
+5. Verification so far covers local tests and builds, including synthetic signed-in UI scenarios, but not live Apple sign-in or production wallet activity.
 6. Privacy, release, and community work remains, and there is currently no downloadable release.
 
 ## Claims that are supported by local evidence
