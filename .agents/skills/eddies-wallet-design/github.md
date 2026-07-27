@@ -8,4 +8,4 @@ date: 2026-07-26T09:08:14Z
 ## Screen map
 | Project screen | Repo source |
 | --- | --- |
-| All screens (Welcome, Wallet, PIN gate, deposit/withdrawal/loan/repay flow, activity + loan detail, lesson) | README.md — §7 Core user journeys, §8 MVP screens and behavior (no UI code exists yet) |
+| All screens (Welcome, Wallet, PIN gate, deposit/withdrawal/loan/repay flow, activity + loan detail, lesson) | `docs/product-requirements.md` — §7 Core user journeys, §8 MVP screens and behavior (the PRD was the repository root README at sync time; no UI code existed yet) |
