@@ -17,7 +17,7 @@ These may be stated, with the qualifier that they were verified locally on a dev
 
 - The repository can be cloned anonymously over HTTPS and opened with the shared `EddysWallet` scheme.
 - The documented simulator test command passes (23 unit and transport-contract tests, run against injected fakes).
-- Debug and Release simulator builds and a signing-independent archive succeed.
+- Signing-independent Debug and Release simulator builds succeed.
 - The signed-out welcome screen runs on iPhone and iPad simulators and states the virtual-money terms.
 - The source is MIT licensed.
 
