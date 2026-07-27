@@ -16,8 +16,9 @@ Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and i
 ## What exists today
 
 - A native SwiftUI iOS/iPadOS app (`EddysWallet.xcodeproj`) targeting iOS 17.0+, iPhone and iPad, with no third-party dependencies.
-- Parent and read-only child wallet views, money-event flows, a starter lesson path, offline/pending states, and a local parent PIN gate, implemented against the [product requirements](docs/product-requirements.md).
-- Unit and contract-style transport tests (currently 23) that run entirely against injected fakes and never call a live service.
+- A kid-first navigation model: a configured device rests on the child's read-only wallet, and all parent money flows, the allowance rule, PIN change, and sign-out live in a temporary full-screen Parent area behind a "Grown-ups" door and the parent-set PIN. Parent access is never persisted; backgrounding or relaunching always returns to the kid home. A forgotten PIN is recovered with a fresh Sign in with Apple by the owning parent.
+- Money-event flows with review steps, a starter lesson path, and honest offline/pending/rejected states, implemented against the [product requirements](docs/product-requirements.md).
+- Unit, contract-style transport, and native UI tests in the shared scheme that run entirely against injected fakes and never call a live service.
 - A copied web design system and click-through prototype, packaged as the `eddies-wallet-design` agent skill under `.agents/skills/eddies-wallet-design/`, kept as visual reference material; the native app is the maintained implementation.
 
 What does not exist: releases, tags, an App Store listing, CI, a privacy manifest, or verified live sign-in. See [Known limitations](#known-limitations).
@@ -62,13 +63,14 @@ This repository contains only the client. The app is designed to talk to a separ
 | --- | --- |
 | `EddysWallet/` | App source: views, models, API client, design tokens, and a [client README](EddysWallet/README.md) covering configuration, keychain use, and signing |
 | `EddysWalletTests/` | Unit and transport-contract tests |
+| `EddysWalletUITests/` | Native UI tests and the synthetic screenshot tour |
 | `EddysWallet.xcodeproj` | Xcode project with the shared `EddysWallet` scheme |
 | `docs/` | [Product requirements](docs/product-requirements.md), [video claims checklist](docs/video-claims-checklist.md), and screenshots |
 | `.agents/skills/eddies-wallet-design/` | Copied web design system and prototype, packaged as an agent skill and kept as visual reference; `.claude/skills` is a symlink to `.agents/skills` so Claude Code discovers the same directory |
 
 ## Known limitations
 
-- This is an unfinished MVP. Live Apple sign-in and the full family flow against the production service have **not** been verified end to end; verification so far covers local builds, the test suite, and the signed-out UI.
+- This is an unfinished MVP. Live Apple sign-in and the full family flow against the production service have **not** been verified end to end; verification so far covers local builds, the test suite, the signed-out welcome UI, and synthetic signed-in UI scenarios.
 - There is no released, downloadable, or App Store-ready build: no marketing version, no privacy manifest, no signed archive evidence, no release notes, and no tags.
 - There is no CI; test results are local evidence only.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.

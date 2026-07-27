@@ -76,18 +76,6 @@ struct WelcomeView: View {
     }
 }
 
-private struct AppleSignInButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(EW.Font.bodyBold)
-            .foregroundStyle(Color.white)
-            .frame(maxWidth: .infinity, minHeight: 52)
-            .background(Color.black, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
 #Preview("Welcome") {
     WelcomeView()
         .environmentObject(WalletStore())

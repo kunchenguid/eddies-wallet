@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LessonView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: WalletStore
     @State private var lessonIndex = 2
 
@@ -15,6 +16,17 @@ struct LessonView: View {
     }
 
     private var lesson: (title: String, icon: String, color: Color, text: String) { lessons[lessonIndex] }
+
+    /// The borrow-and-repay lesson may reference the wallet's actual open
+    /// loan, and only that loan; with no open loan it stays non-dynamic so
+    /// the child never reads a made-up amount.
+    private var lessonFootnote: String {
+        if lessonIndex == 2, let loan = store.snapshot.loan, !loan.isPaid {
+            let subject = ChildProfileCopy.childSubject(nickname: store.snapshot.configuredChildNickname)
+            return "Right now, \(subject) has \(Money(cents: loan.remainingCents).display) left to repay from a \(Money(cents: loan.originalCents).display) virtual loan."
+        }
+        return "These lessons are for practice. Finishing a lesson never creates or changes a money event."
+    }
 
     var body: some View {
         NavigationStack {
@@ -48,9 +60,7 @@ struct LessonView: View {
                             .foregroundStyle(EW.Color.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        Text(lessonIndex == 2
-                             ? "Right now, \(ChildProfileCopy.childSubject(nickname: store.snapshot.configuredChildNickname)) has US$6.00 left to repay from a US$10.00 virtual loan."
-                             : "These lessons are for practice. Finishing a lesson never creates or changes a money event.")
+                        Text(lessonFootnote)
                             .font(EW.Font.body)
                             .foregroundStyle(EW.Color.textSecondary)
 
@@ -70,7 +80,7 @@ struct LessonView: View {
                             .frame(width: index == lessonIndex ? 18 : 12, height: index == lessonIndex ? 18 : 12)
                     }
                 }
-                .animation(.easeInOut(duration: 0.15), value: lessonIndex)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: lessonIndex)
 
                 Button(lessonIndex == lessons.count - 1 ? "Done" : "Continue") {
                     if lessonIndex < lessons.count - 1 {

@@ -6,6 +6,8 @@ The app's service implementation and operations are maintained separately. Keep 
 
 Brand and interface guidance lives in the project skill at `.agents/skills/eddies-wallet-design/SKILL.md`; load it before changing visuals, copy, or assets. `.claude/skills` is a tracked relative symlink to `.agents/skills`, so keep skill directory names matching their `name:` frontmatter and keep file names exact-cased for case-sensitive checkouts.
 
+The app is kid-first: the child's read-only wallet is the root, and parent access is a transient in-memory elevation (`WalletStore.elevation`) that must never be persisted or survive backgrounding. Signed-in states in simulators and UI tests are driven through the Debug-only launch seam in `EddysWallet/DebugScenarios.swift` (`EW_UITEST_SCENARIO`), never through real accounts. `EddysWallet.xcodeproj/project.pbxproj` is hand-maintained with deterministic hex IDs; follow the existing ID conventions when adding files or targets.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

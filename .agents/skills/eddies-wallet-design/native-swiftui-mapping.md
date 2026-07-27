@@ -11,11 +11,11 @@ The source design system in this directory is the visual source of truth. The pr
 | `tokens/typography.css` | `EW.Font` | Uses Dynamic Type-compatible rounded system fonts. |
 | `Button`, `IconButton` | `PrimaryButtonStyle`, `SecondaryButtonStyle`, native `Button` | Native touch targets and accessibility labels. |
 | `StatusPill` | `StatusPill` | Fixed Recorded / Waiting to sync / Not recorded / Draft on this iPad vocabulary. |
-| `RoleSwitch` | `RoleSwitcher` | Native segmented role control; parent switch is PIN-gated by `WalletStore`. |
+| `RoleSwitch` | retired; `GrownUpsDoorLabel` + `ParentGateView` | The peer role switch was replaced by the kid-first model (2026-07): the kid home shows a quiet Grown-ups door, and the PIN gate opens a transient full-screen Parent area managed by `WalletStore` elevation. |
 | `BalanceDisplay` | `MoneyAmount` and wallet hero cards | Exact minor-unit money formatting with `US$` and two decimals. |
 | `ActivityRow` | `ActivityRowView` | Native SF Symbols stand in for the supplied Lucide-derived SVGs. |
 | `LoanCard` | `LoanCardView` | Peach treatment, progress, and parent-only repayment affordance. |
-| `PinPad` | `PinGateView` | Native buttons, no child access to parent controls. |
+| `PinPad` | `PINKeypad` in `ParentGateView` | Native buttons, full-screen gate, bounded retries with cooldown, no child access to parent controls. |
 | `Card`, `Modal` | `ewCard` and SwiftUI `.sheet` | Native sheets provide the review/detail presentation. |
 
 ## Asset notes

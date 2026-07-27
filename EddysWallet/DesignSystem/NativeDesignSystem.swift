@@ -167,6 +167,8 @@ public struct StatusPill: View {
     public var body: some View {
         Label(state.label, systemImage: icon)
             .font(EW.Font.captionUpper)
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(foreground)
             .padding(.horizontal, EW.Space.three)
             .padding(.vertical, EW.Space.two)
@@ -176,39 +178,23 @@ public struct StatusPill: View {
     }
 }
 
-public struct RoleSwitcher: View {
-    @Binding public var role: UserRole
-    public let childTitle: String
-    public let onSelect: (UserRole) -> Void
-
-    public init(role: Binding<UserRole>, childTitle: String = "Child's view", onSelect: @escaping (UserRole) -> Void) {
-        self._role = role
-        self.childTitle = childTitle
-        self.onSelect = onSelect
-    }
+/// The quiet, secondary "Grown-ups" door on the kid home. Visually tertiary
+/// (cream pill, small lock) but at least 44pt tall and clearly labeled.
+public struct GrownUpsDoorLabel: View {
+    public init() {}
 
     public var body: some View {
-        HStack(spacing: 2) {
-            ForEach(UserRole.allCases) { item in
-                Button {
-                    onSelect(item)
-                } label: {
-                    Text(item == .child ? childTitle : item.title)
-                        .font(EW.Font.bodyBold)
-                        .foregroundStyle(role == item ? EW.Color.white : EW.Color.textSecondary)
-                        .padding(.horizontal, EW.Space.four)
-                        .padding(.vertical, EW.Space.two + 2)
-                        .frame(minHeight: 40)
-                        .background(role == item ? EW.Color.primary : .clear, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(role == item ? .isSelected : [])
-            }
+        HStack(spacing: EW.Space.two - 2) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 12, weight: .semibold))
+            Text("Grown-ups")
+                .font(EW.Font.caption)
         }
-        .padding(4)
+        .foregroundStyle(EW.Color.textSecondary)
+        .padding(.horizontal, EW.Space.three)
+        .frame(minHeight: 44)
         .background(EW.Color.cardAlt, in: Capsule())
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Switch person")
+        .overlay(Capsule().stroke(EW.Color.border, lineWidth: 1))
     }
 }
 
@@ -268,7 +254,7 @@ public struct PrimaryButtonStyle: ButtonStyle {
         configuration.label
             .font(EW.Font.bodyBold)
             .foregroundStyle(EW.Color.white)
-            .frame(maxWidth: .infinity, minHeight: compact ? 42 : 52)
+            .frame(maxWidth: .infinity, minHeight: compact ? 44 : 52)
             .padding(.horizontal, compact ? EW.Space.four : EW.Space.six)
             .background(EW.Color.primary, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
@@ -283,7 +269,7 @@ public struct SecondaryButtonStyle: ButtonStyle {
         configuration.label
             .font(EW.Font.bodyBold)
             .foregroundStyle(EW.Color.textPrimary)
-            .frame(maxWidth: .infinity, minHeight: compact ? 42 : 52)
+            .frame(maxWidth: .infinity, minHeight: compact ? 44 : 52)
             .padding(.horizontal, compact ? EW.Space.four : EW.Space.six)
             .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)

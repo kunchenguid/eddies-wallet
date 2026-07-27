@@ -6,9 +6,9 @@ Use this checklist while scripting and reviewing any video or public presentatio
 
 1. This is an unfinished frontend MVP and PRD, not a released financial product.
 2. Every displayed dollar is virtual, pretend, nonredeemable, and never moves real money.
-3. Parent mode records changes; the managed child profile is read-only and has no independent account.
+3. Only a parent, inside the PIN-gated Parent area, records changes; the managed child profile is read-only and has no independent account.
 4. The app depends on a separately operated service and an Apple signing setup that are not part of this repository.
-5. Verification so far covers local tests, local builds, and the signed-out UI only, not live Apple sign-in or production wallet activity.
+5. Verification so far covers local tests and builds, including synthetic signed-in UI scenarios, but not live Apple sign-in or production wallet activity.
 6. Privacy, release, and community work remains, and there is currently no downloadable release.
 
 ## Claims that are supported by local evidence
@@ -16,7 +16,7 @@ Use this checklist while scripting and reviewing any video or public presentatio
 These may be stated, with the qualifier that they were verified locally on a development machine:
 
 - The repository can be cloned anonymously over HTTPS and opened with the shared `EddysWallet` scheme.
-- The documented simulator test command passes (23 unit and transport-contract tests, run against injected fakes).
+- The documented simulator test command passes (unit, transport-contract, and native UI tests, run against injected fakes and synthetic fixture data).
 - Signing-independent Debug and Release simulator builds succeed.
 - The signed-out welcome screen runs on iPhone and iPad simulators and states the virtual-money terms.
 - The source is MIT licensed.
