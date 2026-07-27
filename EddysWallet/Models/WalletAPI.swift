@@ -581,6 +581,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
     private var currentChild: WalletSnapshot
     private var pendingCommands: [String: WalletCommand]
     private var rejectedEvents: [WalletEvent] = []
+    private var lifecycleGeneration = 0
 
     public init(
         baseURL: URL = APIConfiguration.productionBaseURL,
@@ -634,6 +635,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
 
     public func refresh(for role: UserRole) async throws -> WalletSnapshot {
         guard isAuthenticated else { throw WalletAPIError.noSession }
+        let requestedGeneration = lifecycleGeneration
         if role == .parent {
             try await flushPendingCommands()
         }
@@ -646,6 +648,9 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
             }
             let refreshed = try mapSnapshot(response, includesParentLocalState: role == .parent)
             if role == .child {
+                guard requestedGeneration == lifecycleGeneration else {
+                    return currentChild
+                }
                 currentChild = refreshed
                 currentChild.isStale = false
                 cache.save(currentChild)
@@ -658,7 +663,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         } catch let error as WalletAPIError {
             switch error {
             case .network, .invalidResponse:
-                if role == .child {
+                if role == .child, requestedGeneration == lifecycleGeneration {
                     currentChild.isStale = true
                     cache.save(currentChild)
                 }
@@ -761,6 +766,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
     }
 
     public func clearSession() {
+        lifecycleGeneration += 1
         sessionStore.clear()
         pendingCommands.removeAll()
         rejectedEvents.removeAll()

@@ -181,6 +181,52 @@ final class WalletTests: XCTestCase {
         XCTAssertEqual(repository.setAllowanceCallCount, 0)
     }
 
+    func testCompletedParentCommandCannotOverwriteKidSnapshotAfterDone() async {
+        let repository = SuspendingMutationRepository()
+        let store = makeConfiguredStore(repository: repository)
+        store.openParentGate()
+        enterPIN("1234", into: store)
+
+        let submission = Task {
+            await store.submit(WalletCommand(kind: .deposit, amountCents: 800))
+        }
+        while !repository.submitStarted {
+            await Task.yield()
+        }
+
+        store.exitParentArea()
+        repository.completeSubmit()
+        _ = await submission.value
+
+        XCTAssertEqual(store.elevation, .none)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, repository.childSnapshot().acceptedBalanceCents)
+        XCTAssertNotEqual(store.snapshot.acceptedBalanceCents, repository.snapshot().acceptedBalanceCents)
+    }
+
+    func testCompletedAllowanceCannotOverwriteKidSnapshotAfterBackgrounding() async {
+        let repository = SuspendingMutationRepository()
+        let store = makeConfiguredStore(repository: repository)
+        store.openParentGate()
+        enterPIN("1234", into: store)
+
+        let update = Task {
+            await store.setAllowance(
+                AllowanceRuleCommand(amountCents: 500, weekday: 1, startDate: .now)
+            )
+        }
+        while !repository.allowanceStarted {
+            await Task.yield()
+        }
+
+        store.handleAppBackgrounded()
+        repository.completeAllowance()
+        _ = await update.value
+
+        XCTAssertEqual(store.elevation, .none)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, repository.childSnapshot().acceptedBalanceCents)
+        XCTAssertNotEqual(store.snapshot.acceptedBalanceCents, repository.snapshot().acceptedBalanceCents)
+    }
+
     func testChangeParentPINRequiresParentAreaAndCurrentPIN() {
         let pinStore = InMemoryParentPINStore(pin: "1234")
         let store = makeConfiguredStore(pinStore: pinStore)
@@ -338,6 +384,20 @@ final class WalletTests: XCTestCase {
         XCTAssertEqual(DeviceCopy.deviceNoun(for: .pad), "iPad")
     }
 
+    func testKidActivityAttributionIsTruthfulForCreditsAndDebits() {
+        let credit = WalletEvent(type: .deposit, amountCents: 500, explanation: "Added pretend dollars.")
+        let debit = WalletEvent(type: .withdrawal, amountCents: 200, explanation: "Used pretend dollars.")
+
+        for event in [credit, debit] {
+            let attribution = ActivityDetailCopy.attribution(for: event, audience: .kid)
+            XCTAssertEqual(attribution.label, "Changed by")
+            XCTAssertEqual(attribution.value, "Your grown-up")
+        }
+        let parent = ActivityDetailCopy.attribution(for: debit, audience: .parent)
+        XCTAssertEqual(parent.label, "Recorded by")
+        XCTAssertEqual(parent.value, "Parent")
+    }
+
     // MARK: - Setup handoff (report criteria 6, 9)
 
     func testSetupCompletionEntersParentAreaWithFirstActionsHandoff() async {
@@ -404,6 +464,42 @@ final class WalletTests: XCTestCase {
         XCTAssertFalse(store.isSignedIn)
         XCTAssertEqual(repository.clearAuthenticationCallCount, 1)
         XCTAssertNotNil(store.errorMessage)
+    }
+
+    func testPINPersistenceFailureCommitsSetupAndRoutesToVerifiedRecovery() async {
+        let repository = FailingRefreshRepository(
+            snapshot: .empty(),
+            error: .familyNotSetup,
+            hasConfiguredKid: false
+        )
+        let provider = FakeAppleSignInProvider(appleUserID: "owner-1")
+        let store = WalletStore(
+            repository: repository,
+            appleSignInProvider: provider,
+            initiallySignedIn: true,
+            pinStore: FailingParentPINStore(),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner-1")
+        )
+        await store.refresh()
+
+        let created = await store.setupParent(
+            ParentSetup(nickname: "Eddie", lessonAgeBand: "school-age"),
+            pin: "1234",
+            confirmation: "1234"
+        )
+
+        XCTAssertFalse(created)
+        XCTAssertEqual(repository.setupCallCount, 1)
+        XCTAssertTrue(repository.hasConfiguredKid)
+        XCTAssertFalse(store.needsSetup)
+        XCTAssertEqual(store.elevation, .gate)
+        XCTAssertEqual(store.gateRoute, .reauth(.missingPIN))
+        XCTAssertEqual(store.snapshot, repository.childSnapshot())
+        XCTAssertNotNil(store.gateErrorMessage)
+
+        await store.reauthenticateOwningParent()
+        XCTAssertEqual(store.gateRoute, .setPIN)
+        XCTAssertEqual(repository.setupCallCount, 1)
     }
 
     // MARK: - Money and honesty invariants (unchanged behavior)
@@ -740,6 +836,7 @@ private final class FailingRefreshRepository: WalletRepository {
     private(set) var authenticated: Bool
     private(set) var clearAuthenticationCallCount = 0
     private(set) var setAllowanceCallCount = 0
+    private(set) var setupCallCount = 0
 
     init(
         snapshot: WalletSnapshot,
@@ -768,13 +865,94 @@ private final class FailingRefreshRepository: WalletRepository {
         setAllowanceCallCount += 1
         return try await inner.setAllowance(command)
     }
-    func setup(_ setup: ParentSetup) async throws -> WalletSnapshot { try await inner.setup(setup) }
+    func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {
+        setupCallCount += 1
+        error = nil
+        return try await inner.setup(setup)
+    }
     func clearAuthentication() {
         clearAuthenticationCallCount += 1
         authenticated = false
         inner.clearAuthentication()
     }
     func clearSession() { inner.clearSession() }
+}
+
+@MainActor
+private final class SuspendingMutationRepository: WalletRepository {
+    private let child = WalletSnapshot(
+        acceptedBalanceCents: 100,
+        activities: [],
+        loan: nil,
+        allowance: nil,
+        pendingEvents: [],
+        lastUpdated: .now,
+        isStale: false,
+        childNickname: "Eddie"
+    )
+    private var parent: WalletSnapshot
+    private var submitContinuation: CheckedContinuation<CommandResult, Never>?
+    private var allowanceContinuation: CheckedContinuation<WalletSnapshot, Never>?
+    private(set) var submitStarted = false
+    private(set) var allowanceStarted = false
+
+    init() {
+        parent = child
+    }
+
+    var isAuthenticated: Bool { true }
+    var hasConfiguredKid: Bool { true }
+    func snapshot() -> WalletSnapshot { parent }
+    func childSnapshot() -> WalletSnapshot { child }
+    func refresh(for role: UserRole) async throws -> WalletSnapshot {
+        role == .child ? child : parent
+    }
+    func activity(limit _: Int) async throws -> [WalletEvent] { [] }
+    func activityDetail(remoteID _: String) async throws -> WalletEvent {
+        throw WalletAPIError.invalidResponse("Not used in this test.")
+    }
+    func loanDetail(remoteID _: String) async throws -> LoanDetail {
+        throw WalletAPIError.invalidResponse("Not used in this test.")
+    }
+    func submit(_ command: WalletCommand) async throws -> CommandResult {
+        submitStarted = true
+        return await withCheckedContinuation { continuation in
+            submitContinuation = continuation
+        }
+    }
+    func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {
+        allowanceStarted = true
+        return await withCheckedContinuation { continuation in
+            allowanceContinuation = continuation
+        }
+    }
+    func setup(_ setup: ParentSetup) async throws -> WalletSnapshot { parent }
+    func clearAuthentication() {}
+    func clearSession() {}
+
+    func completeSubmit() {
+        parent.acceptedBalanceCents = 900
+        let event = WalletEvent(type: .deposit, amountCents: 800, explanation: "Added pretend dollars.")
+        submitContinuation?.resume(returning: .accepted(event))
+        submitContinuation = nil
+    }
+
+    func completeAllowance() {
+        parent.acceptedBalanceCents = 700
+        allowanceContinuation?.resume(returning: parent)
+        allowanceContinuation = nil
+    }
+}
+
+@MainActor
+private final class FailingParentPINStore: ParentPINStore {
+    var pin: String? { nil }
+
+    func save(pin _: String) throws {
+        throw WalletAPIError.invalidResponse("The parent PIN could not be stored securely.")
+    }
+
+    func clear() {}
 }
 
 @MainActor

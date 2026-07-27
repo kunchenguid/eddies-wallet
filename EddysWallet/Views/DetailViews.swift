@@ -1,5 +1,17 @@
 import SwiftUI
 
+enum ActivityDetailCopy {
+    static func attribution(
+        for _: WalletEvent,
+        audience: ActivityDetailView.Audience
+    ) -> (label: String, value: String) {
+        switch audience {
+        case .kid: ("Changed by", "Your grown-up")
+        case .parent: ("Recorded by", "Parent")
+        }
+    }
+}
+
 struct ActivityDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let event: WalletEvent
@@ -36,7 +48,8 @@ struct ActivityDetailView: View {
                     if let reason = event.reason, !reason.isEmpty {
                         detailRow(label: event.type == .loan ? "Purpose" : "Reason", value: reason)
                     }
-                    detailRow(label: audience == .kid ? "Added by" : "Recorded by", value: "Parent")
+                    let attribution = ActivityDetailCopy.attribution(for: event, audience: audience)
+                    detailRow(label: attribution.label, value: attribution.value)
                     if let before = event.balanceBeforeCents, let after = event.balanceAfterCents {
                         detailRow(
                             label: audience == .kid ? "Wallet changed" : "Accepted balance",

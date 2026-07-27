@@ -358,8 +358,15 @@ public final class WalletStore: ObservableObject {
         isLoading = true
         errorMessage = nil
         do {
-            snapshot = try await repository.setup(setup)
+            _ = try await repository.setup(setup)
+        } catch {
+            errorMessage = userMessage(for: error)
+            isLoading = false
+            return false
+        }
+        do {
             try pinStore.save(pin: pin)
+            snapshot = repository.snapshot()
             needsSetup = false
             isSignedIn = true
             isLoading = false
@@ -373,7 +380,14 @@ public final class WalletStore: ObservableObject {
             return true
         } catch {
             errorMessage = userMessage(for: error)
+            gateErrorMessage = errorMessage
+            needsSetup = false
+            isSignedIn = true
             isLoading = false
+            snapshot = repository.childSnapshot()
+            elevation = .gate
+            gateRoute = .reauth(.missingPIN)
+            Task { [weak self] in await self?.refresh() }
             return false
         }
     }
@@ -384,15 +398,30 @@ public final class WalletStore: ObservableObject {
             errorMessage = "Only the Parent area can change the allowance rule."
             return false
         }
+        let generation = refreshGeneration
         isLoading = true
         errorMessage = nil
         do {
-            snapshot = try await repository.setAllowance(command)
-            isLoading = false
+            let refreshed = try await repository.setAllowance(command)
+            if generation == refreshGeneration, elevation == .active {
+                snapshot = refreshed
+                isLoading = false
+            }
             return true
+        } catch let error as WalletAPIError {
+            if error == .unauthorized || error == .noSession {
+                sessionExpired = repository.hasConfiguredKid
+                if elevation != .none { deElevate() }
+            } else if generation == refreshGeneration, elevation == .active {
+                errorMessage = userMessage(for: error)
+                isLoading = false
+            }
+            return false
         } catch {
-            errorMessage = userMessage(for: error)
-            isLoading = false
+            if generation == refreshGeneration, elevation == .active {
+                errorMessage = userMessage(for: error)
+                isLoading = false
+            }
             return false
         }
     }
@@ -409,14 +438,17 @@ public final class WalletStore: ObservableObject {
             )
             return .rejected(event)
         }
+        let generation = refreshGeneration
         do {
             let result = try await repository.submit(command)
-            snapshot = repository.snapshot()
+            if generation == refreshGeneration, elevation == .active {
+                snapshot = repository.snapshot()
+            }
             return result
         } catch let error as WalletAPIError {
-            if case .unauthorized = error {
-                sessionExpired = true
-                deElevate()
+            if error == .unauthorized || error == .noSession {
+                sessionExpired = repository.hasConfiguredKid
+                if elevation != .none { deElevate() }
             }
             let event = WalletEvent(
                 type: activityType(for: command.kind),
@@ -426,7 +458,9 @@ public final class WalletStore: ObservableObject {
                 explanation: "This action was not recorded and did not change the accepted balance.",
                 rejectionReason: userMessage(for: error)
             )
-            errorMessage = userMessage(for: error)
+            if generation == refreshGeneration, elevation == .active {
+                errorMessage = userMessage(for: error)
+            }
             return .rejected(event)
         } catch {
             let event = WalletEvent(

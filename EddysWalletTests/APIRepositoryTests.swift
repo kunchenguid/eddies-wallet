@@ -233,6 +233,42 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(repository.childSnapshot().acceptedBalanceCents, 0)
     }
 
+    func testInflightChildRefreshCannotRestoreClearedKidShell() async throws {
+        let cache = TestSnapshotCache()
+        cache.value = .fixture()
+        let configuredKid = InMemoryConfiguredKidStore(isConfigured: true)
+        let transport = SuspendingHTTPTransport()
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: transport,
+            cache: cache,
+            configuredKidStore: configuredKid
+        )
+
+        let refresh = Task { try await repository.refresh(for: .child) }
+        while transport.requests.isEmpty {
+            await Task.yield()
+        }
+
+        repository.clearSession()
+        transport.complete(
+            statusCode: 200,
+            body: snapshotBody(balance: 900, readOnly: true)
+        )
+        _ = try await refresh.value
+
+        XCTAssertNil(cache.value)
+        XCTAssertFalse(configuredKid.isConfigured)
+        XCTAssertEqual(repository.childSnapshot().acceptedBalanceCents, 0)
+        let relaunched = WalletStore(
+            repository: repository,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner-1")
+        )
+        XCTAssertFalse(relaunched.isSignedIn)
+    }
+
     private var validSession: AuthSession {
         AuthSession(token: "opaque-session", expiresAt: Date(timeIntervalSince1970: 4_000_000_000))
     }
@@ -274,6 +310,30 @@ private final class StubHTTPTransport: HTTPTransport {
         let response = responses.removeFirst()
         let http = HTTPURLResponse(url: request.url!, statusCode: response.statusCode, httpVersion: nil, headerFields: nil)!
         return (response.body, http)
+    }
+}
+
+private final class SuspendingHTTPTransport: HTTPTransport {
+    private(set) var requests: [URLRequest] = []
+    private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        requests.append(request)
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func complete(statusCode: Int, body: Data) {
+        guard let request = requests.first, let continuation else { return }
+        self.continuation = nil
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        continuation.resume(returning: (body, response))
     }
 }
 
