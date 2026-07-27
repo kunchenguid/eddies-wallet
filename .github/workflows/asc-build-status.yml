@@ -1,0 +1,355 @@
+name: Check App Store Connect build status
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Marketing version to query, for example 0.1
+        required: true
+        type: string
+      build:
+        description: Optional build number to query
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    name: Query App Store Connect
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Query build processing state
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          BUNDLE_ID: com.kunchenguid.eddieswallet
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUILD: ${{ inputs.build }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          : "${APP_STORE_CONNECT_KEY_ID:?Missing APP_STORE_CONNECT_KEY_ID}"
+          : "${APP_STORE_CONNECT_ISSUER_ID:?Missing APP_STORE_CONNECT_ISSUER_ID}"
+          : "${APP_STORE_CONNECT_API_KEY:?Missing APP_STORE_CONNECT_API_KEY}"
+
+          if ! [[ "$INPUT_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+            echo "Version must contain two or three numeric components, for example 0.1" >&2
+            exit 1
+          fi
+          if [[ -n "$INPUT_BUILD" ]] && ! [[ "$INPUT_BUILD" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "Build must contain one to three numeric components" >&2
+            exit 1
+          fi
+
+          printf '::add-mask::%s\n' "$APP_STORE_CONNECT_KEY_ID"
+          printf '::add-mask::%s\n' "$APP_STORE_CONNECT_ISSUER_ID"
+          printf '::add-mask::%s\n' "$APP_STORE_CONNECT_API_KEY"
+
+          KEY_PATH="$(mktemp "$RUNNER_TEMP/asc-api-key.XXXXXX")"
+          JWT_INPUT_PATH="$(mktemp "$RUNNER_TEMP/asc-jwt-input.XXXXXX")"
+          DER_SIGNATURE_PATH="$(mktemp "$RUNNER_TEMP/asc-jwt-signature.XXXXXX")"
+          JWT_PATH="$(mktemp "$RUNNER_TEMP/asc-jwt.XXXXXX")"
+          APP_RESPONSE_PATH="$(mktemp "$RUNNER_TEMP/asc-app-response.XXXXXX")"
+          RESPONSE_PATH="$(mktemp "$RUNNER_TEMP/asc-response.XXXXXX")"
+          STATUS_PATH="$RUNNER_TEMP/build-status.json"
+          cleanup() {
+            rm -f "$KEY_PATH" "$JWT_INPUT_PATH" "$DER_SIGNATURE_PATH" "$JWT_PATH" "$APP_RESPONSE_PATH" "$RESPONSE_PATH"
+          }
+          trap cleanup EXIT
+
+          export KEY_PATH JWT_INPUT_PATH DER_SIGNATURE_PATH JWT_PATH APP_RESPONSE_PATH RESPONSE_PATH STATUS_PATH
+          python3 <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          Path(os.environ["KEY_PATH"]).write_bytes(
+              base64.b64decode(os.environ["APP_STORE_CONNECT_API_KEY"])
+          )
+          PY
+          chmod 600 "$KEY_PATH"
+
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+
+          for line in Path(os.environ["KEY_PATH"]).read_text(encoding="utf-8").splitlines():
+              print(f"::add-mask::{line}")
+          PY
+
+          python3 <<'PY'
+          import base64
+          import json
+          import os
+          import time
+          from pathlib import Path
+
+          def base64url(value):
+              return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+          now = int(time.time())
+          header = {"alg": "ES256", "kid": os.environ["APP_STORE_CONNECT_KEY_ID"], "typ": "JWT"}
+          payload = {
+              "iss": os.environ["APP_STORE_CONNECT_ISSUER_ID"],
+              "iat": now,
+              "exp": now + 1200,
+              "aud": "appstoreconnect-v1",
+          }
+          signing_input = ".".join(
+              base64url(json.dumps(part, separators=(",", ":")).encode("utf-8"))
+              for part in (header, payload)
+          )
+          Path(os.environ["JWT_INPUT_PATH"]).write_text(signing_input, encoding="ascii")
+          PY
+
+          openssl dgst -sha256 -sign "$KEY_PATH" -out "$DER_SIGNATURE_PATH" "$JWT_INPUT_PATH"
+
+          python3 <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          def read_length(data, offset):
+              if offset >= len(data):
+                  raise ValueError("Missing DER length")
+              first = data[offset]
+              offset += 1
+              if first < 0x80:
+                  return first, offset
+              count = first & 0x7F
+              if count == 0 or count > 2 or offset + count > len(data):
+                  raise ValueError("Invalid DER length")
+              length = int.from_bytes(data[offset:offset + count], "big")
+              return length, offset + count
+
+          def read_integer(data, offset):
+              if offset >= len(data) or data[offset] != 0x02:
+                  raise ValueError("Expected DER integer")
+              length, offset = read_length(data, offset + 1)
+              end = offset + length
+              if length == 0 or end > len(data):
+                  raise ValueError("Invalid DER integer length")
+              value = data[offset:end]
+              if value[0] & 0x80:
+                  raise ValueError("Negative DER integer")
+              value = value.lstrip(b"\x00") or b"\x00"
+              if len(value) > 32:
+                  raise ValueError("ES256 integer exceeds 32 bytes")
+              return value.rjust(32, b"\x00"), end
+
+          def der_to_raw(data):
+              if not data or data[0] != 0x30:
+                  raise ValueError("Expected DER sequence")
+              sequence_length, offset = read_length(data, 1)
+              if offset + sequence_length != len(data):
+                  raise ValueError("Invalid DER sequence length")
+              r, offset = read_integer(data, offset)
+              s, offset = read_integer(data, offset)
+              if offset != len(data):
+                  raise ValueError("Unexpected trailing DER data")
+              return r + s
+
+          assert der_to_raw(bytes.fromhex("3006020101020102")) == (b"\x00" * 31 + b"\x01" + b"\x00" * 31 + b"\x02")
+          leading_zero = bytes.fromhex("302602210080" + "00" * 31 + "020101")
+          assert der_to_raw(leading_zero) == (b"\x80" + b"\x00" * 31 + b"\x00" * 31 + b"\x01")
+
+          signature = der_to_raw(Path(os.environ["DER_SIGNATURE_PATH"]).read_bytes())
+          encoded_signature = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
+          signing_input = Path(os.environ["JWT_INPUT_PATH"]).read_text(encoding="ascii")
+          Path(os.environ["JWT_PATH"]).write_text(f"{signing_input}.{encoded_signature}", encoding="ascii")
+          PY
+
+          JWT="$(<"$JWT_PATH")"
+          printf '::add-mask::%s\n' "$JWT"
+
+          # Resolve the App Store Connect app record from the committed bundle
+          # id. This repository intentionally stores no numeric App Store
+          # Connect app ID; a missing record is reported as an explicit
+          # prerequisite gap rather than an opaque API error.
+          if ! APP_HTTP_STATUS="$(curl \
+            --silent \
+            --show-error \
+            --output "$APP_RESPONSE_PATH" \
+            --write-out "%{http_code}" \
+            --request GET \
+            --header "Authorization: Bearer $JWT" \
+            --get "https://api.appstoreconnect.apple.com/v1/apps" \
+            --data-urlencode "filter[bundleId]=$BUNDLE_ID" \
+            --data-urlencode "fields[apps]=bundleId")"; then
+            echo "App Store Connect Apps API request failed" >&2
+            exit 1
+          fi
+          if ! [[ "$APP_HTTP_STATUS" =~ ^2[0-9][0-9]$ ]]; then
+            echo "App Store Connect Apps API returned HTTP $APP_HTTP_STATUS" >&2
+            exit 1
+          fi
+
+          APP_ID="$(python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          bundle_id = os.environ["BUNDLE_ID"]
+          try:
+              response = json.loads(Path(os.environ["APP_RESPONSE_PATH"]).read_text(encoding="utf-8"))
+          except (OSError, UnicodeError, json.JSONDecodeError) as error:
+              raise SystemExit(f"App Store Connect returned an invalid JSON response: {error}")
+
+          if not isinstance(response, dict) or response.get("errors"):
+              raise SystemExit("App Store Connect returned an API error")
+          data = response.get("data")
+          if not isinstance(data, list):
+              raise SystemExit("App Store Connect response did not contain an apps list")
+
+          matches = []
+          for item in data:
+              if not isinstance(item, dict):
+                  raise SystemExit("App Store Connect returned a malformed app")
+              attributes = item.get("attributes")
+              app_id = item.get("id")
+              if not isinstance(attributes, dict) or not isinstance(app_id, str) or not app_id:
+                  raise SystemExit("App Store Connect returned incomplete app metadata")
+              if attributes.get("bundleId") == bundle_id:
+                  matches.append(app_id)
+
+          if not matches:
+              raise SystemExit(
+                  f"No App Store Connect app record exists for bundle id {bundle_id}; "
+                  "create the app record first (see docs/release.md)"
+              )
+          if len(matches) > 1:
+              raise SystemExit(f"Multiple App Store Connect app records match bundle id {bundle_id}")
+          print(matches[0])
+          PY
+          )"
+
+          CURL_ARGS=(
+            --silent
+            --show-error
+            --output "$RESPONSE_PATH"
+            --write-out "%{http_code}"
+            --request GET
+            --header "Authorization: Bearer $JWT"
+            --get "https://api.appstoreconnect.apple.com/v1/builds"
+            --data-urlencode "filter[app]=$APP_ID"
+            --data-urlencode "filter[preReleaseVersion.version]=$INPUT_VERSION"
+            --data-urlencode "sort=-uploadedDate"
+            --data-urlencode "limit=10"
+            --data-urlencode "fields[builds]=version,processingState,uploadedDate,expired,minOsVersion"
+          )
+          if [[ -n "$INPUT_BUILD" ]]; then
+            CURL_ARGS+=(--data-urlencode "filter[version]=$INPUT_BUILD")
+          fi
+
+          if ! HTTP_STATUS="$(curl "${CURL_ARGS[@]}")"; then
+            echo "App Store Connect Builds API request failed" >&2
+            exit 1
+          fi
+          if ! [[ "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]]; then
+            echo "App Store Connect Builds API returned HTTP $HTTP_STATUS" >&2
+            exit 1
+          fi
+
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          response_path = Path(os.environ["RESPONSE_PATH"])
+          status_path = Path(os.environ["STATUS_PATH"])
+          marketing_version = os.environ["INPUT_VERSION"]
+          requested_build = os.environ["INPUT_BUILD"] or None
+
+          try:
+              response = json.loads(response_path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeError, json.JSONDecodeError) as error:
+              raise SystemExit(f"App Store Connect returned an invalid JSON response: {error}")
+
+          if not isinstance(response, dict):
+              raise SystemExit("App Store Connect response was not a JSON object")
+          if response.get("errors"):
+              raise SystemExit("App Store Connect returned an API error")
+          data = response.get("data")
+          if not isinstance(data, list):
+              raise SystemExit("App Store Connect response did not contain a builds list")
+
+          builds = []
+          for item in data:
+              attributes = item.get("attributes") if isinstance(item, dict) else None
+              if not isinstance(attributes, dict):
+                  raise SystemExit("App Store Connect returned a malformed build")
+              build_number = attributes.get("version")
+              state = attributes.get("processingState")
+              uploaded = attributes.get("uploadedDate")
+              expired = attributes.get("expired")
+              if not isinstance(build_number, str) or not isinstance(state, str):
+                  raise SystemExit("App Store Connect returned incomplete build metadata")
+              if uploaded is not None and not isinstance(uploaded, str):
+                  raise SystemExit("App Store Connect returned an invalid upload date")
+              if expired is not None and not isinstance(expired, bool):
+                  raise SystemExit("App Store Connect returned an invalid expired value")
+              if requested_build is not None and build_number != requested_build:
+                  continue
+              builds.append({
+                  "version": marketing_version,
+                  "build": build_number,
+                  "processingState": state,
+                  "uploadedDate": uploaded,
+                  "expired": expired,
+              })
+
+          result = {
+              "version": marketing_version,
+              "requestedBuild": requested_build,
+              "builds": builds,
+          }
+          status_path.write_text(
+              json.dumps(result, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+
+          summary_lines = [
+              "# App Store Connect build status",
+              "",
+              f"Requested version: `{marketing_version}`",
+              "",
+          ]
+          if builds:
+              summary_lines.extend([
+                  "| Version | Build | processingState | Uploaded | Expired |",
+                  "| --- | --- | --- | --- | --- |",
+              ])
+              for build in builds:
+                  expired_text = str(build["expired"]).lower() if build["expired"] is not None else "unknown"
+                  summary_lines.append(
+                      f"| {build['version']} | {build['build']} | {build['processingState']} | "
+                      f"{build['uploadedDate'] or 'unknown'} | {expired_text} |"
+                  )
+              selected = builds[0]
+              final_build = selected["build"]
+              final_state = selected["processingState"]
+          else:
+              target = f" build `{requested_build}`" if requested_build else ""
+              summary_lines.append(f"No builds found for version `{marketing_version}`{target}.")
+              final_build = requested_build or "none"
+              final_state = "NOT_FOUND"
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("\n".join(summary_lines) + "\n")
+
+          print(f"ASC_BUILD_STATUS version={marketing_version} build={final_build} state={final_state}")
+          PY
+
+      - name: Upload build status
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: asc-build-status
+          path: ${{ runner.temp }}/build-status.json
+          if-no-files-found: error
+          retention-days: 7

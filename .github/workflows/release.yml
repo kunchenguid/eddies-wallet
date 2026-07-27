@@ -1,0 +1,208 @@
+name: Release to TestFlight
+
+on:
+  push:
+    tags:
+      - 'eddies-wallet-v*'
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag to build, for example eddies-wallet-v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testflight-${{ inputs.tag_name || github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  testflight:
+    name: Archive and upload to TestFlight
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    env:
+      PROJECT_PATH: EddysWallet.xcodeproj
+      SCHEME: EddysWallet
+      CONFIGURATION: Release
+      BUNDLE_ID: com.kunchenguid.eddieswallet
+      # The Apple team ID deliberately stays out of Git (see EddysWallet/README.md);
+      # it is a nonsecret repository variable set once by the captain.
+      TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.tag_name || github.event.release.tag_name || github.ref_name }}
+
+      - name: Validate release configuration
+        run: |
+          set -euo pipefail
+          : "${TEAM_ID:?Missing APPLE_TEAM_ID repository variable; set it to the Apple Developer team ID that owns $BUNDLE_ID (see docs/release.md)}"
+
+      - name: Set build paths
+        run: |
+          echo "ARCHIVE_PATH=$RUNNER_TEMP/EddysWallet.xcarchive" >> "$GITHUB_ENV"
+          echo "EXPORT_PATH=$RUNNER_TEMP/EddysWallet-export" >> "$GITHUB_ENV"
+
+      - name: Select Xcode 26
+        run: |
+          XCODE_APP=$(python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def version_key(path):
+              match = re.search(r"Xcode_(\d+(?:\.\d+)*)", path.name)
+              if not match:
+                  return ()
+              return tuple(int(part) for part in match.group(1).split("."))
+
+          apps = sorted(Path("/Applications").glob("Xcode_26*.app"), key=version_key)
+          if not apps:
+              raise SystemExit("No Xcode 26 installation found on this runner")
+          print(apps[-1])
+          PY
+          )
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+
+      - name: Resolve release version
+        id: version
+        env:
+          INPUT_TAG_NAME: ${{ inputs.tag_name }}
+          RELEASE_EVENT_TAG_NAME: ${{ github.event.release.tag_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          TAG_NAME="${INPUT_TAG_NAME:-${RELEASE_EVENT_TAG_NAME:-$REF_NAME}}"
+          ./.github/scripts/resolve_release_version.sh "$TAG_NAME" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Restore App Store Connect API key
+        id: asc-key
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          : "${APP_STORE_CONNECT_KEY_ID:?Missing APP_STORE_CONNECT_KEY_ID}"
+          : "${APP_STORE_CONNECT_ISSUER_ID:?Missing APP_STORE_CONNECT_ISSUER_ID}"
+          : "${APP_STORE_CONNECT_API_KEY:?Missing APP_STORE_CONNECT_API_KEY}"
+
+          mkdir -p "$HOME/private_keys"
+          KEY_PATH="$HOME/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          export KEY_PATH
+
+          python3 <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          key_path = Path(os.environ["KEY_PATH"])
+          encoded = os.environ["APP_STORE_CONNECT_API_KEY"]
+          key_path.write_bytes(base64.b64decode(encoded))
+          PY
+
+          chmod 600 "$KEY_PATH"
+          echo "key_path=$KEY_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Archive Release build
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ steps.asc-key.outputs.key_path }}
+          APP_STORE_VERSION: ${{ steps.version.outputs.app_store_version }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+        run: |
+          set -euo pipefail
+
+          rm -rf "$ARCHIVE_PATH"
+          xcodebuild archive \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            MARKETING_VERSION="$APP_STORE_VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            | tee "$RUNNER_TEMP/xcodebuild-archive.log"
+
+      - name: Export IPA
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ steps.asc-key.outputs.key_path }}
+        run: |
+          set -euo pipefail
+
+          EXPORT_OPTIONS="$RUNNER_TEMP/ExportOptions.plist"
+          cp ExportOptions.plist "$EXPORT_OPTIONS"
+          plutil -insert teamID -string "$TEAM_ID" "$EXPORT_OPTIONS"
+
+          rm -rf "$EXPORT_PATH"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist "$EXPORT_OPTIONS" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
+            | tee "$RUNNER_TEMP/xcodebuild-export.log"
+
+      - name: Upload IPA to TestFlight
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+
+          IPA_PATH="$(find "$EXPORT_PATH" -maxdepth 1 -name '*.ipa' -print -quit)"
+          if [ -z "$IPA_PATH" ]; then
+            echo "No IPA found in $EXPORT_PATH" >&2
+            exit 1
+          fi
+
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA_PATH" \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+
+      - name: Prune surplus Apple Development certificates
+        if: always()
+        continue-on-error: true
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          node .github/scripts/prune_asc_development_certs.js
+
+      - name: Upload release artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: EddysWallet-TestFlight-${{ steps.version.outputs.release_version }}-${{ steps.version.outputs.build_number }}
+          path: |
+            ${{ runner.temp }}/EddysWallet-export/*.ipa
+            ${{ runner.temp }}/xcodebuild-archive.log
+            ${{ runner.temp }}/xcodebuild-export.log
+          if-no-files-found: ignore

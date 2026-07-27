@@ -1,0 +1,169 @@
+name: CI
+
+# Ordinary pull requests validate here without any Apple credential: this
+# workflow references no secrets and runs with read-only permissions.
+# SSHHIP keeps macOS CI release-only as a private-repo cost policy; this
+# repository is public, so macOS runner minutes are free and pull requests
+# get the same build-and-test gate.
+on:
+  pull_request:
+  push:
+    tags:
+      - 'eddies-wallet-v*'
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag to test, for example eddies-wallet-v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ inputs.tag_name || github.event.release.tag_name || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  xcode:
+    name: Xcode build and unit tests
+    if: >-
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'eddies-wallet-v')) ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/eddies-wallet-v')) ||
+      (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'eddies-wallet-v'))
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    env:
+      PROJECT_PATH: EddysWallet.xcodeproj
+      SCHEME: EddysWallet
+      CONFIGURATION: Debug
+      DERIVED_DATA_PATH: .build/DerivedData
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.tag_name || github.event.release.tag_name || '' }}
+
+      - name: Release pipeline regression checks
+        run: ./test/release-checks.sh
+
+      - name: Select Xcode 26
+        run: |
+          XCODE_APP=$(python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def version_key(path):
+              match = re.search(r"Xcode_(\d+(?:\.\d+)*)", path.name)
+              if not match:
+                  return ()
+              return tuple(int(part) for part in match.group(1).split("."))
+
+          apps = sorted(Path("/Applications").glob("Xcode_26*.app"), key=version_key)
+          if not apps:
+              raise SystemExit("No Xcode 26 installation found on this runner")
+          print(apps[-1])
+          PY
+          )
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iPhoneSimulator SDK: $(xcrun --sdk iphonesimulator --show-sdk-version)"
+
+      - name: Select iOS Simulator
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+
+          devices_by_runtime = json.loads(
+              subprocess.check_output([
+                  "xcrun",
+                  "simctl",
+                  "list",
+                  "devices",
+                  "available",
+                  "-j",
+              ])
+          )["devices"]
+
+          def runtime_version(runtime):
+              match = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              if not match:
+                  return (0, 0)
+              return tuple(int(part) for part in match.groups())
+
+          # Deterministic device policy: prefer the same device family the
+          # local gate and README verify on (iPhone 17 Pro) so CI cannot
+          # silently diverge from local dev. Runtime stays the newest the
+          # runner provisions.
+          PREFERRED_NAMES = ["iPhone 17 Pro", "iPhone 17"]
+
+          candidates = []
+          fallback = []
+          for runtime, devices in devices_by_runtime.items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if not device.get("isAvailable"):
+                      continue
+                  entry = (runtime_version(runtime), runtime, device["name"], device["udid"])
+                  fallback.append(entry)
+                  if device["name"].startswith("iPhone"):
+                      candidates.append(entry)
+
+          selected = None
+          for preferred in PREFERRED_NAMES:
+              exact = [entry for entry in candidates if entry[2] == preferred]
+              if exact:
+                  selected = sorted(exact)[-1]
+                  break
+          if selected is None:
+              selected = sorted(candidates or fallback)[-1]
+              print(
+                  "::warning::No preferred simulator "
+                  f"({', '.join(PREFERRED_NAMES)}) available; falling back to "
+                  f"{selected[2]}. Update PREFERRED_NAMES in ci.yml so CI and "
+                  "local dev verify on the same device family."
+              )
+          _, runtime, name, udid = selected
+          print(f"Selected {name} ({runtime}) [{udid}]")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"SIMULATOR_UDID={udid}\n")
+          PY
+
+      - name: Build
+        run: |
+          xcodebuild build \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination "id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH"
+
+      - name: Tests
+        run: |
+          xcodebuild test \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination "id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -resultBundlePath TestResults.xcresult
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-results
+          path: TestResults.xcresult
+          retention-days: 14
+          if-no-files-found: ignore

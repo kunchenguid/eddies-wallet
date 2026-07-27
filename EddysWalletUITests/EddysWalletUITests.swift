@@ -99,7 +99,16 @@ final class EddysWalletUITests: XCTestCase {
         openParentArea(in: app)
 
         XCUIDevice.shared.press(.home)
-        sleep(1)
+        // Wait for the app to actually leave the foreground instead of a fixed
+        // sleep: under CPU load the transition can take longer than a second,
+        // and reactivating before the app ever backgrounded makes the
+        // elevation-drop assertion race instead of testing the contract.
+        let leftForeground = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
+            object: app
+        )
+        XCTAssertEqual(XCTWaiter().wait(for: [leftForeground], timeout: 10), .completed,
+                       "The app must reach the background before reactivation")
         app.activate()
 
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
