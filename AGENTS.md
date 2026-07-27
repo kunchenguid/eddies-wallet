@@ -1,6 +1,6 @@
 # Project agent memory
 
-This public repository is the frontend and product home for Eddie's Wallet. Keep client behavior aligned with the product requirements in `README.md`, especially the virtual-money language, parent/child permissions, and offline states.
+This public repository is the frontend and product home for Eddie's Wallet. Keep client behavior aligned with the product requirements in `docs/product-requirements.md`, especially the virtual-money language, parent/child permissions, and offline states. The root `README.md` is the public landing page; keep its status, setup, and limitation claims truthful for an unfinished, unreleased MVP.
 
 The app's service implementation and operations are maintained separately. Keep this repository frontend-only: do not add backend source, migrations, credentials, deployment assets, or infrastructure configuration here.
 

@@ -43,7 +43,7 @@ The output must contain `com.apple.developer.applesignin` with the `Default` val
 
 ## Manual simulator sequence
 
-This is the exact final-account test sequence. It has **not** been run to claim live end-to-end success because the production endpoint still needs to be available.
+This is the exact final-account test sequence. It has **not** been run, so live end-to-end success must not be claimed. The documented health endpoint has answered anonymous availability checks, but availability alone is not end-to-end evidence: the sequence still requires the Apple Development signing prerequisite above and an operator-approved test account.
 
 1. Complete the Apple Development signing prerequisite above. In Apple Developer, confirm the explicit App ID `com.kunchenguid.eddieswallet` has Sign in with Apple enabled. Do not commit the Team ID.
 2. The service operator configures the single production host and TLS for `https://eddieswallet.kunchenguid.com`, sets the backend Apple audience to `com.kunchenguid.eddieswallet`, and verifies `GET https://eddieswallet.kunchenguid.com/healthz` is healthy. No Apple private key is needed by this native flow.
