@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Native SwiftUI owner for the values copied from design-system/tokens.
+/// Native SwiftUI owner for the values copied from .agents/skills/eddies-wallet-design/tokens.
 public enum EW {
     public enum Color {
         public static let green50 = SwiftUI.Color(red: 0.94, green: 0.98, blue: 0.96)

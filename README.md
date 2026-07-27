@@ -18,7 +18,7 @@ Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and i
 - A native SwiftUI iOS/iPadOS app (`EddysWallet.xcodeproj`) targeting iOS 17.0+, iPhone and iPad, with no third-party dependencies.
 - Parent and read-only child wallet views, money-event flows, a starter lesson path, offline/pending states, and a local parent PIN gate, implemented against the [product requirements](docs/product-requirements.md).
 - Unit and contract-style transport tests (currently 23) that run entirely against injected fakes and never call a live service.
-- A copied web design system and click-through prototype under `design-system/`, kept as visual reference material; the native app is the maintained implementation.
+- A copied web design system and click-through prototype, packaged as the `eddies-wallet-design` agent skill under `.agents/skills/eddies-wallet-design/`, kept as visual reference material; the native app is the maintained implementation.
 
 What does not exist: releases, tags, an App Store listing, CI, a privacy manifest, or verified live sign-in. See [Known limitations](#known-limitations).
 
@@ -64,7 +64,7 @@ This repository contains only the client. The app is designed to talk to a separ
 | `EddysWalletTests/` | Unit and transport-contract tests |
 | `EddysWallet.xcodeproj` | Xcode project with the shared `EddysWallet` scheme |
 | `docs/` | [Product requirements](docs/product-requirements.md), [video claims checklist](docs/video-claims-checklist.md), and screenshots |
-| `design-system/` | Copied web design system and prototype, kept as visual reference |
+| `.agents/skills/eddies-wallet-design/` | Copied web design system and prototype, packaged as an agent skill and kept as visual reference; `.claude/skills` is a symlink to `.agents/skills` so Claude Code discovers the same directory |
 
 ## Known limitations
 
@@ -72,7 +72,7 @@ This repository contains only the client. The app is designed to talk to a separ
 - There is no released, downloadable, or App Store-ready build: no marketing version, no privacy manifest, no signed archive evidence, no release notes, and no tags.
 - There is no CI; test results are local evidence only.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.
-- The `design-system/` prototype is unmaintained reference material and may not run as-is.
+- The `.agents/skills/eddies-wallet-design/` prototype is unmaintained reference material and may not run as-is.
 - Privacy, retention, export, and deletion decisions required for a public launch remain open in the [product requirements](docs/product-requirements.md).
 
 ## Support and security

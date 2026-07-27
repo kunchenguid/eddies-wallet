@@ -20,11 +20,11 @@ The source design system in this directory is the visual source of truth. The pr
 
 ## Asset notes
 
-- `design-system/assets/app-icon/` is copied into `EddysWallet/Assets.xcassets/AppIcon.appiconset` for the native app icon. iOS applies its own corner mask and gloss.
+- `assets/app-icon/` in this skill is copied into `EddysWallet/Assets.xcassets/AppIcon.appiconset` for the native app icon. iOS applies its own corner mask and gloss.
 - The supplied icons are SVGs. SwiftUI uses the closest native SF Symbols so the app remains vector, Dynamic Type-aware, and accessible. The icon set remains copied for future asset replacement.
 - The supplied fonts are WOFF2 web fonts. iOS does not load WOFF2 directly as a bundled font, so the native implementation uses `Font.system(..., design: .rounded)` as the documented fallback. If approved font files become available in OTF/TTF form, `EW.Font` is the single replacement point.
 - No web/React runtime is embedded in the app. `ui_kits/ios-app/` is retained as provenance and interaction reference only.
 
 ## Provenance
 
-Copied from `/Users/kunchen/Downloads/eddies-wallet-design` on 2026-07-26. The source design system identifies Lucide icons and Baloo 2 / Fredoka / Nunito Sans as flagged substitutions; see `readme.md` and `github.md` for the original attribution and caveats.
+Copied from `/Users/kunchen/Downloads/eddies-wallet-design` on 2026-07-26. The source design system identifies Lucide icons and Baloo 2 / Fredoka / Nunito Sans as flagged substitutions; see `README.md` and `github.md` for the original attribution and caveats.
