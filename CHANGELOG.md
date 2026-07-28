@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.1](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.0...eddies-wallet-v0.1.1) (2026-07-28)
+
+
+### Features
+
+* add parent nickname editing and remove lessons ([#18](https://github.com/kunchenguid/eddies-wallet/issues/18)) ([4aa3cb7](https://github.com/kunchenguid/eddies-wallet/commit/4aa3cb7a8cee664735a60f5fce88a157dd241b28))
+
+
+### Bug Fixes
+
+* make release checks lineage-aware ([#16](https://github.com/kunchenguid/eddies-wallet/issues/16)) ([1d76bbe](https://github.com/kunchenguid/eddies-wallet/commit/1d76bbed48c9f9b8c6e285d5ceeb2b212c8de537))
+
 ## 0.1.0 (2026-07-28)
 
 
