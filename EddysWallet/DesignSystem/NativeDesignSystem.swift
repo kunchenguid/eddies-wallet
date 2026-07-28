@@ -114,11 +114,19 @@ public struct MoneyAmount: View {
     public let cents: Int
     public let font: SwiftUI.Font
     public let color: SwiftUI.Color
+    /// Parent and safety surfaces announce virtual dollars; kid everyday UI stays plain.
+    public let announcesVirtualMoney: Bool
 
-    public init(cents: Int, font: SwiftUI.Font = EW.Font.heading, color: SwiftUI.Color = EW.Color.textPrimary) {
+    public init(
+        cents: Int,
+        font: SwiftUI.Font = EW.Font.heading,
+        color: SwiftUI.Color = EW.Color.textPrimary,
+        announcesVirtualMoney: Bool = true
+    ) {
         self.cents = cents
         self.font = font
         self.color = color
+        self.announcesVirtualMoney = announcesVirtualMoney
     }
 
     public var body: some View {
@@ -128,7 +136,11 @@ public struct MoneyAmount: View {
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.7)
-            .accessibilityLabel("\(Money(cents: cents).display) virtual dollars")
+            .accessibilityLabel(
+                announcesVirtualMoney
+                    ? "\(Money(cents: cents).display) virtual dollars"
+                    : Money(cents: cents).display
+            )
     }
 }
 

@@ -1039,11 +1039,11 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         let amount = Money(cents: entry.amountCents.value).display
         let explanation: String
         switch type {
-        case .allowance: explanation = "Your parent added \(amount) virtual dollars as your allowance."
-        case .deposit: explanation = "Your parent added \(amount) virtual dollars to your wallet."
-        case .withdrawal: explanation = "Your parent recorded that \(amount) virtual dollars were used."
-        case .loan: explanation = "Your parent gave you \(amount) virtual dollars to use now and give back over time."
-        case .repayment: explanation = "Your parent recorded \(amount) virtual dollars returned toward the loan."
+        case .allowance: explanation = "Your parent added \(amount) as your allowance."
+        case .deposit: explanation = "Your parent added \(amount) to your wallet."
+        case .withdrawal: explanation = "Your parent recorded that \(amount) was used."
+        case .loan: explanation = "Your parent gave you \(amount) to use now and give back over time."
+        case .repayment: explanation = "Your parent recorded \(amount) returned toward the loan."
         }
         return WalletEvent(
             id: UUID(uuidString: entry.id) ?? UUID(),

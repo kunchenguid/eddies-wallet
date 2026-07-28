@@ -42,12 +42,12 @@ enum DebugLaunchScenario {
             return store(repository: MockWalletRepository(snapshot: emptySnapshot()))
         case "offline":
             let repository = ScriptedWalletRepository(
-                snapshot: .fixture(),
+                snapshot: legacyCachedSnapshot(),
                 refreshError: .network("The network is unavailable. The accepted balance was not changed.")
             )
             return store(repository: repository)
         case "expired":
-            let repository = ScriptedWalletRepository(snapshot: .fixture(), refreshError: .unauthorized)
+            let repository = ScriptedWalletRepository(snapshot: legacyCachedSnapshot(), refreshError: .unauthorized)
             let provider = ScriptedAppleSignInProvider(appleUserID: signInUserID) {
                 // A successful owning-parent re-authentication renews the
                 // scripted session, so later refreshes succeed again.
@@ -70,6 +70,26 @@ enum DebugLaunchScenario {
         var snapshot = WalletSnapshot.empty()
         snapshot.childNickname = "Eddie" // Synthetic fixture nickname only.
         snapshot.isStale = false
+        return snapshot
+    }
+
+    private static func legacyCachedSnapshot() -> WalletSnapshot {
+        var snapshot = WalletSnapshot.fixture()
+        snapshot.activities = snapshot.activities.map { event in
+            WalletEvent(
+                id: event.id,
+                remoteID: event.remoteID,
+                type: event.type,
+                amountCents: event.amountCents,
+                balanceBeforeCents: event.balanceBeforeCents,
+                balanceAfterCents: event.balanceAfterCents,
+                reason: event.reason,
+                date: event.date,
+                syncState: event.syncState,
+                explanation: "Legacy cached explanation with virtual dollars.",
+                rejectionReason: event.rejectionReason
+            )
+        }
         return snapshot
     }
 }

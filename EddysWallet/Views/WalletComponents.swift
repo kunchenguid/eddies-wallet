@@ -19,12 +19,13 @@ enum DeviceCopy {
 
 struct ActivityListCard: View {
     let events: [WalletEvent]
+    var announcesVirtualMoney: Bool = true
     let onSelect: (WalletEvent) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                ActivityRowView(event: event) {
+                ActivityRowView(event: event, announcesVirtualMoney: announcesVirtualMoney) {
                     onSelect(event)
                 }
                 if index < events.count - 1 {
@@ -43,6 +44,7 @@ struct ActivityListCard: View {
 
 struct ActivityRowView: View {
     let event: WalletEvent
+    var announcesVirtualMoney: Bool = true
     let action: () -> Void
 
     private var tint: Color {
@@ -78,7 +80,12 @@ struct ActivityRowView: View {
                 }
                 Spacer(minLength: EW.Space.two)
                 VStack(alignment: .trailing, spacing: 4) {
-                    MoneyAmount(cents: event.isPositive ? event.amountCents : -event.amountCents, font: EW.Font.headingSmall, color: event.isPositive ? EW.Color.green700 : EW.Color.textPrimary)
+                    MoneyAmount(
+                        cents: event.isPositive ? event.amountCents : -event.amountCents,
+                        font: EW.Font.headingSmall,
+                        color: event.isPositive ? EW.Color.green700 : EW.Color.textPrimary,
+                        announcesVirtualMoney: announcesVirtualMoney
+                    )
                     if event.syncState != .recorded {
                         StatusPill(state: event.syncState)
                     }
