@@ -2,8 +2,8 @@ name: CI
 
 # Ordinary pull requests validate here without any Apple credential: this
 # workflow references no secrets and runs with read-only permissions.
-# SSHHIP keeps macOS CI release-only as a private-repo cost policy; this
-# repository is public, so macOS runner minutes are free and pull requests
+# Private repositories may keep macOS CI release-only to control runner costs;
+# this repository is public, so macOS runner minutes are free and pull requests
 # get the same build-and-test gate.
 on:
   pull_request:
