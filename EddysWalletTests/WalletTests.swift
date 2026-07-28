@@ -495,6 +495,29 @@ final class WalletTests: XCTestCase {
         XCTAssertEqual(parent.value, "Parent")
     }
 
+    func testKidActivityExplanationDerivesFromFieldsWithoutChangingParentCopy() {
+        let rawExplanation = "Server explanation with virtual dollars and parent precision."
+        let expectations: [(ActivityType, String)] = [
+            (.allowance, "Your parent added US$5.00 as your allowance."),
+            (.deposit, "Your parent added US$5.00 to your wallet."),
+            (.withdrawal, "Your parent recorded that US$5.00 was used."),
+            (.loan, "Your parent gave you US$5.00 to use now and give back over time."),
+            (.repayment, "Your parent recorded US$5.00 returned toward the loan."),
+        ]
+
+        for (type, expectedKidCopy) in expectations {
+            let event = WalletEvent(type: type, amountCents: 500, explanation: rawExplanation)
+            XCTAssertEqual(
+                ActivityDetailCopy.explanation(for: event, audience: .kid),
+                expectedKidCopy
+            )
+            XCTAssertEqual(
+                ActivityDetailCopy.explanation(for: event, audience: .parent),
+                rawExplanation
+            )
+        }
+    }
+
     // MARK: - Setup handoff (report criteria 6, 9)
 
     func testSetupCompletionEntersParentAreaWithFirstActionsHandoff() async {

@@ -408,6 +408,11 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(banner.waitForExistence(timeout: 5))
         let technical = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "accepted balance"))
         XCTAssertEqual(technical.count, 0, "Technical vocabulary must not appear on the kid home")
+
+        app.staticTexts["Comic book"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Activity detail"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Your parent recorded that US$4.00 was used."].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Legacy cached explanation with virtual dollars."].exists)
     }
 
     // Report 8.5: an expired session keeps the cached kid view with a quiet
@@ -417,6 +422,12 @@ final class EddysWalletUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["A parent needs to sign in again."].waitForExistence(timeout: 5))
+
+        app.staticTexts["Comic book"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Activity detail"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Your parent recorded that US$4.00 was used."].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Legacy cached explanation with virtual dollars."].exists)
+        app.buttons["Done"].tap()
 
         app.buttons[doorLabel].tap()
         XCTAssertTrue(app.staticTexts["Sign in again"].waitForExistence(timeout: 5))

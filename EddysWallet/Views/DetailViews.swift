@@ -10,6 +10,22 @@ enum ActivityDetailCopy {
         case .parent: ("Recorded by", "Parent")
         }
     }
+
+    static func explanation(
+        for event: WalletEvent,
+        audience: ActivityDetailView.Audience
+    ) -> String {
+        guard audience == .kid else { return event.explanation }
+
+        let amount = Money(cents: event.amountCents).display
+        return switch event.type {
+        case .allowance: "Your parent added \(amount) as your allowance."
+        case .deposit: "Your parent added \(amount) to your wallet."
+        case .withdrawal: "Your parent recorded that \(amount) was used."
+        case .loan: "Your parent gave you \(amount) to use now and give back over time."
+        case .repayment: "Your parent recorded \(amount) returned toward the loan."
+        }
+    }
 }
 
 struct ActivityDetailView: View {
@@ -66,7 +82,7 @@ struct ActivityDetailView: View {
                             .foregroundStyle(EW.Color.red600)
                     }
 
-                    Text(event.explanation)
+                    Text(ActivityDetailCopy.explanation(for: event, audience: audience))
                         .font(EW.Font.body)
                         .foregroundStyle(EW.Color.textSecondary)
                         .padding(EW.Space.four)
