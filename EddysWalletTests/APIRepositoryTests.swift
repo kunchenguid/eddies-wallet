@@ -90,6 +90,13 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertNil(body["lesson_age_band"])
         XCTAssertFalse(body.keys.contains(where: { $0.lowercased().contains("lesson") }))
         XCTAssertFalse(body.keys.contains(where: { $0.lowercased().contains("ageband") || $0.lowercased().contains("age_band") }))
+
+        if let evidencePath = ProcessInfo.processInfo.environment["EW_EVIDENCE_DIR"], !evidencePath.isEmpty {
+            let evidenceDirectory = URL(fileURLWithPath: evidencePath, isDirectory: true)
+            try FileManager.default.createDirectory(at: evidenceDirectory, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: body, options: [.prettyPrinted, .sortedKeys])
+                .write(to: evidenceDirectory.appendingPathComponent("family-setup-request.json"))
+        }
     }
 
     func testUpdateChildProfilePutsNicknameAndUpdatesParentAndChildCaches() async throws {
