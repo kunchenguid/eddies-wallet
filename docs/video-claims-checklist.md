@@ -24,10 +24,10 @@ These may be stated, with the qualifier that they were verified locally on a dev
 ## Claims that must NOT be made or implied
 
 - That the product is downloadable, released, or available to families.
-- That the app is App Store-ready or production-ready (no privacy manifest, no marketing version, no signed-archive or App Store validation evidence).
+- That the app is App Store-ready or production-ready (no privacy manifest, signed-archive evidence, or App Store validation evidence).
 - That Apple sign-in or the complete live family flow was verified end to end.
 - That privacy manifest, retention, export, deletion, backups, or restore work is complete.
-- That CI validates the default branch (there is no CI).
+- That CI validates every push to the default branch. Pull requests run credential-free CI, but direct `main` pushes do not trigger that workflow.
 - That all supported iOS 17 devices were tested (recent verification used iOS 26 simulators only).
 - That the public repository has always been frontend-only.
 

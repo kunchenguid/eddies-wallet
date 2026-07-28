@@ -8,7 +8,7 @@
 # plutil does not exist).
 set -u
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit
 
 FAILURES=0
 
@@ -97,7 +97,9 @@ require_grep 'cancel-in-progress: true' .github/workflows/release.yml "release.y
 
 # Version and build identity come from the shared derivation script.
 require_grep 'resolve_release_version\.sh' .github/workflows/release.yml "release.yml derives versions via resolve_release_version.sh"
+# shellcheck disable=SC2016 # These are literal regexes for workflow shell source.
 require_grep 'MARKETING_VERSION="\$APP_STORE_VERSION"' .github/workflows/release.yml "release.yml sets MARKETING_VERSION from the tag"
+# shellcheck disable=SC2016 # These are literal regexes for workflow shell source.
 require_grep 'CURRENT_PROJECT_VERSION="\$BUILD_NUMBER"' .github/workflows/release.yml "release.yml sets CURRENT_PROJECT_VERSION from run identity"
 
 # TestFlight-only upload behavior: altool --upload-app and nothing that could
