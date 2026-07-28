@@ -1,0 +1,1 @@
+{"manifest_seed":"0.0.0","version_file":"0.0.0","initial_version":"0.1.0","component":"eddies-wallet","expected_first_tag":"eddies-wallet-v0.1.0","expected_testflight_marketing_version":"0.1","captain_header":"Merging this release PR cuts the release tag and uploads Eddie's Wallet to TestFlight. Only the captain merges it."}
