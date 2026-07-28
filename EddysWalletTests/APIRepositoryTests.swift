@@ -53,6 +53,17 @@ final class APIRepositoryTests: XCTestCase {
             StubHTTPTransport.Response(statusCode: 200, body: snapshotBody(balance: 150, nickname: "Maya", readOnly: true))
         ])
         let cache = TestSnapshotCache()
+        let childLastUpdated = Date(timeIntervalSince1970: 1_700_000_000)
+        cache.value = WalletSnapshot(
+            acceptedBalanceCents: 75,
+            activities: [],
+            loan: nil,
+            allowance: nil,
+            pendingEvents: [],
+            lastUpdated: childLastUpdated,
+            isStale: true,
+            childNickname: "Eddie"
+        )
         let repository = APIWalletRepository(
             baseURL: URL(string: "https://api.example.test")!,
             sessionStore: InMemorySessionStore(session: validSession),
@@ -67,6 +78,11 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(repository.snapshot().configuredChildNickname, "Maya")
         XCTAssertEqual(repository.childSnapshot().configuredChildNickname, "Maya")
         XCTAssertEqual(cache.load()?.configuredChildNickname, "Maya")
+        XCTAssertEqual(repository.childSnapshot().acceptedBalanceCents, 75)
+        XCTAssertEqual(repository.childSnapshot().lastUpdated, childLastUpdated)
+        XCTAssertTrue(repository.childSnapshot().isStale)
+        XCTAssertEqual(cache.load()?.lastUpdated, childLastUpdated)
+        XCTAssertTrue(cache.load()?.isStale == true)
 
         let put = transport.requests[1]
         XCTAssertEqual(put.httpMethod, "PUT")

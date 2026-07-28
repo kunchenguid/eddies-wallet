@@ -741,9 +741,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         current = refreshed
         configuredKidStore.markConfigured()
         // Keep the kid cache in lockstep so a Done exit shows the setup nickname.
-        currentChild.childNickname = refreshed.childNickname
-        currentChild.lastUpdated = refreshed.lastUpdated
-        cache.save(currentChild)
+        updateCachedChildNickname(from: refreshed)
         return snapshotWithPending()
     }
 
@@ -772,10 +770,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         refreshed.isStale = false
         try requireCurrentLifecycle(generation)
         current = refreshed
-        currentChild.childNickname = refreshed.childNickname
-        currentChild.lastUpdated = refreshed.lastUpdated
-        currentChild.isStale = false
-        cache.save(currentChild)
+        updateCachedChildNickname(from: refreshed)
         configuredKidStore.markConfigured()
         return snapshotWithPending()
     }
@@ -1000,6 +995,11 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
             throw WalletAPIError.server(statusCode: http.statusCode, code: "HTTP_\(http.statusCode)", message: "The server did not accept this request.")
         }
         return data
+    }
+
+    private func updateCachedChildNickname(from snapshot: WalletSnapshot) {
+        currentChild.childNickname = snapshot.childNickname
+        cache.save(currentChild)
     }
 
     private func mapSnapshot(
