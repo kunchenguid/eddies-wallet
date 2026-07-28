@@ -1,0 +1,11 @@
+{
+  "initial-version": "0.1.0",
+  "pull-request-header": "Merging this release PR cuts the release tag and uploads Eddie's Wallet to TestFlight. Only the captain merges it.",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "component": "eddies-wallet",
+      "package-name": "eddies-wallet"
+    }
+  }
+}
