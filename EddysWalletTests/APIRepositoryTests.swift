@@ -481,7 +481,7 @@ final class APIRepositoryTests: XCTestCase {
         return Data("""
         {
           "family": {"id":"family","name":"Eddie's family"},
-          "child": {"id":"child","nickname":"\(nickname)","avatarUrl":null,"lessonAgeBand":"school-age"},
+          "child": {"id":"child","nickname":"\(nickname)","avatarUrl":null},
           "wallet": {"id":"wallet","currency":"USD","balanceCents":\(balance),"virtualNotice":"Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."},
           "allowanceRule": null,
           "loan": null,

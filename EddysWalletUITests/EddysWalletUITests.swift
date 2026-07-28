@@ -1,3 +1,5 @@
+import CoreGraphics
+import UIKit
 import XCTest
 
 /// End-to-end proof of the kid-first navigation model, driven through the
@@ -25,6 +27,37 @@ final class EddysWalletUITests: XCTestCase {
     private func enterPIN(_ pin: String, in app: XCUIApplication) {
         for digit in pin {
             app.buttons["PIN digit \(digit)"].tap()
+        }
+    }
+
+    private func assertActionButtonCornersAreFilled(_ button: XCUIElement) throws {
+        let screenshot = button.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "ActionButton corner-fill rendering"
+        add(attachment)
+
+        let image = try XCTUnwrap(UIImage(data: screenshot.pngRepresentation)?.cgImage)
+        let pixels = try XCTUnwrap(RenderedPixels(image: image))
+        let size = button.frame.size
+        let reference = pixels.averageColor(
+            around: CGPoint(x: size.width - 28, y: size.height / 2),
+            radius: 2,
+            pointSize: size
+        )
+        let corners = [
+            CGPoint(x: 4, y: 10),
+            CGPoint(x: size.width - 4, y: 10),
+            CGPoint(x: 4, y: size.height - 10),
+            CGPoint(x: size.width - 4, y: size.height - 10),
+        ]
+
+        for corner in corners {
+            let color = pixels.averageColor(around: corner, radius: 1, pointSize: size)
+            XCTAssertLessThan(
+                color.maximumChannelDistance(to: reference),
+                18,
+                "ActionButton corner must use the same tinted fill as its body"
+            )
         }
     }
 
@@ -83,17 +116,21 @@ final class EddysWalletUITests: XCTestCase {
         for title in parentActionTitles {
             let button = app.buttons[title]
             XCTAssertTrue(button.exists, "\(title) must exist inside the Parent area")
-            // Geometry regression: action controls stay tappable and tall enough
-            // that the continuous fill can cover every corner of the control.
             XCTAssertGreaterThanOrEqual(button.frame.height, 44, "\(title) hit target must be at least 44pt tall")
             XCTAssertGreaterThan(button.frame.width, 44, "\(title) hit target must stay wide enough to tap")
         }
+        let depositButton = app.buttons["Add deposit"]
+        for _ in 0..<4 where !depositButton.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(depositButton.isHittable)
+        try assertActionButtonCornersAreFilled(depositButton)
         XCTAssertTrue(app.buttons["Sign out"].exists)
         XCTAssertTrue(app.buttons["Change PIN"].exists)
 
         // Exercise one action path so the filled control is the real parent
         // chrome, not a disconnected preview.
-        app.buttons["Add deposit"].tap()
+        depositButton.tap()
         XCTAssertTrue(app.textFields["Amount in virtual dollars"].waitForExistence(timeout: 5))
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
@@ -334,5 +371,73 @@ final class EddysWalletUITests: XCTestCase {
         app.buttons["Show Eddie's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Your wallet is ready!"].exists)
+    }
+}
+
+private struct RenderedPixels {
+    struct Color {
+        let red: Int
+        let green: Int
+        let blue: Int
+
+        func maximumChannelDistance(to other: Color) -> Int {
+            max(abs(red - other.red), abs(green - other.green), abs(blue - other.blue))
+        }
+    }
+
+    let width: Int
+    let height: Int
+    let bytes: [UInt8]
+
+    init?(image: CGImage) {
+        let imageWidth = image.width
+        let imageHeight = image.height
+        var storage = [UInt8](repeating: 0, count: imageWidth * imageHeight * 4)
+        let rendered = storage.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: imageWidth,
+                height: imageHeight,
+                bitsPerComponent: 8,
+                bytesPerRow: imageWidth * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                return false
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight))
+            return true
+        }
+        guard rendered else { return nil }
+        width = imageWidth
+        height = imageHeight
+        bytes = storage
+    }
+
+    func averageColor(around point: CGPoint, radius: CGFloat, pointSize: CGSize) -> Color {
+        let scaleX = CGFloat(width) / pointSize.width
+        let scaleY = CGFloat(height) / pointSize.height
+        let centerX = Int(point.x * scaleX)
+        let centerY = Int(point.y * scaleY)
+        let radiusX = max(1, Int(radius * scaleX))
+        let radiusY = max(1, Int(radius * scaleY))
+        let xRange = max(0, centerX - radiusX)...min(width - 1, centerX + radiusX)
+        let yRange = max(0, centerY - radiusY)...min(height - 1, centerY + radiusY)
+        var red = 0
+        var green = 0
+        var blue = 0
+        var count = 0
+
+        for y in yRange {
+            for x in xRange {
+                let offset = (y * width + x) * 4
+                red += Int(bytes[offset])
+                green += Int(bytes[offset + 1])
+                blue += Int(bytes[offset + 2])
+                count += 1
+            }
+        }
+
+        return Color(red: red / count, green: green / count, blue: blue / count)
     }
 }
