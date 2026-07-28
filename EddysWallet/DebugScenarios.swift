@@ -37,17 +37,20 @@ enum DebugLaunchScenario {
 
         switch scenario {
         case "configured":
-            return store(repository: MockWalletRepository())
+            return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)))
         case "configured-empty":
-            return store(repository: MockWalletRepository(snapshot: emptySnapshot()))
+            return store(repository: MockWalletRepository(snapshot: emptySnapshot(environment: environment)))
         case "offline":
             let repository = ScriptedWalletRepository(
-                snapshot: legacyCachedSnapshot(),
+                snapshot: snapshot(legacyCachedSnapshot(), environment: environment),
                 refreshError: .network("The network is unavailable. The accepted balance was not changed.")
             )
             return store(repository: repository)
         case "expired":
-            let repository = ScriptedWalletRepository(snapshot: legacyCachedSnapshot(), refreshError: .unauthorized)
+            let repository = ScriptedWalletRepository(
+                snapshot: snapshot(legacyCachedSnapshot(), environment: environment),
+                refreshError: .unauthorized
+            )
             let provider = ScriptedAppleSignInProvider(appleUserID: signInUserID) {
                 // A successful owning-parent re-authentication renews the
                 // scripted session, so later refreshes succeed again.
@@ -55,22 +58,43 @@ enum DebugLaunchScenario {
             }
             return store(repository: repository, provider: provider)
         case "no-pin":
-            return store(repository: MockWalletRepository(), pin: nil)
+            return store(
+                repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)),
+                pin: nil
+            )
         case "unverifiable":
-            return store(repository: MockWalletRepository(), pin: nil, knownOwner: false)
+            return store(
+                repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)),
+                pin: nil,
+                knownOwner: false
+            )
         case "first-run":
-            let repository = ScriptedWalletRepository(snapshot: emptySnapshot(), requiresSetup: true)
+            let repository = ScriptedWalletRepository(
+                snapshot: emptySnapshot(environment: environment),
+                requiresSetup: true
+            )
             return store(repository: repository, signedIn: false, pin: nil, knownOwner: false)
         default:
             return nil
         }
     }
 
-    private static func emptySnapshot() -> WalletSnapshot {
+    /// Optional `EW_UITEST_NICKNAME` override for brand-placement and copy
+    /// proofs. Absent => keep the synthetic fixture nickname ("Eddie").
+    /// Present but blank => nil nickname so neutral fallbacks can be reviewed.
+    private static func snapshot(_ base: WalletSnapshot, environment: [String: String]) -> WalletSnapshot {
+        guard let raw = environment["EW_UITEST_NICKNAME"] else { return base }
+        var copy = base
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.childNickname = trimmed.isEmpty ? nil : trimmed
+        return copy
+    }
+
+    private static func emptySnapshot(environment: [String: String] = [:]) -> WalletSnapshot {
         var snapshot = WalletSnapshot.empty()
         snapshot.childNickname = "Eddie" // Synthetic fixture nickname only.
         snapshot.isStale = false
-        return snapshot
+        return self.snapshot(snapshot, environment: environment)
     }
 
     private static func legacyCachedSnapshot() -> WalletSnapshot {

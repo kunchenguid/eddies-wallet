@@ -272,7 +272,68 @@ final class EddysWalletUITests: XCTestCase {
 
         app.buttons["Done. Back to Maya's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Maya"].waitForExistence(timeout: 5), "Kid home must use the saved nickname")
-        XCTAssertTrue(app.staticTexts["Maya's wallet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Maya's Wallet"].waitForExistence(timeout: 5))
+        XCTAssertFalse(
+            app.staticTexts["Eddie's Wallet"].exists,
+            "Kid home must not show the external brand wordmark as recurring identity when the child is Maya"
+        )
+    }
+
+    /// Brand placement: a non-Eddie synthetic child sees personal/neutral main
+    /// chrome; welcome keeps the external product name; Eddie fixture nickname
+    /// still personalizes rather than being stripped.
+    func testMainScreensUseChildPersonalChromeNotStaticBrand() throws {
+        let maya = launch("configured", environment: ["EW_UITEST_NICKNAME": "Maya"])
+        XCTAssertTrue(maya.staticTexts["Hi, Maya"].waitForExistence(timeout: 10))
+        XCTAssertTrue(maya.staticTexts["Maya's Wallet"].exists)
+        XCTAssertFalse(maya.staticTexts["Eddie's Wallet"].exists)
+        XCTAssertFalse(maya.staticTexts["Eddie's wallet"].exists)
+
+        openParentArea(in: maya)
+        XCTAssertTrue(maya.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        XCTAssertTrue(maya.staticTexts["Maya"].exists)
+        XCTAssertTrue(maya.staticTexts["Maya's virtual balance"].waitForExistence(timeout: 5))
+        // Done is the persistent exit; its accessibility label is child-personal.
+        XCTAssertTrue(maya.buttons["Done. Back to Maya's wallet"].exists)
+        XCTAssertFalse(maya.staticTexts["Eddie's Wallet"].exists)
+        XCTAssertFalse(maya.buttons["Done. Back to Eddie's wallet"].exists)
+
+        maya.buttons["Done. Back to Maya's wallet"].tap()
+        XCTAssertTrue(maya.staticTexts["Hi, Maya"].waitForExistence(timeout: 5))
+
+        // Empty wallet still personalizes the header and exposes the handoff CTA.
+        let mayaEmpty = launch("configured-empty", environment: ["EW_UITEST_NICKNAME": "Maya"])
+        XCTAssertTrue(mayaEmpty.staticTexts["Maya's Wallet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(mayaEmpty.staticTexts["Your wallet is ready!"].exists)
+        openParentArea(in: mayaEmpty)
+        XCTAssertTrue(mayaEmpty.buttons["Show Maya's wallet"].waitForExistence(timeout: 5))
+        XCTAssertFalse(mayaEmpty.buttons["Show Eddie's wallet"].exists)
+        mayaEmpty.buttons["Done. Back to Maya's wallet"].tap()
+
+        // Neutral fallback when nickname is blank.
+        let neutral = launch("configured", environment: ["EW_UITEST_NICKNAME": ""])
+        XCTAssertTrue(neutral.staticTexts["Your wallet"].waitForExistence(timeout: 10))
+        XCTAssertFalse(neutral.staticTexts["Eddie's Wallet"].exists)
+        XCTAssertFalse(neutral.staticTexts["Hi, Eddie"].exists)
+        openParentArea(in: neutral)
+        XCTAssertTrue(neutral.staticTexts["Your child's virtual balance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(neutral.buttons["Done. Back to your child's wallet"].exists)
+        XCTAssertFalse(neutral.staticTexts["Eddie's Wallet"].exists)
+
+        // Fixture nickname Eddie remains valid personal data.
+        let eddie = launch("configured")
+        XCTAssertTrue(eddie.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        XCTAssertTrue(eddie.staticTexts["Eddie's Wallet"].exists, "Personal header when the child is named Eddie")
+        openParentArea(in: eddie)
+        XCTAssertTrue(eddie.staticTexts["Eddie's virtual balance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(eddie.buttons["Done. Back to Eddie's wallet"].exists)
+
+        // Welcome / onboarding keeps the honest external brand wordmark.
+        let plain = XCUIApplication()
+        plain.launch()
+        XCTAssertTrue(plain.staticTexts["Eddie's Wallet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(plain.descendants(matching: .any)["product-brand-wordmark"].exists)
+        XCTAssertTrue(plain.staticTexts["Virtual practice only"].exists)
     }
 
     // Report criterion 2 (P3): backgrounding drops elevation; foregrounding

@@ -264,7 +264,7 @@ final class EvidenceCaptureUITests: XCTestCase {
 
         app.buttons["Done. Back to Maya's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Maya"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Maya's wallet"].exists)
+        XCTAssertTrue(app.staticTexts["Maya's Wallet"].exists)
         capture("kid-home-renamed")
     }
 
