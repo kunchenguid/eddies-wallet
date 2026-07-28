@@ -610,7 +610,7 @@ private final class SuspendingHTTPTransport: HTTPTransport {
     /// Result delivered if complete/fail races ahead of the suspension callback.
     private var pendingResult: Result<(Data, URLResponse), Error>?
 
-    /// True once a request is parked in `withCheckedThrowingContinuation` (or already resolved via pending).
+    /// True while a request is parked in `withCheckedThrowingContinuation`.
     var isAwaitingCompletion: Bool { continuation != nil }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
