@@ -21,7 +21,7 @@ Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and i
 - Unit, contract-style transport, and native UI tests in the shared scheme that run entirely against injected fakes and never call a live service.
 - A copied web design system and click-through prototype, packaged as the `eddies-wallet-design` agent skill under `.agents/skills/eddies-wallet-design/`, kept as visual reference material; the native app is the maintained implementation.
 
-What does not exist: releases, tags, an App Store listing, CI, a privacy manifest, or verified live sign-in. See [Known limitations](#known-limitations).
+What does not exist: releases, tags, an App Store listing, a privacy manifest, or verified live sign-in. Release automation to TestFlight is configured (see the [release pipeline](docs/release.md)) but has not produced a release yet. See [Known limitations](#known-limitations).
 
 ## Getting started
 
@@ -71,8 +71,8 @@ This repository contains only the client. The app is designed to talk to a separ
 ## Known limitations
 
 - This is an unfinished MVP. Live Apple sign-in and the full family flow against the production service have **not** been verified end to end; verification so far covers local builds, the test suite, the signed-out welcome UI, and synthetic signed-in UI scenarios.
-- There is no released, downloadable, or App Store-ready build: no marketing version, no privacy manifest, no signed archive evidence, no release notes, and no tags.
-- There is no CI; test results are local evidence only.
+- There is no released, downloadable, or App Store-ready build: no privacy manifest, no signed archive evidence, no release notes, and no tags. The [release pipeline](docs/release.md) exists but its Apple-side prerequisites are not complete, and no build has been uploaded anywhere.
+- Pull requests run a credential-free build-and-test workflow on GitHub Actions; everything else about verification remains local evidence.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.
 - The `.agents/skills/eddies-wallet-design/` prototype is unmaintained reference material and may not run as-is.
 - Privacy, retention, export, and deletion decisions required for a public launch remain open in the [product requirements](docs/product-requirements.md).
@@ -87,6 +87,7 @@ This repository contains only the client. The app is designed to talk to a separ
 - [Product requirements document](docs/product-requirements.md): the full MVP PRD this app implements.
 - [Video claims checklist](docs/video-claims-checklist.md): the limitations any public presentation of this repository must state.
 - [Client README](EddysWallet/README.md): API configuration, keychain behavior, signing prerequisites, and the manual test sequence.
+- [Release pipeline](docs/release.md): the release-please and TestFlight automation, its approval boundary, and its one-time setup.
 
 ## License
 

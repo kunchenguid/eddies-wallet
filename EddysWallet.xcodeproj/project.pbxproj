@@ -26,6 +26,7 @@
 		30100000000000000000001B /* EvidenceCaptureUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000008 /* EvidenceCaptureUITests.swift */; };
 		301000000000000000000012 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D000000000000000000001 /* SetupView.swift */; };
 		301000000000000000000013 /* APIRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000001 /* APIRepositoryTests.swift */; };
+		30100000000000000000001C /* ReleaseMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000001 /* ReleaseMetadataTests.swift */; };
 		30100000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20A000000000000000000001 /* Assets.xcassets */; };
 		30100000000000000000000B /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B000000000000000000001 /* WalletTests.swift */; };
 /* End PBXBuildFile section */
@@ -44,6 +45,7 @@
 		20C000000000000000000001 /* EddysWallet.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = EddysWallet.entitlements; sourceTree = "<group>"; };
 		20D000000000000000000001 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		20E000000000000000000001 /* APIRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIRepositoryTests.swift; sourceTree = "<group>"; };
+		20F000000000000000000001 /* ReleaseMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseMetadataTests.swift; sourceTree = "<group>"; };
 		204000000000000000000002 /* WalletAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletAPI.swift; sourceTree = "<group>"; };
 		204000000000000000000003 /* AppleSignIn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSignIn.swift; sourceTree = "<group>"; };
 		20F000000000000000000002 /* KidHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KidHomeView.swift; sourceTree = "<group>"; };
@@ -136,6 +138,7 @@
 			children = (
 				20B000000000000000000001 /* WalletTests.swift */,
 				20E000000000000000000001 /* APIRepositoryTests.swift */,
+				20F000000000000000000001 /* ReleaseMetadataTests.swift */,
 			);
 			path = EddysWalletTests;
 			sourceTree = "<group>";
@@ -293,6 +296,7 @@
 			files = (
 				30100000000000000000000B /* WalletTests.swift in Sources */,
 				301000000000000000000013 /* APIRepositoryTests.swift in Sources */,
+				30100000000000000000001C /* ReleaseMetadataTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -359,6 +363,7 @@
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Eddie's Wallet";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -368,6 +373,7 @@
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kunchenguid.eddieswallet;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -385,6 +391,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Eddie's Wallet";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -394,6 +401,7 @@
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kunchenguid.eddieswallet;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

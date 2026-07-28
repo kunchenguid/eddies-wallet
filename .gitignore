@@ -1,1 +1,8 @@
+.DS_Store
+.build/
+.derived/
+DerivedData/
+*.xcarchive
+*.xcuserstate
+xcuserdata/
 .claude/settings.local.json
