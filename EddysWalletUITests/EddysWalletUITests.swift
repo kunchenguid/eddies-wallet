@@ -87,6 +87,85 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Parent area"].exists)
     }
 
+    // Split-audience money copy: kid home uses plain allowance language and
+    // does not show or announce the heavy virtual/pretend disclaimer.
+    func testKidHomeUsesPlainAllowanceBalanceCopy() throws {
+        let app = launch("configured")
+
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Your allowance balance"].waitForExistence(timeout: 5))
+
+        XCTAssertFalse(app.staticTexts["Pretend dollars for practice - not real money."].exists)
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "pretend")).count,
+            0,
+            "Kid home must not show pretend disclaimers"
+        )
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "nonredeemable")).count,
+            0,
+            "Kid home must not show nonredeemable legal framing"
+        )
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "not real money")).count,
+            0,
+            "Kid home must not announce not-real-money disclaimers"
+        )
+
+        app.staticTexts["Comic book"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Activity detail"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Your parent"].waitForExistence(timeout: 3))
+        XCTAssertFalse(
+            app.staticTexts["Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."].exists,
+            "Kid activity detail must not carry the parent safety footer"
+        )
+        app.buttons["Done"].tap()
+
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
+        app.staticTexts["A little at a time is okay"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Loan details"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Your parent gave you dollars")).firstMatch.waitForExistence(timeout: 3)
+        )
+        XCTAssertFalse(
+            app.staticTexts["Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."].exists,
+            "Kid loan detail must not carry the parent safety footer"
+        )
+        app.buttons["Done"].tap()
+    }
+
+    func testParentAreaKeepsVirtualMoneyBoundary() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+
+        openParentArea(in: app)
+        XCTAssertTrue(app.staticTexts["Eddie's virtual balance"].waitForExistence(timeout: 5))
+        let parentNotice = "Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."
+        XCTAssertTrue(
+            app.staticTexts[parentNotice].waitForExistence(timeout: 5),
+            "Parent balance card must keep the nonredeemable / no-real-money notice"
+        )
+
+        // Parent review copy stays firm when recording money.
+        let deposit = app.buttons["Add deposit"]
+        for _ in 0..<4 where !deposit.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(deposit.waitForExistence(timeout: 5))
+        deposit.tap()
+        let amountField = app.textFields["Amount in virtual dollars"]
+        XCTAssertTrue(amountField.waitForExistence(timeout: 5))
+        amountField.tap()
+        amountField.typeText("1.00")
+        app.buttons["Review"].tap()
+        XCTAssertTrue(
+            app.staticTexts[parentNotice].waitForExistence(timeout: 5),
+            "Parent money flow review must keep the virtual-money notice"
+        )
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+    }
+
     // Report criterion 3 (P4): wrong PIN stays gated; cancel returns to the
     // kid home with no parent data revealed.
     func testWrongPINStaysGatedAndCancelReturnsToKidHome() throws {
@@ -309,7 +388,14 @@ final class EddysWalletUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Your wallet is ready!"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Your parent can add the first dollars."].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Your allowance balance"].exists)
         XCTAssertFalse(app.staticTexts["What's been happening"].exists)
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "pretend")).count,
+            0,
+            "Empty kid wallet must not use pretend wording"
+        )
     }
 
     // Report criterion 5: the offline kid home keeps the cached balance and

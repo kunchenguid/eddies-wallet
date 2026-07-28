@@ -43,7 +43,12 @@ struct ActivityDetailView: View {
                         }
                     }
 
-                    MoneyAmount(cents: event.signedAmount.cents, font: EW.Font.displayLarge, color: amountColor)
+                    MoneyAmount(
+                        cents: event.signedAmount.cents,
+                        font: EW.Font.displayLarge,
+                        color: amountColor,
+                        announcesVirtualMoney: audience == .parent
+                    )
 
                     if let reason = event.reason, !reason.isEmpty {
                         detailRow(label: event.type == .loan ? "Purpose" : "Reason", value: reason)
@@ -68,9 +73,11 @@ struct ActivityDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
 
-                    Text("Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.")
-                        .font(EW.Font.caption)
-                        .foregroundStyle(EW.Color.textTertiary)
+                    if audience == .parent {
+                        Text("Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.")
+                            .font(EW.Font.caption)
+                            .foregroundStyle(EW.Color.textTertiary)
+                    }
                 }
                 .padding(EW.Space.screenMargin)
                 .frame(maxWidth: 620)
@@ -124,7 +131,12 @@ struct LoanDetailView: View {
                                     .font(EW.Font.body)
                                     .foregroundStyle(EW.Color.textSecondary)
                                 Spacer()
-                                MoneyAmount(cents: loan.remainingCents, font: EW.Font.display, color: EW.Color.peach700)
+                                MoneyAmount(
+                                    cents: loan.remainingCents,
+                                    font: EW.Font.display,
+                                    color: EW.Color.peach700,
+                                    announcesVirtualMoney: isParent
+                                )
                             }
                             if !loan.isPaid {
                                 ProgressView(value: loan.progress)
@@ -143,7 +155,7 @@ struct LoanDetailView: View {
                             }
                             Text(isParent
                                  ? "This virtual loan adds pretend dollars to the accepted balance in \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)) and keeps an amount to give back over time."
-                                 : "Your parent gave you virtual dollars to use now. You give them back a little at a time - that is a repayment.")
+                                 : "Your parent gave you dollars to use now. You give them back a little at a time - that is a repayment.")
                                 .font(EW.Font.body)
                                 .foregroundStyle(EW.Color.textSecondary)
                         }
@@ -154,9 +166,11 @@ struct LoanDetailView: View {
                                 .buttonStyle(PrimaryButtonStyle())
                         }
 
-                        Text("Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.")
-                            .font(EW.Font.caption)
-                            .foregroundStyle(EW.Color.textTertiary)
+                        if isParent {
+                            Text("Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.")
+                                .font(EW.Font.caption)
+                                .foregroundStyle(EW.Color.textTertiary)
+                        }
                     } else {
                         Text("There is no open loan.")
                             .font(EW.Font.body)

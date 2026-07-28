@@ -66,7 +66,7 @@ final class WalletTests: XCTestCase {
     func testParentDoorCopyUsesConsistentParentTerminology() {
         XCTAssertEqual(KidCopy.parentDoorAccessibilityLabel(), "Parent area. Asks for the parent PIN.")
         XCTAssertEqual(KidCopy.sessionBanner, "A parent needs to sign in again.")
-        XCTAssertEqual(KidCopy.emptyWalletMessage, "Your parent can add the first pretend dollars.")
+        XCTAssertEqual(KidCopy.emptyWalletMessage, "Your parent can add the first dollars.")
         XCTAssertEqual(ActionButtonMetrics.cornerRadius, EW.Radius.medium)
         XCTAssertGreaterThanOrEqual(ActionButtonMetrics.minHeight, 44)
         XCTAssertEqual(ActionButtonMetrics.cornerRadius, 16, "Action buttons must share the design-system medium continuous radius")
@@ -436,6 +436,44 @@ final class WalletTests: XCTestCase {
             }
         }
         XCTAssertTrue(banner.hasPrefix("You're offline"))
+    }
+
+    func testSplitAudienceMoneyCopyKeepsKidPlainAndParentBoundaryFirm() {
+        XCTAssertEqual(ChildProfileCopy.childBalanceTitle(nickname: "Maya"), "Your allowance balance")
+        XCTAssertEqual(ChildProfileCopy.childBalanceTitle(nickname: nil), "Your allowance balance")
+        XCTAssertEqual(ChildProfileCopy.parentBalanceTitle(nickname: "Maya"), "Maya's virtual balance")
+        XCTAssertEqual(ChildProfileCopy.parentBalanceTitle(nickname: nil), "Your child's virtual balance")
+
+        XCTAssertEqual(KidCopy.emptyWalletMessage, "Your parent can add the first dollars.")
+        for heavy in ["pretend", "virtual", "not real", "nonredeemable"] {
+            XCTAssertFalse(
+                KidCopy.emptyWalletMessage.localizedCaseInsensitiveContains(heavy),
+                "Empty-wallet kid copy must stay plain: \(KidCopy.emptyWalletMessage)"
+            )
+            XCTAssertFalse(
+                ChildProfileCopy.childBalanceTitle(nickname: "Eddie").localizedCaseInsensitiveContains(heavy),
+                "Kid balance title must stay plain"
+            )
+        }
+
+        let parentVirtualNotice = "Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."
+        XCTAssertTrue(parentVirtualNotice.contains("pretend"))
+        XCTAssertTrue(parentVirtualNotice.contains("cannot be redeemed"))
+        XCTAssertTrue(parentVirtualNotice.contains("never move real money"))
+
+        let fixture = WalletSnapshot.fixture()
+        for event in fixture.activities {
+            for heavy in ["virtual", "pretend", "nonredeemable", "not real"] {
+                XCTAssertFalse(
+                    event.explanation.localizedCaseInsensitiveContains(heavy),
+                    "Kid-facing activity explanation must stay plain: \(event.explanation)"
+                )
+            }
+            XCTAssertTrue(
+                event.explanation.localizedCaseInsensitiveContains("Your parent"),
+                "Activity explanation should keep human parent attribution: \(event.explanation)"
+            )
+        }
     }
 
     func testDeviceCopyAdaptsForPhoneAndPad() {

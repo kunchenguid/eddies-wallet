@@ -18,7 +18,7 @@ This document is the product starting point for the first MVP. The public reposi
 
 These decisions are the current product direction and should not be reopened during MVP implementation without an explicit product decision:
 
-- Use familiar local currency vocabulary, initially **US dollars**. Every balance and money event must be labeled as virtual, pretend, and nonredeemable.
+- Use familiar local currency vocabulary, initially **US dollars**. Parent-facing setup, controls, review, balance cards, and safety notices must keep firm virtual, pretend, and nonredeemable labeling. Kid everyday surfaces use plain allowance language instead of stacking those disclaimers.
 - Do not connect to banks, cards, payment processors, cash, or any other real-money rail.
 - The Parent area on a shared iPad is protected by a **parent-set PIN** behind a visually secondary Parent door on the kid home. The PIN is a local gate against casual access; service authorization remains authoritative.
 - The first child experience is a **parent-managed child profile**, not an independent child login or Apple identity.
@@ -40,7 +40,7 @@ Eddie's Wallet addresses the gap with a small, closed virtual economy:
 1. A parent creates and controls the configured child profile.
 2. The parent records allowance, deposits, withdrawals, loans, and repayments.
 3. The child sees an understandable, read-only wallet and activity history.
-4. The app stays honest about sync state and repeatedly explains that the balance cannot be spent or redeemed.
+4. The app stays honest about sync state. Parents repeatedly see that the balance cannot be spent or redeemed; kids see a plain allowance relationship without that legal framing on every glance.
 
 ## 3. Target user and roles
 
@@ -50,7 +50,7 @@ A parent or guardian uses a shared iPad or iOS device to set up the family, mana
 
 ### Child profile
 
-The configured child profile uses a simple child view to check a virtual balance, understand activity, and inspect an open loan. The child does not need an email address, Apple identity, password, or independent account in the MVP.
+The configured child profile uses a simple child view to check an allowance balance, understand activity, and inspect an open loan. The child does not need an email address, Apple identity, password, or independent account in the MVP.
 
 ### MVP authority model
 
@@ -67,7 +67,7 @@ The configured child profile uses a simple child view to check a virtual balance
 - Parent authentication with Apple Sign In.
 - Parent-set local PIN for entering the temporary Parent area on a shared iPad.
 - A single virtual wallet for the child profile.
-- A familiar US-dollar display vocabulary with persistent virtual/nonredeemable labeling.
+- A familiar US-dollar display vocabulary with persistent virtual/nonredeemable labeling on parent and safety surfaces, and plain allowance language on kid everyday surfaces.
 - Parent-created allowance, deposits, withdrawals, loans, and repayments.
 - A visible wallet activity list and activity details.
 - A secondary open-loan card and loan detail flow.
@@ -107,15 +107,19 @@ The configured child profile uses a simple child view to check a virtual balance
 
 ## 6. Money model and vocabulary
 
-### Virtual balance
+### Virtual balance and split-audience copy
 
-The wallet displays US-dollar vocabulary such as **US$24.00 virtual balance**. The amount is a simulated accounting value only. It is not a dollar claim, stored cash, credit, or promise from the parent or Eddie's Wallet.
+The amount is a simulated accounting value only. It is not a dollar claim, stored cash, credit, or promise from the parent or Eddie's Wallet. The allowance relationship is real in the family; the app currency is practice accounting.
 
-The following copy must be persistent and easy to find, not hidden only in onboarding or settings:
+**Parent and safety surfaces** (setup, welcome, Parent area balance cards, parent activity/loan details, review flows, validation, public product claims, and legal-ish notices) keep firm virtual, nonredeemable, and no-real-money-moves clarity. The following copy must be persistent and easy to find on those surfaces, not hidden only in onboarding:
 
 > Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.
 
-The same meaning should appear in the wallet header, activity details, and loan details. Use plain language with the child and precise language with the parent. Do not use a bank-card design or wording that implies spendable funds.
+Parent balance framing uses vocabulary such as **Eddie's virtual balance** (or “Your child's virtual balance” when no nickname is set).
+
+**Kid everyday surfaces** (kid home hero, empty-wallet ready state, kid activity list/detail, kid loan card/detail, and kid status/accessibility text) stay plain and relational. The primary kid balance label is exactly **Your allowance balance**. Do not stack `pretend`, `virtual practice`, `not real money`, `nonredeemable`, or similar complexity on the kid home or routine kid detail glances. Kid activity lines stay human (“Your parent added…”) without a heavy disclaimer on every row.
+
+Do not use a bank-card design or wording that implies spendable funds, banks, cards, cash-out, or payments on any surface.
 
 ### Ledger rules
 
@@ -131,14 +135,15 @@ The same meaning should appear in the wallet header, activity details, and loan 
 
 | Parent-facing term | Child-facing explanation |
 | --- | --- |
-| Allowance | A plan for when virtual dollars are added. |
-| Deposit | Your parent added virtual dollars to your wallet. |
-| Withdrawal | Virtual dollars were recorded as used or taken out of the wallet. |
-| Loan | Virtual dollars you can use now and give back later. |
-| Repayment | Virtual dollars returned to the family wallet. |
-| Virtual balance | Pretend dollars for practice, not real money. |
+| Allowance | A plan for when dollars are added. |
+| Deposit | Your parent added dollars to your wallet. |
+| Withdrawal | Your parent recorded that dollars were used. |
+| Loan | Dollars your parent gave you to use now and give back later. |
+| Repayment | Dollars returned toward the loan. |
+| Virtual balance (parent) | Practice ledger value that cannot be redeemed or spent as real money. |
+| Allowance balance (kid) | Your allowance balance - plain relational framing without pretend/nonredeemable stacking. |
 
-The UI may use the familiar words deposit, withdrawal, loan, and repayment, but must not use them to suggest a financial service. Kid-facing surfaces use calm, everyday language rather than technical phrases such as “accepted balance,” “sync,” or “session”; parent surfaces retain the precise ledger and status vocabulary.
+The UI may use the familiar words deposit, withdrawal, loan, and repayment, but must not use them to suggest a financial service. Kid-facing surfaces use calm, everyday language rather than technical phrases such as “accepted balance,” “sync,” or “session,” and rather than heavy virtual/pretend disclaimers; parent surfaces retain the precise ledger, status, and nonredeemable vocabulary.
 
 ## 7. Core user journeys
 
@@ -175,10 +180,10 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 
 ### Journey D: child reviews the wallet
 
-1. The child sees a persistent virtual balance label, the current accepted balance, the wallet activity list, and any open-loan card.
+1. The child sees the plain **Your allowance balance** label, the current accepted balance, the wallet activity list, and any open-loan card - without a persistent pretend/nonredeemable disclaimer on the hero.
 2. The child taps an activity row or the loan card for details.
-3. The child sees what changed, why it changed, and whether the data is current.
-4. The child cannot add, withdraw, loan, repay, request, edit, delete, or approve virtual dollars.
+3. The child sees what changed, why it changed (human parent attribution), and whether the data is current.
+4. The child cannot add, withdraw, loan, repay, request, edit, delete, or approve wallet dollars.
 
 ### Journey E: offline and session recovery
 
@@ -230,9 +235,9 @@ The child's wallet is the app's home screen. The Parent area presents the parent
 
 **Kid home** includes:
 
-1. The child's accepted virtual balance and a clear practice-only label.
+1. The child's accepted balance under the plain label **Your allowance balance** (no stacked pretend/virtual/nonredeemable hero disclaimer).
 2. Recent Activity directly on the wallet, or a friendly ready-state message while the wallet is still empty. There is no separate Recent Activity navigation item in the MVP.
-3. The open-loan card and read-only loan details when applicable.
+3. The open-loan card and read-only loan details when applicable, in plain relational language.
 4. Last-updated or stale status when offline, in calm child wording.
 5. The Parent door, visually secondary to the child content.
 
@@ -242,7 +247,7 @@ The kid home must not include a child request button, money action button, edit 
 
 - The wallet contains the visible recent activity list. A parent can scroll it to review prior events; a separate Recent Activity entry point is not needed.
 - Each accepted row opens details with type, amount, date, reason, and a plain-language explanation.
-- Parent details may show before and after balances. Child details use simple wording such as “Your parent added US$10.00 virtual dollars.”
+- Parent details may show before and after balances and keep the virtual/nonredeemable notice. Child details use simple wording such as “Your parent added US$10.00 as your weekly allowance.” without a heavy disclaimer footer.
 - Pending parent events show **Waiting to sync**, not a success state.
 - Rejected events are visible to the parent with the reason and are not shown as accepted child activity.
 - Accepted activity cannot be edited or deleted.
@@ -292,7 +297,7 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 2. Parent enters principal, optional purpose, and optional due date.
 3. Review explains that the loan adds virtual dollars to the child's wallet and creates an amount to repay.
 4. Confirmation records the loan only once accepted.
-5. The wallet shows a secondary loan card such as “US$10.00 virtual dollars left to repay.”
+5. The wallet shows a secondary loan card such as “US$10.00 left to repay.”
 
 **Repay:**
 
@@ -302,7 +307,7 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 4. Confirmation records the repayment, or marks it pending while offline.
 5. A paid loan remains in history as **Paid** rather than disappearing.
 
-**Child loan view:** The child can see the original virtual loan, accepted repayments, and amount left to repay. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP.
+**Child loan view:** The child can see the original loan, accepted repayments, and amount left to repay in plain language. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP. Parent loan details keep the virtual/nonredeemable notice.
 
 
 ## 9. Roles and permissions
@@ -395,7 +400,7 @@ The MVP is product-complete when all of the following are true:
 
 1. A parent can sign in with Apple, create one family and a parent-managed child profile, and set a parent PIN without creating a child login.
 2. On a shared iPad, the app rests on the child's read-only wallet, and entering the Parent area requires the parent-set PIN. The kid home never exposes parent money controls or sign-out.
-3. The wallet labels its US-dollar balance as virtual, pretend, and nonredeemable in the primary view and money detail views.
+3. Parent and safety surfaces label the US-dollar ledger as virtual, pretend, and nonredeemable. The kid home primary balance label is **Your allowance balance** without that heavy disclaimer; kid detail glances stay plain and relational while parent detail/review surfaces keep the boundary.
 4. A parent can create a simple allowance rule, record a deposit, record a withdrawal, create an interest-free loan, and record a partial or full repayment.
 5. Each accepted money event changes the accepted balance exactly once and appears in the wallet activity list with an understandable explanation.
 6. Withdrawals and repayments cannot overdraw the wallet or exceed the outstanding loan. A loan adds virtual balance and creates a separate amount to repay.
@@ -404,7 +409,7 @@ The MVP is product-complete when all of the following are true:
 9. Offline views show the last update time. Queued parent actions are visibly pending, and rejected actions never appear as accepted balance changes.
 10. The app collects no unnecessary child identity data and ships without real-money rails, ads, tracking, chat, or public sharing.
 11. The external service meets the daily backup and nightly encrypted export requirements, and a restore check has been completed before launch.
-12. A pilot parent and child can explain that the displayed US-dollar amounts are practice values that cannot be redeemed or spent.
+12. A pilot parent can explain that the displayed US-dollar amounts are practice values that cannot be redeemed or spent. A pilot child can explain their allowance balance and recent parent-recorded changes in plain words without needing the legal framing.
 
 ## 16. Success criteria
 
@@ -413,7 +418,7 @@ Early MVP success is demonstrated by a small family pilot, not by transaction vo
 - A parent completes setup and records the first allowance or deposit without needing banking knowledge.
 - A parent can tell the difference between a wallet balance, an allowance rule, a loan outstanding, and a pending command.
 - The child can explain why a balance changed and how much of a loan remains without being able to change it.
-- No pilot participant mistakes the balance for spendable or redeemable money.
+- No pilot parent mistakes the balance for spendable or redeemable money; parent UI continues to state the boundary clearly. The child understands the balance as allowance tracked with their parent.
 - Offline and rejected states do not produce a false accepted balance in testing.
 - Privacy review confirms that the child profile contains only the intended minimal data.
 - The service owner can restore the minimal production data posture from the daily backup and nightly encrypted export.

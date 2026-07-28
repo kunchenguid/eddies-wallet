@@ -55,9 +55,11 @@ public enum ChildProfileCopy {
         return "\(nickname)'s virtual balance"
     }
 
-    public static func childBalanceTitle(nickname: String?) -> String {
-        guard let nickname = configuredNickname(from: nickname) else { return "Your virtual balance" }
-        return "\(nickname)'s virtual balance"
+    /// Plain kid-home balance label. Intentionally not nickname-aware and not
+    /// virtual/pretend-qualified - parents carry the financial boundary. The
+    /// nickname argument is kept so call sites stay uniform with other titles.
+    public static func childBalanceTitle(nickname _: String?) -> String {
+        "Your allowance balance"
     }
 
     public static func childGreeting(nickname: String?) -> String {
@@ -97,7 +99,7 @@ public enum KidCopy {
 
     public static let emptyWalletTitle = "Your wallet is ready!"
 
-    public static let emptyWalletMessage = "Your parent can add the first pretend dollars."
+    public static let emptyWalletMessage = "Your parent can add the first dollars."
 
     public static func parentDoorAccessibilityLabel() -> String {
         "Parent area. Asks for the parent PIN."
@@ -352,9 +354,9 @@ public struct WalletSnapshot: Hashable, Codable, Sendable {
         return WalletSnapshot(
             acceptedBalanceCents: 2_400,
             activities: [
-                WalletEvent(type: .loan, amountCents: 1_000, reason: "Bike helmet", date: loanDate, explanation: "Your parent gave you US$10.00 virtual dollars to use now, and US$10.00 to give back over time."),
-                WalletEvent(type: .withdrawal, amountCents: 400, reason: "Comic book", date: withdrawalDate, explanation: "Your parent recorded that US$4.00 virtual dollars were used."),
-                WalletEvent(type: .allowance, amountCents: 1_000, reason: "Weekly", date: allowanceDate, explanation: "Your parent added US$10.00 virtual dollars as your weekly allowance.")
+                WalletEvent(type: .loan, amountCents: 1_000, reason: "Bike helmet", date: loanDate, explanation: "Your parent gave you US$10.00 to use now, and US$10.00 to give back over time."),
+                WalletEvent(type: .withdrawal, amountCents: 400, reason: "Comic book", date: withdrawalDate, explanation: "Your parent recorded that US$4.00 was used."),
+                WalletEvent(type: .allowance, amountCents: 1_000, reason: "Weekly", date: allowanceDate, explanation: "Your parent added US$10.00 as your weekly allowance.")
             ],
             loan: Loan(originalCents: 1_000, remainingCents: 600, purpose: "Bike helmet", dueDate: dueDate),
             allowance: AllowancePlan(amountCents: 1_000, cadence: "every Friday", nextDate: calendar.date(byAdding: .day, value: 5, to: now) ?? now),
@@ -640,11 +642,11 @@ public final class MockWalletRepository: WalletRepository {
     private func explanation(for command: WalletCommand) -> String {
         let amount = Money(cents: command.amountCents).display
         switch command.kind {
-        case .allowance: return "Your parent added \(amount) virtual dollars as your allowance."
-        case .deposit: return "Your parent added \(amount) virtual dollars to your wallet."
-        case .withdrawal: return "Your parent recorded that \(amount) virtual dollars were used."
-        case .loan: return "Your parent gave you \(amount) virtual dollars to use now and give back over time."
-        case .repayment: return "Your parent recorded \(amount) virtual dollars returned toward the loan."
+        case .allowance: return "Your parent added \(amount) as your allowance."
+        case .deposit: return "Your parent added \(amount) to your wallet."
+        case .withdrawal: return "Your parent recorded that \(amount) was used."
+        case .loan: return "Your parent gave you \(amount) to use now and give back over time."
+        case .repayment: return "Your parent recorded \(amount) returned toward the loan."
         }
     }
 }
