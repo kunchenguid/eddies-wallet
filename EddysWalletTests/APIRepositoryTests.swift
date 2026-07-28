@@ -371,9 +371,7 @@ final class APIRepositoryTests: XCTestCase {
         )
 
         let refresh = Task { try await repository.refresh(for: .child) }
-        while transport.requests.isEmpty {
-            await Task.yield()
-        }
+        await waitForRequestCount(1, transport: transport)
 
         repository.clearSession()
         transport.complete(
@@ -503,8 +501,23 @@ final class APIRepositoryTests: XCTestCase {
         )
     }
 
-    private func waitForRequestCount(_ count: Int, transport: SuspendingHTTPTransport) async {
-        while transport.requests.count < count {
+    private func waitForRequestCount(
+        _ count: Int,
+        transport: SuspendingHTTPTransport,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        // Bound the spin so a stuck suspension fails the test instead of burning the CI job timeout.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while transport.requests.count < count || !transport.isAwaitingCompletion {
+            if ContinuousClock.now >= deadline {
+                XCTFail(
+                    "Timed out waiting for \(count) suspended request(s); saw \(transport.requests.count) request(s), awaiting=\(transport.isAwaitingCompletion)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
             await Task.yield()
         }
     }
@@ -594,30 +607,47 @@ private final class StubHTTPTransport: HTTPTransport {
 private final class SuspendingHTTPTransport: HTTPTransport {
     private(set) var requests: [URLRequest] = []
     private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+    /// Result delivered if complete/fail races ahead of the suspension callback.
+    private var pendingResult: Result<(Data, URLResponse), Error>?
+
+    /// True once a request is parked in `withCheckedThrowingContinuation` (or already resolved via pending).
+    var isAwaitingCompletion: Bool { continuation != nil }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
         return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
+            if let pendingResult {
+                self.pendingResult = nil
+                continuation.resume(with: pendingResult)
+            } else {
+                self.continuation = continuation
+            }
         }
     }
 
     func complete(statusCode: Int, body: Data) {
-        guard let request = requests.last, let continuation else { return }
-        self.continuation = nil
+        guard let request = requests.last else { return }
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: statusCode,
             httpVersion: nil,
             headerFields: nil
         )!
-        continuation.resume(returning: (body, response))
+        deliver(.success((body, response)))
     }
 
     func fail(_ error: Error) {
-        guard let continuation else { return }
-        self.continuation = nil
-        continuation.resume(throwing: error)
+        deliver(.failure(error))
+    }
+
+    private func deliver(_ result: Result<(Data, URLResponse), Error>) {
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(with: result)
+        } else {
+            // complete/fail can observe `requests` before the suspension callback assigns `continuation`.
+            pendingResult = result
+        }
     }
 }
 
