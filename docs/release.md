@@ -24,6 +24,10 @@ Ordinary infrastructure and feature PRs carry no release side effects and follow
 
 ## Versions, build numbers, and traceability
 
+Until the first release PR merges, `version.txt` and `.release-please-manifest.json` stay at the pre-release seed `0.0.0`.
+release-please treats a `0.0.0` seed with no matching `eddies-wallet-v0.0.0` tag as "never released" and does not bump from that seed; the first proposal therefore comes from `initial-version` in `release-please-config.json`, which is set to `0.1.0` so the first tag is `eddies-wallet-v0.1.0` (not the library default `1.0.0`).
+The release PR header in that same config file is the captain-only warning; only the captain merges it.
+
 `.github/scripts/resolve_release_version.sh` owns the derivation and is regression-tested by `test/release-checks.sh`:
 
 - The App Store marketing version comes from the release tag, with a zero patch trimmed: `eddies-wallet-v0.1.0` archives with `MARKETING_VERSION=0.1`; a nonzero patch is kept.
