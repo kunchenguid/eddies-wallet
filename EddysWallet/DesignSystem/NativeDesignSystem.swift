@@ -178,16 +178,16 @@ public struct StatusPill: View {
     }
 }
 
-/// The quiet, secondary "Grown-ups" door on the kid home. Visually tertiary
+/// The quiet, secondary Parent door on the kid home. Visually tertiary
 /// (cream pill, small lock) but at least 44pt tall and clearly labeled.
-public struct GrownUpsDoorLabel: View {
+public struct ParentDoorLabel: View {
     public init() {}
 
     public var body: some View {
         HStack(spacing: EW.Space.two - 2) {
             Image(systemName: "lock.fill")
                 .font(.system(size: 12, weight: .semibold))
-            Text("Grown-ups")
+            Text("Parent")
                 .font(EW.Font.caption)
         }
         .foregroundStyle(EW.Color.textSecondary)

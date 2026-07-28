@@ -148,6 +148,18 @@ struct LoanCardView: View {
     }
 }
 
+/// Shared geometry for parent-area action controls. Background fill, stroke,
+/// and hit target must use this same continuous corner radius so the tinted
+/// fill never leaves unfilled wedges at the corners.
+enum ActionButtonMetrics {
+    static let cornerRadius = EW.Radius.medium
+    static let minHeight: CGFloat = 52
+    static let horizontalPadding = EW.Space.four
+    static var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    }
+}
+
 struct ActionButton: View {
     let title: String
     let icon: String
@@ -157,13 +169,35 @@ struct ActionButton: View {
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
-        .buttonStyle(.bordered)
-        .tint(tint)
-        .controlSize(.large)
-        .font(EW.Font.bodyBold)
-        .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+        .buttonStyle(ActionButtonStyle(tint: tint))
+    }
+}
+
+/// Draws fill and chrome with one continuous rounded rect so the visual shape
+/// and hit target stay aligned (unlike `.bordered`, whose system capsule does
+/// not match an outer `EW.Radius.medium` card background).
+private struct ActionButtonStyle: ButtonStyle {
+    let tint: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(EW.Font.bodyBold)
+            .foregroundStyle(tint)
+            .labelStyle(.titleAndIcon)
+            .frame(maxWidth: .infinity, minHeight: ActionButtonMetrics.minHeight, alignment: .leading)
+            .padding(.horizontal, ActionButtonMetrics.horizontalPadding)
+            .background(
+                tint.opacity(configuration.isPressed ? 0.22 : 0.14),
+                in: ActionButtonMetrics.shape
+            )
+            .overlay {
+                ActionButtonMetrics.shape
+                    .stroke(tint.opacity(configuration.isPressed ? 0.45 : 0.28), lineWidth: 1)
+            }
+            .contentShape(ActionButtonMetrics.shape)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

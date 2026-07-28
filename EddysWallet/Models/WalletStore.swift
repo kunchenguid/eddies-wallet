@@ -137,7 +137,7 @@ public final class WalletStore: ObservableObject {
 
     // MARK: - Parent gate
 
-    /// Opens the Grown-ups gate from the kid home. Never leaks parent data:
+    /// Opens the Parent gate from the kid home. Never leaks parent data:
     /// it only routes to PIN entry, or to owning-parent re-authentication
     /// when the session expired or no PIN exists on this device.
     public func openParentGate() {

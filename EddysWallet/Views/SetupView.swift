@@ -6,16 +6,9 @@ struct SetupView: View {
     @EnvironmentObject private var store: WalletStore
     @State private var nickname = SetupView.initialNickname
     @State private var familyName = ""
-    @State private var ageBand = "school-age"
     @State private var pin = ""
     @State private var confirmationPIN = ""
     @State private var isConfirmingSignOut = false
-
-    private let ageBands = [
-        (id: "early-years", title: "Early years"),
-        (id: "school-age", title: "School age"),
-        (id: "teen", title: "Teen")
-    ]
 
     var body: some View {
         ZStack {
@@ -34,25 +27,6 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: EW.Space.four) {
                         field(title: "Child nickname", text: $nickname, placeholder: "Child's nickname")
                         field(title: "Family name (optional)", text: $familyName, placeholder: "Your family")
-                        VStack(alignment: .leading, spacing: EW.Space.two) {
-                            Text("Lesson age band")
-                                .font(EW.Font.captionUpper)
-                                .foregroundStyle(EW.Color.textTertiary)
-                            Picker("Lesson age band", selection: $ageBand) {
-                                ForEach(ageBands, id: \.id) { band in
-                                    Text(band.title).tag(band.id)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, EW.Space.four)
-                            .frame(minHeight: 52)
-                            .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous)
-                                    .stroke(EW.Color.border, lineWidth: 1)
-                            }
-                        }
                         VStack(alignment: .leading, spacing: EW.Space.two) {
                             Text("Parent PIN")
                                 .font(EW.Font.captionUpper)
@@ -86,8 +60,7 @@ struct SetupView: View {
                         Task {
                             let setup = ParentSetup(
                                 familyName: familyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : familyName,
-                                nickname: nickname.trimmingCharacters(in: .whitespacesAndNewlines),
-                                lessonAgeBand: ageBand
+                                nickname: nickname.trimmingCharacters(in: .whitespacesAndNewlines)
                             )
                             _ = await store.setupParent(setup, pin: pin, confirmation: confirmationPIN)
                         }

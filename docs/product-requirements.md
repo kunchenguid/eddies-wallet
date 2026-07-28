@@ -20,12 +20,11 @@ These decisions are the current product direction and should not be reopened dur
 
 - Use familiar local currency vocabulary, initially **US dollars**. Every balance and money event must be labeled as virtual, pretend, and nonredeemable.
 - Do not connect to banks, cards, payment processors, cash, or any other real-money rail.
-- The Parent area on a shared iPad is protected by a **parent-set PIN** behind a visually secondary Grown-ups door on the kid home. The PIN is a local gate against casual access; service authorization remains authoritative.
+- The Parent area on a shared iPad is protected by a **parent-set PIN** behind a visually secondary Parent door on the kid home. The PIN is a local gate against casual access; service authorization remains authoritative.
 - The first child experience is a **parent-managed child profile**, not an independent child login or Apple identity.
 - **Apple Sign In is required** for the parent MVP. Google Sign In is future scope only.
 - Do not include child-initiated money requests in the smallest MVP.
 - Show loans as a secondary card on the wallet with a detail flow. Do not make Loans a prominent top-level navigation area.
-- Use a short, linear starter lesson path rather than exposing a large lesson library.
 - Show Recent Activity directly on the wallet. Do not add a duplicate Recent Activity entry point when the activity list is already visible there.
 - The external service must remain vendor-neutral from the app's perspective. Its implementation and hosting are outside this public frontend repository.
 - The initial recovery expectation for the external service is daily backups plus a nightly encrypted export. This is intentionally a minimal recovery plan, not an enterprise audit specification.
@@ -41,18 +40,17 @@ Eddie's Wallet addresses the gap with a small, closed virtual economy:
 1. A parent creates and controls the configured child profile.
 2. The parent records allowance, deposits, withdrawals, loans, and repayments.
 3. The child sees an understandable, read-only wallet and activity history.
-4. Short lessons explain what each concept means.
-5. The app stays honest about sync state and repeatedly explains that the balance cannot be spent or redeemed.
+4. The app stays honest about sync state and repeatedly explains that the balance cannot be spent or redeemed.
 
 ## 3. Target user and roles
 
 ### Primary user: parent
 
-A parent or guardian uses a shared iPad or iOS device to set up the family, manage the child profile, record virtual money events, and decide which lesson age band the child sees. The parent needs confidence that the ledger is understandable, recoverable, and protected from accidental child changes.
+A parent or guardian uses a shared iPad or iOS device to set up the family, manage the child profile, and record virtual money events. The parent needs confidence that the ledger is understandable, recoverable, and protected from accidental child changes.
 
 ### Child profile
 
-The configured child profile uses a simple child view to check a virtual balance, understand activity, inspect an open loan, and follow the starter lessons. The child does not need an email address, Apple identity, password, or independent account in the MVP.
+The configured child profile uses a simple child view to check a virtual balance, understand activity, and inspect an open loan. The child does not need an email address, Apple identity, password, or independent account in the MVP.
 
 ### MVP authority model
 
@@ -73,7 +71,6 @@ The configured child profile uses a simple child view to check a virtual balance
 - Parent-created allowance, deposits, withdrawals, loans, and repayments.
 - A visible wallet activity list and activity details.
 - A secondary open-loan card and loan detail flow.
-- A short, linear starter lesson path.
 - Honest offline, pending, rejected, and stale-data states.
 - Minimal privacy, backup, export, and recovery safeguards.
 
@@ -96,9 +93,8 @@ The configured child profile uses a simple child view to check a virtual balance
 2. Give the parent a small set of reliable, understandable money controls.
 3. Give the child a genuinely read-only view of accepted wallet activity.
 4. Make borrowing and repayment understandable without making debt prominent or punitive.
-5. Connect each money concept to a short, age-appropriate lesson.
-6. Preserve trust when a device is offline or a command is rejected.
-7. Minimize child data and keep the initial operational model simple.
+5. Preserve trust when a device is offline or a command is rejected.
+6. Minimize child data and keep the initial operational model simple.
 
 ### Non-goals
 
@@ -119,7 +115,7 @@ The following copy must be persistent and easy to find, not hidden only in onboa
 
 > Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.
 
-The same meaning should appear in the wallet header, activity details, loan details, and lessons about cards or payments. Use plain language with the child and precise language with the parent. Do not use a bank-card design or wording that implies spendable funds.
+The same meaning should appear in the wallet header, activity details, loan details, . Use plain language with the child and precise language with the parent. Do not use a bank-card design or wording that implies spendable funds.
 
 ### Ledger rules
 
@@ -150,7 +146,7 @@ The UI may use the familiar words deposit, withdrawal, loan, and repayment, but 
 
 1. The parent opens the app and sees the virtual/nonredeemable explanation.
 2. The parent signs in with Apple.
-3. The parent creates the family and the child profile with a nickname, optional avatar, and lesson age band. No child email or exact birth date is required.
+3. The parent creates the family and the child profile with a nickname and optional avatar. No child email or exact birth date is required.
 4. The parent sets a PIN. The app confirms that it protects the Parent area on this iPad and is not a device-wide parental control.
 5. The parent lands in the Parent area with a clear next action: set an allowance or add a first deposit, plus a prominent handoff that shows the child's wallet. Every later configured launch opens directly to the child's wallet.
 
@@ -159,7 +155,7 @@ If setup loses connectivity before the family is created, the app must retain fo
 ### Journey B: shared-iPad access through the parent door
 
 1. A configured, signed-in device always opens to the child's read-only wallet. The kid home is the app's resting state on every cold launch and relaunch; there is no permanently visible role switch.
-2. The kid home shows a small, clearly labeled **Grown-ups** door with at least a 44-point touch target. Opening it always presents the full-screen PIN gate, which reveals no family or parent data.
+2. The kid home shows a small, clearly labeled **Parent** door with at least a 44-point touch target. Opening it always presents the full-screen PIN gate, which reveals no family or parent data.
 3. A correct parent-set PIN opens a visually distinct, temporary **Parent area** with an explicit, always-visible way back to the child's wallet.
 4. A wrong PIN stays on the gate without exposing parent content. Five consecutive misses pause the keypad for 30 seconds; the cooldown survives closing and reopening the gate but not process death. PIN changes require the existing PIN and happen only inside the Parent area.
 5. Backgrounding, locking, or relaunching the app closes the Parent area and any parent flow in progress and returns to the child's wallet. Parent access is never persisted.
@@ -179,20 +175,19 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 
 ### Journey D: child reviews the wallet
 
-1. The child sees a persistent virtual balance label, the current accepted balance, the wallet activity list, any open-loan card, and the next lesson.
+1. The child sees a persistent virtual balance label, the current accepted balance, the wallet activity list, and any open-loan card.
 2. The child taps an activity row or the loan card for details.
 3. The child sees what changed, why it changed, and whether the data is current.
-4. The child follows the next lesson in order.
-5. The child cannot add, withdraw, loan, repay, request, edit, delete, or approve virtual dollars.
+4. The child cannot add, withdraw, loan, repay, request, edit, delete, or approve virtual dollars.
 
 ### Journey E: offline and session recovery
 
-1. A child offline sees the last accepted snapshot with a **Last updated** time and can read cached lessons.
+1. A child offline sees the last accepted snapshot with a **Last updated** time.
 2. A parent offline may queue an eligible money command only if the app has a recent accepted balance. The command is clearly marked **Waiting to sync**.
 3. On reconnect, the server or API revalidates the command and either accepts it once or rejects it with a plain-language reason.
 4. A rejected command never changes the accepted balance. Any provisional local display is reversed and the parent can retry after reviewing the reason.
 5. Offline allowance setup is a local draft until it is accepted. The app must not claim that a rule or allowance occurrence exists while offline.
-6. If the parent session expires, the app keeps the cached read-only kid snapshot and explains in kid wording that a grown-up needs to sign in again. The Grown-ups door then requires a fresh Sign in with Apple by the owning parent before the PIN gate; the child is not sent to Welcome and no parent content appears before reauthentication.
+6. If the parent session expires, the app keeps the cached read-only kid snapshot and explains in kid wording that a parent needs to sign in again. The Parent door then requires a fresh Sign in with Apple by the owning parent before the PIN gate; the child is not sent to Welcome and no parent content appears before reauthentication.
 
 ## 8. MVP screens and behavior
 
@@ -206,14 +201,14 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 ### 8.2 Parent setup and child profile
 
 - Parent creates one family and the configurable child profile.
-- Required child data is limited to a nickname and a lesson age band. Avatar is optional. Exact birth date, child email, contacts, and location are out of scope.
-- Parent can update the nickname, avatar, and age band behind the PIN.
+- Required child data is limited to a nickname. Avatar is optional. Exact birth date, child email, contacts, and location are out of scope.
+- Parent can update the nickname and avatar behind the PIN.
 - The child profile is not an independent login and cannot be claimed by a child.
 
-### 8.3 Kid home, Grown-ups door, and Parent area
+### 8.3 Kid home, Parent door, and Parent area
 
 - The child's read-only wallet, labeled with the configured nickname when available and neutral wording otherwise, is the home screen and the app's only persistent surface.
-- Parent access is a transient elevation entered through the labeled Grown-ups door and the parent-set PIN. It is never persisted: cold launch, relaunch, and backgrounding always return to the kid home and close any parent flow in progress.
+- Parent access is a transient elevation entered through the labeled Parent door and the parent-set PIN. It is never persisted: cold launch, relaunch, and backgrounding always return to the kid home and close any parent flow in progress.
 - The full-screen PIN gate always shows a visible Cancel, cannot be casually swiped away, and never exposes parent content on failure. Five consecutive misses use the 30-second cooldown defined in Journey B.
 - A missing or forgotten PIN is reset only after a fresh Sign in with Apple by the owning parent (Journey B). PIN setup is never reachable from an un-elevated child session outside initial authenticated setup.
 - Never leave hidden or disabled parent money controls in the child's wallet. Omit them; they exist only inside the visually distinct Parent area, together with PIN change and sign-out.
@@ -237,9 +232,8 @@ The child's wallet is the app's home screen. The Parent area presents the parent
 1. The child's accepted virtual balance and a clear practice-only label.
 2. Recent Activity directly on the wallet, or a friendly ready-state message while the wallet is still empty. There is no separate Recent Activity navigation item in the MVP.
 3. The open-loan card and read-only loan details when applicable.
-4. The next lesson and linear progress.
-5. Last-updated or stale status when offline, in calm child wording.
-6. The Grown-ups door, visually secondary to the child content.
+4. Last-updated or stale status when offline, in calm child wording.
+5. The Parent door, visually secondary to the child content.
 
 The kid home must not include a child request button, money action button, edit control, delete control, approval control, sign-out, or any other parent control.
 
@@ -307,18 +301,8 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 4. Confirmation records the repayment, or marks it pending while offline.
 5. A paid loan remains in history as **Paid** rather than disappearing.
 
-**Child loan view:** The child can see the original virtual loan, accepted repayments, amount left to repay, and a link to the borrowing lesson. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP.
+**Child loan view:** The child can see the original virtual loan, accepted repayments, amount left to repay, . The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP.
 
-### 8.10 Starter lesson path
-
-The child sees one short, linear next step instead of a full lesson library:
-
-1. **Your virtual balance:** added, used, and remaining.
-2. **Making a plan:** allowance, saving, and spending choices.
-3. **Borrow and repay:** what a loan means and how repayment reduces what is owed.
-4. **Cards and payments:** adults may use payment methods, but Eddie's Wallet does not connect to one and never moves real money.
-
-Lessons should be short, readable aloud, and age-band appropriate. No countdowns, leaderboards, debt scores, shame language, or wallet-dollar rewards. Lesson completion may change local lesson presentation, but it cannot create or alter a money event. Synced child lesson progress is not required for the smallest read-only MVP.
 
 ## 9. Roles and permissions
 
@@ -334,7 +318,6 @@ Lessons should be short, readable aloud, and age-band appropriate. No countdowns
 | Edit/delete accepted money events | No; use a compensating event if needed | No |
 | Create or edit child profile | Yes | No |
 | Change parent PIN | Yes, with current PIN | No |
-| Start and read lessons | May preview | Yes |
 | Mark a money event complete or approved | No separate concept | No |
 | Initiate a money request | No MVP workflow | No |
 | Export or delete family data | Parent-only, behind the gate | No |
@@ -357,8 +340,8 @@ Acceptance and rejection must use text and icons, not color alone. A stale child
 
 ## 11. Privacy and safety
 
-- Keep the product clearly virtual. Do not use bank, cash-out, card, investment, or payment language except when a lesson explains that those real-world concepts are outside the app.
-- Collect only what is needed for the parent identity and the child profile: parent Apple identity, child nickname, optional avatar, and lesson age band.
+- Keep the product clearly virtual. Do not use bank, cash-out, card, investment, or payment language except when explaining that those real-world concepts are outside the app.
+- Collect only what is needed for the parent identity and the child profile: parent Apple identity, child nickname, and optional avatar.
 - Do not require a child email, phone number, exact birth date, contacts, location, public profile, or free-text upload.
 - Put family management, exports, account deletion, and external links behind the parent gate.
 - Do not include child names, balances, loan details, or invite-like secrets in analytics, URLs, notifications, screenshots, or crash reports.
@@ -389,8 +372,7 @@ These ideas may be valuable later but must not appear as required MVP work:
 - Automatic background allowance scheduling, catch-up rules, push notifications, and richer cadence options.
 - Child-initiated requests represented as a separate approval object.
 - Interest-bearing loans, installments, due-date reminders, or configurable loan terms.
-- Savings goals, jars, chores, rewards, multiple wallets, multiple currencies, and investing lessons.
-- A larger branching lesson library, quizzes, audio narration, and parent progress reporting.
+- Savings goals, jars, chores, rewards, multiple wallets, multiple currencies, .
 - Restore tools, point-in-time recovery, advanced monitoring, and a larger operational control plane.
 - Localized currency vocabulary beyond the initial US-dollar experience.
 
@@ -402,11 +384,9 @@ These questions do not block the product boundary above, but must be answered be
 2. Should the allowance MVP remain parent-confirmed on or after the due date, or should a reliable server job automatically record it?
 3. What additional allowance cadences, if any, belong in the first release?
 4. What is the exact offline queue policy and how recent must the cached balance be before queuing a parent command?
-5. What age band and launch countries determine lesson content, privacy review, and distribution decisions?
-6. Is a local-only lesson completion state sufficient, or should child progress sync in a later release?
-7. Which service implementation and operations plan meet the cost and recovery requirements, and who owns service incidents and restores?
-8. What retention period and parent deletion behavior apply to family data and accepted ledger history?
-9. Is the one-parent MVP sufficient for the pilot, or is a second authenticated parent a launch requirement?
+5. Which service implementation and operations plan meet the cost and recovery requirements, and who owns service incidents and restores?
+6. What retention period and parent deletion behavior apply to family data and accepted ledger history?
+7. Is the one-parent MVP sufficient for the pilot, or is a second authenticated parent a launch requirement?
 
 ## 15. MVP acceptance criteria
 
@@ -419,7 +399,7 @@ The MVP is product-complete when all of the following are true:
 5. Each accepted money event changes the accepted balance exactly once and appears in the wallet activity list with an understandable explanation.
 6. Withdrawals and repayments cannot overdraw the wallet or exceed the outstanding loan. A loan adds virtual balance and creates a separate amount to repay.
 7. The open-loan card is visible on the wallet and opens a detail flow. There is no prominent top-level Loans area, and the wallet does not duplicate a Recent Activity entry point.
-8. The child can read the accepted balance, activity, loan details, and linear starter lessons, but cannot create or change any wallet, profile, allowance, loan, repayment, or request.
+8. The child can read the accepted balance, activity, and loan details, but cannot create or change any wallet, profile, allowance, loan, repayment, or request.
 9. Offline views show the last update time. Queued parent actions are visibly pending, and rejected actions never appear as accepted balance changes.
 10. The app collects no unnecessary child identity data and ships without real-money rails, ads, tracking, chat, or public sharing.
 11. The external service meets the daily backup and nightly encrypted export requirements, and a restore check has been completed before launch.

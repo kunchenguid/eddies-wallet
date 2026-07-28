@@ -13,7 +13,6 @@
 		301000000000000000000004 /* WalletStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 204000000000000000000001 /* WalletStore.swift */; };
 		301000000000000000000005 /* DetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 205000000000000000000001 /* DetailViews.swift */; };
 		301000000000000000000006 /* FlowViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206000000000000000000001 /* FlowViews.swift */; };
-		301000000000000000000007 /* LessonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207000000000000000000001 /* LessonView.swift */; };
 		301000000000000000000009 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 209000000000000000000001 /* WelcomeView.swift */; };
 		301000000000000000000010 /* WalletAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 204000000000000000000002 /* WalletAPI.swift */; };
 		301000000000000000000011 /* AppleSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 204000000000000000000003 /* AppleSignIn.swift */; };
@@ -38,7 +37,6 @@
 		204000000000000000000001 /* WalletStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletStore.swift; sourceTree = "<group>"; };
 		205000000000000000000001 /* DetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailViews.swift; sourceTree = "<group>"; };
 		206000000000000000000001 /* FlowViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowViews.swift; sourceTree = "<group>"; };
-		207000000000000000000001 /* LessonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LessonView.swift; sourceTree = "<group>"; };
 		209000000000000000000001 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		20A000000000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		20B000000000000000000001 /* WalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletTests.swift; sourceTree = "<group>"; };
@@ -127,7 +125,6 @@
 				20F000000000000000000003 /* ParentAreaView.swift */,
 				20F000000000000000000004 /* ParentGateView.swift */,
 				20F000000000000000000005 /* WalletComponents.swift */,
-				207000000000000000000001 /* LessonView.swift */,
 				209000000000000000000001 /* WelcomeView.swift */,
 			);
 			path = Views;
@@ -277,7 +274,6 @@
 				301000000000000000000004 /* WalletStore.swift in Sources */,
 				301000000000000000000005 /* DetailViews.swift in Sources */,
 				301000000000000000000006 /* FlowViews.swift in Sources */,
-				301000000000000000000007 /* LessonView.swift in Sources */,
 				301000000000000000000009 /* WelcomeView.swift in Sources */,
 				301000000000000000000010 /* WalletAPI.swift in Sources */,
 				301000000000000000000011 /* AppleSignIn.swift in Sources */,

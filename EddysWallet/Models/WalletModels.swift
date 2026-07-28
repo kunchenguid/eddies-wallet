@@ -93,14 +93,14 @@ public enum KidCopy {
         "You're offline - this is what your wallet looked like at \(lastUpdated.formatted(date: .omitted, time: .shortened))."
     }
 
-    public static let sessionBanner = "A grown-up needs to sign in again."
+    public static let sessionBanner = "A parent needs to sign in again."
 
     public static let emptyWalletTitle = "Your wallet is ready!"
 
-    public static let emptyWalletMessage = "Your grown-up can add the first pretend dollars."
+    public static let emptyWalletMessage = "Your parent can add the first pretend dollars."
 
-    public static func grownUpsDoorAccessibilityLabel() -> String {
-        "Grown-ups area. Asks for the parent PIN."
+    public static func parentDoorAccessibilityLabel() -> String {
+        "Parent area. Asks for the parent PIN."
     }
 }
 
@@ -424,20 +424,17 @@ public struct AllowanceRuleCommand: Sendable, Codable {
 public struct ParentSetup: Sendable, Codable {
     public let familyName: String?
     public let nickname: String
-    public let lessonAgeBand: String
     public let avatarURL: URL?
     public let idempotencyKey: String
 
     public init(
         familyName: String? = nil,
         nickname: String,
-        lessonAgeBand: String,
         avatarURL: URL? = nil,
         idempotencyKey: String = UUID().uuidString
     ) {
         self.familyName = familyName
         self.nickname = nickname
-        self.lessonAgeBand = lessonAgeBand
         self.avatarURL = avatarURL
         self.idempotencyKey = idempotencyKey
     }

@@ -5,7 +5,7 @@ import XCTest
 /// launch-environment seam with synthetic fixture data (nickname "Eddie",
 /// PIN 1234) - no real accounts, families, or services.
 final class EddysWalletUITests: XCTestCase {
-    private let doorLabel = "Grown-ups area. Asks for the parent PIN."
+    private let doorLabel = "Parent area. Asks for the parent PIN."
     private let parentActionTitles = ["Add deposit", "Record withdrawal", "Create loan", "Record repayment", "Record allowance"]
 
     override func setUpWithError() throws {
@@ -31,7 +31,7 @@ final class EddysWalletUITests: XCTestCase {
     @discardableResult
     private func openParentArea(in app: XCUIApplication) -> XCUIElement {
         app.buttons[doorLabel].tap()
-        XCTAssertTrue(app.staticTexts["Grown-ups only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
         enterPIN("1234", in: app)
         let header = app.staticTexts["Parent area"]
         XCTAssertTrue(header.waitForExistence(timeout: 5))
@@ -61,7 +61,7 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
 
         app.buttons[doorLabel].tap()
-        XCTAssertTrue(app.staticTexts["Grown-ups only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
         enterPIN("1111", in: app)
 
         XCTAssertTrue(app.staticTexts["Incorrect PIN. Try again."].waitForExistence(timeout: 3))
@@ -81,10 +81,22 @@ final class EddysWalletUITests: XCTestCase {
 
         openParentArea(in: app)
         for title in parentActionTitles {
-            XCTAssertTrue(app.buttons[title].exists, "\(title) must exist inside the Parent area")
+            let button = app.buttons[title]
+            XCTAssertTrue(button.exists, "\(title) must exist inside the Parent area")
+            // Geometry regression: action controls stay tappable and tall enough
+            // that the continuous fill can cover every corner of the control.
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44, "\(title) hit target must be at least 44pt tall")
+            XCTAssertGreaterThan(button.frame.width, 44, "\(title) hit target must stay wide enough to tap")
         }
         XCTAssertTrue(app.buttons["Sign out"].exists)
         XCTAssertTrue(app.buttons["Change PIN"].exists)
+
+        // Exercise one action path so the filled control is the real parent
+        // chrome, not a disconnected preview.
+        app.buttons["Add deposit"].tap()
+        XCTAssertTrue(app.textFields["Amount in virtual dollars"].waitForExistence(timeout: 5))
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
 
         app.buttons["Done. Back to Eddie's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
@@ -122,7 +134,7 @@ final class EddysWalletUITests: XCTestCase {
         let app = launch("configured", environment: ["EW_UITEST_FAST_COOLDOWN": "1"])
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         app.buttons[doorLabel].tap()
-        XCTAssertTrue(app.staticTexts["Grown-ups only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
 
         for _ in 0..<5 {
             enterPIN("9999", in: app)
@@ -225,13 +237,13 @@ final class EddysWalletUITests: XCTestCase {
         let app = launch("expired")
 
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["A grown-up needs to sign in again."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["A parent needs to sign in again."].waitForExistence(timeout: 5))
 
         app.buttons[doorLabel].tap()
         XCTAssertTrue(app.staticTexts["Sign in again"].waitForExistence(timeout: 5))
         app.buttons["Sign in with Apple"].tap()
 
-        XCTAssertTrue(app.staticTexts["Grown-ups only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
         enterPIN("1234", in: app)
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }

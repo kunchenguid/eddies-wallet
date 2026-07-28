@@ -13,6 +13,17 @@ final class WalletTests: XCTestCase {
         XCTAssertEqual(ChildProfileCopy.walletReference(nickname: nil), "your child's wallet")
     }
 
+    // MARK: - Parent door terminology and action-button geometry
+
+    func testParentDoorCopyUsesConsistentParentTerminology() {
+        XCTAssertEqual(KidCopy.parentDoorAccessibilityLabel(), "Parent area. Asks for the parent PIN.")
+        XCTAssertEqual(KidCopy.sessionBanner, "A parent needs to sign in again.")
+        XCTAssertEqual(KidCopy.emptyWalletMessage, "Your parent can add the first pretend dollars.")
+        XCTAssertEqual(ActionButtonMetrics.cornerRadius, EW.Radius.medium)
+        XCTAssertGreaterThanOrEqual(ActionButtonMetrics.minHeight, 44)
+        XCTAssertEqual(ActionButtonMetrics.cornerRadius, 16, "Action buttons must share the design-system medium continuous radius")
+    }
+
     // MARK: - Kid-first resting state (report criteria 1, 2)
 
     func testConfiguredStoreRestsUnelevatedOnTheKidHome() {
@@ -391,7 +402,7 @@ final class WalletTests: XCTestCase {
         for event in [credit, debit] {
             let attribution = ActivityDetailCopy.attribution(for: event, audience: .kid)
             XCTAssertEqual(attribution.label, "Changed by")
-            XCTAssertEqual(attribution.value, "Your grown-up")
+            XCTAssertEqual(attribution.value, "Your parent")
         }
         let parent = ActivityDetailCopy.attribution(for: debit, audience: .parent)
         XCTAssertEqual(parent.label, "Recorded by")
@@ -402,7 +413,7 @@ final class WalletTests: XCTestCase {
 
     func testSetupCompletionEntersParentAreaWithFirstActionsHandoff() async {
         let store = makeConfiguredStore(pin: nil)
-        let setup = ParentSetup(nickname: "Eddie", lessonAgeBand: "school-age")
+        let setup = ParentSetup(nickname: "Eddie")
 
         let created = await store.setupParent(setup, pin: "1234", confirmation: "1234")
 
@@ -417,7 +428,7 @@ final class WalletTests: XCTestCase {
 
     func testSetupRejectsUnconfirmedPIN() async {
         let store = makeConfiguredStore(pin: nil)
-        let setup = ParentSetup(nickname: "Eddie", lessonAgeBand: "school-age")
+        let setup = ParentSetup(nickname: "Eddie")
         let created = await store.setupParent(setup, pin: "1234", confirmation: "1235")
         XCTAssertFalse(created)
         XCTAssertEqual(store.elevation, .none)
@@ -483,7 +494,7 @@ final class WalletTests: XCTestCase {
         await store.refresh()
 
         let created = await store.setupParent(
-            ParentSetup(nickname: "Eddie", lessonAgeBand: "school-age"),
+            ParentSetup(nickname: "Eddie"),
             pin: "1234",
             confirmation: "1234"
         )
@@ -514,7 +525,7 @@ final class WalletTests: XCTestCase {
 
         let setup = Task {
             await store.setupParent(
-                ParentSetup(nickname: "Eddie", lessonAgeBand: "school-age"),
+                ParentSetup(nickname: "Eddie"),
                 pin: "1234",
                 confirmation: "1234"
             )
