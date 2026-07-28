@@ -46,6 +46,52 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(repository.snapshot().configuredChildNickname, "Maya")
     }
 
+    func testFamilySetupPostsNicknameOnlyAndOmitsLessonsEraFields() async throws {
+        // Pre-fix shape sent a fixed residual lessonAgeBand; omission is now required.
+        let transport = StubHTTPTransport(responses: [
+            StubHTTPTransport.Response(
+                statusCode: 201,
+                // Live backend may still echo a temporary legacy response key; decoding must ignore it.
+                body: snapshotBody(balance: 0, nickname: "Eddie", extraChildFields: #""lessonAgeBand":"school-age""#)
+            )
+        ])
+        let configuredKidStore = InMemoryConfiguredKidStore()
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: transport,
+            cache: TestSnapshotCache(),
+            configuredKidStore: configuredKidStore
+        )
+
+        let snapshot = try await repository.setup(
+            ParentSetup(
+                familyName: "Chen family",
+                nickname: "Eddie",
+                avatarURL: URL(string: "https://cdn.example.test/eddie.png"),
+                idempotencyKey: "setup-key-1"
+            )
+        )
+
+        XCTAssertEqual(snapshot.configuredChildNickname, "Eddie")
+        XCTAssertTrue(configuredKidStore.isConfigured)
+        XCTAssertEqual(transport.requests.count, 1)
+        let post = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(post.httpMethod, "POST")
+        XCTAssertEqual(post.url?.path, "/v1/family/setup")
+        XCTAssertEqual(post.value(forHTTPHeaderField: "Idempotency-Key"), "setup-key-1")
+
+        let body = try XCTUnwrap(post.httpBody).jsonObject()
+        XCTAssertEqual(body["nickname"] as? String, "Eddie")
+        XCTAssertEqual(body["familyName"] as? String, "Chen family")
+        XCTAssertEqual(body["avatarUrl"] as? String, "https://cdn.example.test/eddie.png")
+        XCTAssertEqual(Set(body.keys), Set(["nickname", "familyName", "avatarUrl"]))
+        XCTAssertNil(body["lessonAgeBand"])
+        XCTAssertNil(body["lesson_age_band"])
+        XCTAssertFalse(body.keys.contains(where: { $0.lowercased().contains("lesson") }))
+        XCTAssertFalse(body.keys.contains(where: { $0.lowercased().contains("ageband") || $0.lowercased().contains("age_band") }))
+    }
+
     func testUpdateChildProfilePutsNicknameAndUpdatesParentAndChildCaches() async throws {
         let transport = StubHTTPTransport(responses: [
             StubHTTPTransport.Response(statusCode: 200, body: snapshotBody(balance: 150, nickname: "Eddie")),
@@ -492,12 +538,18 @@ final class APIRepositoryTests: XCTestCase {
         """.utf8)
     }
 
-    private func snapshotBody(balance: Int, nickname: String = "Eddie", readOnly: Bool? = nil) -> Data {
+    private func snapshotBody(
+        balance: Int,
+        nickname: String = "Eddie",
+        readOnly: Bool? = nil,
+        extraChildFields: String? = nil
+    ) -> Data {
         let readOnlyField = readOnly.map { ",\n          \"readOnly\": \($0)" } ?? ""
+        let childExtras = extraChildFields.map { ",\($0)" } ?? ""
         return Data("""
         {
           "family": {"id":"family","name":"Eddie's family"},
-          "child": {"id":"child","nickname":"\(nickname)","avatarUrl":null},
+          "child": {"id":"child","nickname":"\(nickname)","avatarUrl":null\(childExtras)},
           "wallet": {"id":"wallet","currency":"USD","balanceCents":\(balance),"virtualNotice":"Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."},
           "allowanceRule": null,
           "loan": null,
