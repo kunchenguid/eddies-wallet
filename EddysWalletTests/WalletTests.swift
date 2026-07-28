@@ -13,6 +13,54 @@ final class WalletTests: XCTestCase {
         XCTAssertEqual(ChildProfileCopy.walletReference(nickname: nil), "your child's wallet")
     }
 
+    // MARK: - Child profile editor
+
+    func testUpdateChildProfileRequiresParentAreaAndNonEmptyNickname() async {
+        let store = makeConfiguredStore()
+        let blocked = await store.updateChildProfile(nickname: "Maya")
+        XCTAssertFalse(blocked)
+        XCTAssertEqual(store.errorMessage, "Only the Parent area can edit the child profile.")
+        XCTAssertEqual(store.snapshot.configuredChildNickname, "Eddie")
+
+        store.openParentGate()
+        enterPIN("1234", into: store)
+        XCTAssertEqual(store.elevation, .active)
+        let blankRejected = await store.updateChildProfile(nickname: "   ")
+        XCTAssertFalse(blankRejected)
+        XCTAssertEqual(store.errorMessage, "Enter a child nickname.")
+        XCTAssertEqual(store.snapshot.configuredChildNickname, "Eddie")
+    }
+
+    func testUpdateChildProfilePersistsAcrossRefreshAndChildView() async {
+        let repository = MockWalletRepository(snapshot: .fixture())
+        let store = makeConfiguredStore(repository: repository)
+        store.openParentGate()
+        enterPIN("1234", into: store)
+
+        let saved = await store.updateChildProfile(nickname: "  Maya  ")
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.snapshot.configuredChildNickname, "Maya")
+        XCTAssertEqual(repository.snapshot().configuredChildNickname, "Maya")
+        XCTAssertEqual(repository.childSnapshot().configuredChildNickname, "Maya")
+
+        // Parent refresh keeps the nickname.
+        await store.refresh()
+        XCTAssertEqual(store.snapshot.configuredChildNickname, "Maya")
+
+        // Leaving the Parent area shows the kid home from the child snapshot.
+        store.exitParentArea()
+        XCTAssertEqual(store.elevation, .none)
+        XCTAssertEqual(store.snapshot.configuredChildNickname, "Maya")
+        XCTAssertEqual(
+            ChildProfileCopy.childGreeting(nickname: store.snapshot.configuredChildNickname),
+            "Hi, Maya"
+        )
+        XCTAssertEqual(
+            ChildProfileCopy.parentBalanceTitle(nickname: store.snapshot.configuredChildNickname),
+            "Maya's virtual balance"
+        )
+    }
+
     // MARK: - Parent door terminology and action-button geometry
 
     func testParentDoorCopyUsesConsistentParentTerminology() {
@@ -919,6 +967,9 @@ private final class FailingRefreshRepository: WalletRepository {
         error = nil
         return try await inner.setup(setup)
     }
+    func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot {
+        return try await inner.updateChildProfile(update)
+    }
     func clearAuthentication() {
         clearAuthenticationCallCount += 1
         authenticated = false
@@ -976,6 +1027,13 @@ private final class SuspendingMutationRepository: WalletRepository {
         }
     }
     func setup(_ setup: ParentSetup) async throws -> WalletSnapshot { parent }
+    func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot {
+        guard let nickname = update.validatedNickname else {
+            throw WalletAPIError.invalidResponse("Enter a child nickname.")
+        }
+        parent.childNickname = nickname
+        return parent
+    }
     func clearAuthentication() {}
     func clearSession() {}
 
@@ -1028,6 +1086,9 @@ private final class SuspendingSetupRepository: WalletRepository {
         return await withCheckedContinuation { continuation in
             setupContinuation = continuation
         }
+    }
+    func updateChildProfile(_: ChildProfileUpdate) async throws -> WalletSnapshot {
+        throw WalletAPIError.invalidResponse("Not used in this test.")
     }
     func clearAuthentication() {}
     func clearSession() {}

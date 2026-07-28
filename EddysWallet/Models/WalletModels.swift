@@ -440,6 +440,21 @@ public struct ParentSetup: Sendable, Codable {
     }
 }
 
+public struct ChildProfileUpdate: Sendable, Codable {
+    public let nickname: String
+    public let idempotencyKey: String
+
+    public init(nickname: String, idempotencyKey: String = UUID().uuidString) {
+        self.nickname = nickname
+        self.idempotencyKey = idempotencyKey
+    }
+
+    /// Same non-empty trimmed nickname rule as first-run setup.
+    public var validatedNickname: String? {
+        ChildProfileCopy.configuredNickname(from: nickname)
+    }
+}
+
 public struct AuthSession: Codable, Hashable, Sendable {
     public let token: String
     public let expiresAt: Date
@@ -481,6 +496,7 @@ public protocol WalletRepository: AnyObject {
     func submit(_ command: WalletCommand) async throws -> CommandResult
     func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot
     func setup(_ setup: ParentSetup) async throws -> WalletSnapshot
+    func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot
     func clearAuthentication()
     func clearSession()
 }
@@ -534,9 +550,27 @@ public final class MockWalletRepository: WalletRepository {
     }
 
     public func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {
-        guard !setup.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return current }
+        guard let nickname = ChildProfileCopy.configuredNickname(from: setup.nickname) else { return current }
         configuredKid = true
+        applyNickname(nickname)
         return current
+    }
+
+    public func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot {
+        guard let nickname = update.validatedNickname else {
+            throw WalletAPIError.invalidResponse("Enter a child nickname.")
+        }
+        applyNickname(nickname)
+        return current
+    }
+
+    private func applyNickname(_ nickname: String) {
+        current.childNickname = nickname
+        currentChild.childNickname = nickname
+        current.lastUpdated = .now
+        currentChild.lastUpdated = .now
+        current.isStale = false
+        currentChild.isStale = false
     }
 
     public func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {

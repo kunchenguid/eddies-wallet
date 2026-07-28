@@ -46,6 +46,61 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(repository.snapshot().configuredChildNickname, "Maya")
     }
 
+    func testUpdateChildProfilePutsNicknameAndUpdatesParentAndChildCaches() async throws {
+        let transport = StubHTTPTransport(responses: [
+            StubHTTPTransport.Response(statusCode: 200, body: snapshotBody(balance: 150, nickname: "Eddie")),
+            StubHTTPTransport.Response(statusCode: 200, body: snapshotBody(balance: 150, nickname: "Maya")),
+            StubHTTPTransport.Response(statusCode: 200, body: snapshotBody(balance: 150, nickname: "Maya", readOnly: true))
+        ])
+        let cache = TestSnapshotCache()
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: transport,
+            cache: cache,
+            configuredKidStore: InMemoryConfiguredKidStore()
+        )
+
+        _ = try await repository.refresh(for: .parent)
+        _ = try await repository.updateChildProfile(ChildProfileUpdate(nickname: "  Maya  ", idempotencyKey: "child-profile-1"))
+
+        XCTAssertEqual(repository.snapshot().configuredChildNickname, "Maya")
+        XCTAssertEqual(repository.childSnapshot().configuredChildNickname, "Maya")
+        XCTAssertEqual(cache.load()?.configuredChildNickname, "Maya")
+
+        let put = transport.requests[1]
+        XCTAssertEqual(put.httpMethod, "PUT")
+        XCTAssertEqual(put.url?.path, "/v1/child")
+        XCTAssertEqual(put.value(forHTTPHeaderField: "Idempotency-Key"), "child-profile-1")
+        let body = try XCTUnwrap(put.httpBody).jsonObject()
+        XCTAssertEqual(body["nickname"] as? String, "Maya")
+
+        // A later child-view refresh keeps the authoritative nickname.
+        _ = try await repository.refresh(for: .child)
+        XCTAssertEqual(repository.childSnapshot().configuredChildNickname, "Maya")
+    }
+
+    func testUpdateChildProfileRejectsBlankNicknameWithoutCallingNetwork() async {
+        let transport = StubHTTPTransport(responses: [])
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: transport,
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore()
+        )
+
+        do {
+            _ = try await repository.updateChildProfile(ChildProfileUpdate(nickname: "   "))
+            XCTFail("Blank nicknames must fail validation before the network call")
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error, .invalidResponse("Enter a child nickname."))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
     func testAppleSessionRequestUsesIdentityTokenAndNonceAndStoresOpaqueSession() async throws {
         let transport = StubHTTPTransport(responses: [
             StubHTTPTransport.Response(

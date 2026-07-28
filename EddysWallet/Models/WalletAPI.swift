@@ -740,6 +740,43 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         try requireCurrentLifecycle(generation)
         current = refreshed
         configuredKidStore.markConfigured()
+        // Keep the kid cache in lockstep so a Done exit shows the setup nickname.
+        currentChild.childNickname = refreshed.childNickname
+        currentChild.lastUpdated = refreshed.lastUpdated
+        cache.save(currentChild)
+        return snapshotWithPending()
+    }
+
+    public func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot {
+        guard let nickname = update.validatedNickname else {
+            throw WalletAPIError.invalidResponse("Enter a child nickname.")
+        }
+        let generation = lifecycleGeneration
+        let body: [String: Any] = ["nickname": nickname]
+        let data: Data
+        do {
+            data = try await request(
+                path: "/v1/child",
+                method: "PUT",
+                body: body,
+                authenticated: true,
+                idempotencyKey: update.idempotencyKey
+            )
+        } catch {
+            try requireCurrentLifecycle(generation)
+            throw error
+        }
+        try requireCurrentLifecycle(generation)
+        let response = try decode(SnapshotDTO.self, from: data)
+        var refreshed = try mapSnapshot(response)
+        refreshed.isStale = false
+        try requireCurrentLifecycle(generation)
+        current = refreshed
+        currentChild.childNickname = refreshed.childNickname
+        currentChild.lastUpdated = refreshed.lastUpdated
+        currentChild.isStale = false
+        cache.save(currentChild)
+        configuredKidStore.markConfigured()
         return snapshotWithPending()
     }
 

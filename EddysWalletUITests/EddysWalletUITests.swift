@@ -103,6 +103,62 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Add deposit"].exists)
     }
 
+    func testParentCanEditChildNicknameAndKidHomeShowsIt() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+
+        openParentArea(in: app)
+        XCTAssertTrue(app.staticTexts["Child profile"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Eddie"].exists, "Parent summary must show the current nickname")
+
+        // Prefer the summary card; on some iPad layouts the sheet opens more
+        // reliably from the Settings row.
+        let summaryCard = app.descendants(matching: .any)["edit-child-profile-card"]
+        let settingsRow = app.descendants(matching: .any)["edit-child-profile-settings"]
+        var opened = false
+        if summaryCard.waitForExistence(timeout: 3) {
+            summaryCard.tap()
+            opened = app.descendants(matching: .any)["child-nickname-field"].waitForExistence(timeout: 2)
+        }
+        if !opened {
+            // Dismiss any partial presentation, then open Settings.
+            if app.navigationBars["Child profile"].exists {
+                app.navigationBars["Child profile"].buttons["Cancel"].tap()
+            }
+            app.swipeUp()
+            app.swipeUp()
+            XCTAssertTrue(settingsRow.waitForExistence(timeout: 5), "Settings must expose Edit child profile")
+            settingsRow.tap()
+        }
+        let field = app.descendants(matching: .any)["child-nickname-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "Child profile editor must present the nickname field")
+        field.tap()
+        if let current = field.value as? String, !current.isEmpty {
+            let deleteString = String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count)
+            field.typeText(deleteString)
+        }
+        field.typeText("Maya")
+
+        let save = app.buttons["Save child profile"]
+        XCTAssertTrue(save.waitForExistence(timeout: 3))
+        XCTAssertTrue(save.isEnabled, "A non-empty nickname must enable save, matching setup validation")
+        save.tap()
+        XCTAssertTrue(app.staticTexts["Child profile saved."].waitForExistence(timeout: 5))
+        app.navigationBars.buttons["Done"].tap()
+
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Maya"].waitForExistence(timeout: 5), "Parent summary must show the saved nickname")
+        XCTAssertTrue(app.staticTexts["Maya's virtual balance"].waitForExistence(timeout: 5))
+
+        // Settings still exposes the same editor.
+        app.swipeUp()
+        XCTAssertTrue(app.descendants(matching: .any)["edit-child-profile-settings"].waitForExistence(timeout: 5))
+
+        app.buttons["Done. Back to Maya's wallet"].tap()
+        XCTAssertTrue(app.staticTexts["Hi, Maya"].waitForExistence(timeout: 5), "Kid home must use the saved nickname")
+        XCTAssertTrue(app.staticTexts["Maya's wallet"].waitForExistence(timeout: 5))
+    }
+
     // Report criterion 2 (P3): backgrounding drops elevation; foregrounding
     // shows the kid home again.
     func testBackgroundingDropsParentElevation() throws {

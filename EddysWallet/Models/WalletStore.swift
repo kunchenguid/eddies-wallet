@@ -443,6 +443,44 @@ public final class WalletStore: ObservableObject {
     }
 
     @discardableResult
+    public func updateChildProfile(nickname: String) async -> Bool {
+        guard elevation == .active else {
+            errorMessage = "Only the Parent area can edit the child profile."
+            return false
+        }
+        guard ChildProfileCopy.configuredNickname(from: nickname) != nil else {
+            errorMessage = "Enter a child nickname."
+            return false
+        }
+        let generation = refreshGeneration
+        isLoading = true
+        errorMessage = nil
+        do {
+            let refreshed = try await repository.updateChildProfile(ChildProfileUpdate(nickname: nickname))
+            if generation == refreshGeneration, elevation == .active {
+                snapshot = refreshed
+                isLoading = false
+            }
+            return true
+        } catch let error as WalletAPIError {
+            if error == .unauthorized || error == .noSession {
+                sessionExpired = repository.hasConfiguredKid
+                if elevation != .none { deElevate() }
+            } else if generation == refreshGeneration, elevation == .active {
+                errorMessage = userMessage(for: error)
+                isLoading = false
+            }
+            return false
+        } catch {
+            if generation == refreshGeneration, elevation == .active {
+                errorMessage = userMessage(for: error)
+                isLoading = false
+            }
+            return false
+        }
+    }
+
+    @discardableResult
     public func submit(_ command: WalletCommand) async -> CommandResult {
         guard elevation == .active else {
             let event = WalletEvent(

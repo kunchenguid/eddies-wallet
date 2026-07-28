@@ -144,6 +144,11 @@ final class ScriptedWalletRepository: WalletRepository {
         return try await inner.setup(setup)
     }
 
+    func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot {
+        if let refreshError { throw refreshError }
+        return try await inner.updateChildProfile(update)
+    }
+
     func clearAuthentication() { inner.clearAuthentication() }
     func clearSession() { inner.clearSession() }
 }
