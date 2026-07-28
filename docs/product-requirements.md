@@ -219,13 +219,14 @@ The child's wallet is the app's home screen. The Parent area presents the parent
 
 **Parent area** includes:
 
-1. The configured child profile's virtual balance and last sync state.
-2. Next allowance information.
-3. A secondary open-loan card, if a loan exists. Tapping it opens loan details.
-4. Recent Activity visible directly on the wallet, with rows opening activity details.
-5. Parent actions for allowance, deposit, withdrawal, loan, and repayment.
-6. A minimal settings surface for changing the parent PIN (with the current PIN) and signing out (with confirmation).
-7. An unmistakable Parent area header and a persistent, explicit exit back to the child's wallet.
+1. A parent-only editor for the configured child nickname.
+2. The configured child profile's virtual balance and last sync state.
+3. Next allowance information.
+4. A secondary open-loan card, if a loan exists. Tapping it opens loan details.
+5. Recent Activity visible directly on the wallet, with rows opening activity details.
+6. Parent actions for allowance, deposit, withdrawal, loan, and repayment.
+7. A minimal settings surface for changing the parent PIN (with the current PIN) and signing out (with confirmation).
+8. An unmistakable Parent area header and a persistent, explicit exit back to the child's wallet.
 
 **Kid home** includes:
 

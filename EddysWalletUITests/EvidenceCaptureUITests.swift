@@ -187,6 +187,56 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
     }
 
+    func testChildNicknameEditorTour() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+
+        let summaryCard = app.descendants(matching: .any)["edit-child-profile-card"]
+        let settingsRow = app.descendants(matching: .any)["edit-child-profile-settings"]
+        XCTAssertTrue(summaryCard.waitForExistence(timeout: 5))
+        summaryCard.tap()
+
+        let field = app.descendants(matching: .any)["child-nickname-field"]
+        if !field.waitForExistence(timeout: 2) {
+            if app.navigationBars["Child profile"].exists {
+                app.navigationBars["Child profile"].buttons["Cancel"].tap()
+            }
+            app.swipeUp()
+            app.swipeUp()
+            XCTAssertTrue(settingsRow.waitForExistence(timeout: 5))
+            settingsRow.tap()
+        }
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        capture("parent-child-profile-editor")
+
+        field.tap()
+        if let current = field.value as? String, !current.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        }
+        let save = app.buttons["Save child profile"]
+        XCTAssertTrue(save.waitForExistence(timeout: 3))
+        XCTAssertFalse(save.isEnabled, "A blank nickname must not be saved")
+        capture("parent-child-profile-blank-validation")
+
+        field.typeText("Maya")
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
+        XCTAssertTrue(app.staticTexts["Child profile saved."].waitForExistence(timeout: 5))
+        capture("parent-child-profile-saved")
+        app.navigationBars.buttons["Done"].tap()
+
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Maya"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Maya's virtual balance"].exists)
+        capture("parent-area-renamed-child")
+
+        app.buttons["Done. Back to Maya's wallet"].tap()
+        XCTAssertTrue(app.staticTexts["Hi, Maya"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Maya's wallet"].exists)
+        capture("kid-home-renamed")
+    }
+
     func testParentEmptyHandoffTour() throws {
         let app = launch("configured-empty")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))

@@ -146,7 +146,7 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
                         return
                     }
                     guard !Task.isCancelled else { return }
-                    await self?.timedOut(attemptID: attemptID)
+                    self?.timedOut(attemptID: attemptID)
                 }
                 adapter.performRequests()
             }
