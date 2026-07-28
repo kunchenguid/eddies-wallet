@@ -115,7 +115,7 @@ The following copy must be persistent and easy to find, not hidden only in onboa
 
 > Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.
 
-The same meaning should appear in the wallet header, activity details, loan details, . Use plain language with the child and precise language with the parent. Do not use a bank-card design or wording that implies spendable funds.
+The same meaning should appear in the wallet header, activity details, and loan details. Use plain language with the child and precise language with the parent. Do not use a bank-card design or wording that implies spendable funds.
 
 ### Ledger rules
 
@@ -301,7 +301,7 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 4. Confirmation records the repayment, or marks it pending while offline.
 5. A paid loan remains in history as **Paid** rather than disappearing.
 
-**Child loan view:** The child can see the original virtual loan, accepted repayments, amount left to repay, . The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP.
+**Child loan view:** The child can see the original virtual loan, accepted repayments, and amount left to repay. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP.
 
 
 ## 9. Roles and permissions
@@ -372,7 +372,7 @@ These ideas may be valuable later but must not appear as required MVP work:
 - Automatic background allowance scheduling, catch-up rules, push notifications, and richer cadence options.
 - Child-initiated requests represented as a separate approval object.
 - Interest-bearing loans, installments, due-date reminders, or configurable loan terms.
-- Savings goals, jars, chores, rewards, multiple wallets, multiple currencies, .
+- Savings goals, jars, chores, rewards, multiple wallets, and multiple currencies.
 - Restore tools, point-in-time recovery, advanced monitoring, and a larger operational control plane.
 - Localized currency vocabulary beyond the initial US-dollar experience.
 
