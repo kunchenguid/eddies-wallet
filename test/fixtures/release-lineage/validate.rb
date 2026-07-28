@@ -26,8 +26,9 @@ module ReleaseLineage
     initial || "1.0.0"
   end
 
-  # Faithful release-please 17.x first-proposal path when seed is 0.0.0 and no
-  # matching tag synthesizes a latestRelease (manifest.js skips 0.0.0).
+  # Faithful release-please 17.x first-proposal path when the seed is 0.0.0
+  # and no matching tag exists: manifest.js skips 0.0.0, so no latestRelease
+  # is synthesized.
   def first_proposal(seed, initial)
     return initial_release_version(initial) if seed == PRE_FIRST_SEED
 

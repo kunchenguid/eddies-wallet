@@ -178,8 +178,9 @@ fi
 # lineage requires initial-version 0.1.0 so the first proposal is
 # eddies-wallet-v0.1.0 (marketing 0.1), not 1.0.0.
 # Post-first-release: release-please advances the seed to the cut version. The
-# advanced seed must match committed released lineage (CHANGELOG heading and/or
-# local eddies-wallet-v* tags) - never a hard-coded perpetual 0.0.0 assertion.
+# advanced seed must match the latest available released lineage (committed
+# CHANGELOG headings plus any local eddies-wallet-v* tags present) - never a
+# hard-coded perpetual 0.0.0 assertion.
 # Counterfactuals live under test/fixtures/release-lineage/.
 LINEAGE_VALIDATOR=test/fixtures/release-lineage/validate.rb
 if [ ! -f "$LINEAGE_VALIDATOR" ]; then

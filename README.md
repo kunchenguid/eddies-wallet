@@ -1,6 +1,6 @@
 # Eddie's Wallet
 
-Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and iPad: a calm, parent-managed pretend wallet that helps one child practice allowance, spending, borrowing, and repayment. This repository exists so you can read the source, build it in the iOS Simulator, and follow the accompanying code walkthrough. It is **not** a download, an App Store product, a released app, or a live, end-to-end-verified financial service.
+Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and iPad: a calm, parent-managed pretend wallet that helps one child practice allowance, spending, borrowing, and repayment. This repository exists so you can read the source, build it in the iOS Simulator, and follow the accompanying code walkthrough. It is **not** an installable download, an App Store product, or a live, end-to-end-verified financial service.
 
 **Every dollar the app displays is virtual, pretend, and nonredeemable. No real money ever moves through Eddie's Wallet.** There are no banks, cards, payment rails, or cash-out paths. One signed-in parent records every change (allowance, deposits, withdrawals, loans, repayments). The managed child profile is a read-only view: the child has no independent account, login, or way to change the wallet.
 
@@ -20,8 +20,9 @@ Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and i
 - Money-event flows with review steps, a starter lesson path, and honest offline/pending/rejected states, implemented against the [product requirements](docs/product-requirements.md).
 - Unit, contract-style transport, and native UI tests in the shared scheme that run entirely against injected fakes and never call a live service.
 - A copied web design system and click-through prototype, packaged as the `eddies-wallet-design` agent skill under `.agents/skills/eddies-wallet-design/`, kept as visual reference material; the native app is the maintained implementation.
+- A `0.1.0` source release and `eddies-wallet-v0.1.0` tag, with release notes in `CHANGELOG.md`.
 
-What does not exist: releases, tags, an App Store listing, a privacy manifest, or verified live sign-in. Release automation to TestFlight is configured (see the [release pipeline](docs/release.md)) but has not produced a release yet. See [Known limitations](#known-limitations).
+What does not exist: an App Store listing, a privacy manifest, verified live sign-in, or committed evidence of an installable TestFlight build. See [Known limitations](#known-limitations).
 
 ## Getting started
 
@@ -71,7 +72,7 @@ This repository contains only the client. The app is designed to talk to a separ
 ## Known limitations
 
 - This is an unfinished MVP. Live Apple sign-in and the full family flow against the production service have **not** been verified end to end; verification so far covers local builds, the test suite, the signed-out welcome UI, and synthetic signed-in UI scenarios.
-- There is no released, downloadable, or App Store-ready build: no privacy manifest, no signed archive evidence, no release notes, and no tags. The [release pipeline](docs/release.md) exists but its Apple-side prerequisites are not complete, and no build has been uploaded anywhere.
+- The `0.1.0` source release exists, but there is no verified downloadable or App Store-ready build: no privacy manifest, signed archive evidence, or verified TestFlight upload is committed here. The [release pipeline](docs/release.md) documents the remaining Apple-side prerequisites.
 - Pull requests run a credential-free build-and-test workflow on GitHub Actions; everything else about verification remains local evidence.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.
 - The `.agents/skills/eddies-wallet-design/` prototype is unmaintained reference material and may not run as-is.
