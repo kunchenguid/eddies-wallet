@@ -170,7 +170,56 @@ else
   fail "release-please component ($component) matches the eddies-wallet-v* tag trigger"
 fi
 
-require_grep 'MARKETING_VERSION = ' EddysWallet.xcodeproj/project.pbxproj "project.pbxproj pins a deterministic MARKETING_VERSION"
+# First-release proposal semantics (release-please 17.x / action v4.4.1):
+# A manifest seed of 0.0.0 with no matching GitHub release/tag does NOT
+# synthesize a latestRelease (manifest.js explicitly skips 0.0.0). Without a
+# latestRelease, buildNewVersion falls through to initialReleaseVersion(),
+# which is config initial-version or the hard-coded default 1.0.0. Seeding
+# 0.0.0 alone is therefore not enough to get a pre-1.0 first tag; the
+# approved unfinished-MVP lineage requires initial-version 0.1.0 so the first
+# proposal is eddies-wallet-v0.1.0 (marketing 0.1), not 1.0.0.
+ruby_first_release_check='
+require "json"
+config = JSON.parse(File.read("release-please-config.json"))
+manifest = JSON.parse(File.read(".release-please-manifest.json"))
+released = manifest.fetch(".")
+pkg = config.fetch("packages").fetch(".")
+initial = pkg["initial-version"] || config["initial-version"]
+header = config["pull-request-header"].to_s
+component = pkg.fetch("component")
+errors = []
+errors << "manifest/version seed must stay 0.0.0 until the first release merges (got #{released})" unless released == "0.0.0"
+errors << "initial-version must be 0.1.0 (got #{initial.inspect})" unless initial == "0.1.0"
+errors << "component must be eddies-wallet (got #{component})" unless component == "eddies-wallet"
+errors << "captain-only pull-request-header must remain set" unless header.include?("Only the captain merges it") && header.include?("TestFlight")
+# Faithful 17.x first-proposal path when the 0.0.0 tag is absent:
+proposed = if released == "0.0.0"
+  initial || "1.0.0"
+else
+  "not-initial-path"
+end
+errors << "first proposal must be 0.1.0 (got #{proposed})" unless proposed == "0.1.0"
+# Negative control: the merged config that opened the 1.0.0 release PR.
+broken_proposed = if released == "0.0.0"
+  nil || "1.0.0"
+else
+  "not-initial-path"
+end
+errors << "missing initial-version must still reproduce the 1.0.0 default (got #{broken_proposed})" unless broken_proposed == "1.0.0"
+if errors.empty?
+  puts "ok"
+else
+  warn errors.join("\n")
+  exit 1
+end
+'
+if ruby_out="$(ruby -e "$ruby_first_release_check" 2>&1)"; then
+  pass "first release-please proposal is eddies-wallet-v0.1.0 (initial-version 0.1.0 over a 0.0.0 seed)"
+else
+  fail "first release-please proposal is eddies-wallet-v0.1.0: $ruby_out"
+fi
+
+require_grep 'MARKETING_VERSION = 0\.1' EddysWallet.xcodeproj/project.pbxproj "project.pbxproj placeholder MARKETING_VERSION matches the 0.1 first-release marketing version"
 require_grep 'INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO' EddysWallet.xcodeproj/project.pbxproj "project.pbxproj declares exempt-encryption metadata for TestFlight"
 
 # --- Version/build derivation and retry identity ---------------------------
