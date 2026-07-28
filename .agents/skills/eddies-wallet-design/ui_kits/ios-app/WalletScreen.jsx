@@ -1,4 +1,4 @@
-function WalletScreen({ role, onRoleTap, activity, loan, onOpenActivity, onOpenLoan, onAction, onLesson }) {
+function WalletScreen({ role, onRoleTap, activity, loan, onOpenActivity, onOpenLoan, onAction }) {
   const { Icon, RoleSwitch, BalanceDisplay, ActivityRow, LoanCard, Card, Button } = window.EddieSWalletDesignSystem_b072eb;
   const isParent = role === 'parent';
 
@@ -23,16 +23,6 @@ function WalletScreen({ role, onRoleTap, activity, loan, onOpenActivity, onOpenL
           <LoanCard remaining="6.00" total={10} dueDate="Aug 15" paid={false} onRepay={(e) => { e && e.stopPropagation && e.stopPropagation(); onOpenLoan(); }} />
         </div>
 
-        <div className="ewa-kid-tap ewa-bounce-in" onClick={onLesson} style={{ cursor: 'pointer', animationDelay: '.14s', flexShrink: 0, borderRadius: 'var(--radius-xl)', background: 'var(--accent-gold-tint)', padding: 18, display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div className="ewa-wiggle" style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--gold-500)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Icon name="book-open" size={26} color="var(--white)" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ font: '700 17px var(--font-display)', color: 'var(--text-primary)' }}>Next lesson</div>
-            <div style={{ font: 'var(--text-body-sm)', color: 'var(--text-secondary)' }}>Borrow and repay · 3 of 4</div>
-          </div>
-          <Icon name="chevron-right" size={20} color="var(--gold-700)" />
-        </div>
 
         <div>
           <div style={{ font: '600 18px var(--font-display)', color: 'var(--text-primary)', marginBottom: 8 }}>What's been happening</div>

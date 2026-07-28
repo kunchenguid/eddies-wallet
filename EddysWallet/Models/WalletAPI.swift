@@ -717,9 +717,12 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
 
     public func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {
         let generation = lifecycleGeneration
+        // Residual service field: POST /v1/family/setup still requires
+        // lessonAgeBand on the private backend. The product no longer
+        // collects or uses age bands after lessons were removed.
         var body: [String: Any] = [
             "nickname": setup.nickname,
-            "lessonAgeBand": setup.lessonAgeBand
+            "lessonAgeBand": "school-age"
         ]
         if let familyName = setup.familyName { body["familyName"] = familyName }
         if let avatarURL = setup.avatarURL { body["avatarUrl"] = avatarURL.absoluteString }
@@ -736,6 +739,38 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         refreshed.isStale = false
         try requireCurrentLifecycle(generation)
         current = refreshed
+        configuredKidStore.markConfigured()
+        // Keep the kid cache in lockstep so a Done exit shows the setup nickname.
+        updateCachedChildNickname(from: refreshed)
+        return snapshotWithPending()
+    }
+
+    public func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot {
+        guard let nickname = update.validatedNickname else {
+            throw WalletAPIError.invalidResponse("Enter a child nickname.")
+        }
+        let generation = lifecycleGeneration
+        let body: [String: Any] = ["nickname": nickname]
+        let data: Data
+        do {
+            data = try await request(
+                path: "/v1/child",
+                method: "PUT",
+                body: body,
+                authenticated: true,
+                idempotencyKey: update.idempotencyKey
+            )
+        } catch {
+            try requireCurrentLifecycle(generation)
+            throw error
+        }
+        try requireCurrentLifecycle(generation)
+        let response = try decode(SnapshotDTO.self, from: data)
+        var refreshed = try mapSnapshot(response)
+        refreshed.isStale = false
+        try requireCurrentLifecycle(generation)
+        current = refreshed
+        updateCachedChildNickname(from: refreshed)
         configuredKidStore.markConfigured()
         return snapshotWithPending()
     }
@@ -960,6 +995,11 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
             throw WalletAPIError.server(statusCode: http.statusCode, code: "HTTP_\(http.statusCode)", message: "The server did not accept this request.")
         }
         return data
+    }
+
+    private func updateCachedChildNickname(from snapshot: WalletSnapshot) {
+        currentChild.childNickname = snapshot.childNickname
+        cache.save(currentChild)
     }
 
     private func mapSnapshot(

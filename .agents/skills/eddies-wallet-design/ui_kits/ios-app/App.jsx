@@ -5,7 +5,6 @@ function App() {
   const [activityItem, setActivityItem] = React.useState(null);
   const [loanOpen, setLoanOpen] = React.useState(false);
   const [flow, setFlow] = React.useState(null);
-  const [lessonOpen, setLessonOpen] = React.useState(false);
   const [activity, setActivity] = React.useState([
     { type: 'loan', title: 'Loan', subtitle: 'Jul 18 · Bike helmet', amount: '10.00', explain: 'Your parent gave you US$10.00 virtual dollars to use now, and US$10.00 to give back over time.' },
     { type: 'withdrawal', title: 'Withdrawal', subtitle: 'Jul 15 · Comic book', amount: '4.00', positive: false, explain: 'Your parent recorded that US$4.00 virtual dollars were used.' },
@@ -29,8 +28,6 @@ function App() {
       <div style={{ position: 'relative', height: '100%' }}>
         {screen === 'welcome' ? (
           <WelcomeScreen onSignIn={() => setScreen('wallet')} />
-        ) : lessonOpen ? (
-          <LessonScreen onBack={() => setLessonOpen(false)} />
         ) : (
           <WalletScreen
             role={role}
@@ -39,7 +36,6 @@ function App() {
             onOpenActivity={setActivityItem}
             onOpenLoan={() => setLoanOpen(true)}
             onAction={setFlow}
-            onLesson={() => setLessonOpen(true)}
           />
         )}
         {pinOpen ? <PinSheet onClose={() => setPinOpen(false)} onSuccess={() => { setRole('parent'); setPinOpen(false); }} /> : null}

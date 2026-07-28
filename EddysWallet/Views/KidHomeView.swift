@@ -12,7 +12,6 @@ struct KidHomeView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var regularHeroBalanceSize: CGFloat = 46
     @State private var selectedEvent: WalletEvent?
     @State private var isShowingLoan = false
-    @State private var isShowingLesson = false
 
     var body: some View {
         ScrollView {
@@ -27,7 +26,6 @@ struct KidHomeView: View {
                         isShowingLoan = true
                     }
                 }
-                nextLessonCard
                 if store.snapshot.activities.isEmpty {
                     emptyWalletCard
                 } else {
@@ -60,10 +58,6 @@ struct KidHomeView: View {
             LoanDetailView(isParent: false, onRepay: {})
                 .presentationDetents([.medium, .large])
         }
-        .sheet(isPresented: $isShowingLesson) {
-            LessonView()
-                .presentationDetents([.large])
-        }
     }
 
     private var header: some View {
@@ -76,10 +70,10 @@ struct KidHomeView: View {
             Button {
                 store.openParentGate()
             } label: {
-                GrownUpsDoorLabel()
+                ParentDoorLabel()
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(KidCopy.grownUpsDoorAccessibilityLabel())
+            .accessibilityLabel(KidCopy.parentDoorAccessibilityLabel())
         }
     }
 
@@ -142,32 +136,6 @@ struct KidHomeView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(ChildProfileCopy.childBalanceTitle(nickname: store.snapshot.configuredChildNickname)) \(Money(cents: store.snapshot.acceptedBalanceCents).display). Pretend dollars for practice, not real money.")
-    }
-
-    private var nextLessonCard: some View {
-        Button {
-            isShowingLesson = true
-        } label: {
-            HStack(spacing: EW.Space.three) {
-                IconBadge("book.closed", foreground: EW.Color.white, background: EW.Color.gold500, size: 56)
-                VStack(alignment: .leading, spacing: EW.Space.one) {
-                    Text("Next lesson")
-                        .font(EW.Font.headingSmall)
-                        .foregroundStyle(EW.Color.textPrimary)
-                    Text("Borrow and repay · 3 of 4")
-                        .font(EW.Font.body)
-                        .foregroundStyle(EW.Color.textSecondary)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(EW.Color.gold700)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.plain)
-        .ewCard(variant: .alt)
-        .accessibilityHint("Opens the next lesson")
     }
 
     private var emptyWalletCard: some View {

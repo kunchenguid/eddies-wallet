@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Full-screen Grown-ups gate. Never shows family data. Routes:
+/// Full-screen Parent gate. Never shows family data. Routes:
 /// - PIN entry (with bounded retries and a cooldown after repeated misses)
 /// - owning-parent re-authentication (expired session, forgotten/missing PIN)
 /// - choosing a new parent PIN after successful re-authentication
@@ -73,7 +73,7 @@ private struct PINEntryGate: View {
     var body: some View {
         VStack(spacing: EW.Space.five) {
             GateHeader(
-                title: "Grown-ups only",
+                title: "Parent only",
                 subtitle: "Enter the parent PIN for this \(DeviceCopy.deviceNoun)."
             )
 

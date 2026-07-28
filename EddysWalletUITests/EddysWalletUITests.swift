@@ -1,3 +1,5 @@
+import CoreGraphics
+import UIKit
 import XCTest
 
 /// End-to-end proof of the kid-first navigation model, driven through the
@@ -5,7 +7,7 @@ import XCTest
 /// launch-environment seam with synthetic fixture data (nickname "Eddie",
 /// PIN 1234) - no real accounts, families, or services.
 final class EddysWalletUITests: XCTestCase {
-    private let doorLabel = "Grown-ups area. Asks for the parent PIN."
+    private let doorLabel = "Parent area. Asks for the parent PIN."
     private let parentActionTitles = ["Add deposit", "Record withdrawal", "Create loan", "Record repayment", "Record allowance"]
 
     override func setUpWithError() throws {
@@ -28,10 +30,41 @@ final class EddysWalletUITests: XCTestCase {
         }
     }
 
+    private func assertActionButtonCornersAreFilled(_ button: XCUIElement) throws {
+        let screenshot = button.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "ActionButton corner-fill rendering"
+        add(attachment)
+
+        let image = try XCTUnwrap(UIImage(data: screenshot.pngRepresentation)?.cgImage)
+        let pixels = try XCTUnwrap(RenderedPixels(image: image))
+        let size = button.frame.size
+        let reference = pixels.averageColor(
+            around: CGPoint(x: size.width - 28, y: size.height / 2),
+            radius: 2,
+            pointSize: size
+        )
+        let corners = [
+            CGPoint(x: 4, y: 10),
+            CGPoint(x: size.width - 4, y: 10),
+            CGPoint(x: 4, y: size.height - 10),
+            CGPoint(x: size.width - 4, y: size.height - 10),
+        ]
+
+        for corner in corners {
+            let color = pixels.averageColor(around: corner, radius: 1, pointSize: size)
+            XCTAssertLessThan(
+                color.maximumChannelDistance(to: reference),
+                18,
+                "ActionButton corner must use the same tinted fill as its body"
+            )
+        }
+    }
+
     @discardableResult
     private func openParentArea(in app: XCUIApplication) -> XCUIElement {
         app.buttons[doorLabel].tap()
-        XCTAssertTrue(app.staticTexts["Grown-ups only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
         enterPIN("1234", in: app)
         let header = app.staticTexts["Parent area"]
         XCTAssertTrue(header.waitForExistence(timeout: 5))
@@ -61,7 +94,7 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
 
         app.buttons[doorLabel].tap()
-        XCTAssertTrue(app.staticTexts["Grown-ups only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
         enterPIN("1111", in: app)
 
         XCTAssertTrue(app.staticTexts["Incorrect PIN. Try again."].waitForExistence(timeout: 3))
@@ -81,14 +114,86 @@ final class EddysWalletUITests: XCTestCase {
 
         openParentArea(in: app)
         for title in parentActionTitles {
-            XCTAssertTrue(app.buttons[title].exists, "\(title) must exist inside the Parent area")
+            let button = app.buttons[title]
+            XCTAssertTrue(button.exists, "\(title) must exist inside the Parent area")
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44, "\(title) hit target must be at least 44pt tall")
+            XCTAssertGreaterThan(button.frame.width, 44, "\(title) hit target must stay wide enough to tap")
         }
+        let depositButton = app.buttons["Add deposit"]
+        for _ in 0..<4 where !depositButton.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(depositButton.isHittable)
+        try assertActionButtonCornersAreFilled(depositButton)
         XCTAssertTrue(app.buttons["Sign out"].exists)
         XCTAssertTrue(app.buttons["Change PIN"].exists)
+
+        // Exercise one action path so the filled control is the real parent
+        // chrome, not a disconnected preview.
+        depositButton.tap()
+        XCTAssertTrue(app.textFields["Amount in virtual dollars"].waitForExistence(timeout: 5))
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
 
         app.buttons["Done. Back to Eddie's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Add deposit"].exists)
+    }
+
+    func testParentCanEditChildNicknameAndKidHomeShowsIt() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+
+        openParentArea(in: app)
+        XCTAssertTrue(app.staticTexts["Child profile"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Eddie"].exists, "Parent summary must show the current nickname")
+
+        // Prefer the summary card; on some iPad layouts the sheet opens more
+        // reliably from the Settings row.
+        let summaryCard = app.descendants(matching: .any)["edit-child-profile-card"]
+        let settingsRow = app.descendants(matching: .any)["edit-child-profile-settings"]
+        var opened = false
+        if summaryCard.waitForExistence(timeout: 3) {
+            summaryCard.tap()
+            opened = app.descendants(matching: .any)["child-nickname-field"].waitForExistence(timeout: 2)
+        }
+        if !opened {
+            // Dismiss any partial presentation, then open Settings.
+            if app.navigationBars["Child profile"].exists {
+                app.navigationBars["Child profile"].buttons["Cancel"].tap()
+            }
+            app.swipeUp()
+            app.swipeUp()
+            XCTAssertTrue(settingsRow.waitForExistence(timeout: 5), "Settings must expose Edit child profile")
+            settingsRow.tap()
+        }
+        let field = app.descendants(matching: .any)["child-nickname-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "Child profile editor must present the nickname field")
+        field.tap()
+        if let current = field.value as? String, !current.isEmpty {
+            let deleteString = String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count)
+            field.typeText(deleteString)
+        }
+        field.typeText("Maya")
+
+        let save = app.buttons["Save child profile"]
+        XCTAssertTrue(save.waitForExistence(timeout: 3))
+        XCTAssertTrue(save.isEnabled, "A non-empty nickname must enable save, matching setup validation")
+        save.tap()
+        XCTAssertTrue(app.staticTexts["Child profile saved."].waitForExistence(timeout: 5))
+        app.navigationBars.buttons["Done"].tap()
+
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Maya"].waitForExistence(timeout: 5), "Parent summary must show the saved nickname")
+        XCTAssertTrue(app.staticTexts["Maya's virtual balance"].waitForExistence(timeout: 5))
+
+        // Settings still exposes the same editor.
+        app.swipeUp()
+        XCTAssertTrue(app.descendants(matching: .any)["edit-child-profile-settings"].waitForExistence(timeout: 5))
+
+        app.buttons["Done. Back to Maya's wallet"].tap()
+        XCTAssertTrue(app.staticTexts["Hi, Maya"].waitForExistence(timeout: 5), "Kid home must use the saved nickname")
+        XCTAssertTrue(app.staticTexts["Maya's wallet"].waitForExistence(timeout: 5))
     }
 
     // Report criterion 2 (P3): backgrounding drops elevation; foregrounding
@@ -122,7 +227,7 @@ final class EddysWalletUITests: XCTestCase {
         let app = launch("configured", environment: ["EW_UITEST_FAST_COOLDOWN": "1"])
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         app.buttons[doorLabel].tap()
-        XCTAssertTrue(app.staticTexts["Grown-ups only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
 
         for _ in 0..<5 {
             enterPIN("9999", in: app)
@@ -225,13 +330,13 @@ final class EddysWalletUITests: XCTestCase {
         let app = launch("expired")
 
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["A grown-up needs to sign in again."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["A parent needs to sign in again."].waitForExistence(timeout: 5))
 
         app.buttons[doorLabel].tap()
         XCTAssertTrue(app.staticTexts["Sign in again"].waitForExistence(timeout: 5))
         app.buttons["Sign in with Apple"].tap()
 
-        XCTAssertTrue(app.staticTexts["Grown-ups only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
         enterPIN("1234", in: app)
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }
@@ -266,5 +371,73 @@ final class EddysWalletUITests: XCTestCase {
         app.buttons["Show Eddie's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Your wallet is ready!"].exists)
+    }
+}
+
+private struct RenderedPixels {
+    struct Color {
+        let red: Int
+        let green: Int
+        let blue: Int
+
+        func maximumChannelDistance(to other: Color) -> Int {
+            max(abs(red - other.red), abs(green - other.green), abs(blue - other.blue))
+        }
+    }
+
+    let width: Int
+    let height: Int
+    let bytes: [UInt8]
+
+    init?(image: CGImage) {
+        let imageWidth = image.width
+        let imageHeight = image.height
+        var storage = [UInt8](repeating: 0, count: imageWidth * imageHeight * 4)
+        let rendered = storage.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: imageWidth,
+                height: imageHeight,
+                bitsPerComponent: 8,
+                bytesPerRow: imageWidth * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                return false
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight))
+            return true
+        }
+        guard rendered else { return nil }
+        width = imageWidth
+        height = imageHeight
+        bytes = storage
+    }
+
+    func averageColor(around point: CGPoint, radius: CGFloat, pointSize: CGSize) -> Color {
+        let scaleX = CGFloat(width) / pointSize.width
+        let scaleY = CGFloat(height) / pointSize.height
+        let centerX = Int(point.x * scaleX)
+        let centerY = Int(point.y * scaleY)
+        let radiusX = max(1, Int(radius * scaleX))
+        let radiusY = max(1, Int(radius * scaleY))
+        let xRange = max(0, centerX - radiusX)...min(width - 1, centerX + radiusX)
+        let yRange = max(0, centerY - radiusY)...min(height - 1, centerY + radiusY)
+        var red = 0
+        var green = 0
+        var blue = 0
+        var count = 0
+
+        for y in yRange {
+            for x in xRange {
+                let offset = (y * width + x) * 4
+                red += Int(bytes[offset])
+                green += Int(bytes[offset + 1])
+                blue += Int(bytes[offset + 2])
+                count += 1
+            }
+        }
+
+        return Color(red: red / count, green: green / count, blue: blue / count)
     }
 }

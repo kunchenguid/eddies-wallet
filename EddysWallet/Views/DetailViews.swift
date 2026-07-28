@@ -6,7 +6,7 @@ enum ActivityDetailCopy {
         audience: ActivityDetailView.Audience
     ) -> (label: String, value: String) {
         switch audience {
-        case .kid: ("Changed by", "Your grown-up")
+        case .kid: ("Changed by", "Your parent")
         case .parent: ("Recorded by", "Parent")
         }
     }

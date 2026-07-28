@@ -137,7 +137,7 @@ public final class WalletStore: ObservableObject {
 
     // MARK: - Parent gate
 
-    /// Opens the Grown-ups gate from the kid home. Never leaks parent data:
+    /// Opens the Parent gate from the kid home. Never leaks parent data:
     /// it only routes to PIN entry, or to owning-parent re-authentication
     /// when the session expired or no PIN exists on this device.
     public func openParentGate() {
@@ -419,6 +419,44 @@ public final class WalletStore: ObservableObject {
         errorMessage = nil
         do {
             let refreshed = try await repository.setAllowance(command)
+            if generation == refreshGeneration, elevation == .active {
+                snapshot = refreshed
+                isLoading = false
+            }
+            return true
+        } catch let error as WalletAPIError {
+            if error == .unauthorized || error == .noSession {
+                sessionExpired = repository.hasConfiguredKid
+                if elevation != .none { deElevate() }
+            } else if generation == refreshGeneration, elevation == .active {
+                errorMessage = userMessage(for: error)
+                isLoading = false
+            }
+            return false
+        } catch {
+            if generation == refreshGeneration, elevation == .active {
+                errorMessage = userMessage(for: error)
+                isLoading = false
+            }
+            return false
+        }
+    }
+
+    @discardableResult
+    public func updateChildProfile(nickname: String) async -> Bool {
+        guard elevation == .active else {
+            errorMessage = "Only the Parent area can edit the child profile."
+            return false
+        }
+        guard ChildProfileCopy.configuredNickname(from: nickname) != nil else {
+            errorMessage = "Enter a child nickname."
+            return false
+        }
+        let generation = refreshGeneration
+        isLoading = true
+        errorMessage = nil
+        do {
+            let refreshed = try await repository.updateChildProfile(ChildProfileUpdate(nickname: nickname))
             if generation == refreshGeneration, elevation == .active {
                 snapshot = refreshed
                 isLoading = false

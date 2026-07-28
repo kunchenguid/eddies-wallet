@@ -16,8 +16,8 @@ Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and i
 ## What exists today
 
 - A native SwiftUI iOS/iPadOS app (`EddysWallet.xcodeproj`) targeting iOS 17.0+, iPhone and iPad, with no third-party dependencies.
-- A kid-first navigation model: a configured device rests on the child's read-only wallet, and all parent money flows, the allowance rule, PIN change, and sign-out live in a temporary full-screen Parent area behind a "Grown-ups" door and the parent-set PIN. Parent access is never persisted; backgrounding or relaunching always returns to the kid home. A forgotten PIN is recovered with a fresh Sign in with Apple by the owning parent.
-- Money-event flows with review steps, a starter lesson path, and honest offline/pending/rejected states, implemented against the [product requirements](docs/product-requirements.md).
+- A kid-first navigation model: a configured device rests on the child's read-only wallet, and all parent money flows, child nickname editing, the allowance rule, PIN change, and sign-out live in a temporary full-screen Parent area behind a quiet Parent door and the parent-set PIN. Parent access is never persisted; backgrounding or relaunching always returns to the kid home. A forgotten PIN is recovered with a fresh Sign in with Apple by the owning parent.
+- Money-event flows with review steps and honest offline/pending/rejected states, implemented against the [product requirements](docs/product-requirements.md).
 - Unit, contract-style transport, and native UI tests in the shared scheme that run entirely against injected fakes and never call a live service.
 - A copied web design system and click-through prototype, packaged as the `eddies-wallet-design` agent skill under `.agents/skills/eddies-wallet-design/`, kept as visual reference material; the native app is the maintained implementation.
 - A `0.1.0` source release and `eddies-wallet-v0.1.0` tag, with release notes in `CHANGELOG.md`.

@@ -1,6 +1,7 @@
 .DS_Store
 .build/
 .derived/
+.derived-review/
 DerivedData/
 *.xcarchive
 *.xcuserstate

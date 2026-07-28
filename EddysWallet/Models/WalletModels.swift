@@ -93,14 +93,14 @@ public enum KidCopy {
         "You're offline - this is what your wallet looked like at \(lastUpdated.formatted(date: .omitted, time: .shortened))."
     }
 
-    public static let sessionBanner = "A grown-up needs to sign in again."
+    public static let sessionBanner = "A parent needs to sign in again."
 
     public static let emptyWalletTitle = "Your wallet is ready!"
 
-    public static let emptyWalletMessage = "Your grown-up can add the first pretend dollars."
+    public static let emptyWalletMessage = "Your parent can add the first pretend dollars."
 
-    public static func grownUpsDoorAccessibilityLabel() -> String {
-        "Grown-ups area. Asks for the parent PIN."
+    public static func parentDoorAccessibilityLabel() -> String {
+        "Parent area. Asks for the parent PIN."
     }
 }
 
@@ -424,22 +424,34 @@ public struct AllowanceRuleCommand: Sendable, Codable {
 public struct ParentSetup: Sendable, Codable {
     public let familyName: String?
     public let nickname: String
-    public let lessonAgeBand: String
     public let avatarURL: URL?
     public let idempotencyKey: String
 
     public init(
         familyName: String? = nil,
         nickname: String,
-        lessonAgeBand: String,
         avatarURL: URL? = nil,
         idempotencyKey: String = UUID().uuidString
     ) {
         self.familyName = familyName
         self.nickname = nickname
-        self.lessonAgeBand = lessonAgeBand
         self.avatarURL = avatarURL
         self.idempotencyKey = idempotencyKey
+    }
+}
+
+public struct ChildProfileUpdate: Sendable, Codable {
+    public let nickname: String
+    public let idempotencyKey: String
+
+    public init(nickname: String, idempotencyKey: String = UUID().uuidString) {
+        self.nickname = nickname
+        self.idempotencyKey = idempotencyKey
+    }
+
+    /// Same non-empty trimmed nickname rule as first-run setup.
+    public var validatedNickname: String? {
+        ChildProfileCopy.configuredNickname(from: nickname)
     }
 }
 
@@ -484,6 +496,7 @@ public protocol WalletRepository: AnyObject {
     func submit(_ command: WalletCommand) async throws -> CommandResult
     func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot
     func setup(_ setup: ParentSetup) async throws -> WalletSnapshot
+    func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot
     func clearAuthentication()
     func clearSession()
 }
@@ -537,9 +550,27 @@ public final class MockWalletRepository: WalletRepository {
     }
 
     public func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {
-        guard !setup.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return current }
+        guard let nickname = ChildProfileCopy.configuredNickname(from: setup.nickname) else { return current }
         configuredKid = true
+        applyNickname(nickname)
         return current
+    }
+
+    public func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot {
+        guard let nickname = update.validatedNickname else {
+            throw WalletAPIError.invalidResponse("Enter a child nickname.")
+        }
+        applyNickname(nickname)
+        return current
+    }
+
+    private func applyNickname(_ nickname: String) {
+        current.childNickname = nickname
+        currentChild.childNickname = nickname
+        current.lastUpdated = .now
+        currentChild.lastUpdated = .now
+        current.isStale = false
+        currentChild.isStale = false
     }
 
     public func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {

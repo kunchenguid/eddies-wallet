@@ -12,6 +12,7 @@ struct ParentAreaView: View {
     @State private var flow: MoneyFlowKind?
     @State private var isShowingAllowance = false
     @State private var isShowingChangePIN = false
+    @State private var isShowingEditProfile = false
     @State private var isConfirmingSignOut = false
 
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
@@ -46,6 +47,7 @@ struct ParentAreaView: View {
                         firstActionsCard
                     }
 
+                    childProfileCard
                     walletCards
 
                     SectionHeader("Recent activity")
@@ -112,6 +114,10 @@ struct ParentAreaView: View {
         }
         .sheet(isPresented: $isShowingChangePIN) {
             ChangePINView()
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $isShowingEditProfile) {
+            EditChildProfileView()
                 .presentationDetents([.medium, .large])
         }
     }
@@ -196,6 +202,36 @@ struct ParentAreaView: View {
                 syncStatusCard
             }
         }
+    }
+
+    private var childProfileCard: some View {
+        Button {
+            isShowingEditProfile = true
+        } label: {
+            HStack(spacing: EW.Space.three) {
+                IconBadge("person.crop.circle", foreground: EW.Color.green700, background: EW.Color.green100)
+                VStack(alignment: .leading, spacing: EW.Space.one) {
+                    Text("Child profile")
+                        .font(EW.Font.bodyBold)
+                        .foregroundStyle(EW.Color.textPrimary)
+                    Text(ChildProfileCopy.configuredNickname(from: store.snapshot.configuredChildNickname) ?? "Add a nickname")
+                        .font(EW.Font.body)
+                        .foregroundStyle(EW.Color.textSecondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: EW.Space.two)
+                Text("Edit")
+                    .font(EW.Font.bodyBold)
+                    .foregroundStyle(EW.Color.primaryActive)
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(EW.Color.textTertiary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .ewCard(variant: .alt)
+        .accessibilityIdentifier("edit-child-profile-card")
+        .accessibilityHint("Opens the child profile editor")
     }
 
     private var balanceCard: some View {
@@ -334,6 +370,10 @@ struct ParentAreaView: View {
 
     private var settingsCard: some View {
         VStack(spacing: 0) {
+            settingsRow(title: "Edit child profile", icon: "person.crop.circle", accessibilityIdentifier: "edit-child-profile-settings") {
+                isShowingEditProfile = true
+            }
+            Divider().overlay(EW.Color.border)
             settingsRow(title: "Change PIN", icon: "lock.rotation") {
                 isShowingChangePIN = true
             }
@@ -355,7 +395,7 @@ struct ParentAreaView: View {
         }
     }
 
-    private func settingsRow(title: String, icon: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
+    private func settingsRow(title: String, icon: String, role: ButtonRole? = nil, accessibilityIdentifier: String? = nil, action: @escaping () -> Void) -> some View {
         Button(role: role, action: action) {
             HStack(spacing: EW.Space.three) {
                 Image(systemName: icon)
@@ -374,6 +414,7 @@ struct ParentAreaView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityIdentifier ?? title)
     }
 
     private func stateColor(_ state: SyncState) -> Color {
@@ -391,6 +432,101 @@ struct ParentAreaView: View {
         case .pending: EW.Color.goldTint
         case .rejected: EW.Color.dangerTint
         case .draft: EW.Color.ink100
+        }
+    }
+}
+
+/// Parent-only editor for the configured child nickname. Uses the same
+/// non-empty trimmed validation as first-run setup.
+struct EditChildProfileView: View {
+    @EnvironmentObject private var store: WalletStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var nickname = ""
+    @State private var didSave = false
+    @State private var localError: String?
+
+    private var trimmedNickname: String {
+        nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isValid: Bool {
+        ChildProfileCopy.configuredNickname(from: nickname) != nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: EW.Space.five) {
+                    Text("This nickname appears on the Parent area summary and on the child's wallet. It is not a login.")
+                        .font(EW.Font.body)
+                        .foregroundStyle(EW.Color.textSecondary)
+
+                    VStack(alignment: .leading, spacing: EW.Space.two) {
+                        Text("Child nickname")
+                            .font(EW.Font.captionUpper)
+                            .foregroundStyle(EW.Color.textTertiary)
+                        TextField("Child's nickname", text: $nickname)
+                            .font(EW.Font.body)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minHeight: 44)
+                            .accessibilityLabel("Child nickname")
+                            .accessibilityIdentifier("child-nickname-field")
+                            .onChange(of: nickname) { _, _ in
+                                didSave = false
+                                localError = nil
+                            }
+                    }
+                    .ewCard()
+
+                    if didSave {
+                        Label("Child profile saved.", systemImage: "checkmark.circle.fill")
+                            .font(EW.Font.bodyBold)
+                            .foregroundStyle(EW.Color.green700)
+                    }
+                    if let localError {
+                        Text(localError)
+                            .font(EW.Font.caption)
+                            .foregroundStyle(EW.Color.red600)
+                    } else if let errorMessage = store.errorMessage, !didSave {
+                        Text(errorMessage)
+                            .font(EW.Font.caption)
+                            .foregroundStyle(EW.Color.red600)
+                    }
+
+                    Button {
+                        Task {
+                            let ok = await store.updateChildProfile(nickname: nickname)
+                            didSave = ok
+                            localError = ok ? nil : (store.errorMessage ?? "The child profile could not be saved.")
+                        }
+                    } label: {
+                        if store.isLoading {
+                            ProgressView()
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                        } else {
+                            Text("Save child profile")
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                        }
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(store.isLoading || !isValid)
+                    .opacity(store.isLoading || !isValid ? 0.45 : 1)
+                }
+                .padding(EW.Space.screenMargin)
+                .frame(maxWidth: 620)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .background(EW.Color.appBackground)
+            .navigationTitle("Child profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(didSave ? "Done" : "Cancel") { dismiss() }
+                }
+            }
+            .onAppear {
+                nickname = store.snapshot.configuredChildNickname ?? ""
+            }
         }
     }
 }

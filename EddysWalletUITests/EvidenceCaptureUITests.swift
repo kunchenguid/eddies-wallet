@@ -6,7 +6,7 @@ import XCTest
 /// reproducible from clean simulators with synthetic fixture data instead of
 /// hand-assembled captures.
 final class EvidenceCaptureUITests: XCTestCase {
-    private let doorLabel = "Grown-ups area. Asks for the parent PIN."
+    private let doorLabel = "Parent area. Asks for the parent PIN."
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -45,7 +45,7 @@ final class EvidenceCaptureUITests: XCTestCase {
 
     private func unlockParentArea(_ app: XCUIApplication) {
         app.buttons[doorLabel].tap()
-        XCTAssertTrue(app.staticTexts["Grown-ups only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
         enterPIN("1234", in: app)
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }
@@ -54,15 +54,6 @@ final class EvidenceCaptureUITests: XCTestCase {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         capture("kid-home")
-
-        app.staticTexts["Next lesson"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["Borrow and repay"].waitForExistence(timeout: 5))
-        // Lesson content must reference the real fixture loan, never a
-        // made-up amount (US$6.00 of US$10.00 in the fixture).
-        let loanClaim = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "US$6.00 left to repay from a US$10.00 virtual loan")).firstMatch
-        XCTAssertTrue(loanClaim.waitForExistence(timeout: 3))
-        capture("kid-lesson")
-        app.buttons["Close"].tap()
 
         app.staticTexts["Comic book"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Activity detail"].waitForExistence(timeout: 5))
@@ -89,7 +80,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         capture("kid-offline")
 
         app = launch("expired")
-        XCTAssertTrue(app.staticTexts["A grown-up needs to sign in again."].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["A parent needs to sign in again."].waitForExistence(timeout: 10))
         capture("kid-session-expired")
 
         app = launch("configured", arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"])
@@ -102,7 +93,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
 
         app.buttons[doorLabel].tap()
-        XCTAssertTrue(app.staticTexts["Grown-ups only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
         capture("gate")
 
         enterPIN("1111", in: app)
@@ -194,6 +185,56 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         app.buttons["Done. Back to Eddie's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
+    }
+
+    func testChildNicknameEditorTour() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+
+        let summaryCard = app.descendants(matching: .any)["edit-child-profile-card"]
+        let settingsRow = app.descendants(matching: .any)["edit-child-profile-settings"]
+        XCTAssertTrue(summaryCard.waitForExistence(timeout: 5))
+        summaryCard.tap()
+
+        let field = app.descendants(matching: .any)["child-nickname-field"]
+        if !field.waitForExistence(timeout: 2) {
+            if app.navigationBars["Child profile"].exists {
+                app.navigationBars["Child profile"].buttons["Cancel"].tap()
+            }
+            app.swipeUp()
+            app.swipeUp()
+            XCTAssertTrue(settingsRow.waitForExistence(timeout: 5))
+            settingsRow.tap()
+        }
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        capture("parent-child-profile-editor")
+
+        field.tap()
+        if let current = field.value as? String, !current.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        }
+        let save = app.buttons["Save child profile"]
+        XCTAssertTrue(save.waitForExistence(timeout: 3))
+        XCTAssertFalse(save.isEnabled, "A blank nickname must not be saved")
+        capture("parent-child-profile-blank-validation")
+
+        field.typeText("Maya")
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
+        XCTAssertTrue(app.staticTexts["Child profile saved."].waitForExistence(timeout: 5))
+        capture("parent-child-profile-saved")
+        app.navigationBars.buttons["Done"].tap()
+
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Maya"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Maya's virtual balance"].exists)
+        capture("parent-area-renamed-child")
+
+        app.buttons["Done. Back to Maya's wallet"].tap()
+        XCTAssertTrue(app.staticTexts["Hi, Maya"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Maya's wallet"].exists)
+        capture("kid-home-renamed")
     }
 
     func testParentEmptyHandoffTour() throws {
