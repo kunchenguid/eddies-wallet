@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.2...eddies-wallet-v0.1.3) (2026-07-29)
+
+
+### Bug Fixes
+
+* polish Parent PIN gate and Parent area ([#23](https://github.com/kunchenguid/eddies-wallet/issues/23)) ([e2ec2b6](https://github.com/kunchenguid/eddies-wallet/commit/e2ec2b68b548d1a63fdce3099cec300ba7da43bd))
+
 ## [0.1.2](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.1...eddies-wallet-v0.1.2) (2026-07-29)
 
 
