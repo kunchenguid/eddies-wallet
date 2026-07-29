@@ -95,7 +95,16 @@ Required before the first TestFlight upload can succeed:
 Optional:
 
 - A TestFlight internal tester group, so accepted builds are installable immediately after processing.
-- App Store agreements: TestFlight-only distribution needs the current developer agreements. Before the optional paid Cloud subscription can be offered, the captain must also complete the Paid Applications agreement and required tax/banking setup. This repository does not claim those prerequisites are complete.
+
+## Account-level prerequisites that are already satisfied
+
+Eddie's Wallet ships from a single Apple Developer team shared with other apps, so account-level setup is **not** per-app work and must not be requested again for this app:
+
+- **Paid Applications agreement, tax, and banking** are already in place. Another app on the same team sells an approved paid in-app purchase with a live territory price schedule, which Apple does not permit without them.
+- **App Store Connect API key**, iOS **distribution certificate**, and automatic signing are already in place and proven by accepted TestFlight uploads for this app.
+- **Sandbox capability** exists at the account level through the active paid membership. A Sandbox Apple *Account* to test with is separate and is created in the App Store Connect console; the API cannot create one.
+
+The remaining Cloud prerequisites are app-specific, and the App Store Connect side is already configured: see `docs/app-store-configuration.md` for the exact products, prices, policies, grace period, and notification URLs that exist today. The one credential still outstanding is a distinct **In-App Purchase** key for the backend's App Store Server API verification. That is a different key class from the App Store Connect API key above, and the App Store Server API rejects the upload key.
 
 ## Capabilities need Apple portal setup before release
 
@@ -104,6 +113,19 @@ Sign in with Apple is already enabled for this App ID; any future capability (an
 Automatic cloud signing cannot create a matching provisioning profile until that setup exists, so `Release to TestFlight` can fail with `No profiles for 'com.kunchenguid.eddieswallet' were found` or an authentication-looking error even when the API key and secrets are correct.
 Treat that failure as a capability or portal gap, not an API-key problem.
 Local validation never archives against App Store Connect, so a capability-touching change must verify portal readiness before release even when PR validation is green.
+
+In-App Purchase is already enabled on this App ID, so the optional Cloud subscription needs no further capability or entitlement work.
+
+## Development-certificate cleanup revokes team-wide, so local device signing can break
+
+`.github/scripts/prune_asc_development_certs.js` keeps only the newest few `DEVELOPMENT` certificates and revokes the rest.
+Apple scopes certificates to the **team**, not to an app, and this Apple team is shared with other apps that run the same cleanup.
+So a release of this app can revoke a development certificate another machine or project was using, and a release of another app on the team can revoke this Mac's.
+
+After a cleanup runs, `security find-identity -v -p codesigning` can report `CSSMERR_TP_CERT_REVOKED` for `Apple Development`, this app's development provisioning profile can show as `INVALID`, and `xcrun devicectl` can fail with "No provider was found" - so running on a physical device fails.
+
+This never affects TestFlight or App Store distribution, which use the separate iOS distribution certificate. Treat a green release pipeline as still trustworthy.
+The safe recovery is to let Xcode automatic signing regenerate a development certificate. Do not hand-edit signing settings, and do not rotate the App Store Connect API key in response.
 
 ## Failure handling and reruns
 

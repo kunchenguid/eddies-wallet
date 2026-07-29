@@ -270,6 +270,72 @@ for bad_tag in main eddies-wallet-v1.2 v1.2.3.4 'eddies-wallet-v1.2.3-rc1'; do
   fi
 done
 
+# --- Cloud subscription product contract -----------------------------------
+
+# The App Store Connect products were configured against these exact values
+# (docs/app-store-configuration.md). The bundled StoreKit configuration must not
+# drift from them; EddysWalletTests/CloudStoreConfigurationTests.swift asserts
+# the same contract from inside the app bundle.
+STOREKIT=EddysWallet/Configuration/EddysWallet.storekit
+CLOUD_MODELS=EddysWallet/Models/CloudModels.swift
+APP_STORE_DOC=docs/app-store-configuration.md
+
+for product in com.kunchenguid.eddieswallet.cloud.monthly com.kunchenguid.eddieswallet.cloud.annual; do
+  require_grep "\"productID\" : \"$product\"" "$STOREKIT" "StoreKit configuration declares $product"
+  require_grep "\"$product\"" "$CLOUD_MODELS" "runtime product identifiers declare $product"
+  require_grep "\`$product\`" "$APP_STORE_DOC" "App Store configuration record documents $product"
+done
+
+require_grep '"displayPrice" : "2.99"' "$STOREKIT" "monthly Cloud price stays 2.99"
+require_grep '"displayPrice" : "24.99"' "$STOREKIT" "annual Cloud price stays 24.99"
+require_grep '"recurringSubscriptionPeriod" : "P1M"' "$STOREKIT" "monthly Cloud period stays one month"
+require_grep '"recurringSubscriptionPeriod" : "P1Y"' "$STOREKIT" "annual Cloud period stays one year"
+
+# Exactly two Cloud subscriptions, both without Family Sharing, and no offers of
+# any kind - App Store Connect has none, so the local configuration must not
+# invent one.
+storekit_count() { grep -c -- "$1" "$STOREKIT"; }
+if [ "$(storekit_count '"productID" :')" -eq 2 ]; then
+  pass "StoreKit configuration declares exactly two products"
+else
+  fail "StoreKit configuration declares exactly two products (found $(storekit_count '"productID" :'))"
+fi
+if [ "$(storekit_count '"familyShareable" : false')" -eq 2 ]; then
+  pass "both Cloud subscriptions keep Family Sharing off"
+else
+  fail "both Cloud subscriptions keep Family Sharing off"
+fi
+forbid_grep '"introductoryOffer"' "$STOREKIT" "no Cloud introductory offer or free trial is configured"
+forbid_grep '"promotionalOffers" : \[[^]]' "$STOREKIT" "no Cloud promotional offer is configured"
+forbid_grep '"offerCodes" : \[[^]]' "$STOREKIT" "no Cloud offer code is configured"
+
+# --- Truthful shared-account and Cloud documentation -----------------------
+
+# The shared Apple account already carries the Paid Applications agreement and
+# tax/banking. Re-asserting that they are outstanding regenerates a duplicate
+# captain request, so the stale claim must stay out of the release docs.
+forbid_grep 'does not claim those prerequisites are complete' docs/release.md \
+  "release docs no longer claim the Paid Applications agreement and tax/banking are unproven"
+require_grep 'Paid Applications agreement, tax, and banking\*\* are already in place' docs/release.md \
+  "release docs record that account-level distribution prerequisites are satisfied"
+require_grep 'In-App Purchase\*\* key' docs/release.md \
+  "release docs distinguish the outstanding In-App Purchase key from the upload key"
+require_grep 'Apple scopes certificates to the \*\*team\*\*' docs/release.md \
+  "release docs warn that certificate cleanup revokes team-wide, not per app"
+require_grep 'prune_asc_development_certs\.js' docs/release.md \
+  "release docs name this repository's own certificate-cleanup script as a cause"
+require_grep 'automatic signing regenerate a development certificate' docs/release.md \
+  "release docs give the safe local signing recovery"
+
+# The configuration record must stay honest about what has not happened.
+require_grep 'READY_TO_SUBMIT' "$APP_STORE_DOC" "App Store configuration record states the product state"
+require_grep 'SIXTEEN_DAYS' "$APP_STORE_DOC" "App Store configuration record states the billing grace period"
+require_grep '/v1/app-store/notifications' "$APP_STORE_DOC" "App Store configuration record states the notification route"
+require_grep 'What is deliberately not done' "$APP_STORE_DOC" \
+  "App Store configuration record keeps its unproven-state disclaimer"
+forbid_grep 'submitted for App Review|purchase succeeded|Sandbox purchase verified' "$APP_STORE_DOC" \
+  "App Store configuration record claims no purchase, Sandbox, or App Review success"
+
 # --- Result ----------------------------------------------------------------
 
 echo
