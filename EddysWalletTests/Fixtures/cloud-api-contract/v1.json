@@ -1,0 +1,12 @@
+{
+  "capabilities": { "method": "GET", "path": "/v1/capabilities", "statuses": [200] },
+  "context": { "method": "GET", "path": "/v1/cloud/context", "statuses": [200, 401] },
+  "transaction": { "method": "POST", "path": "/v1/cloud/transactions", "body": ["signedTransaction"], "statuses": [200, 202, 403, 422] },
+  "bootstrap": { "method": "GET", "path": "/v1/cloud/bootstrap?cursor=", "statuses": [200, 401] },
+  "changes": { "method": "GET", "path": "/v1/cloud/changes?afterRevision=", "statuses": [200, 401] },
+  "import": { "method": "POST", "path": "/v1/cloud/household/import", "headers": ["Idempotency-Key"], "statuses": [200, 409] },
+  "legacyDetach": { "method": "POST", "path": "/v1/cloud/legacy-detach", "headers": ["Idempotency-Key", "If-Match"], "statuses": [200, 409, 428] },
+  "legacyActivate": { "method": "POST", "path": "/v1/cloud/legacy-activate", "headers": ["Idempotency-Key", "If-Match"], "statuses": [200, 403, 409] },
+  "session": { "method": "DELETE", "path": "/v1/session/current", "statuses": [200, 204, 401] },
+  "revisionConflict": { "status": 409, "code": "REVISION_CONFLICT" }
+}

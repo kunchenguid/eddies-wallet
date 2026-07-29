@@ -3,6 +3,13 @@ import Foundation
 
 /// Retry policy for the parent PIN gate. After `maxAttempts` consecutive
 /// failures the keypad pauses for `cooldownSeconds`.
+public enum WalletRootRoute: Equatable, Sendable {
+    case welcome
+    case setup
+    case kidHome
+    case recovery
+}
+
 public struct ParentGatePolicy: Sendable {
     public let maxAttempts: Int
     public let cooldownSeconds: TimeInterval
@@ -16,8 +23,70 @@ public struct ParentGatePolicy: Sendable {
 }
 
 @MainActor
+enum WalletRepositoryFactory {
+    static func makeDefault() -> any WalletRepository {
+        makeDefault(
+            localProvider: { try LocalWalletRepository() },
+            legacyProvider: { APIWalletRepository() }
+        )
+    }
+
+    static func makeDefault(
+        localProvider: () throws -> LocalWalletRepository,
+        legacyProvider: () -> any WalletRepository
+    ) -> any WalletRepository {
+        do {
+            let local = try localProvider()
+            return select(local: local, legacy: legacyProvider())
+        } catch {
+            return LocalWalletRecoveryRepository(state: .storageUnavailable)
+        }
+    }
+
+    static func select(local: LocalWalletRepository, legacy: @autoclosure () -> any WalletRepository) -> any WalletRepository {
+        local.hasLegacyInputs ? legacy() : local
+    }
+}
+
+@MainActor
+protocol WalletRecoveryProviding: AnyObject {
+    var recoveryState: WalletRecoveryState? { get }
+}
+
+@MainActor
+final class LocalWalletRecoveryRepository: WalletRepository, WalletRecoveryProviding {
+    let recoveryState: WalletRecoveryState?
+
+    init(state: WalletRecoveryState) {
+        recoveryState = state
+    }
+
+    var isAuthenticated: Bool { true }
+    var hasConfiguredKid: Bool { true }
+    func snapshot() -> WalletSnapshot { .empty() }
+    func childSnapshot() -> WalletSnapshot { .empty() }
+    func refresh(for _: UserRole) async throws -> WalletSnapshot { throw unavailable() }
+    func activity(limit _: Int) async throws -> [WalletEvent] { throw unavailable() }
+    func activityDetail(remoteID _: String) async throws -> WalletEvent { throw unavailable() }
+    func loanDetail(remoteID _: String) async throws -> LoanDetail { throw unavailable() }
+    func submit(_: WalletCommand) async throws -> CommandResult { throw unavailable() }
+    func setAllowance(_: AllowanceRuleCommand) async throws -> WalletSnapshot { throw unavailable() }
+    func setup(_: ParentSetup) async throws -> WalletSnapshot { throw unavailable() }
+    func updateChildProfile(_: ChildProfileUpdate) async throws -> WalletSnapshot { throw unavailable() }
+    func clearAuthentication() {}
+    func clearSession() throws { throw unavailable() }
+
+    private func unavailable() -> WalletAPIError {
+        .invalidResponse("This wallet needs recovery before it can be used.")
+    }
+}
+
+@MainActor
 public final class WalletStore: ObservableObject {
     @Published public private(set) var snapshot: WalletSnapshot
+    @Published public private(set) var authorityState: WalletAuthorityState
+    @Published public private(set) var purchaseAttempt: PurchaseAttemptState = .idle
+    @Published public private(set) var cloudEntitlement: CloudEntitlementState = .none
     /// Transient parent elevation over the kid home. In-memory only, never
     /// persisted: a cold launch of a configured app always rests on the kid
     /// home, and backgrounding drops any parent context immediately.
@@ -58,11 +127,21 @@ public final class WalletStore: ObservableObject {
         identityStore: (any ParentIdentityStore)? = nil,
         gatePolicy: ParentGatePolicy = .standard
     ) {
-        let resolvedRepository = repository ?? APIWalletRepository()
+        let resolvedRepository = repository ?? WalletRepositoryFactory.makeDefault()
         self.repository = resolvedRepository
         self.snapshot = resolvedRepository.childSnapshot()
-        self.isSignedIn = initiallySignedIn ?? (resolvedRepository.isAuthenticated || resolvedRepository.hasConfiguredKid)
-        self.sessionExpired = resolvedRepository.hasConfiguredKid && !resolvedRepository.isAuthenticated
+        let configured = resolvedRepository.hasConfiguredKid
+        self.isSignedIn = initiallySignedIn ?? configured
+        if let recovery = resolvedRepository as? any WalletRecoveryProviding, let recoveryState = recovery.recoveryState {
+            self.authorityState = .localRecovery(recoveryState)
+        } else if let local = resolvedRepository as? LocalWalletRepository, let lineageID = local.lineageID {
+            self.authorityState = .local(lineageID: lineageID)
+        } else if configured {
+            self.authorityState = .legacyService
+        } else {
+            self.authorityState = .unconfigured
+        }
+        self.sessionExpired = resolvedRepository.hasConfiguredKid && !resolvedRepository.isAuthenticated && !(resolvedRepository is LocalWalletRepository)
         self.gatePolicy = gatePolicy
         let isMockRepository = resolvedRepository is MockWalletRepository
         self.pinStore = pinStore ?? (isMockRepository ? InMemoryParentPINStore(pin: "1234") : KeychainParentPINStore())
@@ -72,10 +151,12 @@ public final class WalletStore: ObservableObject {
         } else if let authenticator = resolvedRepository as? any ParentAuthenticator {
             self.appleSignInProvider = AppleSignInCoordinator(authenticator: authenticator)
         } else {
-            self.appleSignInProvider = nil
+            // Free local setup uses native Apple identity only. Backend sessions
+            // are only exchanged by explicit Cloud flows.
+            self.appleSignInProvider = AppleSignInCoordinator()
         }
 
-        if self.isSignedIn, !isMockRepository {
+        if self.isSignedIn, !isMockRepository, self.recoveryState == nil {
             Task { [weak self] in await self?.refresh() }
         }
     }
@@ -92,6 +173,20 @@ public final class WalletStore: ObservableObject {
     // MARK: - Derived state
 
     public var isElevated: Bool { elevation == .active }
+    /// Root navigation is authority-driven. The compatibility booleans remain
+    /// for existing parent-gate tests, not as the app's source of truth.
+    public var rootRoute: WalletRootRoute {
+        switch authorityState {
+        case .unconfigured, .authenticatingParent: return .welcome
+        case .localSetup: return .setup
+        case .localRecovery: return .recovery
+        default: return .kidHome
+        }
+    }
+    public var recoveryState: WalletRecoveryState? {
+        if case let .localRecovery(state) = authorityState { return state }
+        return nil
+    }
     public var isCoolingDown: Bool { cooldownSecondsRemaining > 0 }
     public var attemptsRemaining: Int { max(0, gatePolicy.maxAttempts - failedPINAttempts) }
     /// Whether this device holds identity evidence for the owning parent.
@@ -124,7 +219,12 @@ public final class WalletStore: ObservableObject {
             }
             isSignedIn = true
             sessionExpired = false
-            await refresh()
+            if repository.hasConfiguredKid {
+                await refresh()
+            } else {
+                authorityState = .localSetup
+                needsSetup = true
+            }
         } catch {
             if case WalletAPIError.cancelled = error {
                 errorMessage = nil
@@ -303,6 +403,11 @@ public final class WalletStore: ObservableObject {
 
     public func refresh() async {
         guard isSignedIn else { return }
+        guard repository.hasConfiguredKid else {
+            needsSetup = true
+            if authorityState == .unconfigured { authorityState = .localSetup }
+            return
+        }
         let requestedRole = viewRole
         let generation = refreshGeneration
         isLoading = true
@@ -311,6 +416,9 @@ public final class WalletStore: ObservableObject {
             guard generation == refreshGeneration, requestedRole == viewRole else { return }
             snapshot = refreshed
             needsSetup = false
+            if let local = repository as? LocalWalletRepository, let lineageID = local.lineageID {
+                authorityState = .local(lineageID: lineageID)
+            }
             errorMessage = nil
             isOffline = false
             sessionExpired = false
@@ -385,6 +493,9 @@ public final class WalletStore: ObservableObject {
             snapshot = repository.snapshot()
             needsSetup = false
             isSignedIn = true
+            if let local = repository as? LocalWalletRepository, let lineageID = local.lineageID {
+                authorityState = .local(lineageID: lineageID)
+            }
             isLoading = false
             // The parent just proved themselves with Apple and set the PIN:
             // hand off through the Parent area with the first-actions
@@ -536,7 +647,15 @@ public final class WalletStore: ObservableObject {
         let isPreFamilySetup = isSignedIn && needsSetup && !repository.hasConfiguredKid
         guard elevation == .active || isPreFamilySetup else { return }
         refreshGeneration += 1
-        repository.clearSession()
+        do {
+            try repository.clearSession()
+        } catch {
+            errorMessage = "This wallet could not be erased. Nothing else was removed."
+            return
+        }
+        authorityState = .unconfigured
+        purchaseAttempt = .idle
+        cloudEntitlement = .none
         isSignedIn = false
         needsSetup = false
         pinStore.clear()
@@ -549,6 +668,17 @@ public final class WalletStore: ObservableObject {
         clearPINFailureState()
         deElevate()
     }
+
+    #if DEBUG
+    /// Debug-only scenario seam. This is intentionally compiled out of
+    /// Release, and is the sole place scripted authority/entitlement states
+    /// may enter the app.
+    func applyDebugCloudState(authority: WalletAuthorityState, purchase: PurchaseAttemptState = .idle, entitlement: CloudEntitlementState = .none) {
+        authorityState = authority
+        purchaseAttempt = purchase
+        cloudEntitlement = entitlement
+    }
+    #endif
 
     // MARK: - Private helpers
 

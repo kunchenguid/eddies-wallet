@@ -38,12 +38,15 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if !store.isSignedIn {
+            switch store.rootRoute {
+            case .welcome:
                 WelcomeView()
-            } else if store.needsSetup {
+            case .setup:
                 SetupView()
-            } else {
+            case .kidHome:
                 KidHomeView()
+            case .recovery:
+                WalletRecoveryView()
             }
         }
         .fullScreenCover(isPresented: isElevationPresented) {

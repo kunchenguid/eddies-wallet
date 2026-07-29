@@ -5,7 +5,6 @@ struct SetupView: View {
 
     @EnvironmentObject private var store: WalletStore
     @State private var nickname = SetupView.initialNickname
-    @State private var familyName = ""
     @State private var pin = ""
     @State private var confirmationPIN = ""
     @State private var isConfirmingSignOut = false
@@ -26,7 +25,6 @@ struct SetupView: View {
 
                     VStack(alignment: .leading, spacing: EW.Space.four) {
                         field(title: "Child nickname", text: $nickname, placeholder: "Child's nickname")
-                        field(title: "Family name (optional)", text: $familyName, placeholder: "Your family")
                         VStack(alignment: .leading, spacing: EW.Space.two) {
                             Text("Parent PIN")
                                 .font(EW.Font.captionUpper)
@@ -46,7 +44,7 @@ struct SetupView: View {
                     }
                     .ewCard()
 
-                    Text("This creates the family and wallet on the authoritative service. If the request fails, this form remains a local draft and no wallet is claimed to be saved.")
+                    Text("This saves a complete practice wallet on this \(DeviceCopy.deviceNoun). Cloud is optional and can be considered later in the Parent area.")
                         .font(EW.Font.caption)
                         .foregroundStyle(EW.Color.textTertiary)
 
@@ -59,7 +57,6 @@ struct SetupView: View {
                     Button {
                         Task {
                             let setup = ParentSetup(
-                                familyName: familyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : familyName,
                                 nickname: nickname.trimmingCharacters(in: .whitespacesAndNewlines)
                             )
                             _ = await store.setupParent(setup, pin: pin, confirmation: confirmationPIN)
@@ -69,7 +66,7 @@ struct SetupView: View {
                             ProgressView()
                                 .frame(maxWidth: .infinity, minHeight: 52)
                         } else {
-                            Text("Create your child's wallet")
+                            Text("Keep it on this device for free")
                                 .frame(maxWidth: .infinity, minHeight: 52)
                         }
                     }

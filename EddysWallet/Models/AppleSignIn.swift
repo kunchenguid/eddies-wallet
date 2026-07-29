@@ -41,18 +41,41 @@ private final class SystemAppleAuthorizationController: AppleAuthorizationContro
     }
 }
 
-/// The result of a completed Sign in with Apple: the exchanged parent session
-/// plus the stable Apple user identifier presented by the credential. The
-/// identifier is opaque identity evidence used to recognize the owning parent
-/// on this device; it is never sent anywhere by the client.
+/// Native Apple identity proof. Free local setup stores only the opaque user
+/// identifier. The token and nonce are short-lived proof for optional Cloud
+/// session exchange and are never persisted.
+public struct AppleIdentity: Sendable {
+    public let appleUserID: String
+    public let identityToken: String
+    public let signedNonce: String
+
+    public init(appleUserID: String, identityToken: String, signedNonce: String) {
+        self.appleUserID = appleUserID
+        self.identityToken = identityToken
+        self.signedNonce = signedNonce
+    }
+}
+
+/// Compatibility result for callers that need both native identity and an
+/// optional Cloud session. A nil session is the normal free-local result.
 public struct AppleSignInOutcome: Sendable {
-    public let session: AuthSession
+    public let session: AuthSession?
     public let appleUserID: String
 
-    public init(session: AuthSession, appleUserID: String) {
+    public init(session: AuthSession? = nil, appleUserID: String) {
         self.session = session
         self.appleUserID = appleUserID
     }
+}
+
+@MainActor
+public protocol AppleIdentityAuthorizing: AnyObject {
+    func authorizeAppleIdentity(requiredAppleUserID: String?) async throws -> AppleIdentity
+}
+
+@MainActor
+public protocol CloudSessionAuthenticating: AnyObject {
+    func authenticateCloud(identity: AppleIdentity) async throws -> AuthSession
 }
 
 /// Seam for everything that performs a native Sign in with Apple. When
@@ -65,13 +88,13 @@ public protocol AppleSignInProviding: AnyObject {
 }
 
 @MainActor
-public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding, AppleSignInProviding {
+public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding, AppleSignInProviding, AppleIdentityAuthorizing, CloudSessionAuthenticating {
     private static let defaultTimeoutNanoseconds: UInt64 = 30_000_000_000
 
-    private let authenticator: any ParentAuthenticator
+    private let authenticator: (any ParentAuthenticator)?
     private let controllerFactory: AppleAuthorizationControllerFactory
     private let timeoutNanoseconds: UInt64
-    private var continuation: CheckedContinuation<AppleSignInOutcome, Error>?
+    private var continuation: CheckedContinuation<AppleIdentity, Error>?
     private var expectedState: String?
     private var expectedSignedNonce: String?
     private var requiredAppleUserID: String?
@@ -83,15 +106,15 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
     private var exchangeTask: Task<Void, Never>?
 
     public convenience init(authenticator: any ParentAuthenticator) {
-        self.init(
-            authenticator: authenticator,
-            timeoutNanoseconds: Self.defaultTimeoutNanoseconds,
-            controllerFactory: { request in SystemAppleAuthorizationController(request: request) }
-        )
+        self.init(authenticator: authenticator, timeoutNanoseconds: Self.defaultTimeoutNanoseconds, controllerFactory: { request in SystemAppleAuthorizationController(request: request) })
+    }
+
+    public convenience override init() {
+        self.init(authenticator: nil, timeoutNanoseconds: Self.defaultTimeoutNanoseconds, controllerFactory: { request in SystemAppleAuthorizationController(request: request) })
     }
 
     init(
-        authenticator: any ParentAuthenticator,
+        authenticator: (any ParentAuthenticator)?,
         timeoutNanoseconds: UInt64,
         controllerFactory: @escaping AppleAuthorizationControllerFactory
     ) {
@@ -101,6 +124,12 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
     }
 
     public func signIn(requiredAppleUserID: String? = nil) async throws -> AppleSignInOutcome {
+        let identity = try await authorizeAppleIdentity(requiredAppleUserID: requiredAppleUserID)
+        let session = try await authenticateCloudIfConfigured(identity: identity)
+        return AppleSignInOutcome(session: session, appleUserID: identity.appleUserID)
+    }
+
+    public func authorizeAppleIdentity(requiredAppleUserID: String? = nil) async throws -> AppleIdentity {
         guard continuation == nil, activeAttemptID == nil else {
             throw WalletAPIError.server(statusCode: 409, code: "AUTHENTICATION_IN_PROGRESS", message: "Sign in is already in progress.")
         }
@@ -127,7 +156,7 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
         adapter.configure(delegate: self, presentationContextProvider: self)
 
         return try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<AppleIdentity, Error>) in
                 self.continuation = continuation
                 guard self.activeAttemptID == attemptID else {
                     self.finish(.failure(CancellationError()), attemptID: attemptID, cancelController: true)
@@ -192,12 +221,7 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
         let attemptID = activeAttemptID
         exchangeTask = Task { @MainActor [weak self] in
             guard let self, let attemptID else { return }
-            do {
-                let session = try await self.authenticator.authenticateApple(identityToken: identityTokenString, nonce: signedNonce)
-                self.finish(.success(AppleSignInOutcome(session: session, appleUserID: appleUserID)), attemptID: attemptID)
-            } catch {
-                self.finish(.failure(error), attemptID: attemptID)
-            }
+            self.finish(.success(AppleIdentity(appleUserID: appleUserID, identityToken: identityTokenString, signedNonce: signedNonce)), attemptID: attemptID)
         }
     }
 
@@ -226,6 +250,18 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
             ?? ASPresentationAnchor()
     }
 
+    public func authenticateCloud(identity: AppleIdentity) async throws -> AuthSession {
+        guard let authenticator else {
+            throw WalletAPIError.invalidResponse("Cloud sign-in is unavailable in this build.")
+        }
+        return try await authenticator.authenticateApple(identityToken: identity.identityToken, nonce: identity.signedNonce)
+    }
+
+    private func authenticateCloudIfConfigured(identity: AppleIdentity) async throws -> AuthSession? {
+        guard authenticator != nil else { return nil }
+        return try await authenticateCloud(identity: identity)
+    }
+
     private func isActive(_ controllerID: ObjectIdentifier) -> Bool {
         guard continuation != nil,
               let activeControllerID = activeAuthorizationControllerID else {
@@ -248,7 +284,7 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
     }
 
     private func finish(
-        _ result: Result<AppleSignInOutcome, Error>,
+        _ result: Result<AppleIdentity, Error>,
         attemptID: UUID? = nil,
         cancelController: Bool = false
     ) {

@@ -69,7 +69,7 @@ final class EvidenceCaptureUITests: XCTestCase {
     func testFirstRunSetupTour() throws {
         let app = launch("first-run")
 
-        let signIn = app.buttons["Sign in with Apple"]
+        let signIn = app.buttons["Set up your child's wallet"]
         XCTAssertTrue(signIn.waitForExistence(timeout: 10))
         signIn.tap()
 
@@ -86,7 +86,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         confirmField.tap()
         confirmField.typeText("1234")
 
-        app.buttons["Create your child's wallet"].tap()
+        app.buttons["Keep it on this device for free"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["You're all set"].waitForExistence(timeout: 5))
         capture("setup-parent-handoff")
@@ -95,6 +95,38 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Your wallet is ready!"].exists)
         capture("setup-kid-home")
+    }
+
+    func testFreemiumEntryAndCloudGuardTour() throws {
+        var app = launch("first-run")
+        XCTAssertTrue(app.staticTexts["Set up a complete practice wallet on this iPhone or iPad for free. Cloud is optional."].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Virtual practice only"].exists)
+        XCTAssertTrue(app.staticTexts["Parent sign-in only. Your child does not need an account."].exists)
+        capture("freemium-welcome")
+
+        app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+        let cloudCard = app.descendants(matching: .any)["cloud-backup-sync-card"]
+        for _ in 0..<4 where !cloudCard.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(cloudCard.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Cloud plans are unavailable right now. Your wallet still works on this device."].exists)
+        XCTAssertTrue(app.staticTexts["Cloud is optional. Your wallet keeps working on this device without it."].exists)
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "subscribe")).firstMatch.exists)
+        capture("cloud-guarded-unavailable")
+
+        app = launch("cloud-expired")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+        let expiredCloudCard = app.descendants(matching: .any)["cloud-backup-sync-card"]
+        for _ in 0..<4 where !expiredCloudCard.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(expiredCloudCard.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Cloud ended. This wallet now works on this device only. Nothing was deleted."].exists)
+        capture("cloud-expired-local-fallback")
     }
 
     func testKidSurfacesTour() throws {
