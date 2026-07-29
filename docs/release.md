@@ -4,7 +4,7 @@ Eddie's Wallet uses release-please for version PRs, changelog generation, tags, 
 The native iOS app is then archived with Xcode on GitHub Actions and uploaded to TestFlight.
 The pipeline mirrors a proven sibling-project release lifecycle: deliberate human control over the release trigger, unattended automation for everything after it.
 
-Scope is TestFlight only. Nothing in this repository submits for App Store review, publishes publicly, or changes pricing, availability, or production state.
+Scope is TestFlight only. Nothing in this repository submits for App Store review, publishes publicly, or changes pricing, availability, or production state. The separate read-only App Review observer is documented in [App Store review-status monitor](app-store-review-monitor.md); it can observe one already-submitted exact cycle but cannot submit, release, or alter Apple state.
 
 ## The captain approval boundary
 

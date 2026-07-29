@@ -1,0 +1,64 @@
+name: Monitor App Store review status
+
+on:
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact submitted marketing version, for example 0.1
+        required: true
+        type: string
+      build:
+        description: Exact submitted build number
+        required: true
+        type: string
+      rearm:
+        description: Reset notification deduplication for this exact cycle (does not change Apple state)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  monitor:
+    name: Read exact review cycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Poll and notify on a status transition
+        env:
+          ASC_REVIEW_MONITOR_KEY_ID: ${{ secrets.ASC_REVIEW_MONITOR_KEY_ID }}
+          ASC_REVIEW_MONITOR_ISSUER_ID: ${{ secrets.ASC_REVIEW_MONITOR_ISSUER_ID }}
+          ASC_REVIEW_MONITOR_PRIVATE_KEY: ${{ secrets.ASC_REVIEW_MONITOR_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          SCHEDULED_VERSION: ${{ vars.ASC_REVIEW_MONITOR_VERSION }}
+          SCHEDULED_BUILD: ${{ vars.ASC_REVIEW_MONITOR_BUILD }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUILD: ${{ inputs.build }}
+          INPUT_REARM: ${{ inputs.rearm }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            version="$SCHEDULED_VERSION"
+            build="$SCHEDULED_BUILD"
+            rearm="false"
+            if [ -z "$version" ] || [ -z "$build" ]; then
+              echo "ASC_REVIEW_MONITOR scheduled cycle is not configured; set ASC_REVIEW_MONITOR_VERSION and ASC_REVIEW_MONITOR_BUILD repository variables." >&2
+              exit 1
+            fi
+          else
+            version="$INPUT_VERSION"
+            build="$INPUT_BUILD"
+            rearm="$INPUT_REARM"
+          fi
+          args=(--version "$version" --build "$build")
+          if [ "$rearm" = "true" ]; then args+=(--rearm); fi
+          output="$(python3 .github/scripts/app_store_review_monitor.py "${args[@]}")"
+          printf '%s\n' "$output"
+          printf '### App Store review monitor\n\n`%s`\n' "$output" >> "$GITHUB_STEP_SUMMARY"
