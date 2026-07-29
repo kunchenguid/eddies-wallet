@@ -108,10 +108,19 @@ public final class WalletStore: ObservableObject {
     @Published public private(set) var pin = ""
     @Published public private(set) var pinError = false
     @Published public private(set) var cooldownSecondsRemaining = 0
+    /// Cloud plans are published only when the backend capability and exactly
+    /// the two StoreKit products are both ready.
+    @Published public private(set) var cloudPlans: [CloudPlan] = []
+    @Published public private(set) var cloudMessage: String?
+    /// Set when another device moved the Cloud household first, so the parent
+    /// reviews the latest accepted balance before retrying.
+    @Published public private(set) var needsCloudReview = false
 
-    public let repository: any WalletRepository
+    public private(set) var repository: any WalletRepository
     public let gatePolicy: ParentGatePolicy
     private let appleSignInProvider: (any AppleSignInProviding)?
+    private let cloudCoordinator: CloudCoordinator?
+    private var cloudObservation: Task<Void, Never>?
     private let pinStore: any ParentPINStore
     private let identityStore: any ParentIdentityStore
     private var failedPINAttempts = 0
@@ -125,17 +134,21 @@ public final class WalletStore: ObservableObject {
         initiallySignedIn: Bool? = nil,
         pinStore: (any ParentPINStore)? = nil,
         identityStore: (any ParentIdentityStore)? = nil,
-        gatePolicy: ParentGatePolicy = .standard
+        gatePolicy: ParentGatePolicy = .standard,
+        cloudCoordinator: CloudCoordinator? = nil
     ) {
         let resolvedRepository = repository ?? WalletRepositoryFactory.makeDefault()
         self.repository = resolvedRepository
+        self.cloudCoordinator = cloudCoordinator
         self.snapshot = resolvedRepository.childSnapshot()
         let configured = resolvedRepository.hasConfiguredKid
         self.isSignedIn = initiallySignedIn ?? configured
         if let recovery = resolvedRepository as? any WalletRecoveryProviding, let recoveryState = recovery.recoveryState {
             self.authorityState = .localRecovery(recoveryState)
+        } else if let cloud = resolvedRepository as? CloudWalletRepository {
+            self.authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
         } else if let local = resolvedRepository as? LocalWalletRepository, let lineageID = local.lineageID {
-            self.authorityState = .local(lineageID: lineageID)
+            self.authorityState = local.cloudRevision.map { .cloud(lineageID: lineageID, revision: $0) } ?? .local(lineageID: lineageID)
         } else if configured {
             self.authorityState = .legacyService
         } else {
@@ -416,7 +429,9 @@ public final class WalletStore: ObservableObject {
             guard generation == refreshGeneration, requestedRole == viewRole else { return }
             snapshot = refreshed
             needsSetup = false
-            if let local = repository as? LocalWalletRepository, let lineageID = local.lineageID {
+            if let cloud = repository as? CloudWalletRepository {
+                authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+            } else if let local = repository as? LocalWalletRepository, let lineageID = local.lineageID {
                 authorityState = .local(lineageID: lineageID)
             }
             errorMessage = nil
@@ -445,6 +460,9 @@ public final class WalletStore: ObservableObject {
             case .network:
                 guard generation == refreshGeneration, requestedRole == viewRole else { return }
                 isOffline = true
+                if let cloud = repository as? CloudWalletRepository {
+                    authorityState = .cloudOffline(lineageID: cloud.lineageID, revision: cloud.revision)
+                }
                 errorMessage = userMessage(for: error)
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             default:
@@ -615,6 +633,19 @@ public final class WalletStore: ObservableObject {
                 sessionExpired = repository.hasConfiguredKid
                 if elevation != .none { deElevate() }
             }
+            if case .revisionConflict = error {
+                // Another device moved first: nothing was recorded here, and the
+                // parent reviews the refreshed balance before retrying.
+                needsCloudReview = true
+                Task { [weak self] in await self?.refresh() }
+            }
+            if case .revisionRequired = error {
+                needsCloudReview = true
+                Task { [weak self] in await self?.refresh() }
+            }
+            if case .cloudEntitlementRequired = error {
+                cloudEntitlement = cloudCoordinator?.entitlement ?? .expired
+            }
             let event = WalletEvent(
                 type: activityType(for: command.kind),
                 amountCents: max(command.amountCents, 0),
@@ -667,6 +698,131 @@ public final class WalletStore: ObservableObject {
         showsFirstActionsHandoff = false
         clearPINFailureState()
         deElevate()
+    }
+
+
+    // MARK: - Cloud (optional, guarded)
+
+    /// Whether a parent surface may show Cloud purchase/restore controls at all.
+    public var canOfferCloudPlans: Bool { !cloudPlans.isEmpty }
+    public var cloudSignOutMode: CloudSignOutMode {
+        if repository is CloudWalletRepository || authorityState.isCloudAuthority { return .cloudDevice }
+        return authorityState.isLocalAuthority ? .localErase : .serviceDevice
+    }
+    /// Only a Cloud device can sign out without erasing local data.
+    public var canSignOutOfCloudOnThisDevice: Bool { repository is CloudWalletRepository }
+
+    /// Reads backend capability and StoreKit products together. Plans stay empty
+    /// unless both are ready, so the parent never sees an unusable price.
+    public func loadCloudPlans() async {
+        guard let cloudCoordinator else { cloudPlans = []; return }
+        await cloudCoordinator.refreshAvailability()
+        cloudPlans = cloudCoordinator.canOfferPlans ? cloudCoordinator.plans.map(CloudPlan.init) : []
+        purchaseAttempt = cloudCoordinator.purchaseAttempt
+        cloudEntitlement = cloudCoordinator.entitlement
+        cloudMessage = cloudCoordinator.message
+    }
+
+    public func purchaseCloud(planID: String) async {
+        guard elevation == .active, let cloudCoordinator,
+              let product = cloudCoordinator.plans.first(where: { $0.id == planID }) else { return }
+        _ = await cloudCoordinator.purchase(product)
+        await adoptCoordinatorState()
+    }
+
+    public func restoreCloudPurchases() async {
+        guard elevation == .active, let cloudCoordinator else { return }
+        await cloudCoordinator.restorePurchases()
+        await adoptCoordinatorState()
+    }
+
+    /// Launch-time recovery for a replacement device: never prompts, never
+    /// grants locally, and only mirrors what the backend already projects.
+    public func recoverCloudEntitlements() async {
+        guard let cloudCoordinator else { return }
+        await cloudCoordinator.recoverEntitlements()
+        await adoptCoordinatorState()
+    }
+
+    /// Cloud ended and the parent chose to keep using this device. The mirrored
+    /// history stays and becomes local authority again.
+    @discardableResult
+    public func continueLocallyAfterCloud() -> Bool {
+        guard elevation == .active, let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return false }
+        do {
+            try cloudCoordinator.continueLocally(with: cloud.localReplica)
+        } catch {
+            errorMessage = userMessage(for: error)
+            return false
+        }
+        repository = cloud.localReplica
+        authorityState = cloud.localReplica.lineageID.map { .local(lineageID: $0) } ?? .localSetup
+        snapshot = repository.snapshot()
+        needsCloudReview = false
+        cloudMessage = nil
+        return true
+    }
+
+    /// Signs this device out of Cloud without deleting anything: the server
+    /// session is revoked and the mirrored wallet keeps working locally.
+    public func signOutOfCloudOnThisDevice() async {
+        guard elevation == .active, let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return }
+        await cloudCoordinator.signOutOfCloud()
+        try? cloud.localReplica.continueLocallyAfterCloud()
+        repository = cloud.localReplica
+        authorityState = cloud.localReplica.lineageID.map { .local(lineageID: $0) } ?? .localSetup
+        snapshot = repository.snapshot()
+        cloudEntitlement = .none
+        purchaseAttempt = .idle
+        needsCloudReview = false
+        cloudMessage = "This device signed out of Cloud. The wallet still works here and nothing was deleted."
+    }
+
+    public func acknowledgeCloudReview() {
+        needsCloudReview = false
+    }
+
+    private func adoptCoordinatorState() async {
+        guard let cloudCoordinator else { return }
+        purchaseAttempt = cloudCoordinator.purchaseAttempt
+        cloudEntitlement = cloudCoordinator.entitlement
+        cloudMessage = cloudCoordinator.message
+        await activateCloudIfPaid()
+    }
+
+    /// Moves this device to Cloud authority once, and only from the backend's
+    /// projected entitlement. Any failure leaves the free local wallet intact.
+    private func activateCloudIfPaid() async {
+        guard let cloudCoordinator, cloudCoordinator.isCloudActive else { return }
+        guard let local = repository as? LocalWalletRepository else { return }
+        let previousAuthority = authorityState
+        authorityState = .transitioningToCloud
+        do {
+            let cloud: CloudWalletRepository
+            if let adopted = try await cloudCoordinator.adoptExistingCloudHousehold(into: local) {
+                cloud = adopted
+            } else {
+                cloud = try await cloudCoordinator.activateCloud(from: local, familyName: cloudFamilyName)
+            }
+            repository = cloud
+            authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+            snapshot = cloud.snapshot()
+            purchaseAttempt = .verifiedPaid
+            cloudMessage = nil
+        } catch {
+            authorityState = previousAuthority
+            if cloudCoordinator.activationConflict {
+                purchaseAttempt = .activationConflict
+                cloudMessage = "This wallet could not be moved to Cloud. Nothing was changed on this device."
+            } else {
+                cloudMessage = "Cloud is on for your account. This wallet is still on this device and will try again."
+            }
+        }
+    }
+
+    private var cloudFamilyName: String {
+        guard let nickname = snapshot.configuredChildNickname else { return "Family wallet" }
+        return "\(nickname)'s family"
     }
 
     #if DEBUG

@@ -355,7 +355,13 @@ struct ParentAreaView: View {
             RoundedRectangle(cornerRadius: EW.Radius.large, style: .continuous).stroke(EW.Color.border, lineWidth: 1)
         }
         .confirmationDialog(signOutTitle, isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
-            Button(signOutButtonTitle, role: .destructive) { store.signOut() }
+            Button(signOutButtonTitle, role: .destructive) {
+                if store.canSignOutOfCloudOnThisDevice {
+                    Task { await store.signOutOfCloudOnThisDevice() }
+                } else {
+                    store.signOut()
+                }
+            }
             Button("Stay signed in", role: .cancel) {}
         } message: {
             Text(signOutMessage)
@@ -363,17 +369,26 @@ struct ParentAreaView: View {
     }
 
     private var signOutTitle: String {
-        store.authorityState.isLocalAuthority ? "Sign out and erase this device's wallet?" : "Sign out?"
+        switch store.cloudSignOutMode {
+        case .cloudDevice: "Sign out of Cloud on this \(DeviceCopy.deviceNoun)?"
+        case .serviceDevice: "Sign out?"
+        case .localErase: "Sign out and erase this device's wallet?"
+        }
     }
 
     private var signOutButtonTitle: String {
-        store.authorityState.isLocalAuthority ? "Sign out and erase wallet" : "Sign out from this \(DeviceCopy.deviceNoun)"
+        store.cloudSignOutMode == .localErase ? "Sign out and erase wallet" : "Sign out from this \(DeviceCopy.deviceNoun)"
     }
 
     private var signOutMessage: String {
-        store.authorityState.isLocalAuthority
-            ? "There is no Cloud backup for this wallet. This permanently erases the wallet, parent PIN, and parent identity evidence from this \(DeviceCopy.deviceNoun)."
-            : "This removes the local Cloud view and parent PIN from this \(DeviceCopy.deviceNoun). It does not delete the Cloud wallet."
+        switch store.cloudSignOutMode {
+        case .cloudDevice:
+            "This \(DeviceCopy.deviceNoun) stops syncing with Cloud. The wallet keeps working here and nothing is deleted."
+        case .serviceDevice:
+            "This removes the local Cloud view and parent PIN from this \(DeviceCopy.deviceNoun). It does not delete the Cloud wallet."
+        case .localErase:
+            "There is no Cloud backup for this wallet. This permanently erases the wallet, parent PIN, and parent identity evidence from this \(DeviceCopy.deviceNoun)."
+        }
     }
 
     private func settingsRow(title: String, icon: String, role: ButtonRole? = nil, accessibilityIdentifier: String? = nil, action: @escaping () -> Void) -> some View {

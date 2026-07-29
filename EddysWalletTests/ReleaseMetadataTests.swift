@@ -45,4 +45,16 @@ final class ReleaseMetadataTests: XCTestCase {
         }
         XCTAssertFalse(uses, "The app must declare it uses only exempt encryption")
     }
+
+    /// The StoreKit test configuration must never ship inside the app bundle.
+    /// The shared Debug/Test scheme still selects it from its source path.
+    func testStoreKitTestConfigurationIsNotBundledWithTheApp() throws {
+        let appBundle = try XCTUnwrap(Bundle(identifier: AppleAppIdentity.bundleIdentifier))
+        XCTAssertNil(appBundle.url(forResource: "EddysWallet", withExtension: "storekit"))
+        XCTAssertTrue(
+            try FileManager.default.contentsOfDirectory(atPath: appBundle.bundlePath)
+                .allSatisfy { !$0.hasSuffix(".storekit") },
+            "no StoreKit configuration resource may be present in the built app bundle"
+        )
+    }
 }

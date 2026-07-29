@@ -1,12 +1,299 @@
 {
-  "capabilities": { "method": "GET", "path": "/v1/capabilities", "statuses": [200] },
-  "context": { "method": "GET", "path": "/v1/cloud/context", "statuses": [200, 401] },
-  "transaction": { "method": "POST", "path": "/v1/cloud/transactions", "body": ["signedTransaction"], "statuses": [200, 202, 403, 422] },
-  "bootstrap": { "method": "GET", "path": "/v1/cloud/bootstrap?cursor=", "statuses": [200, 401] },
-  "changes": { "method": "GET", "path": "/v1/cloud/changes?afterRevision=", "statuses": [200, 401] },
-  "import": { "method": "POST", "path": "/v1/cloud/household/import", "headers": ["Idempotency-Key"], "statuses": [200, 409] },
-  "legacyDetach": { "method": "POST", "path": "/v1/cloud/legacy-detach", "headers": ["Idempotency-Key", "If-Match"], "statuses": [200, 409, 428] },
-  "legacyActivate": { "method": "POST", "path": "/v1/cloud/legacy-activate", "headers": ["Idempotency-Key", "If-Match"], "statuses": [200, 403, 409] },
-  "session": { "method": "DELETE", "path": "/v1/session/current", "statuses": [200, 204, 401] },
-  "revisionConflict": { "status": 409, "code": "REVISION_CONFLICT" }
+  "version": 1,
+  "description": "Field-level public wire contract for the Cloud surface of the Eddie's Wallet backend. Backend tests assert every live response against this file (tests/api-contract.test.ts); the iOS client asserts its DTOs against the mirrored copy at EddysWalletTests/Fixtures/cloud-api-contract/v1.json. Field names and nullability here are the agreement between the two repositories: a mismatch is what let a fully ready backend look dark to the app and a granted purchase look rejected. Bump `version` and update both repositories together when the wire shape changes; the pinned version in each repository's test makes an unannounced change fail CI.",
+  "typeLanguage": {
+    "scalars": ["string", "number", "boolean", "string|null", "number|null", "boolean|null", "string[]"],
+    "objects": "{ \"type\": \"object\" | \"object|null\" | \"object[]\", \"fields\": { ... } }",
+    "const": "optional exact expected value for a field",
+    "open": "set on an object whose keys are dynamic, e.g. per-field validation errors",
+    "expectNull": "endpoint-level list of fields this particular response must render as null",
+    "note": "Top-level and nested key sets are compared for exact equality: an added or removed field fails."
+  },
+  "endpoints": {
+    "capabilities": {
+      "method": "GET",
+      "path": "/v1/capabilities",
+      "status": 200,
+      "body": {
+        "type": "object",
+        "fields": {
+          "cloudActivationAvailable": "boolean",
+          "cloudServiceAvailable": "boolean",
+          "products": {
+            "type": "string[]",
+            "const": [
+              "com.kunchenguid.eddieswallet.cloud.monthly",
+              "com.kunchenguid.eddieswallet.cloud.annual"
+            ]
+          }
+        }
+      }
+    },
+    "cloudContextBeforePurchase": {
+      "method": "GET",
+      "path": "/v1/cloud/context",
+      "status": 200,
+      "note": "Pre-purchase, both entitlement and household are null. A client DTO that requires either of them cannot decode this, which is the only shape a parent sees before they ever buy.",
+      "expectNull": ["entitlement", "household"],
+      "body": {
+        "type": "object",
+        "fields": {
+          "storeAccountToken": "string",
+          "entitlement": {
+            "type": "object|null",
+            "fields": {
+              "state": "string",
+              "accessUntil": "string|null",
+              "graceExpiresAt": "string|null",
+              "lastReconciledAt": "string|null",
+              "active": "boolean"
+            }
+          },
+          "household": {
+            "type": "object|null",
+            "fields": { "lineageId": "string", "authority": "string", "revision": "number" }
+          },
+          "capability": {
+            "type": "object",
+            "fields": { "newActivationsEnabled": "boolean", "serviceMode": "string" }
+          }
+        }
+      }
+    },
+    "cloudContextActive": {
+      "method": "GET",
+      "path": "/v1/cloud/context",
+      "status": 200,
+      "note": "Household lineage, authority, and revision are nested under `household`, and `lineageId` is lower-camel with a lowercase `d`. The revision here is what the client must echo as If-Match on its next Cloud mutation.",
+      "body": {
+        "type": "object",
+        "fields": {
+          "storeAccountToken": "string",
+          "entitlement": {
+            "type": "object|null",
+            "fields": {
+              "state": "string",
+              "accessUntil": "string|null",
+              "graceExpiresAt": "string|null",
+              "lastReconciledAt": "string|null",
+              "active": "boolean"
+            }
+          },
+          "household": {
+            "type": "object|null",
+            "fields": { "lineageId": "string", "authority": "string", "revision": "number" }
+          },
+          "capability": {
+            "type": "object",
+            "fields": { "newActivationsEnabled": "boolean", "serviceMode": "string" }
+          }
+        }
+      }
+    },
+    "cloudTransactionVerified": {
+      "method": "POST",
+      "path": "/v1/cloud/transactions",
+      "status": 200,
+      "note": "A verified purchase returns the complete current Cloud context alongside its status, so the client can read the entitlement it was just granted and the revision its next write needs. Returning only {\"status\":\"verified\"} made a paid, server-granted purchase decode as a rejection and left the StoreKit transaction unfinished.",
+      "body": {
+        "type": "object",
+        "fields": {
+          "status": { "type": "string", "const": "verified" },
+          "storeAccountToken": "string",
+          "entitlement": {
+            "type": "object|null",
+            "fields": {
+              "state": "string",
+              "accessUntil": "string|null",
+              "graceExpiresAt": "string|null",
+              "lastReconciledAt": "string|null",
+              "active": "boolean"
+            }
+          },
+          "household": {
+            "type": "object|null",
+            "fields": { "lineageId": "string", "authority": "string", "revision": "number" }
+          },
+          "capability": {
+            "type": "object",
+            "fields": { "newActivationsEnabled": "boolean", "serviceMode": "string" }
+          }
+        }
+      }
+    },
+    "cloudTransactionPending": {
+      "method": "POST",
+      "path": "/v1/cloud/transactions",
+      "status": 202,
+      "note": "Verification could not be completed with Apple. This is explicitly not a grant, so it carries no context and the client must ask again later.",
+      "body": {
+        "type": "object",
+        "fields": {
+          "status": { "type": "string", "const": "CLOUD_VERIFICATION_PENDING" }
+        }
+      }
+    },
+    "cloudBootstrap": {
+      "method": "GET",
+      "path": "/v1/cloud/bootstrap",
+      "status": 200,
+      "body": {
+        "type": "object",
+        "fields": {
+          "household": {
+            "type": "object",
+            "fields": { "lineageId": "string", "authority": "string", "revision": "number" }
+          },
+          "family": { "type": "object", "fields": { "id": "string", "name": "string" } },
+          "child": { "type": "object", "fields": { "id": "string", "nickname": "string", "avatarUrl": "string|null" } },
+          "wallet": { "type": "object", "fields": { "id": "string", "balanceCents": "number", "currency": "string" } },
+          "entries": {
+            "type": "object[]",
+            "fields": {
+              "id": "string",
+              "type": "string",
+              "direction": "string",
+              "amountCents": "number",
+              "balanceBeforeCents": "number",
+              "balanceAfterCents": "number",
+              "reason": "string|null",
+              "loanId": "string|null",
+              "recordedAt": "string",
+              "acceptedRevision": "number"
+            }
+          },
+          "loans": {
+            "type": "object[]",
+            "fields": {
+              "id": "string",
+              "principalCents": "number",
+              "outstandingCents": "number",
+              "purpose": "string|null",
+              "dueDate": "string|null",
+              "status": "string",
+              "createdAt": "string",
+              "paidAt": "string|null"
+            }
+          },
+          "allowanceRule": {
+            "type": "object|null",
+            "fields": {
+              "id": "string",
+              "amountCents": "number",
+              "cadence": "string",
+              "weekday": "number",
+              "startDate": "string",
+              "endDate": "string|null",
+              "active": "boolean"
+            }
+          },
+          "nextCursor": "string|null"
+        }
+      }
+    },
+    "cloudHouseholdMutation": {
+      "method": "POST",
+      "path": "/v1/wallet/deposits",
+      "status": 201,
+      "note": "Cloud household writes carry If-Match: \"rev-N\" and answer with the new revision in both the body and the ETag response header.",
+      "headers": { "etag": "^\"rev-[0-9]+\"$" },
+      "body": {
+        "type": "object",
+        "fields": {
+          "entry": {
+            "type": "object",
+            "fields": {
+              "id": "string",
+              "type": "string",
+              "direction": "string",
+              "amountCents": "number",
+              "balanceBeforeCents": "number",
+              "balanceAfterCents": "number",
+              "reason": "string|null",
+              "loanId": "string|null",
+              "recordedBy": "string",
+              "recordedAt": "string"
+            }
+          },
+          "wallet": {
+            "type": "object",
+            "fields": { "id": "string", "currency": "string", "balanceCents": "number", "virtualNotice": "string" }
+          },
+          "revision": "number"
+        }
+      }
+    },
+    "revisionConflictError": {
+      "method": "POST",
+      "path": "/v1/wallet/deposits",
+      "status": 409,
+      "note": "A stale If-Match mutates nothing and reports the household's current revision so the client can refresh and retry.",
+      "body": {
+        "type": "object",
+        "fields": {
+          "error": {
+            "type": "object",
+            "fields": {
+              "code": { "type": "string", "const": "REVISION_CONFLICT" },
+              "message": "string",
+              "details": { "type": "object", "fields": { "currentRevision": "number" } }
+            }
+          }
+        }
+      }
+    },
+    "revisionRequiredError": {
+      "method": "POST",
+      "path": "/v1/cloud/legacy-detach",
+      "status": 428,
+      "body": {
+        "type": "object",
+        "fields": {
+          "error": {
+            "type": "object",
+            "fields": {
+              "code": { "type": "string", "const": "REVISION_REQUIRED" },
+              "message": "string"
+            }
+          }
+        }
+      }
+    },
+    "validationError": {
+      "method": "POST",
+      "path": "/v1/wallet/deposits",
+      "status": 400,
+      "note": "Field-level failures carry a details object; every other error body is code and message only.",
+      "body": {
+        "type": "object",
+        "fields": {
+          "error": {
+            "type": "object",
+            "fields": {
+              "code": { "type": "string", "const": "VALIDATION_ERROR" },
+              "message": "string",
+              "details": { "type": "object", "fields": { "formErrors": "string[]", "fieldErrors": { "type": "object", "fields": {}, "open": true } } }
+            }
+          }
+        }
+      }
+    },
+    "notFoundError": {
+      "method": "GET",
+      "path": "/v1/does-not-exist",
+      "status": 404,
+      "body": {
+        "type": "object",
+        "fields": {
+          "error": {
+            "type": "object",
+            "fields": {
+              "code": { "type": "string", "const": "NOT_FOUND" },
+              "message": "string"
+            }
+          }
+        }
+      }
+    }
+  }
 }

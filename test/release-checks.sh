@@ -246,6 +246,12 @@ fi
 require_grep 'MARKETING_VERSION = 0\.1' EddysWallet.xcodeproj/project.pbxproj "project.pbxproj placeholder MARKETING_VERSION matches the 0.1 first-release marketing version"
 require_grep 'INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO' EddysWallet.xcodeproj/project.pbxproj "project.pbxproj declares exempt-encryption metadata for TestFlight"
 
+# The StoreKit test configuration is a Debug/Test scheme input only. It must
+# never be copied into the shipping app bundle's Resources.
+forbid_grep 'EddysWallet\.storekit in Resources' EddysWallet.xcodeproj/project.pbxproj "project.pbxproj keeps the StoreKit test configuration out of the app bundle"
+require_grep 'EddysWallet\.storekit' EddysWallet.xcodeproj/xcshareddata/xcschemes/EddysWallet.xcscheme "shared scheme still selects the checked-in StoreKit configuration"
+require_grep 'StoreKitConfigurationFileReference' EddysWallet.xcodeproj/xcshareddata/xcschemes/EddysWallet.xcscheme "shared scheme keeps a StoreKit configuration reference for Debug and Test"
+
 # --- Version/build derivation and retry identity ---------------------------
 
 derive() {

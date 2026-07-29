@@ -363,8 +363,8 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(eddie.staticTexts["Your allowance balance"].exists)
         try captureBrandPlacement("eddie-personal-kid")
 
-        let welcome = XCUIApplication()
-        welcome.launch()
+        // Deterministic pre-setup state; never inherited simulator history.
+        let welcome = launch("first-run")
         XCTAssertTrue(welcome.descendants(matching: .any)["product-brand-wordmark"].waitForExistence(timeout: 10))
         XCTAssertTrue(welcome.staticTexts["Eddie's Wallet"].exists)
         XCTAssertTrue(welcome.staticTexts["Virtual practice only"].exists)

@@ -63,6 +63,8 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
     case invalidResponse(String)
     case invalidConfiguration
     case revisionConflict(currentRevision: Int64)
+    case revisionRequired
+    case cloudEntitlementRequired
 
     public var errorDescription: String? {
         switch self {
@@ -77,6 +79,8 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         case let .invalidResponse(message): message
         case .invalidConfiguration: "The production API URL is not configured correctly."
         case .revisionConflict: "This wallet changed on another device. Review the latest balance before recording this action."
+        case .revisionRequired: "This wallet needs the latest Cloud balance before recording this action."
+        case .cloudEntitlementRequired: "Cloud ended, so this action was not recorded. This wallet still works on this device."
         }
     }
 }
@@ -819,7 +823,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
                 try requireCurrentLifecycle(generation)
                 rejectedEvents.insert(event, at: 0)
                 return .rejected(event)
-            case .cancelled, .timedOut, .familyNotSetup, .identityMismatch:
+            case .cancelled, .timedOut, .familyNotSetup, .identityMismatch, .revisionRequired, .cloudEntitlementRequired:
                 throw error
             case .revisionConflict:
                 let event = makeLocalEvent(for: command, state: .rejected, message: "This action was not recorded. Review the latest balance before recording it again.", rejectionReason: error.localizedDescription)
