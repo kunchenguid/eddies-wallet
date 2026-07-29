@@ -69,6 +69,7 @@ private struct PINEntryGate: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shakeTrigger = 0
+    @State private var availableWidth: CGFloat = 320
 
     var body: some View {
         VStack(spacing: EW.Space.five) {
@@ -97,6 +98,7 @@ private struct PINEntryGate: View {
                 }
 
             PINKeypad(
+                availableWidth: availableWidth,
                 isDisabled: store.isCoolingDown,
                 onDigit: { store.appendPINDigit($0) },
                 onDelete: { store.deletePINDigit() }
@@ -112,6 +114,12 @@ private struct PINEntryGate: View {
 
             GateCancelButton()
         }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: PINKeypadWidthPreferenceKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(PINKeypadWidthPreferenceKey.self) { availableWidth = $0 }
     }
 
     @ViewBuilder
@@ -125,11 +133,6 @@ private struct PINEntryGate: View {
             Text("Incorrect PIN. Try again.")
                 .font(EW.Font.bodyBold)
                 .foregroundStyle(EW.Color.red600)
-                .multilineTextAlignment(.center)
-        } else {
-            Text("Enter the four-digit parent PIN.")
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.textSecondary)
                 .multilineTextAlignment(.center)
         }
     }
@@ -148,31 +151,63 @@ private struct PINEntryGate: View {
     }
 }
 
+private struct PINKeypadWidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 320
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Balanced three-column numeric grid modeled on the familiar Apple
+/// lock-screen keypad: generous circular hit targets sized from the actual
+/// measured column width (device size, safe area) within a comfortable
+/// range, so nothing clips on any supported iPhone or iPad and the keypad
+/// never depends on one fixed screen size.
 struct PINKeypad: View {
+    let availableWidth: CGFloat
     let isDisabled: Bool
     let onDigit: (String) -> Void
     let onDelete: () -> Void
 
+    private let spacing: CGFloat = EW.Space.six
+    private let minDiameter: CGFloat = 64
+    private let maxDiameter: CGFloat = 88
+
+    private var diameter: CGFloat {
+        let capped = min(availableWidth, 320)
+        let fitted = (capped - spacing * 2) / 3
+        return min(max(fitted, minDiameter), maxDiameter)
+    }
+
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(64)), count: 3), spacing: EW.Space.four) {
-            ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9"], id: \.self) { digit in
-                keypadButton(digit)
+        VStack(spacing: spacing) {
+            keypadRow(["1", "2", "3"])
+            keypadRow(["4", "5", "6"])
+            keypadRow(["7", "8", "9"])
+            HStack(spacing: spacing) {
+                Color.clear.frame(width: diameter, height: diameter)
+                keypadButton("0")
+                Button {
+                    onDelete()
+                } label: {
+                    Image(systemName: "delete.left")
+                        .font(EW.Font.heading)
+                        .frame(width: diameter, height: diameter)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(EW.Color.textSecondary)
+                .accessibilityLabel("Delete last PIN digit")
             }
-            Color.clear.frame(width: 64, height: 64)
-            keypadButton("0")
-            Button {
-                onDelete()
-            } label: {
-                Image(systemName: "delete.left")
-                    .font(EW.Font.heading)
-                    .frame(width: 64, height: 64)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(EW.Color.textSecondary)
-            .accessibilityLabel("Delete last PIN digit")
         }
+        .frame(maxWidth: .infinity)
         .opacity(isDisabled ? 0.4 : 1)
         .disabled(isDisabled)
+    }
+
+    private func keypadRow(_ digits: [String]) -> some View {
+        HStack(spacing: spacing) {
+            ForEach(digits, id: \.self) { keypadButton($0) }
+        }
     }
 
     private func keypadButton(_ digit: String) -> some View {
@@ -182,7 +217,9 @@ struct PINKeypad: View {
             Text(digit)
                 .font(EW.Font.heading)
                 .foregroundStyle(EW.Color.textPrimary)
-                .frame(width: 64, height: 64)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .frame(width: diameter, height: diameter)
                 .background(EW.Color.cardAlt, in: Circle())
         }
         .buttonStyle(.plain)
