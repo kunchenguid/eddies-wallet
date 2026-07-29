@@ -67,19 +67,25 @@ public final class CloudWalletRepository: WalletRepository {
     public func loanDetail(remoteID: String) async throws -> LoanDetail { try await replica.loanDetail(remoteID: remoteID) }
 
     public func submit(_ command: WalletCommand) async throws -> CommandResult {
+        let command = replica.replayCloudCommand(matching: command) ?? command
         let priorEventIDs = Set(replica.snapshot().activities.map(\.id))
         let request = try await commandRequest(for: command)
         do {
-            try await accept(path: request.path, body: request.body, idempotencyKey: command.idempotencyKey)
+            try await accept(
+                path: request.path,
+                body: request.body,
+                idempotencyKey: command.idempotencyKey,
+                acceptedCommand: command
+            )
         } catch WalletAPIError.acceptedStateUnavailable {
-            return acceptedStatePendingEvent(for: command)
+            return acceptedAwaitingReplicaEvent(for: command)
         }
         guard let accepted = replica.snapshot().activities.first(where: {
             !priorEventIDs.contains($0.id) &&
                 $0.type == activityType(for: command.kind) &&
                 $0.amountCents == command.amountCents
         }) else {
-            return acceptedStatePendingEvent(for: command)
+            return acceptedAwaitingReplicaEvent(for: command)
         }
         return .accepted(accepted)
     }
@@ -166,14 +172,17 @@ public final class CloudWalletRepository: WalletRepository {
         return body
     }
 
-    private func acceptedStatePendingEvent(for command: WalletCommand) -> CommandResult {
-        .pending(
+    private func acceptedAwaitingReplicaEvent(for command: WalletCommand) -> CommandResult {
+        if let event = replica.snapshot().pendingEvents.first(where: { $0.syncState == .acceptedAwaitingReplica }) {
+            return .acceptedAwaitingReplica(event)
+        }
+        return .acceptedAwaitingReplica(
             WalletEvent(
                 type: activityType(for: command.kind),
                 amountCents: command.amountCents,
                 reason: command.reason,
-                syncState: .pending,
-                explanation: "Cloud accepted this action. This device is waiting for the updated wallet."
+                syncState: .acceptedAwaitingReplica,
+                explanation: "Cloud recorded this action. This device has not shown it yet and will refresh."
             )
         )
     }
@@ -182,7 +191,13 @@ public final class CloudWalletRepository: WalletRepository {
     /// revision refreshes the replica first, so the parent reviews the latest
     /// accepted balance before retrying.
     @discardableResult
-    private func accept(path: String, body: [String: Any], idempotencyKey: String, method: String = "POST") async throws -> CloudAPIClient.CommandAcceptance {
+    private func accept(
+        path: String,
+        body: [String: Any],
+        idempotencyKey: String,
+        method: String = "POST",
+        acceptedCommand: WalletCommand? = nil
+    ) async throws -> CloudAPIClient.CommandAcceptance {
         let previousRevision = revision
         do {
             let acceptance = try await client.command(
@@ -193,6 +208,12 @@ public final class CloudWalletRepository: WalletRepository {
                 method: method
             )
             lastConflictRevision = nil
+            if let acceptedCommand {
+                try replica.markCloudCommandAcceptedAwaitingReplica(
+                    acceptedCommand,
+                    acceptedRevision: acceptance.revision
+                )
+            }
             do {
                 try await syncChanges(after: previousRevision)
             } catch {

@@ -153,6 +153,7 @@ public struct StatusPill: View {
         switch state {
         case .recorded: "checkmark.circle.fill"
         case .pending: "clock.fill"
+        case .acceptedAwaitingReplica: "arrow.triangle.2.circlepath"
         case .rejected: "exclamationmark.circle.fill"
         case .draft: "pencil"
         }
@@ -162,6 +163,7 @@ public struct StatusPill: View {
         switch state {
         case .recorded: EW.Color.green700
         case .pending: EW.Color.gold700
+        case .acceptedAwaitingReplica: EW.Color.gold700
         case .rejected: EW.Color.red600
         case .draft: EW.Color.textSecondary
         }
@@ -171,6 +173,7 @@ public struct StatusPill: View {
         switch state {
         case .recorded: EW.Color.green100
         case .pending: EW.Color.goldTint
+        case .acceptedAwaitingReplica: EW.Color.goldTint
         case .rejected: EW.Color.dangerTint
         case .draft: EW.Color.ink100
         }

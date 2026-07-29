@@ -177,7 +177,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(cloud.snapshot().pendingEvents.isEmpty)
     }
 
-    func testAcceptedCloudWriteWaitsWhenTheAcceptedReplicaCannotBeRead() async throws {
+    func testAcceptedCloudWritePersistsUntilARefreshMirrorsIt() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
         let transport = RoutingTransport()
@@ -185,13 +185,40 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3))
         let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
         _ = try await cloud.bootstrap()
+        let original = WalletCommand(
+            kind: .deposit,
+            amountCents: 250,
+            idempotencyKey: "11111111-1111-4111-8111-111111111111"
+        )
 
-        guard case .pending(let event) = try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 250)) else {
-            return XCTFail("an accepted write without its replica must wait")
+        guard case .acceptedAwaitingReplica(let event) = try await cloud.submit(original) else {
+            return XCTFail("an accepted write without its replica must remain distinct")
         }
-        XCTAssertEqual(event.syncState, .pending)
+        XCTAssertEqual(event.syncState, .acceptedAwaitingReplica)
         XCTAssertEqual(cloud.revision, 2, "the unread accepted revision must not skip the missing changes")
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+        XCTAssertEqual(cloud.snapshot().pendingEvents.first?.syncState, .acceptedAwaitingReplica)
+        XCTAssertFalse(cloud.snapshot().pendingEvents.contains { $0.syncState == .pending })
+        let retry = WalletCommand(kind: .deposit, amountCents: 250)
+        XCTAssertEqual(local.replayCloudCommand(matching: retry)?.idempotencyKey, original.idempotencyKey)
+        guard case .acceptedAwaitingReplica = try await cloud.submit(retry) else {
+            return XCTFail("a retry must remain accepted-awaiting-replica")
+        }
+        let deposits = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
+        XCTAssertEqual(deposits.count, 2)
+        XCTAssertTrue(deposits.allSatisfy {
+            $0.value(forHTTPHeaderField: "Idempotency-Key") == original.idempotencyKey
+        })
+
+        let reloaded = try LocalWalletRepository(directory: directory)
+        XCTAssertEqual(reloaded.pendingCloudCommand?.idempotencyKey, original.idempotencyKey)
+        XCTAssertEqual(reloaded.snapshot().pendingEvents.first?.syncState, .acceptedAwaitingReplica)
+
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000))
+        _ = try await cloud.refresh(for: .parent)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
+        XCTAssertTrue(cloud.snapshot().pendingEvents.isEmpty)
+        XCTAssertNil(local.pendingCloudCommand)
     }
 
     func testCloudAllowanceReadsTheDueOccurrenceBeforeRecording() async throws {
@@ -354,7 +381,8 @@ final class CloudVerticalSliceTests: XCTestCase {
         let sessions = InMemorySessionStore()
         let transport = RoutingTransport()
         let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: sessions, transport: transport)
-        let provider = RecordingCloudSignInProvider(session: session)
+        transport.stub("POST", "/v1/auth/apple", CloudSliceFixtures.authenticated, status: 201)
+        let provider = RecordingCloudSignInProvider()
         let coordinator = CloudCoordinator(
             client: client,
             subscriptions: CloudSubscriptionStore(client: client, observeTransactions: false)
@@ -375,8 +403,8 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(transport.requests.isEmpty, "no Cloud request is made before explicit authentication")
         await store.signInToCloud()
 
-        XCTAssertEqual(provider.requiredAppleUserID, "synthetic-parent")
-        XCTAssertEqual(sessions.session, session)
+        XCTAssertEqual(provider.authorizationRequiredAppleUserID, "synthetic-parent")
+        XCTAssertEqual(sessions.session?.token, "synthetic-session")
         XCTAssertTrue(transport.requests.contains { $0.url?.path == "/v1/capabilities" })
         XCTAssertTrue(store.cloudPlans.isEmpty, "StoreKit unavailability cannot be replaced by a local grant")
     }
@@ -386,7 +414,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         let sessions = InMemorySessionStore()
         let transport = RoutingTransport()
         let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: sessions, transport: transport)
-        let provider = RecordingCloudSignInProvider(session: session, appleUserID: "different-parent")
+        let provider = RecordingCloudSignInProvider(appleUserID: "different-parent")
         let store = WalletStore(
             repository: local,
             appleSignInProvider: provider,
@@ -403,10 +431,56 @@ final class CloudVerticalSliceTests: XCTestCase {
 
         await store.signInToCloud()
 
-        XCTAssertEqual(provider.requiredAppleUserID, "synthetic-parent")
+        XCTAssertEqual(provider.authorizationRequiredAppleUserID, "synthetic-parent")
         XCTAssertNil(sessions.session)
         XCTAssertTrue(transport.requests.isEmpty)
         XCTAssertTrue(store.cloudPlans.isEmpty)
+    }
+
+    func testLocalSetupAndForgottenPINRecoveryIgnoreCloudOutage() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let sessions = InMemorySessionStore()
+        let transport = RoutingTransport()
+        transport.failEverything = true
+        let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: sessions, transport: transport)
+        let provider = RecordingCloudSignInProvider()
+        let store = WalletStore(
+            repository: local,
+            appleSignInProvider: provider,
+            initiallySignedIn: false,
+            pinStore: InMemoryParentPINStore(),
+            identityStore: InMemoryParentIdentityStore(),
+            cloudCoordinator: CloudCoordinator(
+                client: client,
+                subscriptions: CloudSubscriptionStore(client: client, observeTransactions: false)
+            )
+        )
+
+        await store.signInWithApple()
+        XCTAssertEqual(store.rootRoute, .setup)
+        let didSetUp = await store.setupParent(
+            ParentSetup(nickname: "Test Kid"),
+            pin: "1234",
+            confirmation: "1234"
+        )
+        XCTAssertTrue(didSetUp)
+        guard case .accepted = await store.submit(WalletCommand(kind: .deposit, amountCents: 100)) else {
+            return XCTFail("local money actions must work while Cloud is offline")
+        }
+
+        store.exitParentArea()
+        store.openParentGate()
+        store.requestPINRecovery()
+        await store.reauthenticateOwningParent()
+        XCTAssertEqual(store.gateRoute, .setPIN)
+        XCTAssertTrue(store.completeGatePINSetup(pin: "5678", confirmation: "5678"))
+        guard case .accepted = await store.submit(WalletCommand(kind: .deposit, amountCents: 50)) else {
+            return XCTFail("local money actions must still work after offline PIN recovery")
+        }
+
+        XCTAssertNil(sessions.session)
+        XCTAssertTrue(transport.requests.isEmpty)
+        XCTAssertEqual(provider.signInRequiredAppleUserIDs, [nil, "synthetic-parent"])
     }
 
     func testUnknownOrMalformedHouseholdNeverBecomesCloudAuthority() async throws {
@@ -468,6 +542,10 @@ final class CloudVerticalSliceTests: XCTestCase {
 // MARK: - Fixtures and stubs
 
 enum CloudSliceFixtures {
+    static let authenticated = Data("""
+    {"token":"synthetic-session","expiresAt":"2099-01-01T00:00:00Z",
+     "parent":{"provider":"apple","subject":"synthetic-parent","email":null}}
+    """.utf8)
     static let contextNoEntitlement = Data("""
     {"storeAccountToken":"11111111-1111-4111-8111-111111111111","entitlement":null,"household":null}
     """.utf8)
@@ -636,22 +714,33 @@ final class SliceSignInProvider: AppleSignInProviding {
 }
 
 @MainActor
-final class RecordingCloudSignInProvider: AppleSignInProviding {
-    private let session: AuthSession
+final class RecordingCloudSignInProvider: AppleSignInProviding, AppleIdentityAuthorizing {
     private let appleUserID: String
-    private(set) var requiredAppleUserID: String?
+    private(set) var signInRequiredAppleUserIDs: [String?] = []
+    private(set) var authorizationRequiredAppleUserID: String?
 
-    init(session: AuthSession, appleUserID: String = "synthetic-parent") {
-        self.session = session
+    init(appleUserID: String = "synthetic-parent") {
         self.appleUserID = appleUserID
     }
 
     func signIn(requiredAppleUserID: String?) async throws -> AppleSignInOutcome {
-        self.requiredAppleUserID = requiredAppleUserID
+        signInRequiredAppleUserIDs.append(requiredAppleUserID)
         if let requiredAppleUserID, requiredAppleUserID != appleUserID {
             throw WalletAPIError.identityMismatch
         }
-        return AppleSignInOutcome(session: session, appleUserID: appleUserID)
+        return AppleSignInOutcome(appleUserID: appleUserID)
+    }
+
+    func authorizeAppleIdentity(requiredAppleUserID: String?) async throws -> AppleIdentity {
+        authorizationRequiredAppleUserID = requiredAppleUserID
+        if let requiredAppleUserID, requiredAppleUserID != appleUserID {
+            throw WalletAPIError.identityMismatch
+        }
+        return AppleIdentity(
+            appleUserID: appleUserID,
+            identityToken: "synthetic.identity.token",
+            signedNonce: "synthetic-signed-nonce"
+        )
     }
 }
 

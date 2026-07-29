@@ -9,6 +9,7 @@ struct LocalWalletMetadata: Codable, Sendable {
     var lastServerSync: Date?
     var migrationState = "complete"
     var pendingCloudCommand: WalletCommand?
+    var pendingCloudAcceptedRevision: Int64?
     /// Stable identity of the one-time local-to-Cloud upload, so an interrupted
     /// import replays instead of creating a second household.
     var cloudImportOperationID: UUID?
@@ -170,6 +171,38 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     public var isCloudAuthority: Bool { cloudRevision != nil }
     public var cloudImportOperationID: UUID? { aggregate?.metadata.cloudImportOperationID }
     public var hasCompletedCloudImport: Bool { aggregate?.metadata.cloudImportCompleted == true }
+    var pendingCloudCommand: WalletCommand? { aggregate?.metadata.pendingCloudCommand }
+
+    func replayCloudCommand(matching proposed: WalletCommand) -> WalletCommand? {
+        guard let pending = aggregate?.metadata.pendingCloudCommand,
+              pending.kind == proposed.kind,
+              pending.amountCents == proposed.amountCents,
+              pending.reason == proposed.reason,
+              pending.dueDate == proposed.dueDate else {
+            return nil
+        }
+        return pending
+    }
+
+    func markCloudCommandAcceptedAwaitingReplica(_ command: WalletCommand, acceptedRevision: Int64?) throws {
+        var candidate = try writableAggregate()
+        candidate.metadata.pendingCloudCommand = command
+        candidate.metadata.pendingCloudAcceptedRevision = acceptedRevision
+        candidate.snapshot.pendingEvents.removeAll { $0.syncState == .acceptedAwaitingReplica }
+        candidate.snapshot.pendingEvents.insert(
+            WalletEvent(
+                id: UUID(uuidString: command.idempotencyKey) ?? UUID(),
+                remoteID: nil,
+                type: activityType(command.kind),
+                amountCents: command.amountCents,
+                reason: command.reason,
+                syncState: .acceptedAwaitingReplica,
+                explanation: "Cloud recorded this action. This device has not shown it yet and will refresh."
+            ),
+            at: 0
+        )
+        try persist(candidate)
+    }
 
     /// Reserves the one-time import identity before the upload starts, so a
     /// retry after an interrupted upload reuses the same operation and key.
@@ -223,7 +256,19 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         metadata.lastServerSync = .now
         metadata.cloudImportCompleted = true
         let existingEvents = merging ? (aggregate?.snapshot.activities ?? []) : []
-        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: existingEvents, fallbackNickname: aggregate?.snapshot.childNickname)
+        var snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: existingEvents, fallbackNickname: aggregate?.snapshot.childNickname)
+        if let command = metadata.pendingCloudCommand,
+           let acceptedRevision = metadata.pendingCloudAcceptedRevision,
+           replica.entries.contains(where: { entry in
+               entry.acceptedRevision == acceptedRevision &&
+                   entry.type == activityType(command.kind).rawValue &&
+                   entry.amountCents == command.amountCents
+           }) {
+            metadata.pendingCloudCommand = nil
+            metadata.pendingCloudAcceptedRevision = nil
+        } else if let awaiting = aggregate?.snapshot.pendingEvents.first(where: { $0.syncState == .acceptedAwaitingReplica }) {
+            snapshot.pendingEvents = [awaiting]
+        }
         try persist(LocalWalletAggregate(metadata: metadata, snapshot: snapshot))
     }
 

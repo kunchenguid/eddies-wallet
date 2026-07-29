@@ -41,8 +41,11 @@ public final class CloudCoordinator: ObservableObject {
     public var hasSession: Bool { client.hasSession }
     public var permitsLocalContinuation: Bool { entitlement.permitsLocalContinuation }
 
-    public func establishSession(_ session: AuthSession) throws {
-        try client.establishSession(session)
+    public func authenticateCloud(identity: AppleIdentity) async throws {
+        _ = try await client.authenticateApple(
+            identityToken: identity.identityToken,
+            nonce: identity.signedNonce
+        )
         subscriptions.startObservingIfAuthenticated()
     }
 

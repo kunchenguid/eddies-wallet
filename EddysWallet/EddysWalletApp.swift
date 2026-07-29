@@ -19,7 +19,7 @@ struct EddysWalletApp: App {
         let sessionStore = KeychainSessionStore()
         let cloudClient = CloudAPIClient(sessionStore: sessionStore)
         let repository = WalletRepositoryFactory.makeDefault(cloudClient: cloudClient)
-        let appleSignIn = AppleSignInCoordinator(authenticator: cloudClient)
+        let appleSignIn = AppleSignInCoordinator()
         _store = StateObject(
             wrappedValue: WalletStore(
                 repository: repository,

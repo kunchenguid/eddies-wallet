@@ -827,16 +827,17 @@ public final class WalletStore: ObservableObject {
     private func ensureCloudSession() async -> Bool {
         guard let cloudCoordinator else { return false }
         if cloudCoordinator.hasSession { return true }
-        guard let appleSignInProvider else {
+        guard let appleIdentityAuthorizer = appleSignInProvider as? any AppleIdentityAuthorizing else {
             cloudMessage = "Sign in with Apple is unavailable, so Cloud stays off."
             return false
         }
         do {
-            let outcome = try await appleSignInProvider.signIn(requiredAppleUserID: identityStore.appleUserID)
-            guard let session = outcome.session else { throw WalletAPIError.noSession }
-            try cloudCoordinator.establishSession(session)
+            let identity = try await appleIdentityAuthorizer.authorizeAppleIdentity(
+                requiredAppleUserID: identityStore.appleUserID
+            )
+            try await cloudCoordinator.authenticateCloud(identity: identity)
             if identityStore.appleUserID == nil {
-                try identityStore.save(appleUserID: outcome.appleUserID)
+                try identityStore.save(appleUserID: identity.appleUserID)
             }
             cloudMessage = nil
             return true
