@@ -64,9 +64,9 @@ Do not claim TestFlight success from a green upload step alone: success means Ap
 - The Apple team ID intentionally stays out of Git (see `EddysWallet/README.md`); `release.yml` reads it from the nonsecret `APPLE_TEAM_ID` repository variable and injects it into a runner-temp copy of `ExportOptions.plist`.
 - `test/release-checks.sh` enforces all of the above and the version-derivation contract; CI runs it on every pull request, and it runs locally with no credentials or network.
 
-## One-time setup (captain)
+## One-time setup (captain) - already complete for this repository
 
-Required before the first TestFlight upload can succeed:
+Every item below is already in place for `com.kunchenguid.eddieswallet` and is retained as reference only. No captain action is required, and the upload API key must not be recreated or rotated as part of ordinary work. See "Account-level prerequisites that are already satisfied" below.
 
 1. **App Store Connect app record.** Create the iOS app for bundle id `com.kunchenguid.eddieswallet` on the owning Apple Developer team. The upload workflow does not need the numeric App Store Connect app ID; the status workflow resolves it from the bundle id.
 2. **App Store Connect API key.** Reuse or create a key (Users and Access, Integrations) with App Manager or Admin role so the workflow can upload builds and Xcode can manage signing with `-allowProvisioningUpdates`. Record the Key ID and Issuer ID and keep the downloaded `.p8` private key file; Apple offers the download once.

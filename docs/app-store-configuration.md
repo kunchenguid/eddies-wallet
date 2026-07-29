@@ -71,6 +71,7 @@ None of the following has happened, and this file must not be edited to imply ot
 - No purchase, renewal, grace, expiry, refund, or revocation has been exercised in Sandbox or production.
 - No backend receipt or transaction verification has run. The backend still needs a distinct **In-App Purchase** key for the App Store Server API; the App Store Connect API key used for uploads is a different key class and the App Store Server API rejects it.
 - No Sandbox Apple Account exists on the account, so Sandbox purchase testing cannot start yet. App Store Connect's API can list, modify, and clear purchase history for sandbox testers but cannot create one; that is console-only.
+- This App Store Connect configuration work did not cut a TestFlight build or merge release pull request 26. That pull request remains open and captain-owned; this task-scoped boundary does not negate the TestFlight uploads App Store Connect has already accepted for this app.
 - No submission for App Review, and no request for Apple's test notification.
 - The in-app Cloud surface still renders its guarded state, because the backend Cloud path is intentionally off.
 
