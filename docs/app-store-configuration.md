@@ -9,7 +9,7 @@ It is a record of configuration, not a claim of product readiness. Nothing here 
 Eddie's Wallet ships from a single Apple Developer team that also carries other apps. Two consequences matter for this repository:
 
 - Account-level distribution prerequisites are **already satisfied** and must not be requested again. Another app on the same team sells an approved paid in-app purchase, which is only possible with an active Paid Applications agreement and completed tax and banking setup.
-- Team-wide actions taken for another app can affect this one. See "Shared-team signing hazard".
+- Team-wide certificate cleanup can affect this app's local development signing. The release guide owns that operational warning and recovery procedure.
 
 The Apple team ID stays out of Git by repository convention; `release.yml` reads it from the non-secret `APPLE_TEAM_ID` repository variable. See `docs/release.md`.
 
@@ -54,6 +54,8 @@ Both products are at the same group level because they are the same service bill
 
 `READY_TO_SUBMIT` is the furthest state a product reaches without being attached to a submission. It means the required metadata is complete; it does not mean the product is approved, live, or purchasable.
 
+The uploaded App Store review screenshot is an `EvidenceCaptureUITests` capture of the actual Cloud card. It truthfully shows the guarded, unavailable state because the app cannot render a purchase offer until product propagation and backend enablement are complete. Its successful upload proves only that the review asset is present, not that a purchase offer rendered or a transaction succeeded.
+
 ### Plan type is `UPFRONT` for both products, deliberately
 
 App Store Connect models two subscription plan types. `UPFRONT` means the customer pays the full price for the subscription period at the start of that period. `MONTHLY` means an annual commitment billed in twelve monthly installments.
@@ -93,8 +95,4 @@ Order matters: app price schedule and plan availability come before any product 
 
 ## Shared-team signing hazard
 
-Apple scopes signing certificates to the team, not to an app. This repository's own release workflow runs `.github/scripts/prune_asc_development_certs.js`, which keeps only the newest few `DEVELOPMENT` certificates and revokes the rest, and other apps on the same team run the same cleanup. Either direction can revoke a development certificate this Mac was using.
-
-When that happens, `Apple Development` reports `CSSMERR_TP_CERT_REVOKED`, this app's development provisioning profile shows as `INVALID`, and running on a physical device fails.
-
-That is not a distribution problem. TestFlight and App Store signing use the separate iOS distribution certificate and are unaffected. The safe recovery is to let Xcode automatic signing regenerate a development certificate; do not hand-edit signing settings and do not assume the release pipeline is broken. `docs/release.md` carries the same warning for release operators.
+See `docs/release.md` for the team-scoped development-certificate cleanup hazard, including this repository's own cleanup script, its symptoms, and the safe recovery procedure.
