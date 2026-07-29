@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.2](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.1...eddies-wallet-v0.1.2) (2026-07-29)
+
+
+### Bug Fixes
+
+* omit lessons-era fields from family setup ([#19](https://github.com/kunchenguid/eddies-wallet/issues/19)) ([7cd3e72](https://github.com/kunchenguid/eddies-wallet/commit/7cd3e723a51a3851b33e22a211fb275ebede3f3b))
+* personalize daily wallet chrome ([#22](https://github.com/kunchenguid/eddies-wallet/issues/22)) ([7969143](https://github.com/kunchenguid/eddies-wallet/commit/7969143e5fc772b734bd428dd1662b9cfcd813aa))
+* tailor wallet copy to kid and parent audiences ([#20](https://github.com/kunchenguid/eddies-wallet/issues/20)) ([7c24fa1](https://github.com/kunchenguid/eddies-wallet/commit/7c24fa152224a641ffdc76068f887c6c69ce89d9))
+
 ## [0.1.1](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.0...eddies-wallet-v0.1.1) (2026-07-28)
 
 
