@@ -59,13 +59,13 @@ This repository contains only the client. A complete free wallet is stored local
 | `EddysWalletTests/` | Unit and transport-contract tests |
 | `EddysWalletUITests/` | Native UI tests and the synthetic screenshot tour |
 | `EddysWallet.xcodeproj` | Xcode project with the shared `EddysWallet` scheme |
-| `docs/` | [Product requirements](docs/product-requirements.md), [video claims checklist](docs/video-claims-checklist.md), and screenshots |
+| `docs/` | Product requirements, release guidance, the live App Store Connect configuration record, presentation claims, and screenshots |
 | `.agents/skills/eddies-wallet-design/` | Copied web design system and prototype, packaged as an agent skill and kept as visual reference; `.claude/skills` is a symlink to `.agents/skills` so Claude Code discovers the same directory |
 
 ## Known limitations
 
 - This is an unfinished MVP. Live Apple sign-in, first-run free-wallet setup with a real parent identity, the legacy service-wallet flow, and optional Cloud have **not** been verified end to end; verification so far covers local builds, the test suite, and synthetic UI scenarios.
-- The `0.1.0` source release exists, but there is no verified downloadable or App Store-ready build: no privacy manifest, signed archive evidence, verified TestFlight upload, purchasable StoreKit product, or live Cloud evidence is committed here. The [release pipeline](docs/release.md) documents the remaining Apple-side prerequisites.
+- The `0.1.0` source release exists, but there is no verified downloadable or App Store-ready build: no privacy manifest, signed archive evidence, verified TestFlight upload, purchasable StoreKit product, or live Cloud evidence is committed here. The [App Store Connect configuration record](docs/app-store-configuration.md) distinguishes completed store setup from the work that remains deliberately unproven.
 - Pull requests run a credential-free build-and-test workflow on GitHub Actions; everything else about verification remains local evidence.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.
 - The `.agents/skills/eddies-wallet-design/` prototype is unmaintained reference material and may not run as-is.
@@ -82,6 +82,7 @@ This repository contains only the client. A complete free wallet is stored local
 - [Video claims checklist](docs/video-claims-checklist.md): the limitations any public presentation of this repository must state.
 - [Client README](EddysWallet/README.md): API configuration, keychain behavior, signing prerequisites, and the manual test sequence.
 - [Release pipeline](docs/release.md): the release-please and TestFlight automation, its approval boundary, and its one-time setup.
+- [App Store Connect configuration](docs/app-store-configuration.md): the optional Cloud products and policies configured in the live store, plus the work that remains unproven.
 
 ## License
 

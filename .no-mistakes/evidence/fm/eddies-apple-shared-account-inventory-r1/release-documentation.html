@@ -1,0 +1,112 @@
+<h1>Release pipeline</h1>
+<p>Eddie&#39;s Wallet uses release-please for version PRs, changelog generation, tags, and GitHub Releases.
+The native iOS app is then archived with Xcode on GitHub Actions and uploaded to TestFlight.
+The pipeline mirrors a proven sibling-project release lifecycle: deliberate human control over the release trigger, unattended automation for everything after it.</p>
+<p>Scope is TestFlight only. Nothing in this repository submits for App Store review, publishes publicly, or changes pricing, availability, or production state.</p>
+<h2>The captain approval boundary</h2>
+<p>Merging a release-please release PR is the release trigger: it cuts the tag and starts the TestFlight upload.
+Only the captain merges release PRs. No agent or automation may merge, auto-merge, or approve one.
+Ordinary infrastructure and feature PRs carry no release side effects and follow the normal contribution flow.</p>
+<h2>What happens on each release</h2>
+<ol>
+<li>Conventional commits on <code>main</code> cause release-please to open or update a release PR.</li>
+<li>The release PR updates <code>version.txt</code>, <code>.release-please-manifest.json</code>, and <code>CHANGELOG.md</code>.</li>
+<li>Merging the release PR creates a GitHub Release and a tag like <code>eddies-wallet-v0.1.0</code>.</li>
+<li>The Release Please workflow dispatches <code>.github/workflows/release.yml</code> first for that tag, then best-effort dispatches <code>.github/workflows/ci.yml</code> for the same tag.
+A CI dispatch failure logs <code>gate-dispatch-failed-nonfatal</code> and does not prevent the TestFlight dispatch.</li>
+<li>The TestFlight workflow checks out exactly the release tag, archives the Release build with automatic App Store Connect cloud signing, exports an IPA with <code>ExportOptions.plist</code>, uploads it with <code>xcrun altool --upload-app</code>, and runs best-effort App Store Connect development-certificate cleanup (<code>.github/scripts/prune_asc_development_certs.js</code> keeps the newest two <code>DEVELOPMENT</code> certificates and never touches distribution certificates; its failures are warnings).</li>
+<li>Release-time CI independently builds and tests the same tag.</li>
+</ol>
+<h2>Versions, build numbers, and traceability</h2>
+<p>Until the first release PR merges, <code>version.txt</code> and <code>.release-please-manifest.json</code> stay at the pre-release seed <code>0.0.0</code>.
+release-please treats a <code>0.0.0</code> seed with no matching <code>eddies-wallet-v0.0.0</code> tag as &quot;never released&quot; and does not bump from that seed; the first proposal therefore comes from <code>initial-version</code> in <code>release-please-config.json</code>, which is set to <code>0.1.0</code> so the first tag is <code>eddies-wallet-v0.1.0</code> (not the library default <code>1.0.0</code>).
+After that first cut merges, release-please advances the manifest/version seed to the released version (for example <code>0.1.0</code>); subsequent proposals bump from that lineage rather than from <code>initial-version</code>.
+<code>test/release-checks.sh</code> is state-aware: it still enforces the pre-first-release <code>0.0.0</code> + <code>initial-version: 0.1.0</code> contract (including the missing-<code>initial-version</code> =&gt; <code>1.0.0</code> counterfactual), and once releases exist it requires the advanced seed to match the latest available lineage evidence (committed <code>CHANGELOG.md</code> headings plus any local <code>eddies-wallet-v*</code> tags present) instead of demanding a perpetual <code>0.0.0</code> seed.
+The release PR header in that same config file is the captain-only warning; only the captain merges it.</p>
+<p><code>.github/scripts/resolve_release_version.sh</code> owns the derivation and is regression-tested by <code>test/release-checks.sh</code>:</p>
+<ul>
+<li>The App Store marketing version comes from the release tag, with a zero patch trimmed: <code>eddies-wallet-v0.1.0</code> archives with <code>MARKETING_VERSION=0.1</code>; a nonzero patch is kept.</li>
+<li><code>CURRENT_PROJECT_VERSION</code> is <code>GITHUB_RUN_NUMBER.GITHUB_RUN_ATTEMPT</code>, so every uploaded build number is unique and monotonically valid for App Store Connect.</li>
+<li>Every build is traceable: the tag names the exact released commit, and the workflow run that produced a build number records both.</li>
+</ul>
+<p>Retry semantics: rerunning a failed run (or dispatching <code>release.yml</code> again with the same <code>tag_name</code>) rebuilds the identical tagged source with the same marketing version and a fresh attempt-suffixed build number.
+If App Store Connect already accepted a build for that version, the rerun uploads the next build number rather than colliding with or silently replacing the accepted build.
+The workflow uses a per-tag concurrency group with <code>cancel-in-progress: true</code>, so overlapping same-tag runs are deduplicated to the newest; different tags never cancel each other.</p>
+<h2>Check build status</h2>
+<p>Dispatch the App Store Connect status check with the marketing version:</p>
+<pre><code class="language-sh">gh workflow run asc-build-status.yml --ref main -f version=0.1
+</code></pre>
+<p>Add <code>--field build=&lt;build-number&gt;</code> to narrow the query to one build.
+The run&#39;s final <code>ASC_BUILD_STATUS</code> line and its <code>asc-build-status</code> artifact (<code>build-status.json</code>) report the processing state.
+The workflow resolves the app record from the committed bundle id <code>com.kunchenguid.eddieswallet</code>; if no App Store Connect app record exists yet it fails with an explicit prerequisite message.
+Manual <code>workflow_dispatch</code> workflows become dispatchable only after they exist on the default branch.</p>
+<p>Do not claim TestFlight success from a green upload step alone: success means App Store Connect accepted the exact build and shows it processing or available in TestFlight.</p>
+<h2>Security and trust boundaries</h2>
+<ul>
+<li>Ordinary pull requests (including forks) validate through <code>.github/workflows/ci.yml</code>, which references no secrets and runs with <code>contents: read</code>. No <code>pull_request_target</code> trigger exists in this repository.</li>
+<li>Apple credentials are reachable only from <code>eddies-wallet-v*</code> tag pushes, published releases, and explicit tag dispatches of <code>release.yml</code>/<code>asc-build-status.yml</code>. Tags and dispatches require repository write access.</li>
+<li>The App Store Connect API key exists on the runner only as a short-lived file under the runner&#39;s home (<code>chmod 600</code>), written from the secret for <code>xcodebuild</code>/<code>altool</code> authentication, and the runner is destroyed after the job. Never persist that key material anywhere else.</li>
+<li>All actions are pinned to full commit SHAs.</li>
+<li>The Apple team ID intentionally stays out of Git (see <code>EddysWallet/README.md</code>); <code>release.yml</code> reads it from the nonsecret <code>APPLE_TEAM_ID</code> repository variable and injects it into a runner-temp copy of <code>ExportOptions.plist</code>.</li>
+<li><code>test/release-checks.sh</code> enforces all of the above and the version-derivation contract; CI runs it on every pull request, and it runs locally with no credentials or network.</li>
+</ul>
+<h2>One-time setup (captain) - already complete for this repository</h2>
+<p>Every item below is already in place for <code>com.kunchenguid.eddieswallet</code> and is retained as reference only. No captain action is required, and the upload API key must not be recreated or rotated as part of ordinary work. See &quot;Account-level prerequisites that are already satisfied&quot; below.</p>
+<ol>
+<li><p><strong>App Store Connect app record.</strong> Create the iOS app for bundle id <code>com.kunchenguid.eddieswallet</code> on the owning Apple Developer team. The upload workflow does not need the numeric App Store Connect app ID; the status workflow resolves it from the bundle id.</p>
+</li>
+<li><p><strong>App Store Connect API key.</strong> Reuse or create a key (Users and Access, Integrations) with App Manager or Admin role so the workflow can upload builds and Xcode can manage signing with <code>-allowProvisioningUpdates</code>. Record the Key ID and Issuer ID and keep the downloaded <code>.p8</code> private key file; Apple offers the download once.</p>
+</li>
+<li><p><strong>GitHub repository secrets</strong>, set from a trusted machine (values never appear in argv, logs, or files):</p>
+<pre><code class="language-sh">REPO=kunchenguid/eddies-wallet
+KEY_ID=REPLACE_WITH_KEY_ID
+ISSUER_ID=REPLACE_WITH_ISSUER_ID
+P8_PATH=/path/to/AuthKey_${KEY_ID}.p8
+
+printf &#39;%s&#39; &quot;$KEY_ID&quot; | gh secret set APP_STORE_CONNECT_KEY_ID --repo &quot;$REPO&quot;
+printf &#39;%s&#39; &quot;$ISSUER_ID&quot; | gh secret set APP_STORE_CONNECT_ISSUER_ID --repo &quot;$REPO&quot;
+base64 -i &quot;$P8_PATH&quot; | gh secret set APP_STORE_CONNECT_API_KEY --repo &quot;$REPO&quot;
+</code></pre>
+<p><code>APP_STORE_CONNECT_API_KEY</code> must hold the base64 of the <code>.p8</code> file. On GNU/Linux use <code>base64 -w0</code>. Never commit the <code>.p8</code> or its decoded contents.</p>
+</li>
+<li><p><strong>GitHub repository variable</strong> <code>APPLE_TEAM_ID</code>: the Apple Developer team ID that owns the bundle id (nonsecret, but kept out of Git by repository convention):</p>
+<pre><code class="language-sh">gh variable set APPLE_TEAM_ID --repo kunchenguid/eddies-wallet --body REPLACE_WITH_TEAM_ID
+</code></pre>
+</li>
+<li><p><strong>Repository setting</strong>: allow GitHub Actions to create pull requests (Settings, Actions, General, &quot;Allow GitHub Actions to create and approve pull requests&quot;), which release-please needs to open release PRs with the ephemeral <code>GITHUB_TOKEN</code>.</p>
+</li>
+</ol>
+<p>Optional:</p>
+<ul>
+<li>A TestFlight internal tester group, so accepted builds are installable immediately after processing.</li>
+</ul>
+<h2>Account-level prerequisites that are already satisfied</h2>
+<p>Eddie&#39;s Wallet ships from a single Apple Developer team shared with other apps, so account-level setup is <strong>not</strong> per-app work and must not be requested again for this app:</p>
+<ul>
+<li><strong>Paid Applications agreement, tax, and banking</strong> are already in place. Another app on the same team sells an approved paid in-app purchase with a live territory price schedule, which Apple does not permit without them.</li>
+<li><strong>App Store Connect API key</strong>, iOS <strong>distribution certificate</strong>, and automatic signing are already in place and proven by accepted TestFlight uploads for this app.</li>
+<li><strong>Sandbox capability</strong> exists at the account level through the active paid membership. A Sandbox Apple <em>Account</em> to test with is separate and is created in the App Store Connect console; the API cannot create one.</li>
+</ul>
+<p>The remaining Cloud prerequisites are app-specific, and the App Store Connect side is already configured: see <code>docs/app-store-configuration.md</code> for the exact products, prices, policies, grace period, and notification URLs that exist today.</p>
+<p>Backend receipt verification uses a distinct <strong>In-App Purchase</strong> key, which is a different key class from the App Store Connect API key above; the App Store Server API rejects the upload key. That In-App Purchase key already exists and is held in the captain&#39;s secret manager. No captain action, new key, or key conversion is required - installing it on the service host is ordinary backend work tracked outside this repository, and the issuer, key, app, and subscription group identifiers it needs are non-secret host configuration rather than secrets.</p>
+<h2>Capabilities need Apple portal setup before release</h2>
+<p>Whenever a change adds or modifies an Apple capability or entitlement, complete its Apple Developer portal setup on the app&#39;s App ID before the next release.
+Sign in with Apple is already enabled for this App ID; any future capability (and any identifier or container it requires) must be enabled and assigned the same way.
+Automatic cloud signing cannot create a matching provisioning profile until that setup exists, so <code>Release to TestFlight</code> can fail with <code>No profiles for &#39;com.kunchenguid.eddieswallet&#39; were found</code> or an authentication-looking error even when the API key and secrets are correct.
+Treat that failure as a capability or portal gap, not an API-key problem.
+Local validation never archives against App Store Connect, so a capability-touching change must verify portal readiness before release even when PR validation is green.</p>
+<p>In-App Purchase is already enabled on this App ID, so the optional Cloud subscription needs no further capability or entitlement work.</p>
+<h2>Development-certificate cleanup revokes team-wide, so local device signing can break</h2>
+<p><code>.github/scripts/prune_asc_development_certs.js</code> keeps only the newest few <code>DEVELOPMENT</code> certificates and revokes the rest.
+Apple scopes certificates to the <strong>team</strong>, not to an app, and this Apple team is shared with other apps that run the same cleanup.
+So a release of this app can revoke a development certificate another machine or project was using, and a release of another app on the team can revoke this Mac&#39;s.</p>
+<p>After a cleanup runs, <code>security find-identity -v -p codesigning</code> can report <code>CSSMERR_TP_CERT_REVOKED</code> for <code>Apple Development</code>, this app&#39;s development provisioning profile can show as <code>INVALID</code>, and <code>xcrun devicectl</code> can fail with &quot;No provider was found&quot; - so running on a physical device fails.</p>
+<p>This never affects TestFlight or App Store distribution, which use the separate iOS distribution certificate. Treat a green release pipeline as still trustworthy.
+The safe recovery is to let Xcode automatic signing regenerate a development certificate. Do not hand-edit signing settings, and do not rotate the App Store Connect API key in response.</p>
+<h2>Failure handling and reruns</h2>
+<ul>
+<li>Every failing step fails the workflow visibly; the archive and export logs (and any IPA) are uploaded as run artifacts even on failure.</li>
+<li>Rerun a failed upload from the workflow run page, or dispatch <code>release.yml</code> with the release tag. Source identity is preserved by the tag; build identity advances per attempt (see above).</li>
+<li>If an upload succeeded but processing stalls, query <code>asc-build-status.yml</code> rather than rerunning the upload.</li>
+<li>Nothing in a rerun can publish to the App Store; the pipeline ends at TestFlight.</li>
+</ul>

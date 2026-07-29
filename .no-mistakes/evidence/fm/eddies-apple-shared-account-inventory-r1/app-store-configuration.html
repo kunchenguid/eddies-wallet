@@ -1,0 +1,166 @@
+<h1>App Store Connect configuration for the optional Cloud subscription</h1>
+<p>This file records the App Store Connect state that exists today for <code>com.kunchenguid.eddieswallet</code>, so a future change does not re-request setup that is already done or drift the app&#39;s product identifiers away from the store.</p>
+<p>It is a record of configuration, not a claim of product readiness. Nothing here asserts that a purchase, a Sandbox transaction, backend receipt verification, a TestFlight build, or App Review has succeeded. See &quot;What is deliberately not done&quot; below.</p>
+<h2>Shared Apple account</h2>
+<p>Eddie&#39;s Wallet ships from a single Apple Developer team that also carries other apps. Two consequences matter for this repository:</p>
+<ul>
+<li>Account-level distribution prerequisites are <strong>already satisfied</strong> and must not be requested again. Another app on the same team sells an approved paid in-app purchase, which is only possible with an active Paid Applications agreement and completed tax and banking setup.</li>
+<li>Team-wide certificate cleanup can affect this app&#39;s local development signing. The release guide owns that operational warning and recovery procedure.</li>
+</ul>
+<p>The Apple team ID stays out of Git by repository convention; <code>release.yml</code> reads it from the non-secret <code>APPLE_TEAM_ID</code> repository variable. See <code>docs/release.md</code>.</p>
+<h2>App-level state</h2>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Bundle identifier</td>
+<td><code>com.kunchenguid.eddieswallet</code></td>
+</tr>
+<tr>
+<td>App Store Connect app Apple ID</td>
+<td><code>6795664301</code></td>
+</tr>
+<tr>
+<td>Bundle ID capabilities</td>
+<td><code>APPLE_ID_AUTH</code>, <code>IN_APP_PURCHASE</code></td>
+</tr>
+<tr>
+<td>App price schedule</td>
+<td>Free, base territory <code>USA</code></td>
+</tr>
+<tr>
+<td>App Store Server Notifications V2</td>
+<td>Production and Sandbox both set to <code>https://eddieswallet.kunchenguid.com/v1/app-store/notifications</code>, version <code>V2</code></td>
+</tr>
+<tr>
+<td>Billing grace period</td>
+<td>Opted in for production and Sandbox, <code>SIXTEEN_DAYS</code>, <code>ALL_RENEWALS</code></td>
+</tr>
+</tbody></table>
+<p>In-App Purchase needs no entitlement key. <code>EddysWallet/EddysWallet.entitlements</code> declares only Sign in with Apple, which is correct; the capability lives on the App ID, not in the entitlements file.</p>
+<p>The notification URL points at the private backend route <code>POST /v1/app-store/notifications</code>. That route exists but stays dark until the backend&#39;s In-App Purchase configuration is installed, so Apple&#39;s notifications are addressed but not yet consumed.</p>
+<p>The backend also needs this app&#39;s non-secret identifiers as ordinary host configuration, not as secrets: the app Apple ID above and the Cloud subscription group id below, alongside the issuer and key identifiers of the In-App Purchase key.</p>
+<h2>Cloud subscription group and products</h2>
+<p>One auto-renewable subscription group, reference name <code>Cloud</code>, <code>en-US</code> display name <code>Cloud</code>, group id <code>22273828</code>. The App Store Connect subscription-group localization contract has no description field, so the group description carried in the local StoreKit configuration has no store counterpart; only the display name is set.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Monthly</th>
+<th>Annual</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Product ID</td>
+<td><code>com.kunchenguid.eddieswallet.cloud.monthly</code></td>
+<td><code>com.kunchenguid.eddieswallet.cloud.annual</code></td>
+</tr>
+<tr>
+<td>Reference name</td>
+<td><code>Cloud monthly</code></td>
+<td><code>Cloud annual</code></td>
+</tr>
+<tr>
+<td>Subscription period</td>
+<td><code>ONE_MONTH</code></td>
+<td><code>ONE_YEAR</code></td>
+</tr>
+<tr>
+<td>US price</td>
+<td>$2.99</td>
+<td>$24.99</td>
+</tr>
+<tr>
+<td>Plan type</td>
+<td><code>UPFRONT</code></td>
+<td><code>UPFRONT</code></td>
+</tr>
+<tr>
+<td>Group level</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>en-US</code> display name</td>
+<td><code>Cloud monthly</code></td>
+<td><code>Cloud annual</code></td>
+</tr>
+<tr>
+<td><code>en-US</code> description</td>
+<td><code>Cloud backup and sync for one parent household.</code></td>
+<td>same</td>
+</tr>
+<tr>
+<td>Family Sharing</td>
+<td>off</td>
+<td>off</td>
+</tr>
+<tr>
+<td>Introductory offer / free trial</td>
+<td>none</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Promotional offers, offer codes, win-back offers</td>
+<td>none</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Territories priced</td>
+<td>175 (US base price, equalized elsewhere)</td>
+<td>175 (US base price, equalized elsewhere)</td>
+</tr>
+<tr>
+<td>Availability in new territories</td>
+<td>yes</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>App Store review screenshot</td>
+<td>present, delivery state <code>COMPLETE</code></td>
+<td>present, delivery state <code>COMPLETE</code></td>
+</tr>
+<tr>
+<td>Product state</td>
+<td><code>READY_TO_SUBMIT</code></td>
+<td><code>READY_TO_SUBMIT</code></td>
+</tr>
+</tbody></table>
+<p>Both products are at the same group level because they are the same service billed at two frequencies, not two service tiers.</p>
+<p><code>READY_TO_SUBMIT</code> is the furthest state a product reaches without being attached to a submission. It means the required metadata is complete; it does not mean the product is approved, live, or purchasable.</p>
+<p>The uploaded App Store review screenshot is an <code>EvidenceCaptureUITests</code> capture of the actual Cloud card. It truthfully shows the guarded, unavailable state because the app cannot render a purchase offer until product propagation and backend enablement are complete. Its successful upload proves only that the review asset is present, not that a purchase offer rendered or a transaction succeeded.</p>
+<h3>Plan type is <code>UPFRONT</code> for both products, deliberately</h3>
+<p>App Store Connect models two subscription plan types. <code>UPFRONT</code> means the customer pays the full price for the subscription period at the start of that period. <code>MONTHLY</code> means an annual commitment billed in twelve monthly installments.</p>
+<p>The accepted product is $2.99 charged each month on a monthly subscription and $24.99 charged once a year on an annual subscription. Both are <code>UPFRONT</code> for their own period. <code>MONTHLY</code> would convert the annual product into a twelve-month commitment billed monthly, which is not the accepted product, and Apple rejects <code>MONTHLY</code> outright for a one-month subscription.</p>
+<h3>The local StoreKit configuration is the source of truth for identifiers</h3>
+<p><code>EddysWallet/Configuration/EddysWallet.storekit</code> must keep matching the store: same product IDs, same periods, same prices, Family Sharing off, and no introductory offer. <code>EddysWalletTests/CloudStoreConfigurationTests.swift</code> enforces that, and <code>EddysWallet/Models/CloudModels.swift</code> holds the product IDs the client requests at runtime. Changing a price or adding a trial in one place only is a drift bug.</p>
+<h2>What is deliberately not done</h2>
+<p>None of the following has happened, and this file must not be edited to imply otherwise without evidence:</p>
+<ul>
+<li>No purchase, renewal, grace, expiry, refund, or revocation has been exercised in Sandbox or production.</li>
+<li>No backend receipt or transaction verification has run. The backend&#39;s App Store Server API credential is not installed on the host yet. The credential itself already exists and is held in the captain&#39;s secret manager, so no new key is needed and none should be requested; a separate backend task installs it. That credential is a distinct <strong>In-App Purchase</strong> key: the App Store Connect API key used for uploads is a different key class, and the App Store Server API rejects the upload key.</li>
+<li>No Sandbox purchase testing has run. A Sandbox Apple Account exists and its credentials are captain-held; exercising it is deliberately deferred to a captain-triggered pass after a build reaches TestFlight. App Store Connect&#39;s API can list, modify, and clear purchase history for sandbox testers but cannot create one; that is console-only.</li>
+<li>This App Store Connect configuration work did not cut a TestFlight build or merge release pull request 26. That pull request remains open and captain-owned; this task-scoped boundary does not negate the TestFlight uploads App Store Connect has already accepted for this app.</li>
+<li>No submission for App Review, and no request for Apple&#39;s test notification.</li>
+<li>The in-app Cloud surface still renders its guarded state, because the backend Cloud path is intentionally off.</li>
+</ul>
+<h2>Reconfiguring</h2>
+<p>Everything in this file was applied through the App Store Connect API with the existing repository API key, not by hand in the console. The operations used, all documented endpoints:</p>
+<ul>
+<li><code>PATCH /v1/apps/{id}</code> for the notification URLs and versions</li>
+<li><code>POST /v1/appPriceSchedules</code> for the free app price</li>
+<li><code>PATCH /v1/subscriptionGracePeriods/{id}</code> for the grace period</li>
+<li><code>POST /v1/subscriptionGroups</code>, <code>POST /v1/subscriptionGroupLocalizations</code></li>
+<li><code>POST /v1/subscriptions</code>, <code>POST /v1/subscriptionLocalizations</code></li>
+<li><code>POST /v1/subscriptionPlanAvailabilities</code> before any price; Apple&#39;s pricing subsystem rejects a price with <code>409 ENTITY_ERROR.RELATIONSHIP.INVALID</code> until the plan type is available</li>
+<li><code>POST /v1/subscriptionPrices</code> with a <code>planType</code> attribute, using a price point from <code>GET /v1/subscriptions/{id}/pricePoints?filter[territory]=USA&amp;filter[planType]=UPFRONT</code></li>
+<li><code>GET /v1/subscriptionPricePoints/{id}/equalizations</code> then one <code>POST /v1/subscriptionPrices</code> per territory; there is no bulk endpoint. <code>adjustedEqualizations</code> is for converting between plan types and rejects <code>UPFRONT</code>.</li>
+<li><code>POST /v1/subscriptionAppStoreReviewScreenshots</code>, upload the bytes to the returned operations, then <code>PATCH</code> with <code>uploaded</code> and <code>sourceFileChecksum</code></li>
+</ul>
+<p>Order matters: app price schedule and plan availability come before any product price.</p>
+<h2>Shared-team signing hazard</h2>
+<p>See <code>docs/release.md</code> for the team-scoped development-certificate cleanup hazard, including this repository&#39;s own cleanup script, its symptoms, and the safe recovery procedure.</p>

@@ -35,6 +35,7 @@
 		301000000000000000000026 /* WalletModel.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 207000000000000000000003 /* WalletModel.xcdatamodeld */; };
 		301000000000000000000027 /* EddysWallet.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 208000000000000000000002 /* EddysWallet.storekit */; };
 		301000000000000000000028 /* LocalWalletPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000002 /* LocalWalletPersistenceTests.swift */; };
+		301000000000000000000029 /* CloudStoreConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000003 /* CloudStoreConfigurationTests.swift */; };
 		30100000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20A000000000000000000001 /* Assets.xcassets */; };
 		30100000000000000000000B /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B000000000000000000001 /* WalletTests.swift */; };
 /* End PBXBuildFile section */
@@ -71,6 +72,7 @@
 		208000000000000000000002 /* EddysWallet.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = ../Configuration/EddysWallet.storekit; sourceTree = "<group>"; };
 		20F000000000000000000009 /* CloudStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStatusView.swift; sourceTree = "<group>"; };
 		20E000000000000000000002 /* LocalWalletPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWalletPersistenceTests.swift; sourceTree = "<group>"; };
+		20E000000000000000000003 /* CloudStoreConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStoreConfigurationTests.swift; sourceTree = "<group>"; };
 		212000000000000000000001 /* EddysWalletUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		210000000000000000000001 /* EddysWallet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EddysWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		211000000000000000000001 /* EddysWalletTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -179,6 +181,7 @@
 				20E000000000000000000001 /* APIRepositoryTests.swift */,
 				20F000000000000000000001 /* ReleaseMetadataTests.swift */,
 				20E000000000000000000002 /* LocalWalletPersistenceTests.swift */,
+				20E000000000000000000003 /* CloudStoreConfigurationTests.swift */,
 			);
 			path = EddysWalletTests;
 			sourceTree = "<group>";
@@ -345,6 +348,7 @@
 				301000000000000000000013 /* APIRepositoryTests.swift in Sources */,
 				30100000000000000000001C /* ReleaseMetadataTests.swift in Sources */,
 				301000000000000000000028 /* LocalWalletPersistenceTests.swift in Sources */,
+				301000000000000000000029 /* CloudStoreConfigurationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
