@@ -209,14 +209,14 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(deposits.first?.value(forHTTPHeaderField: "Idempotency-Key"), original.idempotencyKey)
 
         let reloaded = try LocalWalletRepository(directory: directory)
-        XCTAssertEqual(reloaded.pendingCloudCommand?.idempotencyKey, original.idempotencyKey)
+        XCTAssertEqual(reloaded.unsettledCloudMutation?.idempotencyKey, original.idempotencyKey)
         XCTAssertEqual(reloaded.snapshot().pendingEvents.first?.syncState, .acceptedAwaitingReplica)
 
         transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000))
         _ = try await cloud.refresh(for: .parent)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
         XCTAssertTrue(cloud.snapshot().pendingEvents.isEmpty)
-        XCTAssertNil(local.pendingCloudCommand)
+        XCTAssertNil(local.unsettledCloudMutation)
     }
 
     func testAcceptedWritePersistenceFailureStaysAwaitingAndBlocksNewCommands() async throws {
@@ -250,13 +250,134 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000))
         _ = try await cloud.refresh(for: .parent)
         XCTAssertTrue(cloud.snapshot().pendingEvents.isEmpty)
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 4))
+        transport.stub(
+            "POST",
+            "/v1/wallet/deposits",
+            CloudSliceFixtures.depositAccepted(revision: 4, entryID: "e-10")
+        )
         guard case .acceptedAwaitingReplica = try await cloud.submit(
             WalletCommand(kind: .deposit, amountCents: 250)
         ) else {
             return XCTFail("a reconciled repository must accept the next new command")
         }
         XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }.count, 2)
+    }
+
+    func testMoneyWriteStaysUnsettledUntilItsResponseEntryAppears() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 4, entryID: "server-entry-9"))
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "different-entry")
+        )
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        guard case .acceptedAwaitingReplica = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250)
+        ) else {
+            return XCTFail("a different replica entry must never be guessed as the accepted command")
+        }
+        XCTAssertTrue(cloud.hasUnsettledCloudMutation)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(
+                lineage: lineage,
+                revision: 4,
+                balanceCents: 1_250,
+                entryID: "server-entry-9",
+                balanceBeforeCents: 1_000
+            )
+        )
+        _ = try await cloud.refresh(for: .parent)
+        XCTAssertFalse(cloud.hasUnsettledCloudMutation)
+        XCTAssertEqual(cloud.snapshot().activities.first?.remoteID, "server-entry-9")
+    }
+
+    func testAllowanceWriteFailureBlocksEveryMutationAndHandoff() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.stub("PUT", "/v1/allowance-rule", CloudSliceFixtures.revisionAccepted(revision: 3))
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextExpired(lineage: lineage))
+        let cloudClient = client(transport)
+        let cloud = CloudWalletRepository(client: cloudClient, replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let coordinator = CloudCoordinator(client: cloudClient, subscriptions: silentSubscriptionStore(transport))
+        await coordinator.refreshContext()
+        let store = elevatedStore(repository: cloud, coordinator: coordinator)
+
+        let allowanceUpdated = await store.setAllowance(
+            AllowanceRuleCommand(amountCents: 500, weekday: 1, startDate: .now)
+        )
+        XCTAssertFalse(allowanceUpdated)
+        XCTAssertTrue(cloud.hasUnsettledCloudMutation)
+        guard case .rejected = await store.submit(WalletCommand(kind: .deposit, amountCents: 250)) else {
+            return XCTFail("an unsettled allowance write must block the next money command")
+        }
+        transport.failEverything = true
+        let signedOut = await store.signOutOfCloudOnThisDevice()
+        XCTAssertFalse(signedOut)
+        XCTAssertFalse(store.continueLocallyAfterCloud())
+        XCTAssertTrue(local.isCloudAuthority)
+
+        transport.failEverything = false
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 3))
+        _ = try await cloud.refresh(for: .parent)
+        XCTAssertFalse(cloud.hasUnsettledCloudMutation)
+    }
+
+    func testInFlightMutationBlocksCloudHandoffs() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3))
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextExpired(lineage: lineage))
+        let cloudClient = client(transport)
+        let cloud = CloudWalletRepository(client: cloudClient, replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let coordinator = CloudCoordinator(client: cloudClient, subscriptions: silentSubscriptionStore(transport))
+        await coordinator.refreshContext()
+        let store = elevatedStore(repository: cloud, coordinator: coordinator)
+        transport.suspend("POST", "/v1/wallet/deposits")
+
+        let commandTask = Task {
+            try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 250))
+        }
+        await transport.waitUntilSuspended()
+        XCTAssertTrue(cloud.hasUnsettledCloudMutation)
+        let signedOut = await store.signOutOfCloudOnThisDevice()
+        XCTAssertFalse(signedOut)
+        XCTAssertFalse(store.continueLocallyAfterCloud())
+        XCTAssertTrue(local.isCloudAuthority)
+
+        transport.resumeSuspendedRequest()
+        _ = try await commandTask.value
+    }
+
+    func testNonUUIDCloudEntryKeepsStableLocalIdentity() throws {
+        let lineage = UUID()
+        let data = CloudSliceFixtures.changes(
+            lineage: lineage,
+            revision: 3,
+            balanceCents: 1_000,
+            entryID: "server-entry-not-a-uuid"
+        )
+        let replica = try JSONDecoder.cloud.decode(CloudReplica.self, from: data)
+
+        let first = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let second = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+
+        XCTAssertEqual(first.activities.first?.id, second.activities.first?.id)
+        XCTAssertEqual(first.activities.first?.remoteID, "server-entry-not-a-uuid")
     }
 
     func testCloudAllowanceReadsTheDueOccurrenceBeforeRecording() async throws {
@@ -671,9 +792,23 @@ enum CloudSliceFixtures {
         """.utf8)
     }
 
-    static func depositAccepted(revision: Int64) -> Data {
+    static func depositAccepted(revision: Int64, entryID: String = "e-9") -> Data {
         Data("""
-        {"entry":{"id":"e-9","type":"deposit","amountCents":250},"wallet":{"id":"w-1","balanceCents":1000},"revision":\(revision)}
+        {"entry":{"id":"\(entryID)","type":"deposit","amountCents":250},"wallet":{"id":"w-1","balanceCents":1000},"revision":\(revision)}
+        """.utf8)
+    }
+
+    static func revisionAccepted(revision: Int64) -> Data {
+        Data("{\"revision\":\(revision)}".utf8)
+    }
+
+    static func revisionChanges(lineage: UUID, revision: Int64) -> Data {
+        Data("""
+        {"household":{"lineageId":"\(lineage.uuidString.lowercased())","authority":"cloud","revision":\(revision)},
+         "family":{"id":"f-1","name":"Test Kid's family"},
+         "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+         "wallet":{"id":"w-1","balanceCents":750},
+         "entries":[],"loans":[],"allowanceRule":null}
         """.utf8)
     }
 
@@ -705,18 +840,24 @@ enum CloudSliceFixtures {
          "family":{"id":"f-1","name":"Test Kid's family"},
          "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
          "wallet":{"id":"w-1","balanceCents":1250},
-         "entries":[{"id":"c4444444-4444-4444-8444-444444444444","type":"allowance","direction":"credit","amountCents":500,"balanceBeforeCents":750,"balanceAfterCents":1250,"reason":null,"loanId":null,"recordedAt":"2026-07-29T10:00:00.000Z","acceptedRevision":\(revision)}],
+         "entries":[{"id":"e-9","type":"allowance","direction":"credit","amountCents":500,"balanceBeforeCents":750,"balanceAfterCents":1250,"reason":null,"loanId":null,"recordedAt":"2026-07-29T10:00:00.000Z","acceptedRevision":\(revision)}],
          "loans":[],"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,"startDate":"2026-07-01","endDate":null,"active":true}}
         """.utf8)
     }
 
-    static func changes(lineage: UUID, revision: Int64, balanceCents: Int) -> Data {
+    static func changes(
+        lineage: UUID,
+        revision: Int64,
+        balanceCents: Int,
+        entryID: String = "e-9",
+        balanceBeforeCents: Int = 750
+    ) -> Data {
         Data("""
         {"household":{"lineageId":"\(lineage.uuidString.lowercased())","authority":"cloud","revision":\(revision)},
          "family":{"id":"f-1","name":"Test Kid's family"},
          "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
          "wallet":{"id":"w-1","balanceCents":\(balanceCents)},
-         "entries":[{"id":"c3333333-3333-4333-8333-333333333333","type":"deposit","direction":"credit","amountCents":\(balanceCents - 750),"balanceBeforeCents":750,"balanceAfterCents":\(balanceCents),"reason":"another device","loanId":null,"recordedAt":"2026-07-26T10:00:00.000Z","acceptedRevision":\(revision)}],
+         "entries":[{"id":"\(entryID)","type":"deposit","direction":"credit","amountCents":\(balanceCents - balanceBeforeCents),"balanceBeforeCents":\(balanceBeforeCents),"balanceAfterCents":\(balanceCents),"reason":"another device","loanId":null,"recordedAt":"2026-07-26T10:00:00.000Z","acceptedRevision":\(revision)}],
          "loans":[],"allowanceRule":null}
         """.utf8)
     }
@@ -758,15 +899,44 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
     private(set) var requests: [URLRequest] = []
     var failEverything = false
     private var stubs: [String: Stub] = [:]
+    private var suspendedKey: String?
+    private var suspendedRequestContinuation: CheckedContinuation<Void, Never>?
+    private var suspensionObservedContinuation: CheckedContinuation<Void, Never>?
 
     func stub(_ method: String, _ path: String, _ body: Data, status: Int = 200) {
         stubs["\(method) \(path)"] = Stub(statusCode: status, body: body)
+    }
+
+    func suspend(_ method: String, _ path: String) {
+        suspendedKey = "\(method) \(path)"
+    }
+
+    func waitUntilSuspended() async {
+        if suspendedRequestContinuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            suspensionObservedContinuation = continuation
+        }
+    }
+
+    func resumeSuspendedRequest() {
+        suspendedKey = nil
+        suspendedRequestContinuation?.resume()
+        suspendedRequestContinuation = nil
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
         if failEverything { throw URLError(.notConnectedToInternet) }
         let key = "\(request.httpMethod ?? "GET") \(request.url?.path ?? "")"
+        if key == suspendedKey {
+            await withCheckedContinuation { continuation in
+                suspendedRequestContinuation = continuation
+                suspensionObservedContinuation?.resume()
+                suspensionObservedContinuation = nil
+            }
+        }
         guard let stub = stubs[key] else {
             return (Data(), HTTPURLResponse(url: request.url!, statusCode: 501, httpVersion: nil, headerFields: nil)!)
         }

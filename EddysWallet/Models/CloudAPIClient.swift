@@ -10,6 +10,7 @@ public final class CloudAPIClient: ParentAuthenticator {
     /// than trusting a per-endpoint body shape.
     public struct CommandAcceptance: Equatable, Sendable {
         public let revision: Int64?
+        public let entryID: String?
         public let statusCode: Int
     }
 
@@ -165,7 +166,12 @@ public final class CloudAPIClient: ParentAuthenticator {
             revision: expectedRevision,
             observedStatus: { status = $0 }
         )
-        return CommandAcceptance(revision: (try? data.decoded(RevisionEnvelope.self))?.resolvedRevision, statusCode: status)
+        let envelope = try? data.decoded(RevisionEnvelope.self)
+        return CommandAcceptance(
+            revision: envelope?.resolvedRevision,
+            entryID: envelope?.entry?.id,
+            statusCode: status
+        )
     }
 
     private func sendData(
@@ -236,9 +242,11 @@ private struct CloudAuthResponse: Decodable {
 /// inside the family/household object, depending on the endpoint.
 private struct RevisionEnvelope: Decodable {
     private struct Nested: Decodable { let revision: Int64? }
+    struct Entry: Decodable { let id: String? }
     private let revision: Int64?
     private let family: Nested?
     private let household: Nested?
+    let entry: Entry?
 
     var resolvedRevision: Int64? { revision ?? family?.revision ?? household?.revision }
 }

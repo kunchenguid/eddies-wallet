@@ -1,5 +1,22 @@
 import Foundation
 
+struct CloudUnsettledMutation: Codable, Sendable {
+    let idempotencyKey: String
+    let entryID: String?
+    let acceptedRevision: Int64?
+    let awaitingEvent: WalletEvent?
+
+    func isObserved(in replica: CloudReplica) -> Bool {
+        if let entryID {
+            return replica.entries.contains { $0.id == entryID }
+        }
+        if let acceptedRevision {
+            return replica.household.revision >= acceptedRevision
+        }
+        return false
+    }
+}
+
 struct LocalWalletMetadata: Codable, Sendable {
     var schemaVersion = 1
     var lineageID: UUID
@@ -8,8 +25,7 @@ struct LocalWalletMetadata: Codable, Sendable {
     var serverRevision: Int64 = 0
     var lastServerSync: Date?
     var migrationState = "complete"
-    var pendingCloudCommand: WalletCommand?
-    var pendingCloudAcceptedRevision: Int64?
+    var unsettledCloudMutation: CloudUnsettledMutation?
     /// Stable identity of the one-time local-to-Cloud upload, so an interrupted
     /// import replays instead of creating a second household.
     var cloudImportOperationID: UUID?
@@ -171,25 +187,15 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     public var isCloudAuthority: Bool { cloudRevision != nil }
     public var cloudImportOperationID: UUID? { aggregate?.metadata.cloudImportOperationID }
     public var hasCompletedCloudImport: Bool { aggregate?.metadata.cloudImportCompleted == true }
-    var pendingCloudCommand: WalletCommand? { aggregate?.metadata.pendingCloudCommand }
+    var unsettledCloudMutation: CloudUnsettledMutation? { aggregate?.metadata.unsettledCloudMutation }
 
-    func markCloudCommandAcceptedAwaitingReplica(_ command: WalletCommand, acceptedRevision: Int64?) throws {
+    func markCloudMutationAccepted(_ mutation: CloudUnsettledMutation) throws {
         var candidate = try writableAggregate()
-        candidate.metadata.pendingCloudCommand = command
-        candidate.metadata.pendingCloudAcceptedRevision = acceptedRevision
+        candidate.metadata.unsettledCloudMutation = mutation
         candidate.snapshot.pendingEvents.removeAll { $0.syncState == .acceptedAwaitingReplica }
-        candidate.snapshot.pendingEvents.insert(
-            WalletEvent(
-                id: UUID(uuidString: command.idempotencyKey) ?? UUID(),
-                remoteID: nil,
-                type: activityType(command.kind),
-                amountCents: command.amountCents,
-                reason: command.reason,
-                syncState: .acceptedAwaitingReplica,
-                explanation: "Cloud recorded this action. This device has not shown it yet and will refresh."
-            ),
-            at: 0
-        )
+        if let awaitingEvent = mutation.awaitingEvent {
+            candidate.snapshot.pendingEvents.insert(awaitingEvent, at: 0)
+        }
         try persist(candidate)
     }
 
@@ -246,15 +252,9 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         metadata.cloudImportCompleted = true
         let existingEvents = merging ? (aggregate?.snapshot.activities ?? []) : []
         var snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: existingEvents, fallbackNickname: aggregate?.snapshot.childNickname)
-        if let command = metadata.pendingCloudCommand,
-           let acceptedRevision = metadata.pendingCloudAcceptedRevision,
-           replica.entries.contains(where: { entry in
-               entry.acceptedRevision == acceptedRevision &&
-                   entry.type == activityType(command.kind).rawValue &&
-                   entry.amountCents == command.amountCents
-           }) {
-            metadata.pendingCloudCommand = nil
-            metadata.pendingCloudAcceptedRevision = nil
+        if let mutation = metadata.unsettledCloudMutation,
+           mutation.isObserved(in: replica) {
+            metadata.unsettledCloudMutation = nil
         } else if let awaiting = aggregate?.snapshot.pendingEvents.first(where: { $0.syncState == .acceptedAwaitingReplica }) {
             snapshot.pendingEvents = [awaiting]
         }

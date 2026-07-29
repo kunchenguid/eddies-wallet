@@ -16,12 +16,11 @@ public final class CloudWalletRepository: WalletRepository {
 
     private let client: CloudAPIClient
     private let replica: LocalWalletRepository
-    private var inMemoryAcceptedCommand: AcceptedCommand?
+    private var mutationState: MutationState?
 
-    private struct AcceptedCommand {
-        let command: WalletCommand
-        let acceptedRevision: Int64?
-        let event: WalletEvent
+    private enum MutationState {
+        case inFlight
+        case accepted(CloudUnsettledMutation)
     }
 
     public init(client: CloudAPIClient, replica: LocalWalletRepository, lineageID: UUID, revision: Int64) {
@@ -34,13 +33,14 @@ public final class CloudWalletRepository: WalletRepository {
     public var isAuthenticated: Bool { client.hasSession }
     public var hasConfiguredKid: Bool { true }
     public var localReplica: LocalWalletRepository { replica }
-    var hasUnreconciledAcceptedCommand: Bool {
-        inMemoryAcceptedCommand != nil || replica.pendingCloudCommand != nil
+    var hasUnsettledCloudMutation: Bool {
+        mutationState != nil || replica.unsettledCloudMutation != nil
     }
 
     public func snapshot() -> WalletSnapshot {
         var snapshot = replica.snapshot()
-        if let event = inMemoryAcceptedCommand?.event,
+        if case .accepted(let mutation)? = mutationState,
+           let event = mutation.awaitingEvent,
            !snapshot.pendingEvents.contains(where: { $0.syncState == .acceptedAwaitingReplica }) {
             snapshot.pendingEvents.insert(event, at: 0)
         }
@@ -84,7 +84,7 @@ public final class CloudWalletRepository: WalletRepository {
     public func loanDetail(remoteID: String) async throws -> LoanDetail { try await replica.loanDetail(remoteID: remoteID) }
 
     public func submit(_ command: WalletCommand) async throws -> CommandResult {
-        guard !hasUnreconciledAcceptedCommand else {
+        guard !hasUnsettledCloudMutation else {
             return .rejected(
                 WalletEvent(
                     type: activityType(for: command.kind),
@@ -96,23 +96,21 @@ public final class CloudWalletRepository: WalletRepository {
                 )
             )
         }
-        let priorEventIDs = Set(replica.snapshot().activities.map(\.id))
         let request = try await commandRequest(for: command)
+        let acceptance: CloudAPIClient.CommandAcceptance
         do {
-            try await accept(
+            acceptance = try await accept(
                 path: request.path,
                 body: request.body,
                 idempotencyKey: command.idempotencyKey,
-                acceptedCommand: command
+                awaitingEvent: awaitingEvent(for: command),
+                requiresEntryID: true
             )
         } catch WalletAPIError.acceptedStateUnavailable {
             return acceptedAwaitingReplicaEvent(for: command)
         }
-        guard let accepted = replica.snapshot().activities.first(where: {
-            !priorEventIDs.contains($0.id) &&
-                $0.type == activityType(for: command.kind) &&
-                $0.amountCents == command.amountCents
-        }) else {
+        guard let entryID = acceptance.entryID,
+              let accepted = replica.snapshot().activities.first(where: { $0.remoteID == entryID }) else {
             return acceptedAwaitingReplicaEvent(for: command)
         }
         return .accepted(accepted)
@@ -201,7 +199,13 @@ public final class CloudWalletRepository: WalletRepository {
     }
 
     private func acceptedAwaitingReplicaEvent(for command: WalletCommand) -> CommandResult {
-        if let event = inMemoryAcceptedCommand?.event ??
+        let inMemoryEvent: WalletEvent?
+        if case .accepted(let mutation)? = mutationState {
+            inMemoryEvent = mutation.awaitingEvent
+        } else {
+            inMemoryEvent = nil
+        }
+        if let event = inMemoryEvent ??
             replica.snapshot().pendingEvents.first(where: { $0.syncState == .acceptedAwaitingReplica }) {
             return .acceptedAwaitingReplica(event)
         }
@@ -228,12 +232,14 @@ public final class CloudWalletRepository: WalletRepository {
         body: [String: Any],
         idempotencyKey: String,
         method: String = "POST",
-        acceptedCommand: WalletCommand? = nil
+        awaitingEvent: WalletEvent? = nil,
+        requiresEntryID: Bool = false
     ) async throws -> CloudAPIClient.CommandAcceptance {
-        guard !hasUnreconciledAcceptedCommand else {
+        guard !hasUnsettledCloudMutation else {
             throw WalletAPIError.invalidResponse("This device is still catching up with Cloud. Refresh before making another change.")
         }
         let previousRevision = revision
+        mutationState = .inFlight
         do {
             let acceptance = try await client.command(
                 path: path,
@@ -243,31 +249,37 @@ public final class CloudWalletRepository: WalletRepository {
                 method: method
             )
             lastConflictRevision = nil
-            if let acceptedCommand {
-                inMemoryAcceptedCommand = AcceptedCommand(
-                    command: acceptedCommand,
-                    acceptedRevision: acceptance.revision,
-                    event: awaitingEvent(for: acceptedCommand)
-                )
-                do {
-                    try replica.markCloudCommandAcceptedAwaitingReplica(
-                        acceptedCommand,
-                        acceptedRevision: acceptance.revision
-                    )
-                } catch {
-                    throw WalletAPIError.acceptedStateUnavailable
-                }
+            let mutation = CloudUnsettledMutation(
+                idempotencyKey: idempotencyKey,
+                entryID: acceptance.entryID,
+                acceptedRevision: requiresEntryID && acceptance.entryID == nil ? nil : acceptance.revision,
+                awaitingEvent: awaitingEvent
+            )
+            mutationState = .accepted(mutation)
+            do {
+                try replica.markCloudMutationAccepted(mutation)
+            } catch {
+                throw WalletAPIError.acceptedStateUnavailable
             }
             do {
                 try await syncChanges(after: previousRevision)
             } catch {
                 throw WalletAPIError.acceptedStateUnavailable
             }
+            guard !hasUnsettledCloudMutation else {
+                throw WalletAPIError.acceptedStateUnavailable
+            }
             return acceptance
         } catch WalletAPIError.revisionConflict(let currentRevision) {
+            mutationState = nil
             lastConflictRevision = currentRevision
             try? await syncChanges(after: previousRevision)
             throw WalletAPIError.revisionConflict(currentRevision: currentRevision)
+        } catch {
+            if case .inFlight? = mutationState {
+                mutationState = nil
+            }
+            throw error
         }
     }
 
@@ -279,14 +291,9 @@ public final class CloudWalletRepository: WalletRepository {
     private func apply(_ replicaPayload: CloudReplica, merging: Bool) throws {
         try replica.applyCloudReplica(replicaPayload, merging: merging)
         revision = max(revision, replicaPayload.household.revision)
-        if let accepted = inMemoryAcceptedCommand,
-           let acceptedRevision = accepted.acceptedRevision,
-           replicaPayload.entries.contains(where: {
-               $0.acceptedRevision == acceptedRevision &&
-                   $0.type == activityType(for: accepted.command.kind).rawValue &&
-                   $0.amountCents == accepted.command.amountCents
-           }) {
-            inMemoryAcceptedCommand = nil
+        if case .accepted(let mutation)? = mutationState,
+           mutation.isObserved(in: replicaPayload) {
+            mutationState = nil
         }
     }
 

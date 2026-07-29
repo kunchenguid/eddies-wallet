@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Kid-facing explanation for an accepted money event, shared by the local
@@ -51,7 +52,7 @@ enum CloudReplicaMapper {
     private static func event(from entry: CloudReplica.Entry) -> WalletEvent? {
         guard let type = ActivityType(rawValue: entry.type) else { return nil }
         return WalletEvent(
-            id: UUID(uuidString: entry.id) ?? UUID(),
+            id: stableID(for: entry.id),
             remoteID: entry.id,
             type: type,
             amountCents: entry.amountCents,
@@ -62,6 +63,21 @@ enum CloudReplicaMapper {
             syncState: .recorded,
             explanation: AcceptedEventCopy.explanation(for: type, amountCents: entry.amountCents)
         )
+    }
+
+    private static func stableID(for remoteID: String) -> UUID {
+        if let id = UUID(uuidString: remoteID) {
+            return id
+        }
+        var bytes = Array(SHA256.hash(data: Data(remoteID.utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x50
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
     }
 
     private static func loan(from loan: CloudReplica.CloudLoan) -> Loan {
