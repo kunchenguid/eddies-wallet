@@ -1,6 +1,6 @@
 # Brand placement inventory (eddies-brand-name-mainscreen-sweep-r1)
 
-Authority: captain dispatch 2026-07-28 - keep external brand **Eddie's Wallet**; de-center it from daily kid/parent main screens.
+Contract owner: [`docs/product-requirements.md`](../../../../docs/product-requirements.md). This inventory records the sweep against that naming contract.
 
 ## Keep (external / install / legal identity)
 
