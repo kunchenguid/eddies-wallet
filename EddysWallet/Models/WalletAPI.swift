@@ -717,12 +717,8 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
 
     public func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {
         let generation = lifecycleGeneration
-        // Residual service field: POST /v1/family/setup still requires
-        // lessonAgeBand on the private backend. The product no longer
-        // collects or uses age bands after lessons were removed.
         var body: [String: Any] = [
-            "nickname": setup.nickname,
-            "lessonAgeBand": "school-age"
+            "nickname": setup.nickname
         ]
         if let familyName = setup.familyName { body["familyName"] = familyName }
         if let avatarURL = setup.avatarURL { body["avatarUrl"] = avatarURL.absoluteString }

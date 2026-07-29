@@ -46,6 +46,59 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(repository.snapshot().configuredChildNickname, "Maya")
     }
 
+    func testFamilySetupPostsNicknameOnlyAndOmitsLessonsEraFields() async throws {
+        // Pre-fix shape sent a fixed residual lessonAgeBand; omission is now required.
+        let transport = StubHTTPTransport(responses: [
+            StubHTTPTransport.Response(
+                statusCode: 201,
+                // Live backend may still echo a temporary legacy response key; decoding must ignore it.
+                body: snapshotBody(balance: 0, nickname: "Eddie", extraChildFields: #""lessonAgeBand":"school-age""#)
+            )
+        ])
+        let configuredKidStore = InMemoryConfiguredKidStore()
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: transport,
+            cache: TestSnapshotCache(),
+            configuredKidStore: configuredKidStore
+        )
+
+        let snapshot = try await repository.setup(
+            ParentSetup(
+                familyName: "Chen family",
+                nickname: "Eddie",
+                avatarURL: URL(string: "https://cdn.example.test/eddie.png"),
+                idempotencyKey: "setup-key-1"
+            )
+        )
+
+        XCTAssertEqual(snapshot.configuredChildNickname, "Eddie")
+        XCTAssertTrue(configuredKidStore.isConfigured)
+        XCTAssertEqual(transport.requests.count, 1)
+        let post = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(post.httpMethod, "POST")
+        XCTAssertEqual(post.url?.path, "/v1/family/setup")
+        XCTAssertEqual(post.value(forHTTPHeaderField: "Idempotency-Key"), "setup-key-1")
+
+        let body = try XCTUnwrap(post.httpBody).jsonObject()
+        XCTAssertEqual(body["nickname"] as? String, "Eddie")
+        XCTAssertEqual(body["familyName"] as? String, "Chen family")
+        XCTAssertEqual(body["avatarUrl"] as? String, "https://cdn.example.test/eddie.png")
+        XCTAssertEqual(Set(body.keys), Set(["nickname", "familyName", "avatarUrl"]))
+        XCTAssertNil(body["lessonAgeBand"])
+        XCTAssertNil(body["lesson_age_band"])
+        XCTAssertFalse(body.keys.contains(where: { $0.lowercased().contains("lesson") }))
+        XCTAssertFalse(body.keys.contains(where: { $0.lowercased().contains("ageband") || $0.lowercased().contains("age_band") }))
+
+        if let evidencePath = ProcessInfo.processInfo.environment["EW_EVIDENCE_DIR"], !evidencePath.isEmpty {
+            let evidenceDirectory = URL(fileURLWithPath: evidencePath, isDirectory: true)
+            try FileManager.default.createDirectory(at: evidenceDirectory, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: body, options: [.prettyPrinted, .sortedKeys])
+                .write(to: evidenceDirectory.appendingPathComponent("family-setup-request.json"))
+        }
+    }
+
     func testUpdateChildProfilePutsNicknameAndUpdatesParentAndChildCaches() async throws {
         let transport = StubHTTPTransport(responses: [
             StubHTTPTransport.Response(statusCode: 200, body: snapshotBody(balance: 150, nickname: "Eddie")),
@@ -318,9 +371,7 @@ final class APIRepositoryTests: XCTestCase {
         )
 
         let refresh = Task { try await repository.refresh(for: .child) }
-        while transport.requests.isEmpty {
-            await Task.yield()
-        }
+        await waitForRequestCount(1, transport: transport)
 
         repository.clearSession()
         transport.complete(
@@ -450,8 +501,23 @@ final class APIRepositoryTests: XCTestCase {
         )
     }
 
-    private func waitForRequestCount(_ count: Int, transport: SuspendingHTTPTransport) async {
-        while transport.requests.count < count {
+    private func waitForRequestCount(
+        _ count: Int,
+        transport: SuspendingHTTPTransport,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        // Bound the spin so a stuck suspension fails the test instead of burning the CI job timeout.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while transport.requests.count < count || !transport.isAwaitingCompletion {
+            if ContinuousClock.now >= deadline {
+                XCTFail(
+                    "Timed out waiting for \(count) suspended request(s); saw \(transport.requests.count) request(s), awaiting=\(transport.isAwaitingCompletion)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
             await Task.yield()
         }
     }
@@ -492,12 +558,18 @@ final class APIRepositoryTests: XCTestCase {
         """.utf8)
     }
 
-    private func snapshotBody(balance: Int, nickname: String = "Eddie", readOnly: Bool? = nil) -> Data {
+    private func snapshotBody(
+        balance: Int,
+        nickname: String = "Eddie",
+        readOnly: Bool? = nil,
+        extraChildFields: String? = nil
+    ) -> Data {
         let readOnlyField = readOnly.map { ",\n          \"readOnly\": \($0)" } ?? ""
+        let childExtras = extraChildFields.map { ",\($0)" } ?? ""
         return Data("""
         {
           "family": {"id":"family","name":"Eddie's family"},
-          "child": {"id":"child","nickname":"\(nickname)","avatarUrl":null},
+          "child": {"id":"child","nickname":"\(nickname)","avatarUrl":null\(childExtras)},
           "wallet": {"id":"wallet","currency":"USD","balanceCents":\(balance),"virtualNotice":"Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."},
           "allowanceRule": null,
           "loan": null,
@@ -535,30 +607,47 @@ private final class StubHTTPTransport: HTTPTransport {
 private final class SuspendingHTTPTransport: HTTPTransport {
     private(set) var requests: [URLRequest] = []
     private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+    /// Result delivered if complete/fail races ahead of the suspension callback.
+    private var pendingResult: Result<(Data, URLResponse), Error>?
+
+    /// True while a request is parked in `withCheckedThrowingContinuation`.
+    var isAwaitingCompletion: Bool { continuation != nil }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
         return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
+            if let pendingResult {
+                self.pendingResult = nil
+                continuation.resume(with: pendingResult)
+            } else {
+                self.continuation = continuation
+            }
         }
     }
 
     func complete(statusCode: Int, body: Data) {
-        guard let request = requests.last, let continuation else { return }
-        self.continuation = nil
+        guard let request = requests.last else { return }
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: statusCode,
             httpVersion: nil,
             headerFields: nil
         )!
-        continuation.resume(returning: (body, response))
+        deliver(.success((body, response)))
     }
 
     func fail(_ error: Error) {
-        guard let continuation else { return }
-        self.continuation = nil
-        continuation.resume(throwing: error)
+        deliver(.failure(error))
+    }
+
+    private func deliver(_ result: Result<(Data, URLResponse), Error>) {
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(with: result)
+        } else {
+            // complete/fail can observe `requests` before the suspension callback assigns `continuation`.
+            pendingResult = result
+        }
     }
 }
 

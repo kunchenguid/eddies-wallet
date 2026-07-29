@@ -50,6 +50,37 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }
 
+    func testFirstRunSetupTour() throws {
+        let app = launch("first-run")
+
+        let signIn = app.buttons["Sign in with Apple"]
+        XCTAssertTrue(signIn.waitForExistence(timeout: 10))
+        signIn.tap()
+
+        let nicknameField = app.textFields["Child's nickname"]
+        XCTAssertTrue(nicknameField.waitForExistence(timeout: 10))
+        capture("setup-family")
+        nicknameField.tap()
+        nicknameField.typeText("Eddie")
+
+        let pinField = app.secureTextFields["Four digits"]
+        pinField.tap()
+        pinField.typeText("1234")
+        let confirmField = app.secureTextFields["Confirm PIN"]
+        confirmField.tap()
+        confirmField.typeText("1234")
+
+        app.buttons["Create your child's wallet"].tap()
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["You're all set"].waitForExistence(timeout: 5))
+        capture("setup-parent-handoff")
+
+        app.buttons["Show Eddie's wallet"].tap()
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Your wallet is ready!"].exists)
+        capture("setup-kid-home")
+    }
+
     func testKidSurfacesTour() throws {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
