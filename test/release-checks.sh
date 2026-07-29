@@ -319,7 +319,14 @@ forbid_grep 'does not claim those prerequisites are complete' docs/release.md \
 require_grep 'Paid Applications agreement, tax, and banking\*\* are already in place' docs/release.md \
   "release docs record that account-level distribution prerequisites are satisfied"
 require_grep 'In-App Purchase\*\* key' docs/release.md \
-  "release docs distinguish the outstanding In-App Purchase key from the upload key"
+  "release docs distinguish the backend In-App Purchase key class from the upload key"
+# Custody is settled: the In-App Purchase key already exists in the captain's
+# secret manager. Re-asserting that it is outstanding, or asking for a new key or
+# a key conversion, regenerates a duplicate captain request.
+require_grep 'already exists and is held in the captain' docs/release.md \
+  "release docs record that the In-App Purchase key already exists in captain custody"
+forbid_grep 'credential still outstanding' docs/release.md \
+  "release docs no longer describe the In-App Purchase key as an outstanding credential"
 require_grep 'Apple scopes certificates to the \*\*team\*\*' docs/release.md \
   "release docs warn that certificate cleanup revokes team-wide, not per app"
 require_grep 'prune_asc_development_certs\.js' docs/release.md \

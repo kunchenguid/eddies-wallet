@@ -28,6 +28,8 @@ In-App Purchase needs no entitlement key. `EddysWallet/EddysWallet.entitlements`
 
 The notification URL points at the private backend route `POST /v1/app-store/notifications`. That route exists but stays dark until the backend's In-App Purchase configuration is installed, so Apple's notifications are addressed but not yet consumed.
 
+The backend also needs this app's non-secret identifiers as ordinary host configuration, not as secrets: the app Apple ID above and the Cloud subscription group id below, alongside the issuer and key identifiers of the In-App Purchase key.
+
 ## Cloud subscription group and products
 
 One auto-renewable subscription group, reference name `Cloud`, `en-US` display name `Cloud`, group id `22273828`. The App Store Connect subscription-group localization contract has no description field, so the group description carried in the local StoreKit configuration has no store counterpart; only the display name is set.
@@ -71,8 +73,8 @@ The accepted product is $2.99 charged each month on a monthly subscription and $
 None of the following has happened, and this file must not be edited to imply otherwise without evidence:
 
 - No purchase, renewal, grace, expiry, refund, or revocation has been exercised in Sandbox or production.
-- No backend receipt or transaction verification has run. The backend still needs a distinct **In-App Purchase** key for the App Store Server API; the App Store Connect API key used for uploads is a different key class and the App Store Server API rejects it.
-- No Sandbox Apple Account exists on the account, so Sandbox purchase testing cannot start yet. App Store Connect's API can list, modify, and clear purchase history for sandbox testers but cannot create one; that is console-only.
+- No backend receipt or transaction verification has run. The backend's App Store Server API credential is not installed on the host yet. The credential itself already exists and is held in the captain's secret manager, so no new key is needed and none should be requested; a separate backend task installs it. That credential is a distinct **In-App Purchase** key: the App Store Connect API key used for uploads is a different key class, and the App Store Server API rejects the upload key.
+- No Sandbox purchase testing has run. A Sandbox Apple Account exists and its credentials are captain-held; exercising it is deliberately deferred to a captain-triggered pass after a build reaches TestFlight. App Store Connect's API can list, modify, and clear purchase history for sandbox testers but cannot create one; that is console-only.
 - This App Store Connect configuration work did not cut a TestFlight build or merge release pull request 26. That pull request remains open and captain-owned; this task-scoped boundary does not negate the TestFlight uploads App Store Connect has already accepted for this app.
 - No submission for App Review, and no request for Apple's test notification.
 - The in-app Cloud surface still renders its guarded state, because the backend Cloud path is intentionally off.

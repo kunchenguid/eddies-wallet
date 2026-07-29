@@ -104,7 +104,9 @@ Eddie's Wallet ships from a single Apple Developer team shared with other apps, 
 - **App Store Connect API key**, iOS **distribution certificate**, and automatic signing are already in place and proven by accepted TestFlight uploads for this app.
 - **Sandbox capability** exists at the account level through the active paid membership. A Sandbox Apple *Account* to test with is separate and is created in the App Store Connect console; the API cannot create one.
 
-The remaining Cloud prerequisites are app-specific, and the App Store Connect side is already configured: see `docs/app-store-configuration.md` for the exact products, prices, policies, grace period, and notification URLs that exist today. The one credential still outstanding is a distinct **In-App Purchase** key for the backend's App Store Server API verification. That is a different key class from the App Store Connect API key above, and the App Store Server API rejects the upload key.
+The remaining Cloud prerequisites are app-specific, and the App Store Connect side is already configured: see `docs/app-store-configuration.md` for the exact products, prices, policies, grace period, and notification URLs that exist today.
+
+Backend receipt verification uses a distinct **In-App Purchase** key, which is a different key class from the App Store Connect API key above; the App Store Server API rejects the upload key. That In-App Purchase key already exists and is held in the captain's secret manager. No captain action, new key, or key conversion is required - installing it on the service host is ordinary backend work tracked outside this repository, and the issuer, key, app, and subscription group identifiers it needs are non-secret host configuration rather than secrets.
 
 ## Capabilities need Apple portal setup before release
 
