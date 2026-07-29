@@ -65,6 +65,30 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertTrue(repository.hasConfiguredKid)
         XCTAssertEqual(repository.snapshot().configuredChildNickname, "Test Kid")
     }
+
+    func testLegacyInputsSelectCompatibilityRepository() throws {
+        let legacySnapshot = WalletSnapshot.fixture()
+        let local = try LocalWalletRepository(inMemory: true, legacySnapshot: legacySnapshot, hasLegacyMarker: true)
+        let compatibility = MockWalletRepository(snapshot: legacySnapshot)
+
+        let selected = WalletRepositoryFactory.select(local: local, legacy: compatibility)
+
+        XCTAssertTrue(selected === compatibility)
+        XCTAssertTrue(local.hasLegacyInputs)
+    }
+
+    func testLocalAggregateTakesPrecedenceOverLegacyCompatibility() async throws {
+        let persistence = ControllableLocalWalletPersistence()
+        let original = try LocalWalletRepository(persistence: persistence)
+        _ = try await original.setup(ParentSetup(nickname: "Test Kid"))
+        let local = try LocalWalletRepository(persistence: persistence, legacySnapshot: WalletSnapshot.fixture(), hasLegacyMarker: true)
+        let compatibility = MockWalletRepository()
+
+        let selected = WalletRepositoryFactory.select(local: local, legacy: compatibility)
+
+        XCTAssertTrue(selected === local)
+        XCTAssertFalse(local.hasLegacyInputs)
+    }
 }
 
 private enum TestPersistenceError: Error {

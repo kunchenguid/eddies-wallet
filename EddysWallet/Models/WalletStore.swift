@@ -22,6 +22,18 @@ public struct ParentGatePolicy: Sendable {
 }
 
 @MainActor
+enum WalletRepositoryFactory {
+    static func makeDefault() -> any WalletRepository {
+        let local = try! LocalWalletRepository()
+        return select(local: local, legacy: APIWalletRepository())
+    }
+
+    static func select(local: LocalWalletRepository, legacy: @autoclosure () -> any WalletRepository) -> any WalletRepository {
+        local.hasLegacyInputs ? legacy() : local
+    }
+}
+
+@MainActor
 public final class WalletStore: ObservableObject {
     @Published public private(set) var snapshot: WalletSnapshot
     @Published public private(set) var authorityState: WalletAuthorityState
@@ -67,7 +79,7 @@ public final class WalletStore: ObservableObject {
         identityStore: (any ParentIdentityStore)? = nil,
         gatePolicy: ParentGatePolicy = .standard
     ) {
-        let resolvedRepository = repository ?? (try! LocalWalletRepository())
+        let resolvedRepository = repository ?? WalletRepositoryFactory.makeDefault()
         self.repository = resolvedRepository
         self.snapshot = resolvedRepository.childSnapshot()
         let configured = resolvedRepository.hasConfiguredKid

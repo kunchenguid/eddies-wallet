@@ -28,6 +28,7 @@ public final class LocalWalletRepository: WalletRepository {
     /// read-only and is never promoted to local authority because it may hold
     /// only ten recent events.
     private var legacySnapshot: WalletSnapshot?
+    private var legacyMarkerPresent = false
 
     public init(directory: URL? = nil, inMemory: Bool = false, legacySnapshot: WalletSnapshot? = nil, hasLegacyMarker: Bool = false) throws {
         let persistence = try LocalWalletPersistence(directory: directory, inMemory: inMemory)
@@ -52,6 +53,7 @@ public final class LocalWalletRepository: WalletRepository {
             }
         } else if hasLegacyMarker || legacySnapshot != nil {
             self.legacySnapshot = legacySnapshot
+            legacyMarkerPresent = hasLegacyMarker
         }
     }
 
@@ -60,9 +62,9 @@ public final class LocalWalletRepository: WalletRepository {
         try self.init(legacySnapshot: cache, hasLegacyMarker: UserDefaultsConfiguredKidStore().isConfigured)
     }
 
-    public var isAuthenticated: Bool { aggregate != nil || legacySnapshot != nil || readOnlyReason != nil }
-    public var hasConfiguredKid: Bool { aggregate != nil || legacySnapshot != nil || readOnlyReason != nil }
-    public var hasLegacyInputs: Bool { aggregate == nil && legacySnapshot != nil }
+    public var isAuthenticated: Bool { aggregate != nil || legacySnapshot != nil || legacyMarkerPresent || readOnlyReason != nil }
+    public var hasConfiguredKid: Bool { aggregate != nil || legacySnapshot != nil || legacyMarkerPresent || readOnlyReason != nil }
+    public var hasLegacyInputs: Bool { aggregate == nil && (legacySnapshot != nil || legacyMarkerPresent) }
     public var lineageID: UUID? { aggregate?.metadata.lineageID }
     public var isReadOnly: Bool { readOnlyReason != nil }
 
@@ -155,6 +157,7 @@ public final class LocalWalletRepository: WalletRepository {
         try persistence.erase()
         aggregate = nil
         legacySnapshot = nil
+        legacyMarkerPresent = false
         readOnlyReason = nil
     }
 
