@@ -4,7 +4,7 @@ import Foundation
 /// vocabulary and is injected in tests. Release code never substitutes a
 /// capability or transaction response for server authority.
 @MainActor
-public final class CloudAPIClient {
+public final class CloudAPIClient: ParentAuthenticator {
     /// Accepted Cloud command result: the new household revision plus whatever
     /// the endpoint returned. Callers refresh from `/v1/cloud/changes` rather
     /// than trusting a per-endpoint body shape.
@@ -24,6 +24,35 @@ public final class CloudAPIClient {
     }
 
     public var hasSession: Bool { sessionStore.session?.isExpired == false }
+
+    public func authenticateApple(identityToken: String, nonce: String) async throws -> AuthSession {
+        guard !identityToken.isEmpty, !nonce.isEmpty else {
+            throw WalletAPIError.invalidResponse("Apple Sign In did not return the required identity proof.")
+        }
+        let response = try await send(
+            path: "/v1/auth/apple",
+            method: "POST",
+            body: ["identityToken": identityToken, "nonce": nonce],
+            authenticated: false
+        ).decoded(CloudAuthResponse.self)
+        guard !response.token.isEmpty, response.expiresAt > .now else {
+            throw WalletAPIError.invalidResponse("The authentication service returned an invalid session.")
+        }
+        let session = AuthSession(token: response.token, expiresAt: response.expiresAt)
+        do {
+            try sessionStore.save(session)
+        } catch {
+            throw WalletAPIError.invalidResponse("The parent session could not be stored securely.")
+        }
+        return session
+    }
+
+    public func establishSession(_ session: AuthSession) throws {
+        guard !session.token.isEmpty, !session.isExpired else {
+            throw WalletAPIError.invalidResponse("Cloud Sign In did not return a usable session.")
+        }
+        try sessionStore.save(session)
+    }
 
     public func capabilities() async throws -> CloudCapabilities {
         try await send(path: "/v1/capabilities", method: "GET", body: nil, authenticated: false).decoded(CloudCapabilities.self)
@@ -54,6 +83,10 @@ public final class CloudAPIClient {
 
     public func changes(afterRevision revision: Int64) async throws -> CloudReplica {
         try await send(path: "/v1/cloud/changes?afterRevision=\(revision)", method: "GET", body: nil, authenticated: true).decoded(CloudReplica.self)
+    }
+
+    public func allowanceSchedule() async throws -> CloudAllowanceSchedule {
+        try await send(path: "/v1/allowance-rule", method: "GET", body: nil, authenticated: true).decoded(CloudAllowanceSchedule.self)
     }
 
     /// One-time upload of the complete local household. The manifest carries its
@@ -192,6 +225,11 @@ public struct CloudLegacyContext: Codable, Equatable, Sendable {
 
 private struct HouseholdEnvelope: Decodable {
     let household: CloudHousehold
+}
+
+private struct CloudAuthResponse: Decodable {
+    let token: String
+    let expiresAt: Date
 }
 
 /// Accepted wallet commands report the new revision either at the top level or

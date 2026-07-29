@@ -89,6 +89,13 @@ public enum CloudEntitlementState: Equatable, Sendable {
         default: false
         }
     }
+
+    public var permitsLocalContinuation: Bool {
+        switch self {
+        case .billingRetry, .expired, .refunded, .revoked: true
+        default: false
+        }
+    }
 }
 
 public enum CloudProductID {
@@ -315,6 +322,20 @@ public struct CloudReplica: Codable, Equatable, Sendable {
     public let loans: [CloudLoan]
     public let allowanceRule: AllowanceRule?
     public let nextCursor: String?
+}
+
+public struct CloudAllowanceSchedule: Codable, Equatable, Sendable {
+    public struct Rule: Codable, Equatable, Sendable {
+        public let id: String
+        public let nextOccurrenceID: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case nextOccurrenceID = "nextOccurrenceId"
+        }
+    }
+
+    public let allowanceRule: Rule?
 }
 
 // MARK: - Local-to-Cloud import manifest

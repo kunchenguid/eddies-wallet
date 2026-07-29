@@ -16,8 +16,17 @@ struct EddysWalletApp: App {
         // Production composition owns the guarded Cloud slice: one Cloud API
         // client over the keychain session, its StoreKit coordinator, and the
         // wallet store that may move authority only on a verified entitlement.
-        let cloudClient = CloudAPIClient()
-        _store = StateObject(wrappedValue: WalletStore(cloudCoordinator: CloudCoordinator(client: cloudClient)))
+        let sessionStore = KeychainSessionStore()
+        let cloudClient = CloudAPIClient(sessionStore: sessionStore)
+        let repository = WalletRepositoryFactory.makeDefault(cloudClient: cloudClient)
+        let appleSignIn = AppleSignInCoordinator(authenticator: cloudClient)
+        _store = StateObject(
+            wrappedValue: WalletStore(
+                repository: repository,
+                appleSignInProvider: appleSignIn,
+                cloudCoordinator: CloudCoordinator(client: cloudClient)
+            )
+        )
     }
 
     var body: some Scene {

@@ -10,6 +10,26 @@
     "note": "Top-level and nested key sets are compared for exact equality: an added or removed field fails."
   },
   "endpoints": {
+    "cloudAuthentication": {
+      "method": "POST",
+      "path": "/v1/auth/apple",
+      "status": 201,
+      "body": {
+        "type": "object",
+        "fields": {
+          "token": "string",
+          "expiresAt": "string",
+          "parent": {
+            "type": "object",
+            "fields": {
+              "provider": "string",
+              "subject": "string",
+              "email": "string|null"
+            }
+          }
+        }
+      }
+    },
     "capabilities": {
       "method": "GET",
       "path": "/v1/capabilities",
@@ -220,6 +240,30 @@
             "fields": { "id": "string", "currency": "string", "balanceCents": "number", "virtualNotice": "string" }
           },
           "revision": "number"
+        }
+      }
+    },
+    "allowanceSchedule": {
+      "method": "GET",
+      "path": "/v1/allowance-rule",
+      "status": 200,
+      "body": {
+        "type": "object",
+        "fields": {
+          "allowanceRule": {
+            "type": "object|null",
+            "fields": {
+              "id": "string",
+              "amountCents": "number",
+              "cadence": "string",
+              "weekday": "number",
+              "startDate": "string",
+              "endDate": "string|null",
+              "active": "boolean",
+              "nextOccurrenceId": "string|null",
+              "nextDueDate": "string|null"
+            }
+          }
         }
       }
     },

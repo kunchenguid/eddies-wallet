@@ -15,10 +15,15 @@ public final class CloudSubscriptionStore: ObservableObject {
     public init(client: CloudAPIClient, observeTransactions: Bool = true) {
         self.client = client
         guard observeTransactions else { return }
-        updateTask = Task { [weak self] in await self?.observeTransactionUpdates() }
+        startObservingIfAuthenticated()
     }
 
     deinit { updateTask?.cancel() }
+
+    public func startObservingIfAuthenticated() {
+        guard client.hasSession, updateTask == nil else { return }
+        updateTask = Task { [weak self] in await self?.observeTransactionUpdates() }
+    }
 
     /// Products are usable only when both the backend capability and exactly
     /// the two StoreKit products are available. There is no price fallback.
@@ -72,6 +77,7 @@ public final class CloudSubscriptionStore: ObservableObject {
     }
 
     public func recoverCurrentEntitlements() async {
+        guard client.hasSession else { return }
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result, CloudProductID.all.contains(transaction.productID) else { continue }
             await deliver(transaction, jws: result.jwsRepresentation)

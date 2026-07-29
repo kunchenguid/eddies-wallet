@@ -25,26 +25,39 @@ public struct ParentGatePolicy: Sendable {
 @MainActor
 enum WalletRepositoryFactory {
     static func makeDefault() -> any WalletRepository {
-        makeDefault(
+        return makeDefault(cloudClient: CloudAPIClient())
+    }
+
+    static func makeDefault(cloudClient: CloudAPIClient) -> any WalletRepository {
+        return makeDefault(
             localProvider: { try LocalWalletRepository() },
-            legacyProvider: { APIWalletRepository() }
+            legacyProvider: { APIWalletRepository() },
+            cloudClient: cloudClient
         )
     }
 
     static func makeDefault(
         localProvider: () throws -> LocalWalletRepository,
-        legacyProvider: () -> any WalletRepository
+        legacyProvider: () -> any WalletRepository,
+        cloudClient: CloudAPIClient? = nil
     ) -> any WalletRepository {
         do {
             let local = try localProvider()
-            return select(local: local, legacy: legacyProvider())
+            return select(local: local, legacy: legacyProvider(), cloudClient: cloudClient)
         } catch {
             return LocalWalletRecoveryRepository(state: .storageUnavailable)
         }
     }
 
-    static func select(local: LocalWalletRepository, legacy: @autoclosure () -> any WalletRepository) -> any WalletRepository {
-        local.hasLegacyInputs ? legacy() : local
+    static func select(
+        local: LocalWalletRepository,
+        legacy: @autoclosure () -> any WalletRepository,
+        cloudClient: CloudAPIClient? = nil
+    ) -> any WalletRepository {
+        if let lineageID = local.lineageID, let revision = local.cloudRevision {
+            return CloudWalletRepository(client: cloudClient ?? CloudAPIClient(), replica: local, lineageID: lineageID, revision: revision)
+        }
+        return local.hasLegacyInputs ? legacy() : local
     }
 }
 
@@ -705,9 +718,13 @@ public final class WalletStore: ObservableObject {
 
     /// Whether a parent surface may show Cloud purchase/restore controls at all.
     public var canOfferCloudPlans: Bool { !cloudPlans.isEmpty }
+    public var needsCloudSignIn: Bool { cloudCoordinator?.hasSession == false }
+    public var canContinueLocallyAfterCloud: Bool {
+        repository is CloudWalletRepository && cloudEntitlement.permitsLocalContinuation
+    }
     public var cloudSignOutMode: CloudSignOutMode {
-        if repository is CloudWalletRepository || authorityState.isCloudAuthority { return .cloudDevice }
-        return authorityState.isLocalAuthority ? .localErase : .serviceDevice
+        if repository is CloudWalletRepository { return .cloudDevice }
+        return repository is LocalWalletRepository ? .localErase : .serviceDevice
     }
     /// Only a Cloud device can sign out without erasing local data.
     public var canSignOutOfCloudOnThisDevice: Bool { repository is CloudWalletRepository }
@@ -716,6 +733,11 @@ public final class WalletStore: ObservableObject {
     /// unless both are ready, so the parent never sees an unusable price.
     public func loadCloudPlans() async {
         guard let cloudCoordinator else { cloudPlans = []; return }
+        guard cloudCoordinator.hasSession else {
+            cloudPlans = []
+            purchaseAttempt = .idle
+            return
+        }
         await cloudCoordinator.refreshAvailability()
         cloudPlans = cloudCoordinator.canOfferPlans ? cloudCoordinator.plans.map(CloudPlan.init) : []
         purchaseAttempt = cloudCoordinator.purchaseAttempt
@@ -723,15 +745,26 @@ public final class WalletStore: ObservableObject {
         cloudMessage = cloudCoordinator.message
     }
 
+    public func signInToCloud() async {
+        guard elevation == .active else { return }
+        guard await ensureCloudSession() else {
+            cloudPlans = []
+            return
+        }
+        await loadCloudPlans()
+    }
+
     public func purchaseCloud(planID: String) async {
         guard elevation == .active, let cloudCoordinator,
               let product = cloudCoordinator.plans.first(where: { $0.id == planID }) else { return }
+        guard await ensureCloudSession() else { return }
         _ = await cloudCoordinator.purchase(product)
         await adoptCoordinatorState()
     }
 
     public func restoreCloudPurchases() async {
         guard elevation == .active, let cloudCoordinator else { return }
+        guard await ensureCloudSession() else { return }
         await cloudCoordinator.restorePurchases()
         await adoptCoordinatorState()
     }
@@ -739,7 +772,7 @@ public final class WalletStore: ObservableObject {
     /// Launch-time recovery for a replacement device: never prompts, never
     /// grants locally, and only mirrors what the backend already projects.
     public func recoverCloudEntitlements() async {
-        guard let cloudCoordinator else { return }
+        guard let cloudCoordinator, cloudCoordinator.hasSession else { return }
         await cloudCoordinator.recoverEntitlements()
         await adoptCoordinatorState()
     }
@@ -748,7 +781,8 @@ public final class WalletStore: ObservableObject {
     /// history stays and becomes local authority again.
     @discardableResult
     public func continueLocallyAfterCloud() -> Bool {
-        guard elevation == .active, let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return false }
+        guard elevation == .active, canContinueLocallyAfterCloud,
+              let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return false }
         do {
             try cloudCoordinator.continueLocally(with: cloud.localReplica)
         } catch {
@@ -788,6 +822,28 @@ public final class WalletStore: ObservableObject {
         cloudEntitlement = cloudCoordinator.entitlement
         cloudMessage = cloudCoordinator.message
         await activateCloudIfPaid()
+    }
+
+    private func ensureCloudSession() async -> Bool {
+        guard let cloudCoordinator else { return false }
+        if cloudCoordinator.hasSession { return true }
+        guard let appleSignInProvider else {
+            cloudMessage = "Sign in with Apple is unavailable, so Cloud stays off."
+            return false
+        }
+        do {
+            let outcome = try await appleSignInProvider.signIn(requiredAppleUserID: identityStore.appleUserID)
+            guard let session = outcome.session else { throw WalletAPIError.noSession }
+            try cloudCoordinator.establishSession(session)
+            if identityStore.appleUserID == nil {
+                try identityStore.save(appleUserID: outcome.appleUserID)
+            }
+            cloudMessage = nil
+            return true
+        } catch {
+            cloudMessage = userMessage(for: error)
+            return false
+        }
     }
 
     /// Moves this device to Cloud authority once, and only from the backend's

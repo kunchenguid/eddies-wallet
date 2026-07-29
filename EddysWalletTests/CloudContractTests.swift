@@ -9,6 +9,23 @@ import XCTest
 final class CloudContractTests: XCTestCase {
     private let session = AuthSession(token: "synthetic-session", expiresAt: .distantFuture)
 
+    func testCloudAuthenticationExchangesAppleProofAndSavesTheSharedSession() async throws {
+        let sessions = InMemorySessionStore()
+        let transport = StubTransport(responses: [.init(statusCode: 201, body: CloudContractFixtures.authenticated)])
+        let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: sessions, transport: transport)
+
+        let session = try await client.authenticateApple(identityToken: "synthetic.identity.token", nonce: "signed-nonce")
+
+        XCTAssertEqual(session.token, "opaque-cloud-session")
+        XCTAssertEqual(sessions.session, session)
+        XCTAssertTrue(client.hasSession)
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.url?.path, "/v1/auth/apple")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(request.httpBody?.jsonObject()["identityToken"] as? String, "synthetic.identity.token")
+        XCTAssertEqual(request.httpBody?.jsonObject()["nonce"] as? String, "signed-nonce")
+    }
+
     // MARK: - Capability
 
     func testCapabilityDecodesTheBackendProductsFieldAndGatesOnExactProducts() async throws {
@@ -88,6 +105,13 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(pending, .verificationPending)
         XCTAssertFalse(expired.grantsCloud)
         XCTAssertTrue(graceState.grantsCloud)
+        XCTAssertTrue(expired.permitsLocalContinuation)
+        XCTAssertTrue(revoked.permitsLocalContinuation)
+        XCTAssertTrue(CloudEntitlementState.refunded.permitsLocalContinuation)
+        XCTAssertTrue(CloudEntitlementState.billingRetry.permitsLocalContinuation)
+        XCTAssertFalse(CloudEntitlementState.none.permitsLocalContinuation)
+        XCTAssertFalse(pending.permitsLocalContinuation)
+        XCTAssertFalse(graceState.permitsLocalContinuation)
     }
 
     // MARK: - Transaction delivery
@@ -353,6 +377,8 @@ final class CloudContractTests: XCTestCase {
             return try XCTUnwrap(body["fields"] as? [String: Any])
         }
 
+        XCTAssertEqual(Set(try fields("cloudAuthentication").keys), ["token", "expiresAt", "parent"])
+
         // Capability: the product ids live under `products`, which is the key the
         // client decodes into productIDs.
         let capability = try fields("capabilities")
@@ -387,6 +413,10 @@ final class CloudContractTests: XCTestCase {
             ["household", "family", "child", "wallet", "entries", "loans", "allowanceRule", "nextCursor"]
         )
         XCTAssertEqual(Set(try fields("cloudHouseholdMutation").keys), ["entry", "wallet", "revision"])
+        let allowance = try fields("allowanceSchedule")
+        XCTAssertEqual(Set(allowance.keys), ["allowanceRule"])
+        let allowanceRule = try XCTUnwrap((allowance["allowanceRule"] as? [String: Any])?["fields"] as? [String: Any])
+        XCTAssertTrue(Set(allowanceRule.keys).isSuperset(of: ["id", "nextOccurrenceId", "nextDueDate"]))
         XCTAssertEqual(try endpoint("revisionConflictError")["status"] as? Int, 409)
         XCTAssertEqual(try endpoint("revisionRequiredError")["status"] as? Int, 428)
 
@@ -421,6 +451,10 @@ final class CloudContractTests: XCTestCase {
 
 /// Exact bodies observed from the private backend's Cloud endpoints.
 enum CloudContractFixtures {
+    static let authenticated = json("""
+    {"token":"opaque-cloud-session","expiresAt":"2099-01-01T00:00:00Z",
+     "parent":{"provider":"apple","subject":"synthetic-parent","email":null}}
+    """)
     static let capabilitiesReady = json("""
     {"cloudActivationAvailable":true,"cloudServiceAvailable":true,
      "products":["com.kunchenguid.eddieswallet.cloud.monthly","com.kunchenguid.eddieswallet.cloud.annual"]}

@@ -177,6 +177,61 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(cloud.snapshot().pendingEvents.isEmpty)
     }
 
+    func testAcceptedCloudWriteWaitsWhenTheAcceptedReplicaCannotBeRead() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        guard case .pending(let event) = try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 250)) else {
+            return XCTFail("an accepted write without its replica must wait")
+        }
+        XCTAssertEqual(event.syncState, .pending)
+        XCTAssertEqual(cloud.revision, 2, "the unread accepted revision must not skip the missing changes")
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+    }
+
+    func testCloudAllowanceReadsTheDueOccurrenceBeforeRecording() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceDue)
+        transport.stub("POST", "/v1/allowance-rule/a-1/occurrences/o-7/record", CloudSliceFixtures.depositAccepted(revision: 3))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        guard case .accepted(let event) = try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500)) else {
+            return XCTFail("the due allowance must be Recorded from accepted changes")
+        }
+        XCTAssertEqual(event.type, .allowance)
+        let request = try XCTUnwrap(transport.requests.first { $0.url?.path.contains("/occurrences/") == true })
+        XCTAssertEqual(request.url?.path, "/v1/allowance-rule/a-1/occurrences/o-7/record")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "If-Match"), "\"rev-2\"")
+    }
+
+    func testCloudAllowanceRefusesWhenTheServerReportsNothingDue() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceNotDue)
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        do {
+            _ = try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500))
+            XCTFail("an allowance without a due occurrence must be refused")
+        } catch let WalletAPIError.invalidResponse(message) {
+            XCTAssertEqual(message, "There is no allowance due to record right now.")
+        }
+        XCTAssertFalse(transport.requests.contains { $0.url?.path.contains("/occurrences/") == true })
+    }
+
     // MARK: - Expiry, sign-out, outage
 
     func testExpiredCloudRefusesWritesAndOffersLocalContinuation() async throws {
@@ -270,6 +325,88 @@ final class CloudVerticalSliceTests: XCTestCase {
         if case .cloudOffline = store.authorityState {} else {
             XCTFail("an offline Cloud wallet is presented as offline, not as local authority: \(store.authorityState)")
         }
+        XCTAssertFalse(store.canContinueLocallyAfterCloud)
+        XCTAssertFalse(store.continueLocallyAfterCloud(), "unknown entitlement must not detach Cloud authority")
+        XCTAssertTrue(local.isCloudAuthority)
+    }
+
+    func testPersistedCloudAuthorityReconstructsTheCloudRepositoryOnRelaunch() async throws {
+        let local = try await localWalletWithHistory()
+        let lineage = try XCTUnwrap(local.lineageID)
+        try local.markCloudActivated(lineageID: lineage, revision: 9)
+        let transport = RoutingTransport()
+        let selected = WalletRepositoryFactory.select(
+            local: local,
+            legacy: MockWalletRepository(),
+            cloudClient: client(transport)
+        )
+
+        let cloud = try XCTUnwrap(selected as? CloudWalletRepository)
+        XCTAssertEqual(cloud.lineageID, lineage)
+        XCTAssertEqual(cloud.revision, 9)
+        let store = elevatedStore(repository: cloud, coordinator: CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport)))
+        XCTAssertEqual(store.cloudSignOutMode, .cloudDevice)
+        XCTAssertTrue(store.canSignOutOfCloudOnThisDevice)
+    }
+
+    func testCloudSignInUsesTheStoredOwnerBeforeOfferingPlans() async throws {
+        let local = try await localWalletWithHistory()
+        let sessions = InMemorySessionStore()
+        let transport = RoutingTransport()
+        let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: sessions, transport: transport)
+        let provider = RecordingCloudSignInProvider(session: session)
+        let coordinator = CloudCoordinator(
+            client: client,
+            subscriptions: CloudSubscriptionStore(client: client, observeTransactions: false)
+        )
+        let store = WalletStore(
+            repository: local,
+            appleSignInProvider: provider,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
+            cloudCoordinator: coordinator
+        )
+        store.openParentGate()
+        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
+
+        await store.loadCloudPlans()
+        XCTAssertTrue(store.cloudPlans.isEmpty)
+        XCTAssertTrue(transport.requests.isEmpty, "no Cloud request is made before explicit authentication")
+        await store.signInToCloud()
+
+        XCTAssertEqual(provider.requiredAppleUserID, "synthetic-parent")
+        XCTAssertEqual(sessions.session, session)
+        XCTAssertTrue(transport.requests.contains { $0.url?.path == "/v1/capabilities" })
+        XCTAssertTrue(store.cloudPlans.isEmpty, "StoreKit unavailability cannot be replaced by a local grant")
+    }
+
+    func testDifferentAppleAccountFailsBeforeCloudSessionOrRequests() async throws {
+        let local = try await localWalletWithHistory()
+        let sessions = InMemorySessionStore()
+        let transport = RoutingTransport()
+        let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: sessions, transport: transport)
+        let provider = RecordingCloudSignInProvider(session: session, appleUserID: "different-parent")
+        let store = WalletStore(
+            repository: local,
+            appleSignInProvider: provider,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
+            cloudCoordinator: CloudCoordinator(
+                client: client,
+                subscriptions: CloudSubscriptionStore(client: client, observeTransactions: false)
+            )
+        )
+        store.openParentGate()
+        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
+
+        await store.signInToCloud()
+
+        XCTAssertEqual(provider.requiredAppleUserID, "synthetic-parent")
+        XCTAssertNil(sessions.session)
+        XCTAssertTrue(transport.requests.isEmpty)
+        XCTAssertTrue(store.cloudPlans.isEmpty)
     }
 
     func testUnknownOrMalformedHouseholdNeverBecomesCloudAuthority() async throws {
@@ -352,6 +489,16 @@ enum CloudSliceFixtures {
     static let conflictError = Data("""
     {"error":{"code":"CLOUD_HOUSEHOLD_CONFLICT","message":"A different Cloud household already belongs to this parent."}}
     """.utf8)
+    static let allowanceDue = Data("""
+    {"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+     "startDate":"2026-07-01","endDate":null,"active":true,
+     "nextOccurrenceId":"o-7","nextDueDate":"2026-07-29"}}
+    """.utf8)
+    static let allowanceNotDue = Data("""
+    {"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+     "startDate":"2026-07-01","endDate":null,"active":true,
+     "nextOccurrenceId":null,"nextDueDate":null}}
+    """.utf8)
 
     static func contextActive(lineage: UUID, revision: Int64) -> Data {
         Data("""
@@ -392,6 +539,25 @@ enum CloudSliceFixtures {
            {"id":"c1111111-1111-4111-8111-111111111111","type":"deposit","direction":"credit","amountCents":1000,"balanceBeforeCents":0,"balanceAfterCents":1000,"reason":"chores","loanId":null,"recordedAt":"2026-07-24T10:00:00.000Z","acceptedRevision":1},
            {"id":"c2222222-2222-4222-8222-222222222222","type":"withdrawal","direction":"debit","amountCents":250,"balanceBeforeCents":1000,"balanceAfterCents":750,"reason":"sticker book","loanId":null,"recordedAt":"2026-07-25T10:00:00.000Z","acceptedRevision":2}],
          "loans":[],"allowanceRule":null,"nextCursor":null}
+        """.utf8)
+    }
+
+    static func bootstrapWithAllowance(lineage: UUID) -> Data {
+        let source = String(decoding: bootstrap(lineage: lineage), as: UTF8.self)
+        return Data(source.replacingOccurrences(
+            of: "\"allowanceRule\":null",
+            with: "\"allowanceRule\":{\"id\":\"a-1\",\"amountCents\":500,\"cadence\":\"weekly\",\"weekday\":5,\"startDate\":\"2026-07-01\",\"endDate\":null,\"active\":true}"
+        ).utf8)
+    }
+
+    static func allowanceChanges(lineage: UUID, revision: Int64) -> Data {
+        Data("""
+        {"household":{"lineageId":"\(lineage.uuidString.lowercased())","authority":"cloud","revision":\(revision)},
+         "family":{"id":"f-1","name":"Test Kid's family"},
+         "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+         "wallet":{"id":"w-1","balanceCents":1250},
+         "entries":[{"id":"c4444444-4444-4444-8444-444444444444","type":"allowance","direction":"credit","amountCents":500,"balanceBeforeCents":750,"balanceAfterCents":1250,"reason":null,"loanId":null,"recordedAt":"2026-07-29T10:00:00.000Z","acceptedRevision":\(revision)}],
+         "loans":[],"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,"startDate":"2026-07-01","endDate":null,"active":true}}
         """.utf8)
     }
 
@@ -466,6 +632,26 @@ final class SliceSignInProvider: AppleSignInProviding {
             session: AuthSession(token: "synthetic-session", expiresAt: .distantFuture),
             appleUserID: requiredAppleUserID ?? "synthetic-parent"
         )
+    }
+}
+
+@MainActor
+final class RecordingCloudSignInProvider: AppleSignInProviding {
+    private let session: AuthSession
+    private let appleUserID: String
+    private(set) var requiredAppleUserID: String?
+
+    init(session: AuthSession, appleUserID: String = "synthetic-parent") {
+        self.session = session
+        self.appleUserID = appleUserID
+    }
+
+    func signIn(requiredAppleUserID: String?) async throws -> AppleSignInOutcome {
+        self.requiredAppleUserID = requiredAppleUserID
+        if let requiredAppleUserID, requiredAppleUserID != appleUserID {
+            throw WalletAPIError.identityMismatch
+        }
+        return AppleSignInOutcome(session: session, appleUserID: appleUserID)
     }
 }
 

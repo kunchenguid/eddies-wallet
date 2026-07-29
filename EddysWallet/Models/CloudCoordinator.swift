@@ -38,10 +38,23 @@ public final class CloudCoordinator: ObservableObject {
     /// Purchase and restore controls may only appear when this is true.
     public var canOfferPlans: Bool { availability == .ready && plans.count == 2 }
     public var isCloudActive: Bool { entitlement.grantsCloud }
+    public var hasSession: Bool { client.hasSession }
+    public var permitsLocalContinuation: Bool { entitlement.permitsLocalContinuation }
+
+    public func establishSession(_ session: AuthSession) throws {
+        try client.establishSession(session)
+        subscriptions.startObservingIfAuthenticated()
+    }
 
     // MARK: - Capability and plans
 
     public func refreshAvailability() async {
+        guard client.hasSession else {
+            plans = []
+            availability = .unknown
+            purchaseAttempt = .idle
+            return
+        }
         await subscriptions.loadProducts()
         plans = subscriptions.products
         purchaseAttempt = subscriptions.state
@@ -65,7 +78,7 @@ public final class CloudCoordinator: ObservableObject {
     // MARK: - Purchase and restore
 
     public func purchase(_ product: Product) async -> CloudEntitlementState {
-        guard canOfferPlans else { purchaseAttempt = .productsUnavailable; return entitlement }
+        guard client.hasSession, canOfferPlans else { purchaseAttempt = .productsUnavailable; return entitlement }
         let refreshedToken = storeAccountToken == nil ? await refreshContext()?.storeAccountToken : storeAccountToken
         guard let accountToken = refreshedToken else {
             purchaseAttempt = .serverRejected(correlationID: nil)
@@ -79,6 +92,7 @@ public final class CloudCoordinator: ObservableObject {
     }
 
     public func restorePurchases() async {
+        guard client.hasSession else { purchaseAttempt = .serverRejected(correlationID: nil); return }
         await subscriptions.restorePurchases()
         purchaseAttempt = subscriptions.state
         if let context = subscriptions.lastVerifiedContext { apply(context) }
@@ -88,6 +102,7 @@ public final class CloudCoordinator: ObservableObject {
     /// Launch and device-replacement recovery: no purchase prompt, only the
     /// current entitlements plus the server's projection.
     public func recoverEntitlements() async {
+        guard client.hasSession else { purchaseAttempt = .serverRejected(correlationID: nil); return }
         await subscriptions.recoverCurrentEntitlements()
         purchaseAttempt = subscriptions.state
         if let context = subscriptions.lastVerifiedContext { apply(context) }
@@ -100,6 +115,7 @@ public final class CloudCoordinator: ObservableObject {
     /// accepted Cloud replica. Returns the Cloud repository when the household
     /// became Cloud-authoritative.
     public func activateCloud(from local: LocalWalletRepository, familyName: String) async throws -> CloudWalletRepository {
+        guard client.hasSession else { throw WalletAPIError.noSession }
         guard isCloudActive else { throw WalletAPIError.cloudEntitlementRequired }
         activationConflict = false
         let operationID = try local.reserveCloudImportOperation()
@@ -127,6 +143,7 @@ public final class CloudCoordinator: ObservableObject {
     /// Second device for the same parent: no upload, only a complete bootstrap
     /// of the household the server already owns.
     public func adoptExistingCloudHousehold(into local: LocalWalletRepository) async throws -> CloudWalletRepository? {
+        guard client.hasSession else { throw WalletAPIError.noSession }
         guard let context = await refreshContext(), let household = context.household, household.isCloudAuthoritative,
               let lineageID = household.lineageID else { return nil }
         guard entitlement.grantsCloud else { throw WalletAPIError.cloudEntitlementRequired }
@@ -140,6 +157,9 @@ public final class CloudCoordinator: ObservableObject {
     /// Cloud ended and the parent chose to keep using this device. Nothing is
     /// deleted; the mirrored history becomes local authority again.
     public func continueLocally(with local: LocalWalletRepository) throws {
+        guard permitsLocalContinuation else {
+            throw WalletAPIError.invalidResponse("Cloud status is unavailable, so this wallet must stay in Cloud mode.")
+        }
         try local.continueLocallyAfterCloud()
         household = nil
     }

@@ -67,20 +67,21 @@ public final class CloudWalletRepository: WalletRepository {
     public func loanDetail(remoteID: String) async throws -> LoanDetail { try await replica.loanDetail(remoteID: remoteID) }
 
     public func submit(_ command: WalletCommand) async throws -> CommandResult {
-        let request = try commandRequest(for: command)
-        try await accept(path: request.path, body: request.body, idempotencyKey: command.idempotencyKey)
-        let accepted = replica.snapshot().activities.first {
-            $0.type == activityType(for: command.kind) && $0.amountCents == command.amountCents
+        let priorEventIDs = Set(replica.snapshot().activities.map(\.id))
+        let request = try await commandRequest(for: command)
+        do {
+            try await accept(path: request.path, body: request.body, idempotencyKey: command.idempotencyKey)
+        } catch WalletAPIError.acceptedStateUnavailable {
+            return acceptedStatePendingEvent(for: command)
         }
-        return .accepted(
-            accepted ?? WalletEvent(
-                type: activityType(for: command.kind),
-                amountCents: command.amountCents,
-                reason: command.reason,
-                syncState: .recorded,
-                explanation: AcceptedEventCopy.explanation(for: activityType(for: command.kind), amountCents: command.amountCents)
-            )
-        )
+        guard let accepted = replica.snapshot().activities.first(where: {
+            !priorEventIDs.contains($0.id) &&
+                $0.type == activityType(for: command.kind) &&
+                $0.amountCents == command.amountCents
+        }) else {
+            return acceptedStatePendingEvent(for: command)
+        }
+        return .accepted(accepted)
     }
 
     public func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {
@@ -131,7 +132,7 @@ public final class CloudWalletRepository: WalletRepository {
         let body: [String: Any]
     }
 
-    private func commandRequest(for command: WalletCommand) throws -> CommandRequest {
+    private func commandRequest(for command: WalletCommand) async throws -> CommandRequest {
         switch command.kind {
         case .deposit:
             return CommandRequest(path: "/v1/wallet/deposits", body: money(command))
@@ -148,9 +149,10 @@ public final class CloudWalletRepository: WalletRepository {
             }
             return CommandRequest(path: "/v1/loans/\(loanID)/repayments", body: money(command))
         case .allowance:
-            let allowance = replica.snapshot().allowance
-            guard let ruleID = allowance?.remoteID, let occurrenceID = allowance?.nextOccurrenceID else {
-                throw WalletAPIError.invalidResponse("Set the weekly allowance in the Cloud wallet before recording it.")
+            let schedule = try await client.allowanceSchedule()
+            guard let ruleID = schedule.allowanceRule?.id,
+                  let occurrenceID = schedule.allowanceRule?.nextOccurrenceID else {
+                throw WalletAPIError.invalidResponse("There is no allowance due to record right now.")
             }
             var body: [String: Any] = [:]
             if let reason = command.reason { body["reason"] = reason }
@@ -162,6 +164,18 @@ public final class CloudWalletRepository: WalletRepository {
         var body: [String: Any] = ["amountCents": command.amountCents]
         if let reason = command.reason { body["reason"] = reason }
         return body
+    }
+
+    private func acceptedStatePendingEvent(for command: WalletCommand) -> CommandResult {
+        .pending(
+            WalletEvent(
+                type: activityType(for: command.kind),
+                amountCents: command.amountCents,
+                reason: command.reason,
+                syncState: .pending,
+                explanation: "Cloud accepted this action. This device is waiting for the updated wallet."
+            )
+        )
     }
 
     /// Sends one revision-guarded command and re-reads accepted state. A stale
@@ -179,12 +193,14 @@ public final class CloudWalletRepository: WalletRepository {
                 method: method
             )
             lastConflictRevision = nil
-            if let accepted = acceptance.revision { revision = accepted }
-            try? await syncChanges(after: previousRevision)
+            do {
+                try await syncChanges(after: previousRevision)
+            } catch {
+                throw WalletAPIError.acceptedStateUnavailable
+            }
             return acceptance
         } catch WalletAPIError.revisionConflict(let currentRevision) {
             lastConflictRevision = currentRevision
-            revision = currentRevision
             try? await syncChanges(after: previousRevision)
             throw WalletAPIError.revisionConflict(currentRevision: currentRevision)
         }

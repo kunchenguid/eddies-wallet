@@ -14,6 +14,21 @@ struct CloudStatusView: View {
                 .foregroundStyle(EW.Color.textPrimary)
             statusCopy
             purchaseStateCopy
+            if store.needsCloudSignIn {
+                Button("Sign in to check Cloud plans") {
+                    guard !isWorking else { return }
+                    isWorking = true
+                    Task {
+                        await store.signInToCloud()
+                        isWorking = false
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(EW.Font.body)
+                .foregroundStyle(EW.Color.primaryActive)
+                .disabled(isWorking)
+                .accessibilityIdentifier("cloud-sign-in-button")
+            }
             if store.canOfferCloudPlans, !store.cloudEntitlement.grantsCloud {
                 plans
             }
@@ -26,7 +41,7 @@ struct CloudStatusView: View {
                     .foregroundStyle(EW.Color.textTertiary)
                     .accessibilityIdentifier("cloud-syncing-note")
             }
-            if !store.cloudEntitlement.grantsCloud, store.authorityState.isCloudAuthority {
+            if store.canContinueLocallyAfterCloud {
                 Button("Keep using this \(DeviceCopy.deviceNoun)") { store.continueLocallyAfterCloud() }
                     .buttonStyle(.plain)
                     .font(EW.Font.body)
@@ -68,7 +83,7 @@ struct CloudStatusView: View {
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
         case .expired, .refunded, .revoked, .billingRetry:
-            Text("Cloud ended. This wallet now works on this device only. Nothing was deleted.")
+            Text("Cloud ended. You can keep using the wallet on this device. Nothing was deleted.")
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
         case .verificationPending:
@@ -79,7 +94,7 @@ struct CloudStatusView: View {
             Text("This wallet is saved only on this \(DeviceCopy.deviceNoun). Cloud adds backup and sync on devices using the same parent Apple account.")
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
-            if !store.canOfferCloudPlans {
+            if !store.canOfferCloudPlans, !store.needsCloudSignIn {
                 Text("Cloud plans are unavailable right now. Your wallet still works on this device.")
                     .font(EW.Font.caption)
                     .foregroundStyle(EW.Color.gold700)
