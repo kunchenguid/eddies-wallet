@@ -20,7 +20,7 @@ struct WelcomeView: View {
                             .font(EW.Font.displayLarge)
                             .foregroundStyle(EW.Color.textPrimary)
                             .accessibilityIdentifier("product-brand-wordmark")
-                        Text("A pretend wallet for practicing allowance, spending, and borrowing.")
+                        Text("Set up a complete practice wallet on this iPhone or iPad for free. Cloud is optional.")
                             .font(EW.Font.body)
                             .foregroundStyle(EW.Color.textSecondary)
                             .multilineTextAlignment(.center)
@@ -47,7 +47,7 @@ struct WelcomeView: View {
                                     .tint(.white)
                                     .frame(maxWidth: .infinity, minHeight: 52)
                             } else {
-                                Label("Sign in with Apple", systemImage: "apple.logo")
+                                Label("Set up your child's wallet", systemImage: "apple.logo")
                             }
                         }
                         .buttonStyle(AppleSignInButtonStyle())

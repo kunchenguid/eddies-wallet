@@ -23,9 +23,12 @@ enum DebugLaunchScenario {
             signedIn: Bool = true,
             pin: String? = "1234",
             knownOwner: Bool = true,
-            provider: ScriptedAppleSignInProvider? = nil
+            provider: ScriptedAppleSignInProvider? = nil,
+            authority: WalletAuthorityState? = nil,
+            purchase: PurchaseAttemptState = .idle,
+            entitlement: CloudEntitlementState = .none
         ) -> WalletStore {
-            WalletStore(
+            let result = WalletStore(
                 repository: repository,
                 appleSignInProvider: provider ?? ScriptedAppleSignInProvider(appleUserID: signInUserID),
                 initiallySignedIn: signedIn,
@@ -33,6 +36,8 @@ enum DebugLaunchScenario {
                 identityStore: InMemoryParentIdentityStore(appleUserID: knownOwner ? owningParentAppleUserID : nil),
                 gatePolicy: gatePolicy
             )
+            if let authority { result.applyDebugCloudState(authority: authority, purchase: purchase, entitlement: entitlement) }
+            return result
         }
 
         switch scenario {
@@ -74,6 +79,16 @@ enum DebugLaunchScenario {
                 requiresSetup: true
             )
             return store(repository: repository, signedIn: false, pin: nil, knownOwner: false)
+        case "cloud-pending":
+            return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7), purchase: .pending, entitlement: .verificationPending)
+        case "cloud-expired":
+            return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .local(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!), entitlement: .expired)
+        case "cloud-offline-grace":
+            return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .cloudOfflineGrace(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7), entitlement: .active(accessUntil: .distantPast, autoRenewEnabled: true))
+        case "device-conflict":
+            return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 8), purchase: .activationConflict, entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true))
+        case "legacy":
+            return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .legacyService)
         default:
             return nil
         }

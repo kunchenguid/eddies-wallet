@@ -1,0 +1,36 @@
+{
+  "identifier" : "EddysWalletStoreKitTests",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : { "_applicationInternalID" : "", "_developerTeamID" : "", "_failTransactionsEnabled" : false, "_locale" : "en_US", "_storefront" : "USA", "_timeRate" : 0 },
+  "subscriptionGroups" : [
+    {
+      "id" : "cloud",
+      "localizations" : [ { "description" : "Optional Cloud backup and sync.", "displayName" : "Cloud", "locale" : "en_US" } ],
+      "name" : "Cloud",
+      "subscriptions" : [
+        {
+          "displayPrice" : "2.99",
+          "familyShareable" : false,
+          "localizations" : [ { "description" : "Cloud backup and sync for one parent household.", "displayName" : "Cloud monthly", "locale" : "en_US" } ],
+          "productID" : "com.kunchenguid.eddieswallet.cloud.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Cloud monthly",
+          "subscriptionGroupID" : "cloud",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "displayPrice" : "24.99",
+          "familyShareable" : false,
+          "localizations" : [ { "description" : "Cloud backup and sync for one parent household.", "displayName" : "Cloud annual", "locale" : "en_US" } ],
+          "productID" : "com.kunchenguid.eddieswallet.cloud.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Cloud annual",
+          "subscriptionGroupID" : "cloud",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : { "major" : 4, "minor" : 0 }
+}

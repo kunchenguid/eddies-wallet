@@ -56,7 +56,7 @@ If your installed simulator runtime differs, substitute any available iPhone des
 
 ## Architecture boundary
 
-This repository contains only the client. The app is designed to talk to a separately maintained, privately operated service through a small versioned HTTP API; the service's source, operations, and credentials are not part of this repository, and no private access is needed to build or test the code here. `APIWalletRepository` implements the client side of that contract, and `MockWalletRepository` backs previews and tests. The service is authoritative for all wallet data; the client never treats local state as accepted money. Details are in [`EddysWallet/README.md`](EddysWallet/README.md).
+This repository contains only the client. A complete free wallet is stored locally on one device in protected Core Data, where it is the accepted authority. The optional Cloud design uses a separately maintained, privately operated service through a small versioned HTTP API; its source, operations, and credentials are not part of this repository. `LocalWalletRepository` owns free-local data, while the Cloud client keeps server authority for Cloud households. StoreKit and live Cloud activation are under development, so this repository makes no claim that a subscription is purchasable, backed up, synced, or TestFlight-verified. Details are in [`EddysWallet/README.md`](EddysWallet/README.md).
 
 ## Project layout
 
@@ -72,7 +72,7 @@ This repository contains only the client. The app is designed to talk to a separ
 ## Known limitations
 
 - This is an unfinished MVP. Live Apple sign-in and the full family flow against the production service have **not** been verified end to end; verification so far covers local builds, the test suite, the signed-out welcome UI, and synthetic signed-in UI scenarios.
-- The `0.1.0` source release exists, but there is no verified downloadable or App Store-ready build: no privacy manifest, signed archive evidence, or verified TestFlight upload is committed here. The [release pipeline](docs/release.md) documents the remaining Apple-side prerequisites.
+- The `0.1.0` source release exists, but there is no verified downloadable or App Store-ready build: no privacy manifest, signed archive evidence, verified TestFlight upload, purchasable StoreKit product, or live Cloud evidence is committed here. The [release pipeline](docs/release.md) documents the remaining Apple-side prerequisites.
 - Pull requests run a credential-free build-and-test workflow on GitHub Actions; everything else about verification remains local evidence.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.
 - The `.agents/skills/eddies-wallet-design/` prototype is unmaintained reference material and may not run as-is.

@@ -26,6 +26,15 @@
 		301000000000000000000012 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D000000000000000000001 /* SetupView.swift */; };
 		301000000000000000000013 /* APIRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000001 /* APIRepositoryTests.swift */; };
 		30100000000000000000001C /* ReleaseMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000001 /* ReleaseMetadataTests.swift */; };
+		301000000000000000000020 /* CloudModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 204000000000000000000004 /* CloudModels.swift */; };
+		301000000000000000000021 /* CloudAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 204000000000000000000005 /* CloudAPIClient.swift */; };
+		301000000000000000000022 /* LocalWalletPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207000000000000000000001 /* LocalWalletPersistence.swift */; };
+		301000000000000000000023 /* LocalWalletRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207000000000000000000002 /* LocalWalletRepository.swift */; };
+		301000000000000000000024 /* CloudSubscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 208000000000000000000001 /* CloudSubscriptionStore.swift */; };
+		301000000000000000000025 /* CloudStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000009 /* CloudStatusView.swift */; };
+		301000000000000000000026 /* WalletModel.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 207000000000000000000003 /* WalletModel.xcdatamodeld */; };
+		301000000000000000000027 /* EddysWallet.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 208000000000000000000002 /* EddysWallet.storekit */; };
+		301000000000000000000028 /* LocalWalletPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000002 /* LocalWalletPersistenceTests.swift */; };
 		30100000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20A000000000000000000001 /* Assets.xcassets */; };
 		30100000000000000000000B /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B000000000000000000001 /* WalletTests.swift */; };
 /* End PBXBuildFile section */
@@ -53,6 +62,15 @@
 		20F000000000000000000006 /* DebugScenarios.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugScenarios.swift; sourceTree = "<group>"; };
 		20F000000000000000000007 /* EddysWalletUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EddysWalletUITests.swift; sourceTree = "<group>"; };
 		20F000000000000000000008 /* EvidenceCaptureUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EvidenceCaptureUITests.swift; sourceTree = "<group>"; };
+		204000000000000000000004 /* CloudModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudModels.swift; sourceTree = "<group>"; };
+		204000000000000000000005 /* CloudAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAPIClient.swift; sourceTree = "<group>"; };
+		207000000000000000000001 /* LocalWalletPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWalletPersistence.swift; sourceTree = "<group>"; };
+		207000000000000000000002 /* LocalWalletRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWalletRepository.swift; sourceTree = "<group>"; };
+		207000000000000000000003 /* WalletModel.xcdatamodeld */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = WalletModel.xcdatamodeld; sourceTree = "<group>"; };
+		208000000000000000000001 /* CloudSubscriptionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSubscriptionStore.swift; sourceTree = "<group>"; };
+		208000000000000000000002 /* EddysWallet.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = ../Configuration/EddysWallet.storekit; sourceTree = "<group>"; };
+		20F000000000000000000009 /* CloudStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStatusView.swift; sourceTree = "<group>"; };
+		20E000000000000000000002 /* LocalWalletPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWalletPersistenceTests.swift; sourceTree = "<group>"; };
 		212000000000000000000001 /* EddysWalletUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		210000000000000000000001 /* EddysWallet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EddysWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		211000000000000000000001 /* EddysWalletTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -90,6 +108,8 @@
 				20C000000000000000000001 /* EddysWallet.entitlements */,
 				120000000000000000000001 /* DesignSystem */,
 				119000000000000000000001 /* Models */,
+				207000000000000000000010 /* Persistence */,
+				208000000000000000000010 /* StoreKit */,
 				121000000000000000000001 /* Views */,
 				20A000000000000000000001 /* Assets.xcassets */,
 			);
@@ -103,8 +123,29 @@
 				204000000000000000000001 /* WalletStore.swift */,
 				204000000000000000000002 /* WalletAPI.swift */,
 				204000000000000000000003 /* AppleSignIn.swift */,
+				204000000000000000000004 /* CloudModels.swift */,
+				204000000000000000000005 /* CloudAPIClient.swift */,
 			);
 			path = Models;
+			sourceTree = "<group>";
+		};
+		207000000000000000000010 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				207000000000000000000001 /* LocalWalletPersistence.swift */,
+				207000000000000000000002 /* LocalWalletRepository.swift */,
+				207000000000000000000003 /* WalletModel.xcdatamodeld */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		208000000000000000000010 /* StoreKit */ = {
+			isa = PBXGroup;
+			children = (
+				208000000000000000000001 /* CloudSubscriptionStore.swift */,
+				208000000000000000000002 /* EddysWallet.storekit */,
+			);
+			path = StoreKit;
 			sourceTree = "<group>";
 		};
 		120000000000000000000001 /* DesignSystem */ = {
@@ -126,6 +167,7 @@
 				20F000000000000000000004 /* ParentGateView.swift */,
 				20F000000000000000000005 /* WalletComponents.swift */,
 				209000000000000000000001 /* WelcomeView.swift */,
+				20F000000000000000000009 /* CloudStatusView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -136,6 +178,7 @@
 				20B000000000000000000001 /* WalletTests.swift */,
 				20E000000000000000000001 /* APIRepositoryTests.swift */,
 				20F000000000000000000001 /* ReleaseMetadataTests.swift */,
+				20E000000000000000000002 /* LocalWalletPersistenceTests.swift */,
 			);
 			path = EddysWalletTests;
 			sourceTree = "<group>";
@@ -246,6 +289,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				30100000000000000000000A /* Assets.xcassets in Resources */,
+				301000000000000000000027 /* EddysWallet.storekit in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -283,6 +327,13 @@
 				301000000000000000000017 /* ParentGateView.swift in Sources */,
 				301000000000000000000018 /* WalletComponents.swift in Sources */,
 				301000000000000000000019 /* DebugScenarios.swift in Sources */,
+				301000000000000000000020 /* CloudModels.swift in Sources */,
+				301000000000000000000021 /* CloudAPIClient.swift in Sources */,
+				301000000000000000000022 /* LocalWalletPersistence.swift in Sources */,
+				301000000000000000000023 /* LocalWalletRepository.swift in Sources */,
+				301000000000000000000024 /* CloudSubscriptionStore.swift in Sources */,
+				301000000000000000000025 /* CloudStatusView.swift in Sources */,
+				301000000000000000000026 /* WalletModel.xcdatamodeld in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -293,6 +344,7 @@
 				30100000000000000000000B /* WalletTests.swift in Sources */,
 				301000000000000000000013 /* APIRepositoryTests.swift in Sources */,
 				30100000000000000000001C /* ReleaseMetadataTests.swift in Sources */,
+				301000000000000000000028 /* LocalWalletPersistenceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

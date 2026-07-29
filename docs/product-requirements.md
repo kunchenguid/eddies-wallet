@@ -341,7 +341,7 @@ Use the same status words everywhere:
 
 | State | Required meaning |
 | --- | --- |
-| **Recorded** | Accepted by the authoritative service and included in the accepted balance. |
+| **Recorded** | Accepted by the current wallet authority and included in the accepted balance. In free mode that authority is protected local storage on this device; in paid Cloud mode it is the service. |
 | **Waiting to sync** | A parent action is queued locally and has not been accepted. It is not spendable, owed, or final. |
 | **Not recorded** | The action was rejected or failed. It does not change the accepted balance. |
 | **Last updated** | Child or parent is viewing a cached snapshot whose freshness is shown. |
@@ -366,7 +366,7 @@ Acceptance and rejection must use text and icons, not color alone. A stale child
 
 This is a product constraint and client integration boundary, not an implementation plan. The service is maintained outside this public frontend repository.
 
-- The service must be authoritative for family membership, parent permissions, accepted ledger events, balances, allowance rules, and loans.
+- Free mode is fully useful on one device. Its protected local repository is authoritative for the one-child aggregate, accepted ledger events, balances, allowance rules, and loans. Paid Cloud mode uses the service as the sole accepted authority; the client never grants Cloud entitlement.
 - The service must support idempotent parent commands so retries cannot duplicate deposits, withdrawals, loans, or repayments.
 - Child reads must not have a path to mutate wallet, profile, allowance, loan, membership, or parent-PIN data.
 - The service must meet the recovery expectations in this document, including daily backups, a nightly encrypted export, and restore testing before launch.

@@ -95,7 +95,7 @@ Required before the first TestFlight upload can succeed:
 Optional:
 
 - A TestFlight internal tester group, so accepted builds are installable immediately after processing.
-- App Store agreements: TestFlight-only distribution needs the free developer agreements current; the Paid Applications agreement is not required for a free app.
+- App Store agreements: TestFlight-only distribution needs the current developer agreements. Before the optional paid Cloud subscription can be offered, the captain must also complete the Paid Applications agreement and required tax/banking setup. This repository does not claim those prerequisites are complete.
 
 ## Capabilities need Apple portal setup before release
 

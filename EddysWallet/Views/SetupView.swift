@@ -46,7 +46,7 @@ struct SetupView: View {
                     }
                     .ewCard()
 
-                    Text("This creates the family and wallet on the authoritative service. If the request fails, this form remains a local draft and no wallet is claimed to be saved.")
+                    Text("This saves a complete practice wallet on this \(DeviceCopy.deviceNoun). Cloud is optional and can be considered later in the Parent area.")
                         .font(EW.Font.caption)
                         .foregroundStyle(EW.Color.textTertiary)
 
@@ -69,7 +69,7 @@ struct SetupView: View {
                             ProgressView()
                                 .frame(maxWidth: .infinity, minHeight: 52)
                         } else {
-                            Text("Create your child's wallet")
+                            Text("Keep it on this device for free")
                                 .frame(maxWidth: .infinity, minHeight: 52)
                         }
                     }

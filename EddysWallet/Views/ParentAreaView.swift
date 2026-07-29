@@ -63,6 +63,9 @@ struct ParentAreaView: View {
                     SectionHeader("Parent actions")
                     actionGrid
 
+                    SectionHeader("Cloud")
+                    CloudStatusView()
+
                     SectionHeader("Settings")
                     settingsCard
                 }
@@ -351,12 +354,26 @@ struct ParentAreaView: View {
         .overlay {
             RoundedRectangle(cornerRadius: EW.Radius.large, style: .continuous).stroke(EW.Color.border, lineWidth: 1)
         }
-        .confirmationDialog("Sign out?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
-            Button("Sign out from this \(DeviceCopy.deviceNoun)", role: .destructive) { store.signOut() }
+        .confirmationDialog(signOutTitle, isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
+            Button(signOutButtonTitle, role: .destructive) { store.signOut() }
             Button("Stay signed in", role: .cancel) {}
         } message: {
-            Text("This removes the parent session, parent PIN, and the saved wallet view from this \(DeviceCopy.deviceNoun) until a parent signs in with Apple again. It does not delete the family's virtual wallet.")
+            Text(signOutMessage)
         }
+    }
+
+    private var signOutTitle: String {
+        store.authorityState.isLocalAuthority ? "Sign out and erase this device's wallet?" : "Sign out?"
+    }
+
+    private var signOutButtonTitle: String {
+        store.authorityState.isLocalAuthority ? "Sign out and erase wallet" : "Sign out from this \(DeviceCopy.deviceNoun)"
+    }
+
+    private var signOutMessage: String {
+        store.authorityState.isLocalAuthority
+            ? "There is no Cloud backup for this wallet. This permanently erases the wallet, parent PIN, and parent identity evidence from this \(DeviceCopy.deviceNoun)."
+            : "This removes the local Cloud view and parent PIN from this \(DeviceCopy.deviceNoun). It does not delete the Cloud wallet."
     }
 
     private func settingsRow(title: String, icon: String, role: ButtonRole? = nil, accessibilityIdentifier: String? = nil, action: @escaping () -> Void) -> some View {
