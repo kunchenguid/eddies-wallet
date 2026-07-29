@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Credential-free regression tests for the review monitor's pure contracts."""
-import importlib.util, json, os, pathlib, unittest
+import importlib.util, json, os, pathlib, sys, unittest
 from unittest import mock
+sys.dont_write_bytecode=True
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location("monitor", ROOT/".github/scripts/app_store_review_monitor.py")
 m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
