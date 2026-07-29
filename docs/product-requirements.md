@@ -25,7 +25,7 @@ These decisions are the current product direction and should not be reopened dur
 
 - Use familiar local currency vocabulary, initially **US dollars**. Parent-facing setup, controls, review, balance cards, and safety notices must keep firm virtual, pretend, and nonredeemable labeling. Kid everyday surfaces use plain allowance language instead of stacking those disclaimers.
 - Do not connect to banks, cards, payment processors, cash, or any other real-money rail.
-- The Parent area on a shared iPad is protected by a **parent-set PIN** behind a visually secondary Parent door on the kid home. The PIN is a local gate against casual access; service authorization remains authoritative.
+- The Parent area on a shared iPad is protected by a **parent-set PIN** behind a visually secondary Parent door on the kid home. The PIN is a local gate against casual access; it does not replace service authorization when the wallet is service-authoritative.
 - The first child experience is a **parent-managed child profile**, not an independent child login or Apple identity.
 - **Apple Sign In is required** for the parent MVP. Google Sign In is future scope only.
 - Do not include child-initiated money requests in the smallest MVP.
@@ -230,7 +230,7 @@ The child's wallet is the app's home screen. The Parent area presents the parent
 **Parent area** includes:
 
 1. A parent-only editor for the configured child nickname.
-2. The configured child profile's virtual balance and last sync state.
+2. The configured child profile's virtual balance and last update or authority state.
 3. Next allowance information.
 4. A secondary open-loan card, if a loan exists. Tapping it opens loan details.
 5. Recent Activity visible directly on the wallet, with rows opening activity details.
@@ -243,7 +243,7 @@ The child's wallet is the app's home screen. The Parent area presents the parent
 1. The child's accepted balance under the plain label **Your allowance balance** (no stacked pretend/virtual/nonredeemable hero disclaimer).
 2. Recent Activity directly on the wallet, or a friendly ready-state message while the wallet is still empty. There is no separate Recent Activity navigation item in the MVP.
 3. The open-loan card and read-only loan details when applicable, in plain relational language.
-4. Last-updated or stale status when offline, in calm child wording.
+4. Last-updated or stale status for a service-authoritative wallet when offline, in calm child wording.
 5. The Parent door, visually secondary to the child content.
 
 The kid home must not include a child request button, money action button, edit control, delete control, approval control, sign-out, or any other parent control.
@@ -253,7 +253,7 @@ The kid home must not include a child request button, money action button, edit 
 - The wallet contains the visible recent activity list. A parent can scroll it to review prior events; a separate Recent Activity entry point is not needed.
 - Each accepted row opens details with type, amount, date, reason, and a plain-language explanation.
 - Parent details may show before and after balances and keep the virtual/nonredeemable notice. Child details use simple wording such as “Your parent added US$10.00 as your weekly allowance.” without a heavy disclaimer footer.
-- Pending parent events show **Waiting to sync**, not a success state.
+- Pending parent events in a service-authoritative wallet show **Waiting to sync**, not a success state. Free-local actions are recorded immediately or fail without entering a pending state.
 - Rejected events are visible to the parent with the reason and are not shown as accepted child activity.
 - Accepted activity cannot be edited or deleted.
 
@@ -270,6 +270,8 @@ Flow:
 5. Show the next expected date and distinguish the rule from an actual allowance entry.
 6. When an allowance is due, the MVP may present a parent action to record it. It must not claim that an allowance was credited until the event is accepted.
 
+Free-local authority records a valid rule immediately in protected local storage. A service-authoritative wallet may keep an offline rule edit as **Draft on this iPad** until the service accepts it.
+
 Editing or pausing a rule affects future occurrences only. It must not rewrite past activity. Exact automatic background scheduling, missed-occurrence catch-up, and additional cadences are open or future decisions.
 
 ### 8.7 Deposit flow
@@ -277,8 +279,8 @@ Editing or pausing a rule affects future occurrences only. It must not rewrite p
 1. Parent chooses **Add deposit** from the wallet.
 2. Parent enters a positive virtual dollar amount and an optional reason.
 3. Review shows the resulting accepted balance and the persistent virtual-money notice.
-4. Confirmation creates one parent-recorded deposit, or a clearly pending command while offline.
-5. The child sees it only after it is accepted and synced.
+4. With free-local authority, confirmation records the deposit immediately in protected local storage or reports **Not recorded** without changing the balance.
+5. With service authority, confirmation creates an accepted deposit or a clearly pending command while offline. The child sees it after service acceptance and synchronization.
 
 A deposit is bookkeeping inside Eddie's Wallet. It never charges, moves, or reserves real money.
 
@@ -287,8 +289,8 @@ A deposit is bookkeeping inside Eddie's Wallet. It never charges, moves, or rese
 1. Parent chooses **Record withdrawal** or **Record dollars used**.
 2. Parent enters an amount no greater than the accepted wallet balance and an optional reason.
 3. Review shows the resulting balance. The app prevents accidental overdraft.
-4. Confirmation creates a parent-recorded withdrawal, or a pending command subject to server revalidation.
-5. If another accepted event changes the balance before sync, the withdrawal is rejected rather than silently reduced.
+4. With free-local authority, confirmation records the withdrawal immediately in protected local storage or reports **Not recorded** without changing the balance.
+5. With service authority, confirmation creates an accepted withdrawal or a pending command subject to server revalidation. If another accepted event changes the balance before synchronization, the withdrawal is rejected rather than silently reduced.
 
 The child has no spending or withdrawal control. A withdrawal means the parent recorded a virtual use of dollars; it is not a cash withdrawal.
 
@@ -301,7 +303,7 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 1. Parent opens the wallet and chooses **Create loan**.
 2. Parent enters principal, optional purpose, and optional due date.
 3. Review explains that the loan adds virtual dollars to the child's wallet and creates an amount to repay.
-4. Confirmation records the loan only once accepted.
+4. Free-local authority records a valid loan immediately. Service authority records it only after service acceptance.
 5. The wallet shows a secondary loan card such as “US$10.00 left to repay.”
 
 **Repay:**
@@ -309,7 +311,7 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 1. Parent opens the loan card and chooses **Record repayment**.
 2. Parent enters a partial or full repayment amount.
 3. The app shows the remaining principal after repayment and refuses an amount above the outstanding principal or available accepted wallet balance.
-4. Confirmation records the repayment, or marks it pending while offline.
+4. Free-local authority records a valid repayment immediately. Service authority records it after acceptance or marks it pending while offline.
 5. A paid loan remains in history as **Paid** rather than disappearing.
 
 **Child loan view:** The child can see the original loan, accepted repayments, and amount left to repay in plain language. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP. Parent loan details keep the virtual/nonredeemable notice.
@@ -394,7 +396,7 @@ These questions do not block the product boundary above, but must be answered be
 1. Which exact iOS/iPadOS versions and oldest iPad models are supported? *(Current implementation answer: the Xcode project declares an iOS/iPadOS 17.0 minimum for iPhone and iPad; the oldest supported hardware has not been decided.)*
 2. Should the allowance MVP remain parent-confirmed on or after the due date, or should a reliable server job automatically record it?
 3. What additional allowance cadences, if any, belong in the first release?
-4. What is the exact offline queue policy and how recent must the cached balance be before queuing a parent command?
+4. For service-authoritative wallets, what is the exact offline queue policy and how recent must the cached balance be before queuing a parent command?
 5. Which service implementation and operations plan meet the cost and recovery requirements, and who owns service incidents and restores?
 6. What retention period and parent deletion behavior apply to family data and accepted ledger history?
 7. Is the one-parent MVP sufficient for the pilot, or is a second authenticated parent a launch requirement?
@@ -411,7 +413,7 @@ The MVP is product-complete when all of the following are true:
 6. Withdrawals and repayments cannot overdraw the wallet or exceed the outstanding loan. A loan adds virtual balance and creates a separate amount to repay.
 7. The open-loan card is visible on the wallet and opens a detail flow. There is no prominent top-level Loans area, and the wallet does not duplicate a Recent Activity entry point.
 8. The child can read the accepted balance, activity, and loan details, but cannot create or change any wallet, profile, allowance, loan, repayment, or request.
-9. Offline views show the last update time. Queued parent actions are visibly pending, and rejected actions never appear as accepted balance changes.
+9. The free one-device wallet remains fully usable offline and records valid parent actions through protected local authority. Service-authoritative offline views show the last update time, queued parent actions are visibly pending, and rejected actions never appear as accepted balance changes.
 10. The app collects no unnecessary child identity data and ships without real-money rails, ads, tracking, chat, or public sharing.
 11. The external service meets the daily backup and nightly encrypted export requirements, and a restore check has been completed before launch.
 12. A pilot parent can explain that the displayed US-dollar amounts are practice values that cannot be redeemed or spent. A pilot child can explain their allowance balance and recent parent-recorded changes in plain words without needing the legal framing.
@@ -421,7 +423,7 @@ The MVP is product-complete when all of the following are true:
 Early MVP success is demonstrated by a small family pilot, not by transaction volume:
 
 - A parent completes setup and records the first allowance or deposit without needing banking knowledge.
-- A parent can tell the difference between a wallet balance, an allowance rule, a loan outstanding, and a pending command.
+- A parent can tell the difference between a wallet balance, an allowance rule, and a loan outstanding, plus a pending command when using service authority.
 - The child can explain why a balance changed and how much of a loan remains without being able to change it.
 - No pilot parent mistakes the balance for spendable or redeemable money; parent UI continues to state the boundary clearly. The child understands the balance as allowance tracked with their parent.
 - Offline and rejected states do not produce a false accepted balance in testing.
