@@ -263,24 +263,35 @@ struct ParentAreaView: View {
                 .font(EW.Font.headingSmall)
                 .foregroundStyle(EW.Color.textPrimary)
             ForEach(store.snapshot.pendingEvents) { event in
-                Button {
-                    selectedEvent = event
-                } label: {
-                    HStack(spacing: EW.Space.three) {
-                        IconBadge(event.type.iconName, foreground: stateColor(event.syncState), background: stateTint(event.syncState), size: 36)
-                        VStack(alignment: .leading, spacing: EW.Space.one) {
-                            Text(event.displayReason)
-                                .font(EW.Font.bodyBold)
-                                .foregroundStyle(EW.Color.textPrimary)
-                                .lineLimit(1)
-                            MoneyAmount(cents: event.amountCents, font: EW.Font.caption, color: EW.Color.textSecondary)
+                VStack(alignment: .leading, spacing: EW.Space.two) {
+                    Button {
+                        selectedEvent = event
+                    } label: {
+                        HStack(spacing: EW.Space.three) {
+                            IconBadge(event.type.iconName, foreground: stateColor(event.syncState), background: stateTint(event.syncState), size: 36)
+                            VStack(alignment: .leading, spacing: EW.Space.one) {
+                                Text(event.displayReason)
+                                    .font(EW.Font.bodyBold)
+                                    .foregroundStyle(EW.Color.textPrimary)
+                                    .lineLimit(1)
+                                MoneyAmount(cents: event.amountCents, font: EW.Font.caption, color: EW.Color.textSecondary)
+                            }
+                            Spacer()
+                            StatusPill(state: event.syncState)
                         }
-                        Spacer()
-                        StatusPill(state: event.syncState)
+                        .frame(minHeight: 44)
                     }
-                    .frame(minHeight: 44)
+                    .buttonStyle(.plain)
+                    if event.syncState == .acceptedAwaitingReplica {
+                        Button("Refresh from Cloud") {
+                            Task { await store.refresh() }
+                        }
+                        .buttonStyle(.plain)
+                        .font(EW.Font.body)
+                        .foregroundStyle(EW.Color.primaryActive)
+                        .accessibilityIdentifier("cloud-reconciliation-refresh-button")
+                    }
                 }
-                .buttonStyle(.plain)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

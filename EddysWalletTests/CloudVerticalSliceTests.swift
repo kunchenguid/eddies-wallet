@@ -199,16 +199,14 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
         XCTAssertEqual(cloud.snapshot().pendingEvents.first?.syncState, .acceptedAwaitingReplica)
         XCTAssertFalse(cloud.snapshot().pendingEvents.contains { $0.syncState == .pending })
-        let retry = WalletCommand(kind: .deposit, amountCents: 250)
-        XCTAssertEqual(local.replayCloudCommand(matching: retry)?.idempotencyKey, original.idempotencyKey)
-        guard case .acceptedAwaitingReplica = try await cloud.submit(retry) else {
-            return XCTFail("a retry must remain accepted-awaiting-replica")
+        let second = WalletCommand(kind: .deposit, amountCents: 250)
+        guard case .rejected(let blocked) = try await cloud.submit(second) else {
+            return XCTFail("a second identical action must be refused while the first is unreconciled")
         }
+        XCTAssertTrue(blocked.explanation.contains("still catching up with Cloud"))
         let deposits = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
-        XCTAssertEqual(deposits.count, 2)
-        XCTAssertTrue(deposits.allSatisfy {
-            $0.value(forHTTPHeaderField: "Idempotency-Key") == original.idempotencyKey
-        })
+        XCTAssertEqual(deposits.count, 1)
+        XCTAssertEqual(deposits.first?.value(forHTTPHeaderField: "Idempotency-Key"), original.idempotencyKey)
 
         let reloaded = try LocalWalletRepository(directory: directory)
         XCTAssertEqual(reloaded.pendingCloudCommand?.idempotencyKey, original.idempotencyKey)
@@ -219,6 +217,46 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
         XCTAssertTrue(cloud.snapshot().pendingEvents.isEmpty)
         XCTAssertNil(local.pendingCloudCommand)
+    }
+
+    func testAcceptedWritePersistenceFailureStaysAwaitingAndBlocksNewCommands() async throws {
+        let persistence = CloudSliceFailingPersistence()
+        let local = try LocalWalletRepository(persistence: persistence)
+        _ = try await local.setup(ParentSetup(nickname: "Test Kid"))
+        let lineage = try XCTUnwrap(local.lineageID)
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        persistence.failNextSave = true
+
+        guard case .acceptedAwaitingReplica(let event) = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250)
+        ) else {
+            return XCTFail("an accepted write must stay accepted-awaiting when local persistence fails")
+        }
+        XCTAssertEqual(event.syncState, .acceptedAwaitingReplica)
+        XCTAssertEqual(cloud.snapshot().pendingEvents.first?.syncState, .acceptedAwaitingReplica)
+
+        guard case .rejected(let blocked) = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250)
+        ) else {
+            return XCTFail("the in-memory accepted state must block another command")
+        }
+        XCTAssertTrue(blocked.explanation.contains("still catching up with Cloud"))
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }.count, 1)
+
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000))
+        _ = try await cloud.refresh(for: .parent)
+        XCTAssertTrue(cloud.snapshot().pendingEvents.isEmpty)
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 4))
+        guard case .acceptedAwaitingReplica = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250)
+        ) else {
+            return XCTFail("a reconciled repository must accept the next new command")
+        }
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }.count, 2)
     }
 
     func testCloudAllowanceReadsTheDueOccurrenceBeforeRecording() async throws {
@@ -308,6 +346,39 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(store.authorityState.isLocalAuthority)
         XCTAssertEqual(store.cloudEntitlement, .none)
         XCTAssertTrue(transport.requests.contains { $0.httpMethod == "DELETE" && $0.url?.path == "/v1/session/current" })
+    }
+
+    func testUnreconciledAcceptedWriteBlocksCloudHandoffsOffline() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3))
+        let cloudClient = client(transport)
+        let cloud = CloudWalletRepository(client: cloudClient, replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        guard case .acceptedAwaitingReplica = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250)
+        ) else {
+            return XCTFail("the accepted command must await its missing replica")
+        }
+        let coordinator = CloudCoordinator(client: cloudClient, subscriptions: silentSubscriptionStore(transport))
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextExpired(lineage: lineage))
+        await coordinator.refreshContext()
+        transport.failEverything = true
+        let store = elevatedStore(repository: cloud, coordinator: coordinator)
+
+        let signedOut = await store.signOutOfCloudOnThisDevice()
+        XCTAssertFalse(signedOut)
+        XCTAssertTrue(store.cloudMessage?.contains("Refresh before signing out") == true)
+        XCTAssertTrue(local.isCloudAuthority)
+        XCTAssertTrue(store.authorityState.isCloudAuthority)
+
+        XCTAssertFalse(store.continueLocallyAfterCloud())
+        XCTAssertTrue(store.cloudMessage?.contains("Refresh before keeping") == true)
+        XCTAssertTrue(local.isCloudAuthority)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "DELETE" })
     }
 
     func testLocalOnlyWalletKeepsTheDestructiveSignOutWarning() async throws {
@@ -741,6 +812,31 @@ final class RecordingCloudSignInProvider: AppleSignInProviding, AppleIdentityAut
             identityToken: "synthetic.identity.token",
             signedNonce: "synthetic-signed-nonce"
         )
+    }
+}
+
+private enum CloudSlicePersistenceError: Error {
+    case failed
+}
+
+private final class CloudSliceFailingPersistence: LocalWalletPersisting {
+    var payload: Data?
+    var failNextSave = false
+
+    func load() throws -> Data? {
+        payload
+    }
+
+    func save(_ payload: Data) throws {
+        if failNextSave {
+            failNextSave = false
+            throw CloudSlicePersistenceError.failed
+        }
+        self.payload = payload
+    }
+
+    func erase() throws {
+        payload = nil
     }
 }
 

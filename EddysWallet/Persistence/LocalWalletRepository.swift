@@ -173,17 +173,6 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     public var hasCompletedCloudImport: Bool { aggregate?.metadata.cloudImportCompleted == true }
     var pendingCloudCommand: WalletCommand? { aggregate?.metadata.pendingCloudCommand }
 
-    func replayCloudCommand(matching proposed: WalletCommand) -> WalletCommand? {
-        guard let pending = aggregate?.metadata.pendingCloudCommand,
-              pending.kind == proposed.kind,
-              pending.amountCents == proposed.amountCents,
-              pending.reason == proposed.reason,
-              pending.dueDate == proposed.dueDate else {
-            return nil
-        }
-        return pending
-    }
-
     func markCloudCommandAcceptedAwaitingReplica(_ command: WalletCommand, acceptedRevision: Int64?) throws {
         var candidate = try writableAggregate()
         candidate.metadata.pendingCloudCommand = command

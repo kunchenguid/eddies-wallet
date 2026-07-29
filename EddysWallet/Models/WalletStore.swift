@@ -781,8 +781,13 @@ public final class WalletStore: ObservableObject {
     /// history stays and becomes local authority again.
     @discardableResult
     public func continueLocallyAfterCloud() -> Bool {
-        guard elevation == .active, canContinueLocallyAfterCloud,
-              let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return false }
+        guard elevation == .active, let cloudCoordinator,
+              let cloud = repository as? CloudWalletRepository else { return false }
+        guard !cloud.hasUnreconciledAcceptedCommand else {
+            cloudMessage = "This device is still catching up with Cloud. Refresh before keeping the wallet on this device only."
+            return false
+        }
+        guard canContinueLocallyAfterCloud else { return false }
         do {
             try cloudCoordinator.continueLocally(with: cloud.localReplica)
         } catch {
@@ -799,10 +804,20 @@ public final class WalletStore: ObservableObject {
 
     /// Signs this device out of Cloud without deleting anything: the server
     /// session is revoked and the mirrored wallet keeps working locally.
-    public func signOutOfCloudOnThisDevice() async {
-        guard elevation == .active, let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return }
+    @discardableResult
+    public func signOutOfCloudOnThisDevice() async -> Bool {
+        guard elevation == .active, let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return false }
+        guard !cloud.hasUnreconciledAcceptedCommand else {
+            cloudMessage = "This device is still catching up with Cloud. Refresh before signing out of Cloud."
+            return false
+        }
+        do {
+            try cloud.localReplica.continueLocallyAfterCloud()
+        } catch {
+            errorMessage = userMessage(for: error)
+            return false
+        }
         await cloudCoordinator.signOutOfCloud()
-        try? cloud.localReplica.continueLocallyAfterCloud()
         repository = cloud.localReplica
         authorityState = cloud.localReplica.lineageID.map { .local(lineageID: $0) } ?? .localSetup
         snapshot = repository.snapshot()
@@ -810,6 +825,7 @@ public final class WalletStore: ObservableObject {
         purchaseAttempt = .idle
         needsCloudReview = false
         cloudMessage = "This device signed out of Cloud. The wallet still works here and nothing was deleted."
+        return true
     }
 
     public func acknowledgeCloudReview() {
