@@ -6,13 +6,6 @@ Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and i
 
 **Who this is for:** developers and reviewers who want to explore a small, dependency-free SwiftUI client, and anyone following the product concept in the [product requirements document](docs/product-requirements.md). If you are looking for an app to install for your family, this is not that yet.
 
-<p align="center">
-  <img src="docs/screenshots/welcome-iphone.png" width="300" alt="Eddie's Wallet welcome screen on an iPhone simulator: the app icon and name above the description 'A pretend wallet for practicing allowance, spending, and borrowing', a Virtual practice only notice explaining the dollars are pretend and never move real money, and a parent-only Sign in with Apple button">
-  <img src="docs/screenshots/welcome-ipad.png" width="420" alt="Eddie's Wallet welcome screen on an iPad simulator, showing the same signed-out layout adapted to the larger display: pretend-wallet description, Virtual practice only notice, and parent-only Sign in with Apple button">
-</p>
-
-*Both screenshots show the signed-out welcome experience built from this repository. No family data exists in a fresh install.*
-
 ## What exists today
 
 - A native SwiftUI iOS/iPadOS app (`EddysWallet.xcodeproj`) targeting iOS 17.0+, iPhone and iPad, with no third-party dependencies.
@@ -71,7 +64,7 @@ This repository contains only the client. A complete free wallet is stored local
 
 ## Known limitations
 
-- This is an unfinished MVP. Live Apple sign-in and the full family flow against the production service have **not** been verified end to end; verification so far covers local builds, the test suite, the signed-out welcome UI, and synthetic signed-in UI scenarios.
+- This is an unfinished MVP. Live Apple sign-in, first-run free-wallet setup with a real parent identity, the legacy service-wallet flow, and optional Cloud have **not** been verified end to end; verification so far covers local builds, the test suite, and synthetic UI scenarios.
 - The `0.1.0` source release exists, but there is no verified downloadable or App Store-ready build: no privacy manifest, signed archive evidence, verified TestFlight upload, purchasable StoreKit product, or live Cloud evidence is committed here. The [release pipeline](docs/release.md) documents the remaining Apple-side prerequisites.
 - Pull requests run a credential-free build-and-test workflow on GitHub Actions; everything else about verification remains local evidence.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.

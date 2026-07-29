@@ -2,7 +2,7 @@
 
 ## Product requirements document
 
-**Status:** Initial MVP PRD
+**Status:** Accepted freemium Cloud MVP direction
 **Product:** iPad/iOS virtual allowance app for a configurable child profile
 **Audience:** Product, design, engineering, and review collaborators
 
@@ -210,7 +210,7 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 
 ### 8.2 Parent setup and child profile
 
-- Parent creates one family and the configurable child profile.
+- Parent creates one free one-device wallet and the configurable child profile.
 - Required child data is limited to a nickname. Avatar is optional. Exact birth date, child email, contacts, and location are out of scope.
 - Parent can update the nickname and avatar behind the PIN.
 - The child profile is not an independent login and cannot be claimed by a child.
@@ -335,7 +335,7 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 | Initiate a money request | No MVP workflow | No |
 | Export or delete family data | Parent-only, behind the gate | No |
 
-The external service must enforce the same boundary as the UI. A local child profile selection or PIN must never be treated as proof that a client may write parent data.
+For a service-authoritative wallet, the external service must enforce the same boundary as the UI. A local child profile selection or PIN must never be treated as proof that a client may write parent data.
 
 ## 10. State, sync, and error behavior
 
@@ -362,7 +362,7 @@ Acceptance and rejection must use text and icons, not color alone. A stale child
 - Explain that the PIN protects this shared iPad from casual switching. It is not device-wide parental control and is not a substitute for server-side authorization.
 - Keep child language calm and nonjudgmental. Do not call the child “in debt,” “bad with money,” or “behind.” Show repayment as a practice concept, not a punishment.
 - Provide parent-controlled data export and deletion behavior before public launch, subject to the final retention policy.
-- Require the external service to meet the minimal recovery posture: daily backups and a nightly encrypted export, with a tested restore procedure. Do not add an enterprise audit console to the MVP.
+- Before paid Cloud is offered, require the external service to meet the minimal recovery posture: daily backups and a nightly encrypted export, with a tested restore procedure. Do not add an enterprise audit console to the MVP.
 
 ## 12. External service boundary
 
@@ -371,7 +371,7 @@ This is a product constraint and client integration boundary, not an implementat
 - Free mode is fully useful on one device. Its protected local repository is authoritative for the one-child aggregate, accepted ledger events, balances, allowance rules, and loans. Paid Cloud mode uses the service as the sole accepted authority; the client never grants Cloud entitlement.
 - The service must support idempotent parent commands so retries cannot duplicate deposits, withdrawals, loans, or repayments.
 - Child reads must not have a path to mutate wallet, profile, allowance, loan, membership, or parent-PIN data.
-- The service must meet the recovery expectations in this document, including daily backups, a nightly encrypted export, and restore testing before launch.
+- Before paid Cloud launch, the service must meet the recovery expectations in this document, including daily backups, a nightly encrypted export, and restore testing.
 - Keep the app's product boundary independent of the service implementation and hosting. Do not expose provider-specific behavior in parent or child copy.
 
 Apple Sign In is the only parent authentication method in the MVP. Google Sign In, identity linking, independent child authentication, and other providers are future scope.
@@ -391,7 +391,7 @@ These ideas may be valuable later but must not appear as required MVP work:
 
 ## 14. Open questions
 
-These questions do not block the product boundary above, but must be answered before implementation or public launch:
+These questions do not block the product boundary above. Questions that affect the free wallet must be answered before public launch; service-specific questions must be answered before paid Cloud is offered:
 
 1. Which exact iOS/iPadOS versions and oldest iPad models are supported? *(Current implementation answer: the Xcode project declares an iOS/iPadOS 17.0 minimum for iPhone and iPad; the oldest supported hardware has not been decided.)*
 2. Should the allowance MVP remain parent-confirmed on or after the due date, or should a reliable server job automatically record it?
@@ -403,9 +403,9 @@ These questions do not block the product boundary above, but must be answered be
 
 ## 15. MVP acceptance criteria
 
-The MVP is product-complete when all of the following are true:
+The free one-device MVP is product-complete when all of the following are true:
 
-1. A parent can sign in with Apple, create one family and a parent-managed child profile, and set a parent PIN without creating a child login.
+1. A parent can sign in with Apple, create one free wallet and a parent-managed child profile, and set a parent PIN without creating a child login.
 2. On a shared iPad, the app rests on the child's read-only wallet, and entering the Parent area requires the parent-set PIN. The kid home never exposes parent money controls or sign-out.
 3. Parent and safety surfaces label the US-dollar ledger as virtual, pretend, and nonredeemable. The kid home primary balance label is **Your allowance balance** without that heavy disclaimer; kid detail glances stay plain and relational while parent detail/review surfaces keep the boundary.
 4. A parent can create a simple allowance rule, record a deposit, record a withdrawal, create an interest-free loan, and record a partial or full repayment.
@@ -415,7 +415,7 @@ The MVP is product-complete when all of the following are true:
 8. The child can read the accepted balance, activity, and loan details, but cannot create or change any wallet, profile, allowance, loan, repayment, or request.
 9. The free one-device wallet remains fully usable offline and records valid parent actions through protected local authority. Service-authoritative offline views show the last update time, queued parent actions are visibly pending, and rejected actions never appear as accepted balance changes.
 10. The app collects no unnecessary child identity data and ships without real-money rails, ads, tracking, chat, or public sharing.
-11. The external service meets the daily backup and nightly encrypted export requirements, and a restore check has been completed before launch.
+11. Paid Cloud is not offered until the external service meets the daily backup and nightly encrypted export requirements and a restore check has been completed.
 12. A pilot parent can explain that the displayed US-dollar amounts are practice values that cannot be redeemed or spent. A pilot child can explain their allowance balance and recent parent-recorded changes in plain words without needing the legal framing.
 
 ## 16. Success criteria
@@ -428,6 +428,6 @@ Early MVP success is demonstrated by a small family pilot, not by transaction vo
 - No pilot parent mistakes the balance for spendable or redeemable money; parent UI continues to state the boundary clearly. The child understands the balance as allowance tracked with their parent.
 - Offline and rejected states do not produce a false accepted balance in testing.
 - Privacy review confirms that the child profile contains only the intended minimal data.
-- The service owner can restore the minimal production data posture from the daily backup and nightly encrypted export.
+- If paid Cloud is included in the pilot, the service owner can restore its minimal production data posture from the daily backup and nightly encrypted export.
 
-The MVP should be considered ready for implementation only after the open questions that affect data, scheduling, recovery, and launch compliance have named owners and decisions.
+Public launch readiness still requires named owners and decisions for the open questions that affect data, scheduling, recovery, and launch compliance.

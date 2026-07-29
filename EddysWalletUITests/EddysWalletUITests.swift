@@ -503,7 +503,7 @@ final class EddysWalletUITests: XCTestCase {
     func testFirstRunSetupHandsOffToParentAreaThenKidHome() throws {
         let app = launch("first-run")
 
-        let signIn = app.buttons["Sign in with Apple"]
+        let signIn = app.buttons["Set up your child's wallet"]
         XCTAssertTrue(signIn.waitForExistence(timeout: 10))
         signIn.tap()
 
@@ -519,7 +519,7 @@ final class EddysWalletUITests: XCTestCase {
         confirmField.tap()
         confirmField.typeText("1234")
 
-        app.buttons["Create your child's wallet"].tap()
+        app.buttons["Keep it on this device for free"].tap()
 
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["You're all set"].waitForExistence(timeout: 5))

@@ -74,10 +74,7 @@ enum DebugLaunchScenario {
                 knownOwner: false
             )
         case "first-run":
-            let repository = ScriptedWalletRepository(
-                snapshot: emptySnapshot(environment: environment),
-                requiresSetup: true
-            )
+            guard let repository = try? LocalWalletRepository(inMemory: true) else { return nil }
             return store(repository: repository, signedIn: false, pin: nil, knownOwner: false)
         case "cloud-pending":
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7), purchase: .pending, entitlement: .verificationPending)
