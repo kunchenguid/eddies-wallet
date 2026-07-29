@@ -4,6 +4,7 @@ import argparse, base64, json, os, re, subprocess, sys, time, urllib.parse, urll
 from pathlib import Path
 
 BUNDLE_ID = "com.kunchenguid.eddieswallet"
+ASC_HOST = "api.appstoreconnect.apple.com"
 MAX_CYCLES = 32
 VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){1,2}$")
 BUILD_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){0,2}$")
@@ -33,10 +34,23 @@ def observation(version, build, state):
     state = safe_state(state)
     return {"cycle": cycle(version, build), "state": state, "category": STATE_CATEGORY.get(state, "unknown")}
 
+def validate_asc_url(url):
+    if not isinstance(url, str):
+        raise MonitorError("App Store Connect returned unsafe URL")
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        raise MonitorError("App Store Connect returned unsafe URL")
+    if parsed.scheme != "https" or parsed.hostname != ASC_HOST or port not in (None, 443) or parsed.username or parsed.password:
+        raise MonitorError("App Store Connect returned unsafe URL")
+    return url
+
 def page_items(fetch, url):
     """Follow only same-origin ASC pagination links and require JSON:API lists."""
     seen, items = set(), []
     while url:
+        validate_asc_url(url)
         if url in seen: raise MonitorError("App Store Connect pagination loop")
         seen.add(url)
         payload = fetch(url)
@@ -44,8 +58,7 @@ def page_items(fetch, url):
         if not isinstance(data, list): raise MonitorError("App Store Connect returned malformed collection")
         items.extend(data)
         nxt = payload.get("links", {}).get("next") if isinstance(payload.get("links", {}), dict) else None
-        if nxt is not None and (not isinstance(nxt, str) or not nxt.startswith("https://api.appstoreconnect.apple.com/")):
-            raise MonitorError("App Store Connect returned unsafe pagination link")
+        if nxt is not None: validate_asc_url(nxt)
         url = nxt
     return items
 
@@ -138,10 +151,17 @@ def jwt():
         key_path.unlink(missing_ok=True); sig_path.unlink(missing_ok=True)
 
 def asc_fetch(token):
+    class SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            validate_asc_url(newurl)
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+    opener = urllib.request.build_opener(SameOriginRedirectHandler)
     def fetch(url):
+        validate_asc_url(url)
         request=urllib.request.Request(url, method="GET", headers={"Authorization":"Bearer "+token, "Accept":"application/json"})
         try:
-            with urllib.request.urlopen(request, timeout=30) as response: return json.loads(response.read())
+            with opener.open(request, timeout=30) as response: return json.loads(response.read())
+        except MonitorError: raise
         except Exception: raise MonitorError("App Store Connect read request failed")
     return fetch
 
@@ -155,7 +175,13 @@ def gh(method, path, payload=None):
 def notify(obs, rearm):
     repo=os.environ.get("GITHUB_REPOSITORY", "")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo): raise MonitorError("GitHub repository identity is invalid")
-    issues=gh("GET", f"/repos/{repo}/issues?state=open&per_page=100")
+    issues, page = [], 1
+    while True:
+        batch=gh("GET", f"/repos/{repo}/issues?state=open&per_page=100&page={page}")
+        if not isinstance(batch, list): raise MonitorError("GitHub returned malformed issue collection")
+        issues.extend(batch)
+        if len(batch) < 100: break
+        page += 1
     matches=[x for x in issues if isinstance(x,dict) and x.get("title")==ISSUE_TITLE and "pull_request" not in x]
     if len(matches)>1: raise MonitorError("Notification state issue is ambiguous")
     if matches: issue=matches[0]

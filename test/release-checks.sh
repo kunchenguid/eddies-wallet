@@ -147,6 +147,9 @@ for forbidden in 'pull_request' 'pull_request_target' 'workflow_run' 'repository
 done
 require_grep '^  contents: read$' "$REVIEW_WORKFLOW" "review monitor needs contents read only"
 require_grep '^  issues: write$' "$REVIEW_WORKFLOW" "review monitor grants only issue write for dedup notifications"
+require_grep '^concurrency:$' "$REVIEW_WORKFLOW" "review monitor serializes transition deduplication"
+require_grep '^  group: app-store-review-status$' "$REVIEW_WORKFLOW" "review monitor uses one concurrency group"
+require_grep '^  cancel-in-progress: false$' "$REVIEW_WORKFLOW" "review monitor does not cancel active polling"
 forbid_grep '^[[:space:]]*(actions|pull-requests|checks|id-token|packages): write' "$REVIEW_WORKFLOW" "review monitor has no extra write permissions"
 require_grep 'ASC_REVIEW_MONITOR_KEY_ID' "$REVIEW_WORKFLOW" "review monitor uses its dedicated key ID secret"
 require_grep 'ASC_REVIEW_MONITOR_ISSUER_ID' "$REVIEW_WORKFLOW" "review monitor uses its dedicated issuer secret"

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Credential-free regression tests for the review monitor's pure contracts."""
-import importlib.util, json, pathlib, unittest
+import importlib.util, json, os, pathlib, unittest
+from unittest import mock
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location("monitor", ROOT/".github/scripts/app_store_review_monitor.py")
 m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
@@ -38,7 +39,25 @@ class ResolutionTests(unittest.TestCase):
         with self.assertRaises(m.MonitorError): m.resolve(fixture(build="12.2"),"0.1","12.1")
     def test_malformed_and_unsafe_pagination_rejected(self):
         with self.assertRaises(m.MonitorError): m.page_items(lambda _: {"data":"bad"},"https://api.appstoreconnect.apple.com/x")
-        with self.assertRaises(m.MonitorError): m.page_items(lambda _: {"data":[],"links":{"next":"https://evil.invalid/x"}},"https://api.appstoreconnect.apple.com/x")
+        for url in (
+            "https://evil.invalid/x",
+            "https://api.appstoreconnect.apple.com.evil.invalid/x",
+            "http://api.appstoreconnect.apple.com/x",
+            "https://api.appstoreconnect.apple.com:444/x",
+            "https://user@api.appstoreconnect.apple.com/x",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(m.MonitorError):
+                    m.page_items(lambda _: {"data":[],"links":{"next":url}},"https://api.appstoreconnect.apple.com/x")
+
+    def test_authenticated_fetch_rejects_cross_origin_requests_and_redirects(self):
+        fetch=m.asc_fetch("token")
+        with self.assertRaises(m.MonitorError):
+            fetch("https://api.appstoreconnect.apple.com.evil.invalid/x")
+        opener=next(x.cell_contents for x in fetch.__closure__ if hasattr(x.cell_contents, "handlers"))
+        handler=next(x for x in opener.handlers if isinstance(x,m.urllib.request.HTTPRedirectHandler))
+        with self.assertRaises(m.MonitorError):
+            handler.redirect_request(None,None,302,"",{},"https://evil.invalid/x")
 
 class SafetyTests(unittest.TestCase):
     def test_redaction_is_bounded_and_ascii(self):
@@ -56,6 +75,19 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(len(rows),m.MAX_CYCLES)
         self.assertEqual(m.parse_state("<!-- asc-review-monitor-state {not-json} -->"),[])
         self.assertEqual(m.parse_state(m.state_document(rows)),rows)
+    def test_issue_lookup_follows_all_pages(self):
+        obs=m.observation("0.1","12.1","IN_REVIEW")
+        first=[{"number":n,"title":"Other","body":""} for n in range(1,101)]
+        state={"number":101,"title":m.ISSUE_TITLE,"body":m.state_document([])}
+        calls=[]
+        def fake_gh(method,path,payload=None):
+            calls.append((method,path,payload))
+            if method=="GET": return first if path.endswith("page=1") else [state]
+            return {}
+        with mock.patch.object(m,"gh",side_effect=fake_gh), mock.patch.dict(os.environ,{"GITHUB_REPOSITORY":"owner/repo"}):
+            self.assertTrue(m.notify(obs,False))
+        self.assertTrue(any("page=2" in path for method,path,_ in calls if method=="GET"))
+        self.assertFalse(any(method=="POST" and path=="/repos/owner/repo/issues" for method,path,_ in calls))
 
 class WorkflowContractTests(unittest.TestCase):
     @classmethod
@@ -69,6 +101,8 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertNotIn(forbidden,w)
         self.assertIn("  contents: read",w); self.assertIn("  issues: write",w)
         self.assertNotIn("actions: write",w); self.assertRegex(w,r"actions/checkout@[0-9a-f]{40}")
+        self.assertIn("concurrency:",w); self.assertIn("group: app-store-review-status",w)
+        self.assertIn("cancel-in-progress: false",w)
     def test_only_dedup_uses_github_writes_and_apple_is_get_only(self):
         self.assertNotRegex(self.source,r'api\.appstoreconnect\.apple\.com[^\n]*POST')
         self.assertIn('request GET', self.source) if False else None

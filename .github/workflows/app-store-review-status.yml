@@ -23,6 +23,10 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: app-store-review-status
+  cancel-in-progress: false
+
 jobs:
   monitor:
     name: Read exact review cycle
