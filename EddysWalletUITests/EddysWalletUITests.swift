@@ -285,6 +285,8 @@ final class EddysWalletUITests: XCTestCase {
     func testMainScreensUseChildPersonalChromeNotStaticBrand() throws {
         let maya = launch("configured", environment: ["EW_UITEST_NICKNAME": "Maya"])
         XCTAssertTrue(maya.staticTexts["Hi, Maya"].waitForExistence(timeout: 10))
+        XCTAssertTrue(maya.staticTexts["Your allowance balance"].exists)
+        XCTAssertFalse(maya.staticTexts["Pretend dollars for practice - not real money."].exists)
         XCTAssertTrue(maya.staticTexts["Maya's Wallet"].exists)
         XCTAssertFalse(maya.staticTexts["Eddie's Wallet"].exists)
         XCTAssertFalse(maya.staticTexts["Eddie's wallet"].exists)
@@ -313,6 +315,8 @@ final class EddysWalletUITests: XCTestCase {
         // Neutral fallback when nickname is blank.
         let neutral = launch("configured", environment: ["EW_UITEST_NICKNAME": ""])
         XCTAssertTrue(neutral.staticTexts["Your wallet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(neutral.staticTexts["Your allowance balance"].exists)
+        XCTAssertFalse(neutral.staticTexts["Pretend dollars for practice - not real money."].exists)
         XCTAssertFalse(neutral.staticTexts["Eddie's Wallet"].exists)
         XCTAssertFalse(neutral.staticTexts["Hi, Eddie"].exists)
         openParentArea(in: neutral)

@@ -13,7 +13,7 @@ final class WalletTests: XCTestCase {
         XCTAssertEqual(ChildProfileCopy.walletReference(nickname: nil), "your child's wallet")
         XCTAssertEqual(ChildProfileCopy.childGreeting(nickname: nil), "Your wallet")
         XCTAssertEqual(ChildProfileCopy.parentBalanceTitle(nickname: nil), "Your child's virtual balance")
-        XCTAssertEqual(ChildProfileCopy.childBalanceTitle(nickname: nil), "Your virtual balance")
+        XCTAssertEqual(ChildProfileCopy.childBalanceTitle(nickname: nil), "Your allowance balance")
     }
 
     /// External brand stays on welcome/store identity only. Everyday chrome is
