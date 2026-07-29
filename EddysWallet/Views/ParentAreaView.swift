@@ -47,7 +47,6 @@ struct ParentAreaView: View {
                         firstActionsCard
                     }
 
-                    childProfileCard
                     walletCards
 
                     SectionHeader("Recent activity")
@@ -77,11 +76,6 @@ struct ParentAreaView: View {
             .navigationTitle("Parent area")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Image(systemName: "person.badge.shield.checkmark")
-                        .foregroundStyle(EW.Color.cream50)
-                        .accessibilityHidden(true)
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     doneButton
                 }
@@ -202,36 +196,6 @@ struct ParentAreaView: View {
                 syncStatusCard
             }
         }
-    }
-
-    private var childProfileCard: some View {
-        Button {
-            isShowingEditProfile = true
-        } label: {
-            HStack(spacing: EW.Space.three) {
-                IconBadge("person.crop.circle", foreground: EW.Color.green700, background: EW.Color.green100)
-                VStack(alignment: .leading, spacing: EW.Space.one) {
-                    Text("Child profile")
-                        .font(EW.Font.bodyBold)
-                        .foregroundStyle(EW.Color.textPrimary)
-                    Text(ChildProfileCopy.configuredNickname(from: store.snapshot.configuredChildNickname) ?? "Add a nickname")
-                        .font(EW.Font.body)
-                        .foregroundStyle(EW.Color.textSecondary)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: EW.Space.two)
-                Text("Edit")
-                    .font(EW.Font.bodyBold)
-                    .foregroundStyle(EW.Color.primaryActive)
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(EW.Color.textTertiary)
-            }
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        }
-        .buttonStyle(.plain)
-        .ewCard(variant: .alt)
-        .accessibilityIdentifier("edit-child-profile-card")
-        .accessibilityHint("Opens the child profile editor")
     }
 
     private var balanceCard: some View {

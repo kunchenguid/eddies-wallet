@@ -5,6 +5,13 @@ import XCTest
 /// a labeled screenshot of every stop. This keeps review evidence
 /// reproducible from clean simulators with synthetic fixture data instead of
 /// hand-assembled captures.
+///
+/// `TEST_RUNNER_`-prefixed variables only reach this process when exported
+/// in the calling shell before `xcodebuild test` runs, e.g.
+/// `export TEST_RUNNER_EW_EVIDENCE_DIR=/path && xcodebuild test ...`.
+/// Passing `TEST_RUNNER_EW_EVIDENCE_DIR=/path` as a trailing xcodebuild
+/// argument is silently treated as a build-setting override instead and
+/// never reaches `ProcessInfo.processInfo.environment` here.
 final class EvidenceCaptureUITests: XCTestCase {
     private let doorLabel = "Parent area. Asks for the parent PIN."
 
@@ -150,6 +157,28 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
     }
 
+    // The keypad's hit targets and digit labels must stay on screen and
+    // tappable at the largest supported accessibility text size, not just
+    // the default Dynamic Type size.
+    func testGateAccessibilityLargeTextTour() throws {
+        let app = launch("configured", arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+
+        app.buttons[doorLabel].tap()
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
+        capture("gate-ax-xxxl")
+
+        for digit in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"] {
+            let button = app.buttons["PIN digit \(digit)"]
+            XCTAssertTrue(button.exists, "PIN digit \(digit) must stay reachable at the largest accessibility text size")
+            XCTAssertTrue(button.isHittable, "PIN digit \(digit) must stay tappable at the largest accessibility text size")
+        }
+        XCTAssertTrue(app.buttons["Delete last PIN digit"].isHittable)
+
+        enterPIN("1234", in: app)
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+    }
+
     func testRecoveryTour() throws {
         let app = launch("no-pin")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
@@ -232,21 +261,14 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
 
-        let summaryCard = app.descendants(matching: .any)["edit-child-profile-card"]
         let settingsRow = app.descendants(matching: .any)["edit-child-profile-settings"]
-        XCTAssertTrue(summaryCard.waitForExistence(timeout: 5))
-        summaryCard.tap()
+        for _ in 0..<4 where !settingsRow.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(settingsRow.waitForExistence(timeout: 5))
+        settingsRow.tap()
 
         let field = app.descendants(matching: .any)["child-nickname-field"]
-        if !field.waitForExistence(timeout: 2) {
-            if app.navigationBars["Child profile"].exists {
-                app.navigationBars["Child profile"].buttons["Cancel"].tap()
-            }
-            app.swipeUp()
-            app.swipeUp()
-            XCTAssertTrue(settingsRow.waitForExistence(timeout: 5))
-            settingsRow.tap()
-        }
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         capture("parent-child-profile-editor")
 
@@ -267,8 +289,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         app.navigationBars.buttons["Done"].tap()
 
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Maya"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Maya's virtual balance"].exists)
+        XCTAssertTrue(app.staticTexts["Maya's virtual balance"].waitForExistence(timeout: 5))
         capture("parent-area-renamed-child")
 
         app.buttons["Done. Back to Maya's wallet"].tap()
