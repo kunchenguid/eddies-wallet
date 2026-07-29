@@ -7,6 +7,7 @@ public enum WalletRootRoute: Equatable, Sendable {
     case welcome
     case setup
     case kidHome
+    case recovery
 }
 
 public struct ParentGatePolicy: Sendable {
@@ -24,12 +25,59 @@ public struct ParentGatePolicy: Sendable {
 @MainActor
 enum WalletRepositoryFactory {
     static func makeDefault() -> any WalletRepository {
-        let local = try! LocalWalletRepository()
-        return select(local: local, legacy: APIWalletRepository())
+        makeDefault(
+            localProvider: { try LocalWalletRepository() },
+            legacyProvider: { APIWalletRepository() }
+        )
+    }
+
+    static func makeDefault(
+        localProvider: () throws -> LocalWalletRepository,
+        legacyProvider: () -> any WalletRepository
+    ) -> any WalletRepository {
+        do {
+            let local = try localProvider()
+            return select(local: local, legacy: legacyProvider())
+        } catch {
+            return LocalWalletRecoveryRepository(state: .storageUnavailable)
+        }
     }
 
     static func select(local: LocalWalletRepository, legacy: @autoclosure () -> any WalletRepository) -> any WalletRepository {
         local.hasLegacyInputs ? legacy() : local
+    }
+}
+
+@MainActor
+protocol WalletRecoveryProviding: AnyObject {
+    var recoveryState: WalletRecoveryState? { get }
+}
+
+@MainActor
+final class LocalWalletRecoveryRepository: WalletRepository, WalletRecoveryProviding {
+    let recoveryState: WalletRecoveryState?
+
+    init(state: WalletRecoveryState) {
+        recoveryState = state
+    }
+
+    var isAuthenticated: Bool { true }
+    var hasConfiguredKid: Bool { true }
+    func snapshot() -> WalletSnapshot { .empty() }
+    func childSnapshot() -> WalletSnapshot { .empty() }
+    func refresh(for _: UserRole) async throws -> WalletSnapshot { throw unavailable() }
+    func activity(limit _: Int) async throws -> [WalletEvent] { throw unavailable() }
+    func activityDetail(remoteID _: String) async throws -> WalletEvent { throw unavailable() }
+    func loanDetail(remoteID _: String) async throws -> LoanDetail { throw unavailable() }
+    func submit(_: WalletCommand) async throws -> CommandResult { throw unavailable() }
+    func setAllowance(_: AllowanceRuleCommand) async throws -> WalletSnapshot { throw unavailable() }
+    func setup(_: ParentSetup) async throws -> WalletSnapshot { throw unavailable() }
+    func updateChildProfile(_: ChildProfileUpdate) async throws -> WalletSnapshot { throw unavailable() }
+    func clearAuthentication() {}
+    func clearSession() throws { throw unavailable() }
+
+    private func unavailable() -> WalletAPIError {
+        .invalidResponse("This wallet needs recovery before it can be used.")
     }
 }
 
@@ -84,7 +132,9 @@ public final class WalletStore: ObservableObject {
         self.snapshot = resolvedRepository.childSnapshot()
         let configured = resolvedRepository.hasConfiguredKid
         self.isSignedIn = initiallySignedIn ?? configured
-        if let local = resolvedRepository as? LocalWalletRepository, let lineageID = local.lineageID {
+        if let recovery = resolvedRepository as? any WalletRecoveryProviding, let recoveryState = recovery.recoveryState {
+            self.authorityState = .localRecovery(recoveryState)
+        } else if let local = resolvedRepository as? LocalWalletRepository, let lineageID = local.lineageID {
             self.authorityState = .local(lineageID: lineageID)
         } else if configured {
             self.authorityState = .legacyService
@@ -106,7 +156,7 @@ public final class WalletStore: ObservableObject {
             self.appleSignInProvider = AppleSignInCoordinator()
         }
 
-        if self.isSignedIn, !isMockRepository {
+        if self.isSignedIn, !isMockRepository, self.recoveryState == nil {
             Task { [weak self] in await self?.refresh() }
         }
     }
@@ -129,8 +179,13 @@ public final class WalletStore: ObservableObject {
         switch authorityState {
         case .unconfigured, .authenticatingParent: return .welcome
         case .localSetup: return .setup
+        case .localRecovery: return .recovery
         default: return .kidHome
         }
+    }
+    public var recoveryState: WalletRecoveryState? {
+        if case let .localRecovery(state) = authorityState { return state }
+        return nil
     }
     public var isCoolingDown: Bool { cooldownSecondsRemaining > 0 }
     public var attemptsRemaining: Int { max(0, gatePolicy.maxAttempts - failedPINAttempts) }

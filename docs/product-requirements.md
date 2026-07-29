@@ -156,11 +156,11 @@ The UI may use the familiar words deposit, withdrawal, loan, and repayment, but 
 
 1. The parent opens the app and sees the virtual/nonredeemable explanation.
 2. The parent signs in with Apple.
-3. The parent creates the family and the child profile with a nickname and optional avatar. No child email or exact birth date is required.
+3. The parent creates the free one-device wallet and child profile with a nickname and optional avatar. No child email or exact birth date is required.
 4. The parent sets a PIN. The app confirms that it protects the Parent area on this iPad and is not a device-wide parental control.
 5. The parent lands in the Parent area with a clear next action: set an allowance or add a first deposit, plus a prominent handoff that shows the child's wallet. Every later configured launch opens directly to the child's wallet.
 
-If setup loses connectivity before the family is created, the app must retain form input locally but must not imply that a family or child profile was saved.
+Free setup commits directly to protected local authority and does not require the service. If setup is interrupted before that local save succeeds, the app must not imply that the wallet or child profile was saved. Optional Cloud activation is a separate parent flow and must never change authority until StoreKit verification and the service both accept it.
 
 ### Journey B: shared-iPad access through the parent door
 
@@ -179,8 +179,8 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 1. The parent opens the child's wallet and chooses a parent action.
 2. The parent enters the amount and, where relevant, a reason, date, or loan due date.
 3. A review step shows the event type, resulting wallet balance, and loan impact before confirmation.
-4. The app shows the event as **Recorded**, **Waiting to sync**, or **Not recorded**. It never presents a pending event as accepted.
-5. Once accepted, the event appears in the wallet activity list and becomes available to the child after the next successful sync.
+4. The app shows the event as **Recorded** or **Not recorded** for free local authority. Service-authoritative wallets may also show **Waiting to sync**. It never presents a pending event as accepted.
+5. Once accepted, the event appears in the wallet activity list. It is immediately available to the child on the free one-device wallet and becomes available after synchronization for a service-authoritative wallet.
 6. The child can open the event explanation but cannot edit, reverse, hide, or create a related event.
 
 ### Journey D: child reviews the wallet
@@ -192,12 +192,12 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 
 ### Journey E: offline and session recovery
 
-1. A child offline sees the last accepted snapshot with a **Last updated** time.
-2. A parent offline may queue an eligible money command only if the app has a recent accepted balance. The command is clearly marked **Waiting to sync**.
-3. On reconnect, the server or API revalidates the command and either accepts it once or rejects it with a plain-language reason.
-4. A rejected command never changes the accepted balance. Any provisional local display is reversed and the parent can retry after reviewing the reason.
-5. Offline allowance setup is a local draft until it is accepted. The app must not claim that a rule or allowance occurrence exists while offline.
-6. If the parent session expires, the app keeps the cached read-only kid snapshot and explains in kid wording that a parent needs to sign in again. The Parent door then requires a fresh Sign in with Apple by the owning parent before the PIN gate; the child is not sent to Welcome and no parent content appears before reauthentication.
+1. The free one-device wallet remains fully usable without network access. Reads and parent actions use protected local authority, accepted actions are **Recorded**, and no service session or **Waiting to sync** state is introduced.
+2. A service-authoritative wallet shown offline keeps its last accepted snapshot with a **Last updated** time.
+3. A parent using a service-authoritative wallet may queue an eligible money command only if the app has a recent accepted balance. The command is clearly marked **Waiting to sync**.
+4. On reconnect, the service revalidates the command and either accepts it once or rejects it with a plain-language reason. A rejected command never changes the accepted balance.
+5. Offline allowance setup for a service-authoritative wallet is a local draft until accepted. The app must not claim that a rule or allowance occurrence exists while offline.
+6. If a service session expires, the app keeps the cached read-only kid snapshot and explains in kid wording that a parent needs to sign in again. The Parent door then requires a fresh Sign in with Apple by the owning parent before the PIN gate; the child is not sent to Welcome and no parent content appears before reauthentication.
 
 ## 8. MVP screens and behavior
 

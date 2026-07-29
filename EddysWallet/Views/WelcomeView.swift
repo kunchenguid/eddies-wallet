@@ -77,6 +77,57 @@ struct WelcomeView: View {
     }
 }
 
+struct WalletRecoveryView: View {
+    @EnvironmentObject private var store: WalletStore
+
+    var body: some View {
+        ZStack {
+            EW.Color.appBackground.ignoresSafeArea()
+            VStack(spacing: EW.Space.seven) {
+                Spacer()
+                Image(systemName: "lock.shield.fill")
+                    .font(.system(size: 54, weight: .semibold))
+                    .foregroundStyle(EW.Color.primaryActive)
+                    .frame(width: 96, height: 96)
+                    .background(EW.Color.primaryTint, in: RoundedRectangle(cornerRadius: EW.Radius.large, style: .continuous))
+
+                VStack(spacing: EW.Space.three) {
+                    Text("Your wallet needs a parent")
+                        .font(EW.Font.display)
+                        .foregroundStyle(EW.Color.textPrimary)
+                        .multilineTextAlignment(.center)
+                    Text(message)
+                        .font(EW.Font.body)
+                        .foregroundStyle(EW.Color.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: 420)
+
+                Label("No wallet data was replaced.", systemImage: "lock.shield")
+                    .font(EW.Font.headingSmall)
+                    .foregroundStyle(EW.Color.textPrimary)
+                    .frame(maxWidth: 440, alignment: .leading)
+                    .ewCard(variant: .alt)
+                Spacer()
+            }
+            .padding(.horizontal, EW.Space.screenMargin)
+            .padding(.vertical, EW.Space.seven)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var message: String {
+        switch store.recoveryState {
+        case .historyUnavailable:
+            "This device cannot safely read the wallet history right now. Ask a parent for help."
+        case .storageUnavailable:
+            "This device cannot open its protected wallet storage right now. Ask a parent to try again later."
+        case nil:
+            "This device cannot safely open the wallet right now. Ask a parent for help."
+        }
+    }
+}
+
 #Preview("Welcome") {
     WelcomeView()
         .environmentObject(WalletStore())

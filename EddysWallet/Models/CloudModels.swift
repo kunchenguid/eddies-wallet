@@ -7,6 +7,7 @@ public enum WalletAuthorityState: Equatable, Sendable {
     case authenticatingParent
     case localSetup
     case local(lineageID: UUID)
+    case localRecovery(WalletRecoveryState)
     case legacyService
     case transitioningToCloud
     case transitioningToLocal
@@ -22,9 +23,16 @@ public enum WalletAuthorityState: Equatable, Sendable {
     }
 
     public var isLocalAuthority: Bool {
-        if case .local = self { return true }
-        return false
+        switch self {
+        case .local, .localRecovery: true
+        default: false
+        }
     }
+}
+
+public enum WalletRecoveryState: Equatable, Sendable {
+    case historyUnavailable
+    case storageUnavailable
 }
 
 public enum PurchaseAttemptState: Equatable, Sendable {

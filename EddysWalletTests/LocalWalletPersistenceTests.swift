@@ -55,6 +55,20 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertEqual(persistence.saveCount, 0)
     }
 
+    func testCorruptPersistedWalletRoutesToRecoveryInsteadOfZeroBalance() throws {
+        let persistence = ControllableLocalWalletPersistence(payload: Data("not-json".utf8))
+        let repository = try LocalWalletRepository(persistence: persistence)
+        let store = WalletStore(
+            repository: repository,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner")
+        )
+
+        XCTAssertEqual(store.rootRoute, .recovery)
+        XCTAssertEqual(store.recoveryState, .historyUnavailable)
+        XCTAssertEqual(store.authorityState, .localRecovery(.historyUnavailable))
+    }
+
     func testFailedEraseKeepsWalletInMemory() async throws {
         let persistence = ControllableLocalWalletPersistence()
         let repository = try LocalWalletRepository(persistence: persistence)
@@ -88,6 +102,22 @@ final class LocalWalletPersistenceTests: XCTestCase {
 
         XCTAssertTrue(selected === local)
         XCTAssertFalse(local.hasLegacyInputs)
+    }
+
+    func testLocalPersistenceOpenFailureRoutesToRecovery() {
+        let selected = WalletRepositoryFactory.makeDefault(
+            localProvider: { throw TestPersistenceError.failed },
+            legacyProvider: { MockWalletRepository() }
+        )
+        let store = WalletStore(
+            repository: selected,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner")
+        )
+
+        XCTAssertTrue(selected is LocalWalletRecoveryRepository)
+        XCTAssertEqual(store.rootRoute, .recovery)
+        XCTAssertEqual(store.recoveryState, .storageUnavailable)
     }
 }
 

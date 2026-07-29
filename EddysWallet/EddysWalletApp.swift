@@ -45,6 +45,8 @@ struct RootView: View {
                 SetupView()
             case .kidHome:
                 KidHomeView()
+            case .recovery:
+                WalletRecoveryView()
             }
         }
         .fullScreenCover(isPresented: isElevationPresented) {

@@ -20,10 +20,11 @@ private struct LocalWalletAggregate: Codable, Sendable {
 /// backend. Every parent mutation validates and persists accepted state in a
 /// single Core Data save, then returns Recorded.
 @MainActor
-public final class LocalWalletRepository: WalletRepository {
+public final class LocalWalletRepository: WalletRepository, WalletRecoveryProviding {
     private let persistence: any LocalWalletPersisting
     private var aggregate: LocalWalletAggregate?
     private var readOnlyReason: String?
+    public private(set) var recoveryState: WalletRecoveryState?
     /// A pre-Core-Data marker/cache is a migration input only. It stays
     /// read-only and is never promoted to local authority because it may hold
     /// only ten recent events.
@@ -50,6 +51,7 @@ public final class LocalWalletRepository: WalletRepository {
             } catch {
                 // Never replace questionable history with an empty wallet.
                 readOnlyReason = "This wallet history needs recovery before it can be changed."
+                recoveryState = .historyUnavailable
             }
         } else if hasLegacyMarker || legacySnapshot != nil {
             self.legacySnapshot = legacySnapshot
@@ -159,6 +161,7 @@ public final class LocalWalletRepository: WalletRepository {
         legacySnapshot = nil
         legacyMarkerPresent = false
         readOnlyReason = nil
+        recoveryState = nil
     }
 
     private func persist(_ candidate: LocalWalletAggregate) throws {
