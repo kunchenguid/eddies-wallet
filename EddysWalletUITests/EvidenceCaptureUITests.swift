@@ -37,6 +37,15 @@ final class EvidenceCaptureUITests: XCTestCase {
         try? screenshot.pngRepresentation.write(to: url)
     }
 
+    private func captureBrandPlacement(_ name: String) throws {
+        guard let evidenceDirectory else { return }
+        let screenshot = XCUIScreen.main.screenshot()
+        try FileManager.default.createDirectory(at: evidenceDirectory, withIntermediateDirectories: true)
+        let idiom = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        let url = evidenceDirectory.appendingPathComponent("\(idiom)-\(name).png")
+        try screenshot.pngRepresentation.write(to: url, options: .atomic)
+    }
+
     private func enterPIN(_ pin: String, in app: XCUIApplication) {
         for digit in pin {
             app.buttons["PIN digit \(digit)"].tap()
@@ -264,8 +273,49 @@ final class EvidenceCaptureUITests: XCTestCase {
 
         app.buttons["Done. Back to Maya's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Maya"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Maya's wallet"].exists)
+        XCTAssertTrue(app.staticTexts["Maya's Wallet"].exists)
         capture("kid-home-renamed")
+    }
+
+    func testBrandPlacementTour() throws {
+        let maya = launch("configured", environment: ["EW_UITEST_NICKNAME": "Maya"])
+        XCTAssertTrue(maya.staticTexts["Maya's Wallet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(maya.staticTexts["Hi, Maya"].exists)
+        XCTAssertTrue(maya.staticTexts["Your allowance balance"].exists)
+        XCTAssertFalse(maya.staticTexts["Pretend dollars for practice - not real money."].exists)
+        XCTAssertFalse(maya.staticTexts["Eddie's Wallet"].exists)
+        try captureBrandPlacement("maya-kid")
+
+        unlockParentArea(maya)
+        XCTAssertTrue(maya.staticTexts["Maya's virtual balance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(maya.buttons["Done. Back to Maya's wallet"].exists)
+        XCTAssertFalse(maya.staticTexts["Eddie's Wallet"].exists)
+        try captureBrandPlacement("maya-parent")
+
+        let mayaEmpty = launch("configured-empty", environment: ["EW_UITEST_NICKNAME": "Maya"])
+        XCTAssertTrue(mayaEmpty.staticTexts["Maya's Wallet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(mayaEmpty.staticTexts["Your wallet is ready!"].exists)
+        try captureBrandPlacement("maya-empty")
+
+        let neutral = launch("configured", environment: ["EW_UITEST_NICKNAME": ""])
+        XCTAssertTrue(neutral.staticTexts["Your wallet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(neutral.staticTexts["Your allowance balance"].exists)
+        XCTAssertFalse(neutral.staticTexts["Pretend dollars for practice - not real money."].exists)
+        XCTAssertFalse(neutral.staticTexts["Eddie's Wallet"].exists)
+        try captureBrandPlacement("neutral-kid")
+
+        let eddie = launch("configured")
+        XCTAssertTrue(eddie.staticTexts["Eddie's Wallet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(eddie.staticTexts["Hi, Eddie"].exists)
+        XCTAssertTrue(eddie.staticTexts["Your allowance balance"].exists)
+        try captureBrandPlacement("eddie-personal-kid")
+
+        let welcome = XCUIApplication()
+        welcome.launch()
+        XCTAssertTrue(welcome.descendants(matching: .any)["product-brand-wordmark"].waitForExistence(timeout: 10))
+        XCTAssertTrue(welcome.staticTexts["Eddie's Wallet"].exists)
+        XCTAssertTrue(welcome.staticTexts["Virtual practice only"].exists)
+        try captureBrandPlacement("welcome")
     }
 
     func testParentEmptyHandoffTour() throws {

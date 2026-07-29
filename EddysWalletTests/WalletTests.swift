@@ -11,6 +11,35 @@ final class WalletTests: XCTestCase {
         XCTAssertEqual(ChildProfileCopy.roleTitle(nickname: nil), "Child's view")
         XCTAssertEqual(ChildProfileCopy.childReference(nickname: nil), "your child")
         XCTAssertEqual(ChildProfileCopy.walletReference(nickname: nil), "your child's wallet")
+        XCTAssertEqual(ChildProfileCopy.childGreeting(nickname: nil), "Your wallet")
+        XCTAssertEqual(ChildProfileCopy.parentBalanceTitle(nickname: nil), "Your child's virtual balance")
+        XCTAssertEqual(ChildProfileCopy.childBalanceTitle(nickname: nil), "Your allowance balance")
+    }
+
+    /// External brand stays on welcome/store identity only. Everyday chrome is
+    /// child-personal or neutral - never a static Eddie possessive brand.
+    func testBrandPlacementKeepsExternalIdentityAndChildPersonalChrome() {
+        XCTAssertEqual(ProductBrand.displayName, "Eddie's Wallet")
+
+        // Non-Eddie child: personal headers, never a static Eddie brand string.
+        XCTAssertEqual(ChildProfileCopy.walletTitle(nickname: "Maya"), "Maya's Wallet")
+        XCTAssertEqual(ChildProfileCopy.walletReference(nickname: "Maya"), "Maya's wallet")
+        XCTAssertEqual(ChildProfileCopy.childGreeting(nickname: "Maya"), "Hi, Maya")
+        XCTAssertEqual(ChildProfileCopy.parentBalanceTitle(nickname: "Maya"), "Maya's virtual balance")
+        XCTAssertFalse(ChildProfileCopy.walletTitle(nickname: "Maya").localizedCaseInsensitiveContains("Eddie"))
+        XCTAssertFalse(ChildProfileCopy.walletReference(nickname: "Maya").localizedCaseInsensitiveContains("Eddie"))
+        XCTAssertFalse(ChildProfileCopy.parentBalanceTitle(nickname: "Maya").localizedCaseInsensitiveContains("Eddie"))
+
+        // Configured nickname Eddie is personal data, not stripped brand cleanup.
+        XCTAssertEqual(ChildProfileCopy.walletTitle(nickname: "Eddie"), "Eddie's Wallet")
+        XCTAssertEqual(ChildProfileCopy.walletReference(nickname: "Eddie"), "Eddie's wallet")
+        XCTAssertEqual(ChildProfileCopy.childGreeting(nickname: "Eddie"), "Hi, Eddie")
+        XCTAssertEqual(ChildProfileCopy.parentBalanceTitle(nickname: "Eddie"), "Eddie's virtual balance")
+
+        // Neutral fallbacks never fall back to the external brand wordmark.
+        XCTAssertNotEqual(ChildProfileCopy.walletTitle(nickname: nil), ProductBrand.displayName)
+        XCTAssertNotEqual(ChildProfileCopy.walletTitle(nickname: "   "), ProductBrand.displayName)
+        XCTAssertNotEqual(ChildProfileCopy.walletReference(nickname: nil), ProductBrand.displayName)
     }
 
     // MARK: - Child profile editor

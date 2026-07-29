@@ -10,7 +10,12 @@
 
 Eddie's Wallet is the product brand: a calm, parent-managed family ledger that helps a child practice everyday money concepts. Parents record changes. The configured child profile can understand and review them. The balance uses familiar local currency vocabulary, initially US dollars, but it is always **virtual, pretend, and nonredeemable**. No real money moves through the product.
 
-**Naming note:** The child nickname is configured during parent setup and returned by the service in each wallet snapshot. The app uses that nickname in parent and child-facing copy when available; otherwise it uses neutral language such as “your child” or “your wallet.” “Eddie's Wallet” is the application brand and does not set or imply a child nickname.
+**Brand identity vs everyday chrome:** **Eddie's Wallet** is the external app/store/marketing name (install display name, public docs, legal/support copy, and at most one intentional welcome/onboarding wordmark). It is **not** the recurring identity of the kid home or Parent area. Daily kid and parent main screens must never lead with a static brand possessive, because a child not named Eddie may think the wallet belongs to somebody else.
+
+- **Kid surfaces:** child-personal when the configured nickname is known (`Maya's Wallet`, `Hi, Maya`); neutral otherwise (`Your wallet`, `Your allowance balance`). Own reusable profile-derived strings in `ChildProfileCopy`.
+- **Parent surfaces:** family/child-centric (`Parent area`, child nickname, `Maya's virtual balance`, handoff back to the child's wallet) - not recurring `Eddie's ...` chrome.
+- **Configured nickname Eddie:** still valid personal data. Personal copy such as `Eddie's Wallet` for a child actually named Eddie is correct and must not be stripped as a false brand leak. Synthetic fixture nickname `Eddie` is test data, not a brand requirement.
+- **External keep list:** App Store/install display name, package/repository/bundle identifiers, support URLs, legal/About/copyright, and the welcome wordmark (`ProductBrand.displayName`).
 
 This document is the product starting point for the first MVP. The public repository is frontend-only; the service implementation and operations are maintained separately. This document defines client-facing behavior and does not include service or deployment implementation.
 
@@ -115,7 +120,7 @@ The amount is a simulated accounting value only. It is not a dollar claim, store
 
 > Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.
 
-Parent balance framing uses vocabulary such as **Eddie's virtual balance** (or “Your child's virtual balance” when no nickname is set).
+Parent balance framing uses the configured nickname, such as **Maya's virtual balance**, or **Your child's virtual balance** when no nickname is set.
 
 **Kid everyday surfaces** (kid home hero, empty-wallet ready state, kid activity list/detail, kid loan card/detail, and kid status/accessibility text) stay plain and relational. The primary kid balance label is exactly **Your allowance balance**. Do not stack `pretend`, `virtual practice`, `not real money`, `nonredeemable`, or similar complexity on the kid home or routine kid detail glances. Kid activity lines stay human (“Your parent added…”) without a heavy disclaimer on every row.
 

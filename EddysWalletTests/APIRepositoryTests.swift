@@ -170,6 +170,28 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertTrue(transport.requests.isEmpty)
     }
 
+    func testFamilySetupOmitsLessonsEraFields() async throws {
+        let transport = StubHTTPTransport(responses: [
+            StubHTTPTransport.Response(statusCode: 201, body: snapshotBody(balance: 0, nickname: "Maya"))
+        ])
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: transport,
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore()
+        )
+
+        _ = try await repository.setup(ParentSetup(familyName: "Chen", nickname: "Maya", idempotencyKey: "setup-1"))
+
+        let post = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(post.url?.path, "/v1/family/setup")
+        let body = try XCTUnwrap(post.httpBody).jsonObject()
+        XCTAssertEqual(body["familyName"] as? String, "Chen")
+        XCTAssertEqual(body["nickname"] as? String, "Maya")
+        XCTAssertNil(body["lessonAgeBand"])
+    }
+
     func testAppleSessionRequestUsesIdentityTokenAndNonceAndStoresOpaqueSession() async throws {
         let transport = StubHTTPTransport(responses: [
             StubHTTPTransport.Response(

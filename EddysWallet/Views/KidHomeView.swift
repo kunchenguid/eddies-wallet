@@ -108,10 +108,6 @@ struct KidHomeView: View {
             Text(ChildProfileCopy.childGreeting(nickname: store.snapshot.configuredChildNickname))
                 .font(EW.Font.headingSmall)
                 .foregroundStyle(EW.Color.white.opacity(0.92))
-            Text(ChildProfileCopy.childBalanceTitle(nickname: store.snapshot.configuredChildNickname))
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.white.opacity(0.88))
-                .multilineTextAlignment(.center)
             MoneyAmount(
                 cents: store.snapshot.acceptedBalanceCents,
                 font: horizontalSizeClass == .regular
@@ -120,6 +116,10 @@ struct KidHomeView: View {
                 color: EW.Color.white,
                 announcesVirtualMoney: false
             )
+            Text(ChildProfileCopy.childBalanceTitle(nickname: store.snapshot.configuredChildNickname))
+                .font(EW.Font.body)
+                .foregroundStyle(EW.Color.white.opacity(0.88))
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, EW.Space.six)
@@ -136,7 +136,7 @@ struct KidHomeView: View {
                 .padding(EW.Space.four)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(ChildProfileCopy.childBalanceTitle(nickname: store.snapshot.configuredChildNickname)) \(Money(cents: store.snapshot.acceptedBalanceCents).display)")
+        .accessibilityLabel("\(ChildProfileCopy.childBalanceTitle(nickname: store.snapshot.configuredChildNickname)) \(Money(cents: store.snapshot.acceptedBalanceCents).display).")
     }
 
     private var emptyWalletCard: some View {

@@ -32,6 +32,20 @@ public enum ParentGateRoute: Equatable, Sendable {
     case setPIN
 }
 
+/// External product identity. Use only on install/store surfaces and the one
+/// intentional welcome/onboarding brand mention - never as recurring kid or
+/// Parent-area chrome. Everyday titles come from `ChildProfileCopy`.
+public enum ProductBrand {
+    /// App Store / install / welcome wordmark. Not a child nickname.
+    public static let displayName = "Eddie's Wallet"
+}
+
+/// Child- and family-centric copy derived from the configured nickname.
+/// Daily main screens must use these helpers (or neutral fallbacks) instead of
+/// `ProductBrand.displayName`, so a child not named Eddie never sees the
+/// external brand as if it were their wallet. A real child named Eddie still
+/// receives correct personal copy - that overlap with the brand string is
+/// personal data, not a brand leak.
 public enum ChildProfileCopy {
     public static func configuredNickname(from rawNickname: String?) -> String? {
         guard let nickname = rawNickname?.trimmingCharacters(in: .whitespacesAndNewlines), !nickname.isEmpty else {
@@ -45,9 +59,11 @@ public enum ChildProfileCopy {
         return "\(nickname)'s view"
     }
 
+    /// Kid-home header identity. Title-case "Wallet" when personal; neutral
+    /// "Your wallet" when no nickname is configured.
     public static func walletTitle(nickname: String?) -> String {
         guard let nickname = configuredNickname(from: nickname) else { return "Your wallet" }
-        return "\(nickname)'s wallet"
+        return "\(nickname)'s Wallet"
     }
 
     public static func parentBalanceTitle(nickname: String?) -> String {
@@ -75,6 +91,8 @@ public enum ChildProfileCopy {
         configuredNickname(from: nickname) ?? "Your child"
     }
 
+    /// Mid-sentence wallet reference (handoff buttons, review copy). Lowercase
+    /// "wallet" so it reads as prose, not a brand wordmark.
     public static func walletReference(nickname: String?) -> String {
         guard let nickname = configuredNickname(from: nickname) else { return "your child's wallet" }
         return "\(nickname)'s wallet"
