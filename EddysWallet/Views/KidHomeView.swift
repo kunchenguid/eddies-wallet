@@ -108,10 +108,6 @@ struct KidHomeView: View {
             Text(ChildProfileCopy.childGreeting(nickname: store.snapshot.configuredChildNickname))
                 .font(EW.Font.headingSmall)
                 .foregroundStyle(EW.Color.white.opacity(0.92))
-            Text(ChildProfileCopy.childBalanceTitle(nickname: store.snapshot.configuredChildNickname))
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.white.opacity(0.88))
-                .multilineTextAlignment(.center)
             MoneyAmount(
                 cents: store.snapshot.acceptedBalanceCents,
                 font: horizontalSizeClass == .regular

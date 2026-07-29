@@ -94,6 +94,11 @@ final class EddysWalletUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Your allowance balance"].waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label == %@", "Your allowance balance")).count,
+            1,
+            "Kid home must show exactly one allowance balance label"
+        )
 
         XCTAssertFalse(app.staticTexts["Pretend dollars for practice - not real money."].exists)
         XCTAssertEqual(
