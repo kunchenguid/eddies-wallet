@@ -518,7 +518,7 @@ public protocol WalletRepository: AnyObject {
     func setup(_ setup: ParentSetup) async throws -> WalletSnapshot
     func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot
     func clearAuthentication()
-    func clearSession()
+    func clearSession() throws
 }
 
 @MainActor
@@ -563,7 +563,7 @@ public final class MockWalletRepository: WalletRepository {
         return LoanDetail(loan: loan, entries: current.activities.filter { $0.type == .loan || $0.type == .repayment })
     }
     public func clearAuthentication() {}
-    public func clearSession() {
+    public func clearSession() throws {
         configuredKid = false
         current = .empty()
         currentChild = .empty()

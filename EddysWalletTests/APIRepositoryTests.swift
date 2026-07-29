@@ -31,6 +31,27 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(APIConfiguration.productionBaseURL.absoluteString, "https://eddieswallet.kunchenguid.com")
     }
 
+    func testCloudTransaction202PreservesServerPendingStatus() async throws {
+        let transport = StubHTTPTransport(responses: [
+            StubHTTPTransport.Response(statusCode: 202, body: Data())
+        ])
+        let client = CloudAPIClient(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: transport
+        )
+
+        do {
+            _ = try await client.deliver(transactionJWS: "signed-jws")
+            XCTFail("Expected verification to remain pending")
+        } catch let WalletAPIError.server(statusCode, code, _) {
+            XCTAssertEqual(statusCode, 202)
+            XCTAssertEqual(code, "VERIFICATION_PENDING")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testWalletSnapshotMapsConfiguredChildNicknameFromService() async throws {
         let repository = APIWalletRepository(
             baseURL: URL(string: "https://api.example.test")!,
@@ -360,7 +381,7 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertTrue(configuredKid.isConfigured)
     }
 
-    func testExplicitSessionClearRemovesKidCacheAndConfiguredMarker() {
+    func testExplicitSessionClearRemovesKidCacheAndConfiguredMarker() throws {
         let cache = TestSnapshotCache()
         cache.value = .fixture()
         let configuredKid = InMemoryConfiguredKidStore(isConfigured: true)
@@ -372,7 +393,7 @@ final class APIRepositoryTests: XCTestCase {
             configuredKidStore: configuredKid
         )
 
-        repository.clearSession()
+        try repository.clearSession()
 
         XCTAssertNil(cache.value)
         XCTAssertFalse(configuredKid.isConfigured)
@@ -395,7 +416,7 @@ final class APIRepositoryTests: XCTestCase {
         let refresh = Task { try await repository.refresh(for: .child) }
         await waitForRequestCount(1, transport: transport)
 
-        repository.clearSession()
+        try repository.clearSession()
         transport.complete(
             statusCode: 200,
             body: snapshotBody(balance: 900, readOnly: true)
@@ -413,7 +434,7 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertFalse(relaunched.isSignedIn)
     }
 
-    func testInflightCommandSuccessCannotRestoreStateAfterSessionClear() async {
+    func testInflightCommandSuccessCannotRestoreStateAfterSessionClear() async throws {
         let pending = TestPendingCommandStore()
         let transport = SuspendingHTTPTransport()
         let repository = makeSuspendingRepository(transport: transport, pending: pending)
@@ -422,7 +443,7 @@ final class APIRepositoryTests: XCTestCase {
         let submission = Task { try await repository.submit(command) }
         await waitForRequestCount(1, transport: transport)
 
-        repository.clearSession()
+        try repository.clearSession()
         transport.complete(statusCode: 201, body: commandBody(balance: 150))
 
         await assertCancelled(submission)
@@ -431,7 +452,7 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertTrue(pending.commands.isEmpty)
     }
 
-    func testInflightCommandNetworkFailureCannotRequeueAfterSessionClear() async {
+    func testInflightCommandNetworkFailureCannotRequeueAfterSessionClear() async throws {
         let pending = TestPendingCommandStore()
         let transport = SuspendingHTTPTransport()
         let repository = makeSuspendingRepository(transport: transport, pending: pending)
@@ -440,7 +461,7 @@ final class APIRepositoryTests: XCTestCase {
         let submission = Task { try await repository.submit(command) }
         await waitForRequestCount(1, transport: transport)
 
-        repository.clearSession()
+        try repository.clearSession()
         transport.fail(URLError(.notConnectedToInternet))
 
         await assertCancelled(submission)
@@ -448,7 +469,7 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertTrue(pending.commands.isEmpty)
     }
 
-    func testInflightCommandRejectionCannotRestoreStateAfterSessionClear() async {
+    func testInflightCommandRejectionCannotRestoreStateAfterSessionClear() async throws {
         let pending = TestPendingCommandStore()
         let transport = SuspendingHTTPTransport()
         let repository = makeSuspendingRepository(transport: transport, pending: pending)
@@ -457,7 +478,7 @@ final class APIRepositoryTests: XCTestCase {
         let submission = Task { try await repository.submit(command) }
         await waitForRequestCount(1, transport: transport)
 
-        repository.clearSession()
+        try repository.clearSession()
         transport.complete(
             statusCode: 422,
             body: Data(#"{"error":{"code":"INVALID_AMOUNT","message":"Not recorded"}}"#.utf8)
@@ -486,7 +507,7 @@ final class APIRepositoryTests: XCTestCase {
         await waitForRequestCount(1, transport: transport)
         XCTAssertEqual(transport.requests.first?.httpMethod, "POST")
 
-        repository.clearSession()
+        try repository.clearSession()
         transport.complete(statusCode: 201, body: commandBody(balance: 150))
         await assertCancelled(firstRefresh)
         XCTAssertTrue(pending.commands.isEmpty)

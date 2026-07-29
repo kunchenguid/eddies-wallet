@@ -209,6 +209,6 @@ final class ScriptedWalletRepository: WalletRepository {
     }
 
     func clearAuthentication() { inner.clearAuthentication() }
-    func clearSession() { inner.clearSession() }
+    func clearSession() throws { try inner.clearSession() }
 }
 #endif

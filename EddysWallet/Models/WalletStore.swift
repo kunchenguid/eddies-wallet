@@ -580,7 +580,12 @@ public final class WalletStore: ObservableObject {
         let isPreFamilySetup = isSignedIn && needsSetup && !repository.hasConfiguredKid
         guard elevation == .active || isPreFamilySetup else { return }
         refreshGeneration += 1
-        repository.clearSession()
+        do {
+            try repository.clearSession()
+        } catch {
+            errorMessage = "This wallet could not be erased. Nothing else was removed."
+            return
+        }
         authorityState = .unconfigured
         purchaseAttempt = .idle
         cloudEntitlement = .none

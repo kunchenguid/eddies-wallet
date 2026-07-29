@@ -1065,7 +1065,7 @@ private final class FailingRefreshRepository: WalletRepository {
         authenticated = false
         inner.clearAuthentication()
     }
-    func clearSession() { inner.clearSession() }
+    func clearSession() throws { try inner.clearSession() }
 }
 
 @MainActor
@@ -1125,7 +1125,7 @@ private final class SuspendingMutationRepository: WalletRepository {
         return parent
     }
     func clearAuthentication() {}
-    func clearSession() {}
+    func clearSession() throws {}
 
     func completeSubmit() {
         parent.acceptedBalanceCents = 900
@@ -1181,7 +1181,7 @@ private final class SuspendingSetupRepository: WalletRepository {
         throw WalletAPIError.invalidResponse("Not used in this test.")
     }
     func clearAuthentication() {}
-    func clearSession() {}
+    func clearSession() throws {}
 
     func completeSetup() {
         configured = true

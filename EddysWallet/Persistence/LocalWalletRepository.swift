@@ -21,7 +21,7 @@ private struct LocalWalletAggregate: Codable, Sendable {
 /// single Core Data save, then returns Recorded.
 @MainActor
 public final class LocalWalletRepository: WalletRepository {
-    private let persistence: LocalWalletPersistence
+    private let persistence: any LocalWalletPersisting
     private var aggregate: LocalWalletAggregate?
     private var readOnlyReason: String?
     /// A pre-Core-Data marker/cache is a migration input only. It stays
@@ -30,7 +30,17 @@ public final class LocalWalletRepository: WalletRepository {
     private var legacySnapshot: WalletSnapshot?
 
     public init(directory: URL? = nil, inMemory: Bool = false, legacySnapshot: WalletSnapshot? = nil, hasLegacyMarker: Bool = false) throws {
-        persistence = try LocalWalletPersistence(directory: directory, inMemory: inMemory)
+        let persistence = try LocalWalletPersistence(directory: directory, inMemory: inMemory)
+        self.persistence = persistence
+        try load(legacySnapshot: legacySnapshot, hasLegacyMarker: hasLegacyMarker)
+    }
+
+    init(persistence: any LocalWalletPersisting, legacySnapshot: WalletSnapshot? = nil, hasLegacyMarker: Bool = false) throws {
+        self.persistence = persistence
+        try load(legacySnapshot: legacySnapshot, hasLegacyMarker: hasLegacyMarker)
+    }
+
+    private func load(legacySnapshot: WalletSnapshot?, hasLegacyMarker: Bool) throws {
         if let data = try persistence.load() {
             do {
                 let decoded = try JSONDecoder().decode(LocalWalletAggregate.self, from: data)
@@ -50,8 +60,8 @@ public final class LocalWalletRepository: WalletRepository {
         try self.init(legacySnapshot: cache, hasLegacyMarker: UserDefaultsConfiguredKidStore().isConfigured)
     }
 
-    public var isAuthenticated: Bool { aggregate != nil || legacySnapshot != nil }
-    public var hasConfiguredKid: Bool { aggregate != nil || legacySnapshot != nil }
+    public var isAuthenticated: Bool { aggregate != nil || legacySnapshot != nil || readOnlyReason != nil }
+    public var hasConfiguredKid: Bool { aggregate != nil || legacySnapshot != nil || readOnlyReason != nil }
     public var hasLegacyInputs: Bool { aggregate == nil && legacySnapshot != nil }
     public var lineageID: UUID? { aggregate?.metadata.lineageID }
     public var isReadOnly: Bool { readOnlyReason != nil }
@@ -76,6 +86,7 @@ public final class LocalWalletRepository: WalletRepository {
     }
 
     public func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {
+        if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
         guard aggregate == nil else { return snapshot() }
         guard legacySnapshot == nil else {
             throw WalletAPIError.invalidResponse("A parent needs one connection to move this existing wallet. Starting a new wallet requires the explicit destructive migration choice.")
@@ -84,37 +95,36 @@ public final class LocalWalletRepository: WalletRepository {
             throw WalletAPIError.invalidResponse("Enter a child nickname.")
         }
         let fresh = WalletSnapshot(acceptedBalanceCents: 0, activities: [], loan: nil, allowance: nil, pendingEvents: [], lastUpdated: .now, isStale: false, childNickname: nickname)
-        aggregate = LocalWalletAggregate(metadata: LocalWalletMetadata(lineageID: UUID()), snapshot: fresh)
-        try persist()
+        try persist(LocalWalletAggregate(metadata: LocalWalletMetadata(lineageID: UUID()), snapshot: fresh))
         return fresh
     }
 
     public func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot {
         guard let nickname = update.validatedNickname else { throw WalletAPIError.invalidResponse("Enter a child nickname.") }
-        try requireWritable()
-        aggregate!.snapshot.childNickname = nickname
-        aggregate!.snapshot.lastUpdated = .now
-        aggregate!.snapshot.isStale = false
-        try persist()
-        return aggregate!.snapshot
+        var candidate = try writableAggregate()
+        candidate.snapshot.childNickname = nickname
+        candidate.snapshot.lastUpdated = .now
+        candidate.snapshot.isStale = false
+        try persist(candidate)
+        return candidate.snapshot
     }
 
     public func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {
         guard command.amountCents > 0, (0...6).contains(command.weekday) else {
             throw WalletAPIError.invalidResponse("Enter a valid weekly allowance.")
         }
-        try requireWritable()
-        aggregate!.snapshot.allowance = AllowancePlan(remoteID: "local-allowance", amountCents: command.amountCents, cadence: "every week", weekday: command.weekday, nextDate: command.startDate, endDate: command.endDate, nextOccurrenceID: command.idempotencyKey, syncState: .recorded)
-        aggregate!.snapshot.lastUpdated = .now
-        aggregate!.snapshot.isStale = false
-        try persist()
-        return aggregate!.snapshot
+        var candidate = try writableAggregate()
+        candidate.snapshot.allowance = AllowancePlan(remoteID: "local-allowance", amountCents: command.amountCents, cadence: "every week", weekday: command.weekday, nextDate: command.startDate, endDate: command.endDate, nextOccurrenceID: command.idempotencyKey, syncState: .recorded)
+        candidate.snapshot.lastUpdated = .now
+        candidate.snapshot.isStale = false
+        try persist(candidate)
+        return candidate.snapshot
     }
 
     public func submit(_ command: WalletCommand) async throws -> CommandResult {
-        try requireWritable()
+        var candidate = try writableAggregate()
         guard command.amountCents > 0 else { return .rejected(rejected(command, "Enter an amount greater than US$0.00.")) }
-        var wallet = aggregate!.snapshot
+        var wallet = candidate.snapshot
         switch command.kind {
         case .withdrawal:
             guard command.amountCents <= wallet.acceptedBalanceCents else { return .rejected(rejected(command, "The amount is greater than the accepted balance.")) }
@@ -131,32 +141,33 @@ public final class LocalWalletRepository: WalletRepository {
         case .deposit, .allowance:
             wallet.acceptedBalanceCents += command.amountCents
         }
-        let event = WalletEvent(id: UUID(uuidString: command.idempotencyKey) ?? UUID(), remoteID: command.idempotencyKey, type: activityType(command.kind), amountCents: command.amountCents, balanceBeforeCents: aggregate!.snapshot.acceptedBalanceCents, balanceAfterCents: wallet.acceptedBalanceCents, reason: command.reason, syncState: .recorded, explanation: explanation(command))
+        let event = WalletEvent(id: UUID(uuidString: command.idempotencyKey) ?? UUID(), remoteID: command.idempotencyKey, type: activityType(command.kind), amountCents: command.amountCents, balanceBeforeCents: candidate.snapshot.acceptedBalanceCents, balanceAfterCents: wallet.acceptedBalanceCents, reason: command.reason, syncState: .recorded, explanation: explanation(command))
         wallet.activities.insert(event, at: 0)
         wallet.lastUpdated = .now
         wallet.isStale = false
-        aggregate!.snapshot = wallet
-        try persist()
+        candidate.snapshot = wallet
+        try persist(candidate)
         return .accepted(event)
     }
 
     public func clearAuthentication() {}
-    public func clearSession() {
-        guard readOnlyReason == nil else { return }
-        try? persistence.erase()
+    public func clearSession() throws {
+        try persistence.erase()
         aggregate = nil
         legacySnapshot = nil
+        readOnlyReason = nil
     }
 
-    private func persist() throws {
-        guard let aggregate else { return }
-        try Self.validate(aggregate.snapshot)
-        try persistence.save(JSONEncoder().encode(aggregate))
+    private func persist(_ candidate: LocalWalletAggregate) throws {
+        try Self.validate(candidate.snapshot)
+        try persistence.save(JSONEncoder().encode(candidate))
+        aggregate = candidate
     }
 
-    private func requireWritable() throws {
-        guard aggregate != nil else { throw WalletAPIError.familyNotSetup }
+    private func writableAggregate() throws -> LocalWalletAggregate {
         if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
+        guard let aggregate else { throw WalletAPIError.familyNotSetup }
+        return aggregate
     }
 
     private static func validate(_ snapshot: WalletSnapshot) throws {

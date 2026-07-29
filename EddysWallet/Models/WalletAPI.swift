@@ -837,7 +837,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         sessionStore.clear()
     }
 
-    public func clearSession() {
+    public func clearSession() throws {
         lifecycleGeneration += 1
         sessionStore.clear()
         pendingCommands.removeAll()

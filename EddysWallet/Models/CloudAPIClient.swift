@@ -25,7 +25,7 @@ public final class CloudAPIClient {
 
     /// The server receives Apple's signed JWS. No decoded client claim is sent.
     public func deliver(transactionJWS: String) async throws -> CloudContext {
-        try await send(path: "/v1/cloud/transactions", method: "POST", body: ["signedTransaction": transactionJWS], authenticated: true, idempotencyKey: UUID().uuidString).decoded(CloudContext.self)
+        try await send(path: "/v1/cloud/transactions", method: "POST", body: ["signedTransaction": transactionJWS], authenticated: true, idempotencyKey: UUID().uuidString, pendingStatusCode: 202).decoded(CloudContext.self)
     }
 
     public func bootstrap(cursor: String? = nil) async throws -> Data {
@@ -54,12 +54,12 @@ public final class CloudAPIClient {
         try await send(path: path, method: "POST", body: [:], authenticated: true, idempotencyKey: idempotencyKey, revision: revision)
     }
 
-    private func send(path: String, method: String, body: [String: Any]?, authenticated: Bool, idempotencyKey: String? = nil, revision: Int64? = nil) async throws -> Data {
+    private func send(path: String, method: String, body: [String: Any]?, authenticated: Bool, idempotencyKey: String? = nil, revision: Int64? = nil, pendingStatusCode: Int? = nil) async throws -> Data {
         let data = body.map { try? JSONSerialization.data(withJSONObject: $0) } ?? nil
-        return try await sendData(path: path, method: method, body: data, authenticated: authenticated, idempotencyKey: idempotencyKey, revision: revision)
+        return try await sendData(path: path, method: method, body: data, authenticated: authenticated, idempotencyKey: idempotencyKey, revision: revision, pendingStatusCode: pendingStatusCode)
     }
 
-    private func sendData(path: String, method: String, body: Data?, authenticated: Bool, idempotencyKey: String? = nil, revision: Int64? = nil) async throws -> Data {
+    private func sendData(path: String, method: String, body: Data?, authenticated: Bool, idempotencyKey: String? = nil, revision: Int64? = nil, pendingStatusCode: Int? = nil) async throws -> Data {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw WalletAPIError.invalidConfiguration }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -75,6 +75,9 @@ public final class CloudAPIClient {
         do {
             let (data, response) = try await transport.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw WalletAPIError.invalidResponse("The server returned an invalid HTTP response.") }
+            if http.statusCode == pendingStatusCode {
+                throw WalletAPIError.server(statusCode: http.statusCode, code: "VERIFICATION_PENDING", message: "The Cloud service is still verifying this purchase.")
+            }
             guard (200..<300).contains(http.statusCode) else {
                 if http.statusCode == 401 { sessionStore.clear(); throw WalletAPIError.unauthorized }
                 let envelope = try? JSONDecoder().decode(CloudErrorEnvelope.self, from: data)

@@ -1,11 +1,17 @@
 import CoreData
 import Foundation
 
+protocol LocalWalletPersisting {
+    func load() throws -> Data?
+    func save(_ payload: Data) throws
+    func erase() throws
+}
+
 /// Versioned protected Core Data container for the one-child local aggregate.
 /// The aggregate is encoded as one transactionally-updated record so metadata,
 /// materialized balance, immutable events, loan, repayment state, allowance,
 /// and the bounded outbox never commit independently.
-final class LocalWalletPersistence {
+final class LocalWalletPersistence: LocalWalletPersisting {
     static let modelName = "WalletModel"
     private let container: NSPersistentContainer
     private let recordEntity = "WalletRecord"
