@@ -392,7 +392,7 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Sign out must ask for confirmation")
         confirm.tap()
 
-        XCTAssertTrue(app.buttons["Sign in with Apple"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Set up your child's wallet"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Hi, Eddie"].exists, "No usable family data after sign-out")
     }
 
