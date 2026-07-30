@@ -24,10 +24,11 @@ struct ParentAreaView: View {
     /// Shows the first-actions spotlight right after setup, and whenever the
     /// wallet has no recorded activity or allowance rule yet.
     private var showsHandoffCard: Bool {
-        store.showsFirstActionsHandoff
+        store.canModifyWallet
+            && (store.showsFirstActionsHandoff
             || (store.snapshot.activities.isEmpty
                 && store.snapshot.pendingEvents.isEmpty
-                && store.snapshot.allowance == nil)
+                && store.snapshot.allowance == nil))
     }
 
     var body: some View {
@@ -43,25 +44,33 @@ struct ParentAreaView: View {
                             .background(EW.Color.dangerTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
                     }
 
-                    if showsHandoffCard {
-                        firstActionsCard
-                    }
-
-                    walletCards
-
-                    SectionHeader("Recent activity")
-                    if store.snapshot.activities.isEmpty {
-                        Text("Nothing recorded yet. Add a first deposit or set the weekly allowance.")
-                            .font(EW.Font.body)
-                            .foregroundStyle(EW.Color.textSecondary)
-                    } else {
-                        ActivityListCard(events: store.snapshot.activities) { event in
-                            selectedEvent = event
+                    if store.canShowWalletData {
+                        if showsHandoffCard {
+                            firstActionsCard
                         }
-                    }
 
-                    SectionHeader("Parent actions")
-                    actionGrid
+                        walletCards
+
+                        SectionHeader("Recent activity")
+                        if store.snapshot.activities.isEmpty {
+                            Text("Nothing recorded yet. Add a first deposit or set the weekly allowance.")
+                                .font(EW.Font.body)
+                                .foregroundStyle(EW.Color.textSecondary)
+                        } else {
+                            ActivityListCard(events: store.snapshot.activities) { event in
+                                selectedEvent = event
+                            }
+                        }
+
+                        if store.canModifyWallet {
+                            SectionHeader("Parent actions")
+                            actionGrid
+                        } else {
+                            cloudReadOnlyCard
+                        }
+                    } else {
+                        cloudReplicaUnavailableCard
+                    }
 
                     SectionHeader("Cloud")
                     CloudStatusView()
@@ -164,6 +173,26 @@ struct ParentAreaView: View {
         .ewCard()
     }
 
+    static func cloudReplicaUnavailableMessage(deviceNoun: String) -> String {
+        "Reconnect this \(deviceNoun) to finish Cloud setup and show the wallet balance and activity."
+    }
+
+    private var cloudReplicaUnavailableCard: some View {
+        VStack(alignment: .leading, spacing: EW.Space.three) {
+            Label("Cloud wallet unavailable", systemImage: "icloud.slash")
+                .font(EW.Font.heading)
+                .foregroundStyle(EW.Color.textPrimary)
+            Text(Self.cloudReplicaUnavailableMessage(deviceNoun: DeviceCopy.deviceNoun))
+                .font(EW.Font.body)
+                .foregroundStyle(EW.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .ewCard(variant: .alt)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("parent-cloud-replica-unavailable")
+    }
+
     /// Balance + allowance pair on top; loan + sync pair below. On regular
     /// widths a lone second-row card spans the full width so the grid never
     /// leaves an orphan gap.
@@ -219,42 +248,75 @@ struct ParentAreaView: View {
     }
 
     private var allowanceCard: some View {
-        Button {
-            isShowingAllowance = true
-        } label: {
-            HStack(alignment: .top, spacing: EW.Space.three) {
-                IconBadge("calendar", foreground: EW.Color.gold700, background: EW.Color.goldTint)
-                VStack(alignment: .leading, spacing: EW.Space.one) {
-                    Text("Next allowance")
-                        .font(EW.Font.bodyBold)
-                        .foregroundStyle(EW.Color.textPrimary)
-                    if let allowance = store.snapshot.allowance {
-                        Text("\(Money(cents: allowance.amountCents).display) \(allowance.cadence)")
-                            .font(EW.Font.body)
-                            .foregroundStyle(EW.Color.textSecondary)
-                        Text("Starting \(allowance.nextDate.formatted(.dateTime.month(.abbreviated).day()))")
-                            .font(EW.Font.caption)
+        Group {
+            if store.canModifyWallet {
+                Button {
+                    isShowingAllowance = true
+                } label: {
+                    HStack(spacing: EW.Space.two) {
+                        allowanceCardContent
+                        Image(systemName: "chevron.right")
                             .foregroundStyle(EW.Color.textTertiary)
-                        if allowance.syncState != .recorded {
-                            StatusPill(state: allowance.syncState)
-                        }
-                    } else {
-                        Text("Set a weekly allowance")
-                            .font(EW.Font.body)
-                            .foregroundStyle(EW.Color.textSecondary)
                     }
                 }
-                .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: EW.Space.two)
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(EW.Color.textTertiary)
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens allowance setup")
+            } else {
+                allowanceCardContent
             }
-            .frame(minHeight: 44, maxHeight: .infinity, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .buttonStyle(.plain)
+        .frame(minHeight: 44, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .ewCard(variant: .alt)
-        .accessibilityHint("Opens allowance setup")
+    }
+
+    private var allowanceCardContent: some View {
+        HStack(alignment: .top, spacing: EW.Space.three) {
+            IconBadge("calendar", foreground: EW.Color.gold700, background: EW.Color.goldTint)
+            VStack(alignment: .leading, spacing: EW.Space.one) {
+                Text("Next allowance")
+                    .font(EW.Font.bodyBold)
+                    .foregroundStyle(EW.Color.textPrimary)
+                if let allowance = store.snapshot.allowance {
+                    Text("\(Money(cents: allowance.amountCents).display) \(allowance.cadence)")
+                        .font(EW.Font.body)
+                        .foregroundStyle(EW.Color.textSecondary)
+                    Text("Starting \(allowance.nextDate.formatted(.dateTime.month(.abbreviated).day()))")
+                        .font(EW.Font.caption)
+                        .foregroundStyle(EW.Color.textTertiary)
+                    if allowance.syncState != .recorded {
+                        StatusPill(state: allowance.syncState)
+                    }
+                } else {
+                    Text(store.canModifyWallet ? "Set a weekly allowance" : "No weekly allowance")
+                        .font(EW.Font.body)
+                        .foregroundStyle(EW.Color.textSecondary)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: EW.Space.two)
+        }
+    }
+
+    private var cloudReadOnlyCard: some View {
+        VStack(alignment: .leading, spacing: EW.Space.three) {
+            Label("Cloud wallet is read-only", systemImage: "icloud")
+                .font(EW.Font.headingSmall)
+                .foregroundStyle(EW.Color.textPrimary)
+            Text("This version shows the wallet accepted by Cloud. Recording money, changing allowance, and editing the child profile stay unavailable until Cloud write support is ready.")
+                .font(EW.Font.body)
+                .foregroundStyle(EW.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Refresh from Cloud") {
+                Task { await store.refresh() }
+            }
+            .buttonStyle(.plain)
+            .font(EW.Font.bodyBold)
+            .foregroundStyle(EW.Color.primaryActive)
+            .accessibilityIdentifier("cloud-read-only-refresh-button")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .ewCard(variant: .alt)
     }
 
     private var syncStatusCard: some View {
@@ -263,24 +325,26 @@ struct ParentAreaView: View {
                 .font(EW.Font.headingSmall)
                 .foregroundStyle(EW.Color.textPrimary)
             ForEach(store.snapshot.pendingEvents) { event in
-                Button {
-                    selectedEvent = event
-                } label: {
-                    HStack(spacing: EW.Space.three) {
-                        IconBadge(event.type.iconName, foreground: stateColor(event.syncState), background: stateTint(event.syncState), size: 36)
-                        VStack(alignment: .leading, spacing: EW.Space.one) {
-                            Text(event.displayReason)
-                                .font(EW.Font.bodyBold)
-                                .foregroundStyle(EW.Color.textPrimary)
-                                .lineLimit(1)
-                            MoneyAmount(cents: event.amountCents, font: EW.Font.caption, color: EW.Color.textSecondary)
+                VStack(alignment: .leading, spacing: EW.Space.two) {
+                    Button {
+                        selectedEvent = event
+                    } label: {
+                        HStack(spacing: EW.Space.three) {
+                            IconBadge(event.type.iconName, foreground: stateColor(event.syncState), background: stateTint(event.syncState), size: 36)
+                            VStack(alignment: .leading, spacing: EW.Space.one) {
+                                Text(event.displayReason)
+                                    .font(EW.Font.bodyBold)
+                                    .foregroundStyle(EW.Color.textPrimary)
+                                    .lineLimit(1)
+                                MoneyAmount(cents: event.amountCents, font: EW.Font.caption, color: EW.Color.textSecondary)
+                            }
+                            Spacer()
+                            StatusPill(state: event.syncState)
                         }
-                        Spacer()
-                        StatusPill(state: event.syncState)
+                        .frame(minHeight: 44)
                     }
-                    .frame(minHeight: 44)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -337,10 +401,12 @@ struct ParentAreaView: View {
 
     private var settingsCard: some View {
         VStack(spacing: 0) {
-            settingsRow(title: "Edit child profile", icon: "person.crop.circle", accessibilityIdentifier: "edit-child-profile-settings") {
-                isShowingEditProfile = true
+            if store.canModifyWallet {
+                settingsRow(title: "Edit child profile", icon: "person.crop.circle", accessibilityIdentifier: "edit-child-profile-settings") {
+                    isShowingEditProfile = true
+                }
+                Divider().overlay(EW.Color.border)
             }
-            Divider().overlay(EW.Color.border)
             settingsRow(title: "Change PIN", icon: "lock.rotation") {
                 isShowingChangePIN = true
             }
@@ -355,7 +421,13 @@ struct ParentAreaView: View {
             RoundedRectangle(cornerRadius: EW.Radius.large, style: .continuous).stroke(EW.Color.border, lineWidth: 1)
         }
         .confirmationDialog(signOutTitle, isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
-            Button(signOutButtonTitle, role: .destructive) { store.signOut() }
+            Button(signOutButtonTitle, role: .destructive) {
+                if store.canSignOutOfCloudOnThisDevice {
+                    Task { await store.signOutOfCloudOnThisDevice() }
+                } else {
+                    store.signOut()
+                }
+            }
             Button("Stay signed in", role: .cancel) {}
         } message: {
             Text(signOutMessage)
@@ -363,17 +435,26 @@ struct ParentAreaView: View {
     }
 
     private var signOutTitle: String {
-        store.authorityState.isLocalAuthority ? "Sign out and erase this device's wallet?" : "Sign out?"
+        switch store.cloudSignOutMode {
+        case .cloudDevice: "Sign out of Cloud on this \(DeviceCopy.deviceNoun)?"
+        case .serviceDevice: "Sign out?"
+        case .localErase: "Sign out and erase this device's wallet?"
+        }
     }
 
     private var signOutButtonTitle: String {
-        store.authorityState.isLocalAuthority ? "Sign out and erase wallet" : "Sign out from this \(DeviceCopy.deviceNoun)"
+        store.cloudSignOutMode == .localErase ? "Sign out and erase wallet" : "Sign out from this \(DeviceCopy.deviceNoun)"
     }
 
     private var signOutMessage: String {
-        store.authorityState.isLocalAuthority
-            ? "There is no Cloud backup for this wallet. This permanently erases the wallet, parent PIN, and parent identity evidence from this \(DeviceCopy.deviceNoun)."
-            : "This removes the local Cloud view and parent PIN from this \(DeviceCopy.deviceNoun). It does not delete the Cloud wallet."
+        switch store.cloudSignOutMode {
+        case .cloudDevice:
+            "This \(DeviceCopy.deviceNoun) stops syncing with Cloud. The wallet keeps working here and nothing is deleted."
+        case .serviceDevice:
+            "This removes the local Cloud view and parent PIN from this \(DeviceCopy.deviceNoun). It does not delete the Cloud wallet."
+        case .localErase:
+            "There is no Cloud backup for this wallet. This permanently erases the wallet, parent PIN, and parent identity evidence from this \(DeviceCopy.deviceNoun)."
+        }
     }
 
     private func settingsRow(title: String, icon: String, role: ButtonRole? = nil, accessibilityIdentifier: String? = nil, action: @escaping () -> Void) -> some View {

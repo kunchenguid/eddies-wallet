@@ -4,11 +4,15 @@ struct LocalWalletMetadata: Codable, Sendable {
     var schemaVersion = 1
     var lineageID: UUID
     var authority = "local"
+    var confirmedCloudLineageID: UUID? = nil
     var serverHouseholdID: String?
     var serverRevision: Int64 = 0
     var lastServerSync: Date?
     var migrationState = "complete"
-    var pendingCloudCommand: WalletCommand?
+    /// Stable identity of the one-time local-to-Cloud upload, so an interrupted
+    /// import replays instead of creating a second household.
+    var cloudImportOperationID: UUID?
+    var cloudImportCompleted = false
 }
 
 private struct LocalWalletAggregate: Codable, Sendable {
@@ -152,6 +156,124 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         candidate.snapshot = wallet
         try persist(candidate)
         return .accepted(event)
+    }
+
+    // MARK: - Cloud authority
+
+    /// The accepted Cloud household this device is mirroring, when Cloud owns
+    /// the lineage. A missing or non-Cloud authority never reports a revision.
+    public var cloudRevision: Int64? {
+        guard let aggregate, aggregate.metadata.authority == "cloud" else { return nil }
+        return aggregate.metadata.serverRevision
+    }
+
+    public var cloudAuthorityLineageID: UUID? {
+        guard let aggregate, aggregate.metadata.authority == "cloud" else { return nil }
+        return aggregate.metadata.confirmedCloudLineageID ?? aggregate.metadata.lineageID
+    }
+
+    public var isCloudAuthority: Bool { cloudRevision != nil }
+    public var cloudImportOperationID: UUID? { aggregate?.metadata.cloudImportOperationID }
+    public var hasCompletedCloudImport: Bool { aggregate?.metadata.cloudImportCompleted == true }
+    /// Reserves the one-time import identity before the upload starts, so a
+    /// retry after an interrupted upload reuses the same operation and key.
+    @discardableResult
+    public func reserveCloudImportOperation() throws -> UUID {
+        var candidate = try writableAggregate()
+        if let existing = candidate.metadata.cloudImportOperationID { return existing }
+        let operationID = UUID()
+        candidate.metadata.cloudImportOperationID = operationID
+        try persist(candidate)
+        return operationID
+    }
+
+    public func markCloudAuthorityConfirmed(lineageID: UUID, revision: Int64) throws {
+        var candidate = aggregate ?? LocalWalletAggregate(
+            metadata: LocalWalletMetadata(lineageID: lineageID),
+            snapshot: .empty()
+        )
+        if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
+        if candidate.metadata.authority != "cloud" {
+            candidate.metadata.lastServerSync = nil
+        }
+        candidate.metadata.authority = "cloud"
+        candidate.metadata.confirmedCloudLineageID = lineageID
+        candidate.metadata.serverRevision = revision
+        try persist(candidate)
+    }
+
+    public func markCloudImportAccepted(lineageID: UUID, revision: Int64) throws {
+        guard var candidate = aggregate, candidate.metadata.lineageID == lineageID else {
+            throw WalletAPIError.invalidResponse("Cloud confirmed a different wallet history. Nothing was changed.")
+        }
+        if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
+        candidate.metadata.authority = "cloud"
+        candidate.metadata.confirmedCloudLineageID = lineageID
+        candidate.metadata.serverRevision = revision
+        candidate.metadata.lastServerSync = .now
+        candidate.metadata.cloudImportCompleted = true
+        try persist(candidate)
+    }
+
+    public func hasAcceptedCloudReplica(lineageID: UUID) -> Bool {
+        guard let aggregate,
+              aggregate.metadata.authority == "cloud",
+              cloudAuthorityLineageID == lineageID,
+              aggregate.metadata.lineageID == lineageID,
+              aggregate.metadata.lastServerSync != nil else { return false }
+        return true
+    }
+
+    /// Cloud ended (expiry, refund, revocation, or an explicit parent choice):
+    /// the mirrored history stays and this device becomes the accepted authority
+    /// again. Nothing is deleted.
+    public func continueLocallyAfterCloud() throws {
+        var candidate = try writableAggregate()
+        candidate.metadata.authority = "local"
+        candidate.metadata.confirmedCloudLineageID = nil
+        candidate.metadata.serverRevision = 0
+        candidate.metadata.lastServerSync = nil
+        try persist(candidate)
+    }
+
+    /// Applies an accepted Cloud replica in one transactional save. A malformed
+    /// or non-Cloud household is refused instead of replacing local history.
+    public func applyCloudReplica(_ replica: CloudReplica, merging: Bool) throws {
+        guard replica.household.isCloudAuthoritative, let lineageID = replica.household.lineageID else {
+            throw WalletAPIError.invalidResponse("The Cloud wallet did not report a usable household.")
+        }
+        if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
+        if let confirmedLineageID = cloudAuthorityLineageID, confirmedLineageID != lineageID {
+            throw WalletAPIError.invalidResponse("This Cloud wallet belongs to a different wallet history.")
+        }
+        var metadata = aggregate?.metadata ?? LocalWalletMetadata(lineageID: lineageID)
+        let existingReplicaMatches = hasAcceptedCloudReplica(lineageID: lineageID)
+        let fallbackNickname = metadata.lineageID == lineageID ? aggregate?.snapshot.childNickname : nil
+        metadata.lineageID = lineageID
+        metadata.authority = "cloud"
+        metadata.confirmedCloudLineageID = lineageID
+        metadata.serverRevision = replica.household.revision
+        metadata.lastServerSync = .now
+        metadata.cloudImportCompleted = true
+        let existingEvents = merging && existingReplicaMatches ? (aggregate?.snapshot.activities ?? []) : []
+        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: existingEvents, fallbackNickname: fallbackNickname)
+        try persist(LocalWalletAggregate(metadata: metadata, snapshot: snapshot))
+    }
+
+    /// The complete local household as an upload manifest. Loans are rebuilt
+    /// from the accepted event chain so historical loans are never dropped.
+    public func cloudImportManifest(familyName: String, operationID: UUID) throws -> CloudImportManifest {
+        let aggregate = try writableAggregate()
+        guard let nickname = ChildProfileCopy.configuredNickname(from: aggregate.snapshot.childNickname) else {
+            throw WalletAPIError.invalidResponse("Add your child's nickname before turning on Cloud.")
+        }
+        return try CloudImportManifestBuilder.manifest(
+            lineageID: aggregate.metadata.lineageID,
+            operationID: operationID,
+            familyName: familyName,
+            nickname: nickname,
+            snapshot: aggregate.snapshot
+        )
     }
 
     public func clearAuthentication() {}

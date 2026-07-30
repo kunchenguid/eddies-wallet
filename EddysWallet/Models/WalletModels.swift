@@ -119,6 +119,12 @@ public enum KidCopy {
 
     public static let emptyWalletMessage = "Your parent can add the first dollars."
 
+    public static let cloudReplicaUnavailableTitle = "Your wallet needs to reconnect"
+
+    public static func cloudReplicaUnavailableMessage(deviceNoun: String) -> String {
+        "This \(deviceNoun) needs to reconnect before it can show your wallet."
+    }
+
     public static func parentDoorAccessibilityLabel() -> String {
         "Parent area. Asks for the parent PIN."
     }
@@ -507,6 +513,7 @@ public enum CommandResult: Sendable {
 public protocol WalletRepository: AnyObject {
     var isAuthenticated: Bool { get }
     var hasConfiguredKid: Bool { get }
+    var supportsRuntimeMutations: Bool { get }
     func snapshot() -> WalletSnapshot
     func childSnapshot() -> WalletSnapshot
     func refresh(for role: UserRole) async throws -> WalletSnapshot
@@ -519,6 +526,10 @@ public protocol WalletRepository: AnyObject {
     func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot
     func clearAuthentication()
     func clearSession() throws
+}
+
+public extension WalletRepository {
+    var supportsRuntimeMutations: Bool { true }
 }
 
 @MainActor

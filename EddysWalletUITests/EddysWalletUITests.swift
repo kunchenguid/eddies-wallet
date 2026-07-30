@@ -63,8 +63,15 @@ final class EddysWalletUITests: XCTestCase {
 
     @discardableResult
     private func openParentArea(in app: XCUIApplication) -> XCUIElement {
-        app.buttons[doorLabel].tap()
-        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
+        let door = app.buttons[doorLabel]
+        XCTAssertTrue(door.waitForExistence(timeout: 10))
+        // The kid home may still be settling right after launch, so a tap that
+        // lands mid-animation is retried once before failing the test.
+        door.tap()
+        if !app.staticTexts["Parent only"].waitForExistence(timeout: 5) {
+            door.tap()
+            XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 10), "Parent gate must open from the kid home door")
+        }
         enterPIN("1234", in: app)
         let header = app.staticTexts["Parent area"]
         XCTAssertTrue(header.waitForExistence(timeout: 5))
@@ -326,12 +333,71 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(eddie.staticTexts["Eddie's virtual balance"].waitForExistence(timeout: 5))
         XCTAssertTrue(eddie.buttons["Done. Back to Eddie's wallet"].exists)
 
-        // Welcome / onboarding keeps the honest external brand wordmark.
-        let plain = XCUIApplication()
-        plain.launch()
+        // Welcome / onboarding keeps the honest external brand wordmark. The
+        // first-run scenario forces a deterministic pre-setup state instead of
+        // inheriting whatever this simulator's app data happens to hold.
+        let plain = launch("first-run")
         XCTAssertTrue(plain.staticTexts["Eddie's Wallet"].waitForExistence(timeout: 10))
         XCTAssertTrue(plain.descendants(matching: .any)["product-brand-wordmark"].exists)
         XCTAssertTrue(plain.staticTexts["Virtual practice only"].exists)
+    }
+
+    // Promotion item 5: runtime StoreKit proof from the real Debug app, since an
+    // XCTest-host query returned no products. The Debug-only diagnostics surface
+    // renders exactly what StoreKit resolved from the scheme's configuration.
+    func testDebugStoreKitDiagnosticsProvesTheExactCloudProductsAndPrices() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let link = app.descendants(matching: .any)["cloud-storekit-diagnostics-link"]
+        for _ in 0..<10 where !link.isHittable {
+            app.swipeUp()
+        }
+        if !link.waitForExistence(timeout: 5) {
+            let attachment = XCTAttachment(string: app.debugDescription)
+            attachment.name = "parent-area-tree"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            print("SCRATCH TREE\n\(app.debugDescription)")
+        }
+        XCTAssertTrue(link.exists)
+        link.tap()
+
+        let status = app.staticTexts["storekit-diagnostics-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 15))
+        let productsLoaded = expectation(
+            for: NSPredicate(format: "label == %@", "loaded 2 products"),
+            evaluatedWith: status
+        )
+        wait(for: [productsLoaded], timeout: 15)
+        XCTAssertEqual(status.label, "loaded 2 products", "the checked-in configuration must resolve both Cloud products")
+        XCTAssertEqual(app.staticTexts["storekit-product-com.kunchenguid.eddieswallet.cloud.monthly"].label, "com.kunchenguid.eddieswallet.cloud.monthly")
+        XCTAssertEqual(app.staticTexts["storekit-product-com.kunchenguid.eddieswallet.cloud.annual"].label, "com.kunchenguid.eddieswallet.cloud.annual")
+        XCTAssertEqual(app.staticTexts["storekit-price-com.kunchenguid.eddieswallet.cloud.monthly"].label, "$2.99")
+        XCTAssertEqual(app.staticTexts["storekit-price-com.kunchenguid.eddieswallet.cloud.annual"].label, "$24.99")
+        XCTAssertEqual(app.staticTexts["storekit-terms-com.kunchenguid.eddieswallet.cloud.monthly"].label, "1 month · family shareable: no")
+        XCTAssertEqual(app.staticTexts["storekit-terms-com.kunchenguid.eddieswallet.cloud.annual"].label, "1 year · family shareable: no")
+    }
+
+    // A guarded build must never present a price or purchase control when the
+    // backend capability is unavailable, which is the shipped default.
+    func testParentAreaHidesCloudPurchaseControlsWhenCapabilityIsUnavailable() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let card = app.otherElements["cloud-backup-sync-card"]
+        for _ in 0..<8 where !card.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["cloud-plans-unavailable-note"].exists, "an unavailable backend says so plainly")
+        XCTAssertFalse(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"].exists)
+        XCTAssertFalse(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"].exists)
+        XCTAssertFalse(app.buttons["cloud-restore-button"].exists)
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "$2.99")).count, 0, "no price without a ready backend")
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "$24.99")).count, 0)
     }
 
     // Report criterion 2 (P3): backgrounding drops elevation; foregrounding

@@ -4,7 +4,7 @@ import Foundation
 /// vocabulary and is injected in tests. Release code never substitutes a
 /// capability or transaction response for server authority.
 @MainActor
-public final class CloudAPIClient {
+public final class CloudAPIClient: ParentAuthenticator {
     private let baseURL: URL
     private let sessionStore: any SessionStore
     private let transport: any HTTPTransport
@@ -13,6 +13,37 @@ public final class CloudAPIClient {
         self.baseURL = baseURL
         self.sessionStore = sessionStore ?? KeychainSessionStore()
         self.transport = transport
+    }
+
+    public var hasSession: Bool { sessionStore.session?.isExpired == false }
+
+    public func authenticateApple(identityToken: String, nonce: String) async throws -> AuthSession {
+        guard !identityToken.isEmpty, !nonce.isEmpty else {
+            throw WalletAPIError.invalidResponse("Apple Sign In did not return the required identity proof.")
+        }
+        let response = try await send(
+            path: "/v1/auth/apple",
+            method: "POST",
+            body: ["identityToken": identityToken, "nonce": nonce],
+            authenticated: false
+        ).decoded(CloudAuthResponse.self)
+        guard !response.token.isEmpty, response.expiresAt > .now else {
+            throw WalletAPIError.invalidResponse("The authentication service returned an invalid session.")
+        }
+        let session = AuthSession(token: response.token, expiresAt: response.expiresAt)
+        do {
+            try sessionStore.save(session)
+        } catch {
+            throw WalletAPIError.invalidResponse("The parent session could not be stored securely.")
+        }
+        return session
+    }
+
+    public func establishSession(_ session: AuthSession) throws {
+        guard !session.token.isEmpty, !session.isExpired else {
+            throw WalletAPIError.invalidResponse("Cloud Sign In did not return a usable session.")
+        }
+        try sessionStore.save(session)
     }
 
     public func capabilities() async throws -> CloudCapabilities {
@@ -24,42 +55,70 @@ public final class CloudAPIClient {
     }
 
     /// The server receives Apple's signed JWS. No decoded client claim is sent.
+    /// A verified 200 returns the full context, which is the only thing that may
+    /// enable Cloud; 202 stays server-pending.
     public func deliver(transactionJWS: String) async throws -> CloudContext {
-        try await send(path: "/v1/cloud/transactions", method: "POST", body: ["signedTransaction": transactionJWS], authenticated: true, idempotencyKey: UUID().uuidString, pendingStatusCode: 202).decoded(CloudContext.self)
+        try await send(
+            path: "/v1/cloud/transactions",
+            method: "POST",
+            body: ["signedTransaction": transactionJWS],
+            authenticated: true,
+            idempotencyKey: UUID().uuidString,
+            pendingStatusCode: 202
+        ).decoded(CloudContext.self)
     }
 
-    public func bootstrap(cursor: String? = nil) async throws -> Data {
+    public func bootstrap(cursor: String? = nil) async throws -> CloudReplica {
         let suffix = cursor.map { "?cursor=" + ($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "") } ?? ""
-        return try await send(path: "/v1/cloud/bootstrap\(suffix)", method: "GET", body: nil, authenticated: true)
+        return try await send(path: "/v1/cloud/bootstrap\(suffix)", method: "GET", body: nil, authenticated: true).decoded(CloudReplica.self)
     }
 
-    public func changes(afterRevision revision: Int64) async throws -> Data {
-        try await send(path: "/v1/cloud/changes?afterRevision=\(revision)", method: "GET", body: nil, authenticated: true)
+    public func changes(afterRevision revision: Int64) async throws -> CloudReplica {
+        try await send(path: "/v1/cloud/changes?afterRevision=\(revision)", method: "GET", body: nil, authenticated: true).decoded(CloudReplica.self)
     }
 
-    public func importHousehold(_ manifest: Data, idempotencyKey: String = UUID().uuidString) async throws -> Data {
-        try await sendData(path: "/v1/cloud/household/import", method: "POST", body: manifest, authenticated: true, idempotencyKey: idempotencyKey)
+    /// One-time upload of the complete local household. The manifest carries its
+    /// own operation id and aggregate digest, and the idempotency key is stable
+    /// across retries so an interrupted upload replays instead of duplicating.
+    public func importHousehold(_ manifest: CloudImportManifest, idempotencyKey: String) async throws -> CloudHousehold {
+        let data = try await sendData(
+            path: "/v1/cloud/household/import",
+            method: "POST",
+            body: manifest.requestBody,
+            authenticated: true,
+            idempotencyKey: idempotencyKey
+        )
+        return try data.decoded(HouseholdEnvelope.self).household
     }
 
-    public func legacyContext() async throws -> Data { try await send(path: "/v1/cloud/legacy-context", method: "GET", body: nil, authenticated: true) }
-    public func detachLegacy(expectedRevision: Int64, idempotencyKey: String = UUID().uuidString) async throws -> Data { try await revisionRequest(path: "/v1/cloud/legacy-detach", revision: expectedRevision, idempotencyKey: idempotencyKey) }
-    public func activateLegacy(expectedRevision: Int64, idempotencyKey: String = UUID().uuidString) async throws -> Data { try await revisionRequest(path: "/v1/cloud/legacy-activate", revision: expectedRevision, idempotencyKey: idempotencyKey) }
+    public func legacyContext() async throws -> CloudLegacyContext {
+        try await send(path: "/v1/cloud/legacy-context", method: "GET", body: nil, authenticated: true).decoded(CloudLegacyContext.self)
+    }
 
     public func revokeCurrentSession() async throws {
         _ = try await send(path: "/v1/session/current", method: "DELETE", body: nil, authenticated: true)
         sessionStore.clear()
     }
 
-    private func revisionRequest(path: String, revision: Int64, idempotencyKey: String) async throws -> Data {
-        try await send(path: path, method: "POST", body: [:], authenticated: true, idempotencyKey: idempotencyKey, revision: revision)
+    /// Clears only the local session copy, for an authority-aware sign-out that
+    /// could not reach the server.
+    public func clearLocalSession() {
+        sessionStore.clear()
     }
 
-    private func send(path: String, method: String, body: [String: Any]?, authenticated: Bool, idempotencyKey: String? = nil, revision: Int64? = nil, pendingStatusCode: Int? = nil) async throws -> Data {
+    private func send(path: String, method: String, body: [String: Any]?, authenticated: Bool, idempotencyKey: String? = nil, pendingStatusCode: Int? = nil) async throws -> Data {
         let data = body.map { try? JSONSerialization.data(withJSONObject: $0) } ?? nil
-        return try await sendData(path: path, method: method, body: data, authenticated: authenticated, idempotencyKey: idempotencyKey, revision: revision, pendingStatusCode: pendingStatusCode)
+        return try await sendData(path: path, method: method, body: data, authenticated: authenticated, idempotencyKey: idempotencyKey, pendingStatusCode: pendingStatusCode)
     }
 
-    private func sendData(path: String, method: String, body: Data?, authenticated: Bool, idempotencyKey: String? = nil, revision: Int64? = nil, pendingStatusCode: Int? = nil) async throws -> Data {
+    private func sendData(
+        path: String,
+        method: String,
+        body: Data?,
+        authenticated: Bool,
+        idempotencyKey: String? = nil,
+        pendingStatusCode: Int? = nil
+    ) async throws -> Data {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw WalletAPIError.invalidConfiguration }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -67,7 +126,6 @@ public final class CloudAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
-        if let revision { request.setValue("\"rev-\(revision)\"", forHTTPHeaderField: "If-Match") }
         if authenticated {
             guard let session = sessionStore.session, !session.isExpired else { throw WalletAPIError.noSession }
             request.setValue("Bearer \(session.token)", forHTTPHeaderField: "Authorization")
@@ -82,7 +140,13 @@ public final class CloudAPIClient {
                 if http.statusCode == 401 { sessionStore.clear(); throw WalletAPIError.unauthorized }
                 let envelope = try? JSONDecoder().decode(CloudErrorEnvelope.self, from: data)
                 if http.statusCode == 409, envelope?.error.code == "REVISION_CONFLICT" {
-                    throw WalletAPIError.revisionConflict(currentRevision: envelope?.error.currentRevision ?? 0)
+                    throw WalletAPIError.revisionConflict(currentRevision: envelope?.error.details?.currentRevision ?? envelope?.error.currentRevision ?? 0)
+                }
+                if http.statusCode == 428 {
+                    throw WalletAPIError.revisionRequired
+                }
+                if http.statusCode == 403, envelope?.error.code == "CLOUD_ENTITLEMENT_REQUIRED" {
+                    throw WalletAPIError.cloudEntitlementRequired
                 }
                 throw WalletAPIError.server(statusCode: http.statusCode, code: envelope?.error.code ?? "HTTP_\(http.statusCode)", message: envelope?.error.message ?? "The Cloud service did not accept this request.")
             }
@@ -92,16 +156,55 @@ public final class CloudAPIClient {
     }
 }
 
+public struct CloudLegacyContext: Codable, Equatable, Sendable {
+    public let household: CloudHousehold?
+    public let entitlement: CloudEntitlementStateDTO?
+    public let exportAvailable: Bool?
+}
+
+private struct HouseholdEnvelope: Decodable {
+    let household: CloudHousehold
+}
+
+private struct CloudAuthResponse: Decodable {
+    let token: String
+    let expiresAt: Date
+}
+
 private struct CloudErrorEnvelope: Decodable {
-    struct Details: Decodable { let code: String; let message: String; let currentRevision: Int64? }
-    let error: Details
+    struct Details: Decodable { let currentRevision: Int64? }
+    struct Body: Decodable {
+        let code: String
+        let message: String
+        let currentRevision: Int64?
+        let details: Details?
+    }
+    let error: Body
 }
 
 private extension Data {
     func decoded<T: Decodable>(_ type: T.Type) throws -> T {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            guard let date = CloudDateFormat.date(from: raw) else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unsupported date \(raw)"))
+            }
+            return date
+        }
         do { return try decoder.decode(type, from: self) }
         catch { throw WalletAPIError.invalidResponse("The Cloud response could not be read.") }
+    }
+}
+
+/// The service emits ISO-8601 with or without fractional seconds.
+enum CloudDateFormat {
+    static func date(from raw: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFraction.date(from: raw) { return date }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: raw)
     }
 }
