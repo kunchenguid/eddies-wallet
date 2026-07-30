@@ -12,12 +12,20 @@ public final class CloudWalletRepository: WalletRepository {
 
     private let client: CloudAPIClient
     private let replica: LocalWalletRepository
+    private var requiresBootstrap: Bool
 
-    public init(client: CloudAPIClient, replica: LocalWalletRepository, lineageID: UUID, revision: Int64) {
+    public init(
+        client: CloudAPIClient,
+        replica: LocalWalletRepository,
+        lineageID: UUID,
+        revision: Int64,
+        requiresBootstrap: Bool = false
+    ) {
         self.client = client
         self.replica = replica
         self.lineageID = lineageID
         self.revision = revision
+        self.requiresBootstrap = requiresBootstrap
     }
 
     public var isAuthenticated: Bool { client.hasSession }
@@ -29,6 +37,9 @@ public final class CloudWalletRepository: WalletRepository {
     public func childSnapshot() -> WalletSnapshot { replica.childSnapshot() }
 
     public func refresh(for _: UserRole) async throws -> WalletSnapshot {
+        if requiresBootstrap {
+            return try await bootstrap()
+        }
         let changes = try await client.changes(afterRevision: revision)
         try apply(changes, merging: true)
         return snapshot()
@@ -54,6 +65,7 @@ public final class CloudWalletRepository: WalletRepository {
             nextCursor: nil
         )
         try apply(complete, merging: false)
+        requiresBootstrap = false
         return snapshot()
     }
 

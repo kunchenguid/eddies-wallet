@@ -42,7 +42,9 @@ struct CloudStatusView: View {
                     .accessibilityIdentifier("cloud-syncing-note")
             }
             if store.canContinueLocallyAfterCloud {
-                Button("Keep using this \(DeviceCopy.deviceNoun)") { store.continueLocallyAfterCloud() }
+                Button("Keep using this \(DeviceCopy.deviceNoun)") {
+                    Task { await store.continueLocallyAfterCloud() }
+                }
                     .buttonStyle(.plain)
                     .font(EW.Font.body)
                     .foregroundStyle(EW.Color.primaryActive)
@@ -91,7 +93,7 @@ struct CloudStatusView: View {
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
         case .none:
-            Text("This wallet is saved only on this \(DeviceCopy.deviceNoun). Cloud adds backup and sync on devices using the same parent Apple account.")
+            Text(Self.noEntitlementStatusCopy(authority: store.authorityState, deviceNoun: DeviceCopy.deviceNoun))
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
             if !store.canOfferCloudPlans, !store.needsCloudSignIn {
@@ -101,6 +103,13 @@ struct CloudStatusView: View {
                     .accessibilityIdentifier("cloud-plans-unavailable-note")
             }
         }
+    }
+
+    static func noEntitlementStatusCopy(authority: WalletAuthorityState, deviceNoun: String) -> String {
+        if authority.isCloudAuthority {
+            return "This \(deviceNoun) is showing the last synced Cloud wallet. Reconnect to check its current status."
+        }
+        return "This wallet is saved only on this \(deviceNoun). Cloud adds backup and sync on devices using the same parent Apple account."
     }
 
     @ViewBuilder private var purchaseStateCopy: some View {

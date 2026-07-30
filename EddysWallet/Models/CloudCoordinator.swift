@@ -136,10 +136,17 @@ public final class CloudCoordinator: ObservableObject {
         guard household.isCloudAuthoritative, let lineageID = household.lineageID else {
             throw WalletAPIError.invalidResponse("Cloud did not confirm this wallet. Nothing was changed.")
         }
+        guard lineageID == local.lineageID else {
+            throw WalletAPIError.invalidResponse("Cloud confirmed a different wallet history. Nothing was changed.")
+        }
         self.household = household
-        try local.markCloudActivated(lineageID: lineageID, revision: household.revision)
         let repository = CloudWalletRepository(client: client, replica: local, lineageID: lineageID, revision: household.revision)
-        _ = try? await repository.bootstrap()
+        do {
+            try local.markCloudActivated(lineageID: lineageID, revision: household.revision)
+            _ = try await repository.bootstrap()
+        } catch {
+            message = "Cloud owns this wallet. This device is showing its last saved copy and will catch up when it reconnects."
+        }
         return repository
     }
 
@@ -147,11 +154,21 @@ public final class CloudCoordinator: ObservableObject {
     /// of the household the server already owns.
     public func adoptExistingCloudHousehold(into local: LocalWalletRepository) async throws -> CloudWalletRepository? {
         guard client.hasSession else { throw WalletAPIError.noSession }
-        guard let context = await refreshContext(), let household = context.household, household.isCloudAuthoritative,
+        _ = await refreshContext()
+        guard let household, household.isCloudAuthoritative,
               let lineageID = household.lineageID else { return nil }
-        guard entitlement.grantsCloud else { throw WalletAPIError.cloudEntitlementRequired }
-        let repository = CloudWalletRepository(client: client, replica: local, lineageID: lineageID, revision: household.revision)
-        _ = try await repository.bootstrap()
+        let repository = CloudWalletRepository(
+            client: client,
+            replica: local,
+            lineageID: lineageID,
+            revision: household.revision,
+            requiresBootstrap: true
+        )
+        do {
+            _ = try await repository.bootstrap()
+        } catch {
+            message = "Cloud owns this wallet. This device is showing its last saved copy and will catch up when it reconnects."
+        }
         return repository
     }
 

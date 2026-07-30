@@ -68,6 +68,29 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(importRequest.value(forHTTPHeaderField: "Idempotency-Key"), "cloud-import-\(reserved.uuidString.lowercased())")
     }
 
+    func testConfirmedImportKeepsReadOnlyCloudAuthorityWhenPersistenceFails() async throws {
+        let persistence = CloudSliceFailingPersistence()
+        let local = try LocalWalletRepository(persistence: persistence)
+        _ = try await local.setup(ParentSetup(nickname: "Test Kid"))
+        _ = try await local.submit(WalletCommand(kind: .deposit, amountCents: 750))
+        let lineage = try XCTUnwrap(local.lineageID)
+        _ = try local.reserveCloudImportOperation()
+        persistence.failNextSave = true
+
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.stub("POST", "/v1/cloud/household/import", CloudSliceFixtures.importAccepted(lineage: lineage), status: 201)
+        let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
+        await coordinator.refreshContext()
+
+        let cloud = try await coordinator.activateCloud(from: local, familyName: "Test Kid's family")
+
+        XCTAssertFalse(local.isCloudAuthority, "the simulated protected-store save failed")
+        XCTAssertFalse(cloud.supportsRuntimeMutations)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+        XCTAssertTrue(coordinator.message?.contains("Cloud owns this wallet") == true)
+    }
+
     func testActivationConflictLeavesTheFreeLocalWalletUntouched() async throws {
         let local = try await localWalletWithHistory()
         let transport = RoutingTransport()
@@ -122,6 +145,23 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.snapshot().activities.count, 2)
         XCTAssertEqual(cloud.snapshot().childNickname, "Test Kid")
         XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/cloud/household/import" }, "device B never uploads")
+    }
+
+    func testConfirmedContextKeepsReadOnlyCloudAuthorityWhenBootstrapFails() async throws {
+        let local = try await localWalletWithHistory()
+        let lineage = try XCTUnwrap(local.lineageID)
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActive(lineage: lineage, revision: 2))
+        let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
+        let store = elevatedStore(repository: local, coordinator: coordinator)
+
+        await store.recoverCloudEntitlements()
+
+        XCTAssertTrue(store.repository is CloudWalletRepository)
+        XCTAssertTrue(store.authorityState.isCloudAuthority)
+        XCTAssertFalse(store.canModifyWallet)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+        XCTAssertTrue(store.cloudMessage?.contains("Cloud owns this wallet") == true)
     }
 
     func testCloudAuthorityExposesReadsButNoRuntimeMutations() async throws {
@@ -198,7 +238,18 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(store.canModifyWallet)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "reads keep working and nothing was deleted")
 
-        XCTAssertTrue(store.continueLocallyAfterCloud(), "the parent can keep using this device")
+        transport.failEverything = true
+        let offlineContinuation = await store.continueLocallyAfterCloud()
+        XCTAssertFalse(offlineContinuation)
+        XCTAssertTrue(store.authorityState.isCloudAuthority)
+        XCTAssertTrue(local.isCloudAuthority)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+        XCTAssertTrue(store.cloudMessage?.contains("needs to catch up with Cloud") == true)
+
+        transport.failEverything = false
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let currentContinuation = await store.continueLocallyAfterCloud()
+        XCTAssertTrue(currentContinuation, "the parent can keep using this device after a current refresh")
         XCTAssertTrue(store.authorityState.isLocalAuthority)
         XCTAssertFalse(local.isCloudAuthority)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "the mirrored history stays after continuing locally")
@@ -221,7 +272,18 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(store.cloudSignOutMode, .cloudDevice, "a Cloud device never offers the destructive erase copy")
         XCTAssertTrue(store.canSignOutOfCloudOnThisDevice)
 
-        await store.signOutOfCloudOnThisDevice()
+        transport.failEverything = true
+        let offlineSignOut = await store.signOutOfCloudOnThisDevice()
+        XCTAssertFalse(offlineSignOut)
+        XCTAssertTrue(store.authorityState.isCloudAuthority)
+        XCTAssertTrue(local.isCloudAuthority)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "DELETE" })
+
+        transport.failEverything = false
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let currentSignOut = await store.signOutOfCloudOnThisDevice()
+        XCTAssertTrue(currentSignOut)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "the wallet is still here")
         XCTAssertTrue(store.authorityState.isLocalAuthority)
         XCTAssertEqual(store.cloudEntitlement, .none)
@@ -271,7 +333,8 @@ final class CloudVerticalSliceTests: XCTestCase {
             XCTFail("an offline Cloud wallet is presented as offline, not as local authority: \(store.authorityState)")
         }
         XCTAssertFalse(store.canContinueLocallyAfterCloud)
-        XCTAssertFalse(store.continueLocallyAfterCloud(), "unknown entitlement must not detach Cloud authority")
+        let continuedWithoutEntitlement = await store.continueLocallyAfterCloud()
+        XCTAssertFalse(continuedWithoutEntitlement, "unknown entitlement must not detach Cloud authority")
         XCTAssertTrue(local.isCloudAuthority)
     }
 
@@ -292,6 +355,9 @@ final class CloudVerticalSliceTests: XCTestCase {
         let store = elevatedStore(repository: cloud, coordinator: CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport)))
         XCTAssertEqual(store.cloudSignOutMode, .cloudDevice)
         XCTAssertTrue(store.canSignOutOfCloudOnThisDevice)
+        let copy = CloudStatusView.noEntitlementStatusCopy(authority: store.authorityState, deviceNoun: "iPad")
+        XCTAssertTrue(copy.contains("last synced Cloud wallet"))
+        XCTAssertFalse(copy.contains("saved only"))
     }
 
     func testCloudSignInUsesTheStoredOwnerBeforeOfferingPlans() async throws {

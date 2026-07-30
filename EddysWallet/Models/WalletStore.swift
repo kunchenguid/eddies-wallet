@@ -781,10 +781,11 @@ public final class WalletStore: ObservableObject {
     /// Cloud ended and the parent chose to keep using this device. The mirrored
     /// history stays and becomes local authority again.
     @discardableResult
-    public func continueLocallyAfterCloud() -> Bool {
+    public func continueLocallyAfterCloud() async -> Bool {
         guard elevation == .active, let cloudCoordinator,
               let cloud = repository as? CloudWalletRepository else { return false }
         guard canContinueLocallyAfterCloud else { return false }
+        guard await refreshCloudBeforeHandoff(cloud) else { return false }
         do {
             try cloudCoordinator.continueLocally(with: cloud.localReplica)
         } catch {
@@ -804,6 +805,7 @@ public final class WalletStore: ObservableObject {
     @discardableResult
     public func signOutOfCloudOnThisDevice() async -> Bool {
         guard elevation == .active, let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return false }
+        guard await refreshCloudBeforeHandoff(cloud) else { return false }
         do {
             try cloud.localReplica.continueLocallyAfterCloud()
         } catch {
@@ -819,6 +821,19 @@ public final class WalletStore: ObservableObject {
         needsCloudReview = false
         cloudMessage = "This device signed out of Cloud. The wallet still works here and nothing was deleted."
         return true
+    }
+
+    private func refreshCloudBeforeHandoff(_ cloud: CloudWalletRepository) async -> Bool {
+        do {
+            snapshot = try await cloud.refresh(for: .parent)
+            authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+            isOffline = false
+            cloudMessage = nil
+            return true
+        } catch {
+            cloudMessage = "This device needs to catch up with Cloud before it can keep or sign out of this wallet."
+            return false
+        }
     }
 
     public func acknowledgeCloudReview() {
@@ -859,8 +874,9 @@ public final class WalletStore: ObservableObject {
     /// Moves this device to Cloud authority once, and only from the backend's
     /// projected entitlement. Any failure leaves the free local wallet intact.
     private func activateCloudIfPaid() async {
-        guard let cloudCoordinator, cloudCoordinator.isCloudActive else { return }
+        guard let cloudCoordinator else { return }
         guard let local = repository as? LocalWalletRepository else { return }
+        guard cloudCoordinator.isCloudActive || cloudCoordinator.household != nil else { return }
         let previousAuthority = authorityState
         authorityState = .transitioningToCloud
         do {
@@ -873,8 +889,10 @@ public final class WalletStore: ObservableObject {
             repository = cloud
             authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
             snapshot = cloud.snapshot()
-            purchaseAttempt = .verifiedPaid
-            cloudMessage = nil
+            if cloudCoordinator.isCloudActive {
+                purchaseAttempt = .verifiedPaid
+            }
+            cloudMessage = cloudCoordinator.message
         } catch {
             authorityState = previousAuthority
             if cloudCoordinator.activationConflict {
