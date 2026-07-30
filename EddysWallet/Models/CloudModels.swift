@@ -276,7 +276,8 @@ enum CloudMutationKind: String, Codable, Equatable, Sendable {
 }
 
 enum CloudMutationPhase: String, Codable, Equatable, Sendable {
-    /// The request may not have reached the service, or its response was lost.
+    case staged
+    /// Transport may have reached the service, so this request is never sent again.
     case awaitingOutcome
     /// The service accepted it, but this device has not observed the accepted
     /// entry or revision in a replica yet.
@@ -331,7 +332,7 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
         self.amountCents = amountCents
         self.reason = reason
         self.createdAt = createdAt
-        self.phase = .awaitingOutcome
+        self.phase = .staged
         self.acceptedEntryID = nil
         self.acceptedRevision = nil
         self.rejectionStatusCode = nil
@@ -341,8 +342,10 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
 
     var waitingMessage: String {
         switch phase {
+        case .staged:
+            "This change has not been sent. This device must finish protecting it before contacting Cloud."
         case .awaitingOutcome:
-            "Cloud has not confirmed this change yet. This device will check the same protected request again. Do not record it again."
+            "Cloud has not confirmed this change yet. This device will check the wallet without sending it again. Do not record it again."
         case .acceptedAwaitingReplica:
             "Cloud accepted this change. This device is waiting to see it in the wallet. Do not record it again."
         case .rejected:

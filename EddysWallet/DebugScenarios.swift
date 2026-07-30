@@ -285,7 +285,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
             return .pending(scriptedEvent(
                 command,
                 state: .pending,
-                message: "Cloud has not confirmed this change yet. This device will check the same protected request again. Do not record it again."
+                message: "Cloud has not confirmed this change yet. This device will check the wallet without sending it again. Do not record it again."
             ))
         case .acceptedWaiting:
             return .acceptedAwaitingReplica(scriptedEvent(

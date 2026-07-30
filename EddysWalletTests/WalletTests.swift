@@ -4,6 +4,17 @@ import XCTest
 
 @MainActor
 final class WalletTests: XCTestCase {
+    func testRejectedCleanupAllowanceAccessibilityCopyIsLocalAndTerminal() {
+        let hint = ParentAreaView.allowanceAccessibilityHint(
+            canStartParentMutation: false,
+            hasRejectedCloudMutationCleanup: true
+        )
+        XCTAssertEqual(hint, "Finish local cleanup before changing the allowance")
+        for forbidden in ["reconnect", "checking", "pending", "accepted", "network"] {
+            XCTAssertFalse(hint.localizedCaseInsensitiveContains(forbidden))
+        }
+    }
+
     func testRejectedCloudCleanupNeverMarksNetworkOffline() async {
         let repository = ScriptedWalletRepository(
             snapshot: .fixture(),

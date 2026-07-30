@@ -354,7 +354,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         )
         openDepositResult(
             "cloud-write-waiting",
-            expectedMessage: "Cloud has not confirmed this change yet. This device will check the same protected request again. Do not record it again.",
+            expectedMessage: "Cloud has not confirmed this change yet. This device will check the wallet without sending it again. Do not record it again.",
             captureName: "cloud-write-waiting",
             acceptedAmountVisibleToKid: false
         )
@@ -380,6 +380,11 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertFalse(cleanup.staticTexts["Pending"].exists)
         XCTAssertFalse(cleanup.staticTexts["Waiting to sync"].exists)
         XCTAssertFalse(cleanup.staticTexts["Checking with Cloud"].exists)
+        let allowance = cleanup.buttons["parent-allowance-card"]
+        XCTAssertTrue(allowance.waitForExistence(timeout: 3))
+        XCTAssertTrue(allowance.label.contains("Next allowance"))
+        XCTAssertFalse(allowance.label.localizedCaseInsensitiveContains("reconnect"))
+        XCTAssertFalse(allowance.label.localizedCaseInsensitiveContains("checking"))
         capture("cloud-rejected-local-cleanup")
         for _ in 0..<4 where cleanupStatus.exists {
             cleanup.buttons["Finish local cleanup"].tap()

@@ -414,6 +414,11 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Checking with Cloud"].exists)
         XCTAssertFalse(app.staticTexts["Accepted by Cloud"].exists)
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "reconnect")).firstMatch.exists)
+        let allowance = app.buttons["parent-allowance-card"]
+        XCTAssertTrue(allowance.waitForExistence(timeout: 3))
+        XCTAssertTrue(allowance.label.contains("Next allowance"))
+        XCTAssertFalse(allowance.label.localizedCaseInsensitiveContains("reconnect"))
+        XCTAssertFalse(allowance.label.localizedCaseInsensitiveContains("checking"))
 
         for _ in 0..<4 where cleanup.exists {
             let finish = app.buttons["Finish local cleanup"]

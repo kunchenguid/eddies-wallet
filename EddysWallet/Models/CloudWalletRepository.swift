@@ -148,7 +148,10 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             }
             return .accepted(event)
         case .waiting:
-            return .pending(try pendingEvent(for: mutation, phase: .awaitingOutcome))
+            if activeMutation?.phase == .rejected {
+                throw WalletAPIError.cloudMutationAwaitingReconciliation
+            }
+            return .pending(try pendingEvent(for: mutation, phase: activeMutation?.phase ?? .staged))
         case .acceptedAwaitingReplica:
             return .acceptedAwaitingReplica(try pendingEvent(for: mutation, phase: .acceptedAwaitingReplica))
         }
@@ -307,16 +310,25 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             }
             throw rejection
         }
-        if mutation.phase == .awaitingOutcome {
+        var mayStartTransport = false
+        if mutation.phase == .staged {
+            mutation.phase = .awaitingOutcome
+            do {
+                try replica.markCloudMutationAccepted(mutation)
+                activeMutation = mutation
+                mayStartTransport = true
+            } catch {
+                activeMutation = original
+                return .waiting(.cloudMutationAwaitingReconciliation)
+            }
+        }
+        if mutation.phase == .awaitingOutcome, mayStartTransport {
             do {
                 let acceptance = try await client.mutate(mutation)
                 mutation.phase = .acceptedAwaitingReplica
                 mutation.acceptedEntryID = acceptance.entryID
                 mutation.acceptedRevision = acceptance.revision
                 activeMutation = mutation
-                // If this save fails, the pre-send record is still durable and
-                // relaunch will replay the same key. In memory we keep the
-                // accepted proof so this result can never become rejection.
                 try? replica.markCloudMutationAccepted(mutation)
             } catch let rejection as WalletAPIError {
                 if isDefinitiveRejection(rejection) {
@@ -344,7 +356,34 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 return .waiting(.network("Cloud is unavailable right now. The previous change will be checked again."))
             }
         }
+        if mutation.phase == .awaitingOutcome {
+            return await observeAttemptedMutation(mutation)
+        }
         return await observeAcceptedMutation(mutation)
+    }
+
+    private func observeAttemptedMutation(_ attempted: PendingCloudMutation) async -> Settlement {
+        do {
+            let readGeneration = beginRead()
+            let changes = try await client.changes(afterRevision: attempted.expectedRevision)
+            let observed = try apply(
+                changes,
+                merging: true,
+                resolving: attempted,
+                readGeneration: readGeneration
+            )
+            guard observed else {
+                return .waiting(.cloudMutationAwaitingReconciliation)
+            }
+            let event = attempted.acceptedEntryID.flatMap { entryID in
+                replica.snapshot().activities.first { $0.remoteID == entryID }
+            }
+            return .observed(event)
+        } catch let error as WalletAPIError {
+            return .waiting(error)
+        } catch {
+            return .waiting(.network("Cloud is unavailable right now. The previous change will be checked again."))
+        }
     }
 
     private func observeAcceptedMutation(_ accepted: PendingCloudMutation) async -> Settlement {

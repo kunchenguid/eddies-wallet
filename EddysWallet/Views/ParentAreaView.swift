@@ -21,6 +21,19 @@ struct ParentAreaView: View {
         ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)
     }
 
+    static func allowanceAccessibilityHint(
+        canStartParentMutation: Bool,
+        hasRejectedCloudMutationCleanup: Bool
+    ) -> String {
+        if canStartParentMutation {
+            return "Opens allowance setup"
+        }
+        if hasRejectedCloudMutationCleanup {
+            return "Finish local cleanup before changing the allowance"
+        }
+        return "Reconnect and finish checking the previous Cloud change first"
+    }
+
     /// Shows the first-actions spotlight right after setup, and whenever the
     /// wallet has no recorded activity or allowance rule yet.
     private var showsHandoffCard: Bool {
@@ -264,7 +277,11 @@ struct ParentAreaView: View {
                 .buttonStyle(.plain)
                 .disabled(!store.canStartParentMutation)
                 .opacity(store.canStartParentMutation ? 1 : 0.55)
-                .accessibilityHint(store.canStartParentMutation ? "Opens allowance setup" : "Reconnect and finish checking the previous Cloud change first")
+                .accessibilityHint(Self.allowanceAccessibilityHint(
+                    canStartParentMutation: store.canStartParentMutation,
+                    hasRejectedCloudMutationCleanup: store.hasRejectedCloudMutationCleanup
+                ))
+                .accessibilityIdentifier("parent-allowance-card")
             } else {
                 allowanceCardContent
             }

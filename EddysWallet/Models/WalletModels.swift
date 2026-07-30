@@ -531,7 +531,7 @@ public enum ParentMutationOutcome: Equatable, Sendable {
         switch self {
         case .recorded: "Recorded."
         case .waitingForCloud:
-            "Cloud has not confirmed this change yet. This device will check the same protected request again. Do not save it again."
+            "Cloud has not confirmed this change yet. This device will check the wallet without sending it again. Do not save it again."
         case .acceptedAwaitingReplica:
             "Cloud accepted this change. This device is waiting to see the updated wallet. Do not save it again."
         case .notRecorded:
