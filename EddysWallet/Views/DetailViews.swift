@@ -177,7 +177,7 @@ struct LoanDetailView: View {
                         }
                         .ewCard()
 
-                        if isParent && !loan.isPaid {
+                        if isParent && !loan.isPaid && store.canModifyWallet {
                             Button("Record repayment", action: onRepay)
                                 .buttonStyle(PrimaryButtonStyle())
                         }

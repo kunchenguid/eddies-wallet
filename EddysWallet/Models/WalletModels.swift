@@ -155,7 +155,6 @@ public enum ActivityType: String, CaseIterable, Codable, Sendable {
 public enum SyncState: String, Codable, Sendable {
     case recorded
     case pending
-    case acceptedAwaitingReplica
     case rejected
     case draft
 
@@ -163,7 +162,6 @@ public enum SyncState: String, Codable, Sendable {
         switch self {
         case .recorded: "Recorded"
         case .pending: "Waiting to sync"
-        case .acceptedAwaitingReplica: "Updating from Cloud"
         case .rejected: "Not recorded"
         case .draft: "Draft on this iPad"
         }
@@ -502,7 +500,6 @@ public struct LoanDetail: Sendable {
 public enum CommandResult: Sendable {
     case accepted(WalletEvent)
     case pending(WalletEvent)
-    case acceptedAwaitingReplica(WalletEvent)
     case rejected(WalletEvent)
 }
 
@@ -510,6 +507,7 @@ public enum CommandResult: Sendable {
 public protocol WalletRepository: AnyObject {
     var isAuthenticated: Bool { get }
     var hasConfiguredKid: Bool { get }
+    var supportsRuntimeMutations: Bool { get }
     func snapshot() -> WalletSnapshot
     func childSnapshot() -> WalletSnapshot
     func refresh(for role: UserRole) async throws -> WalletSnapshot
@@ -522,6 +520,10 @@ public protocol WalletRepository: AnyObject {
     func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot
     func clearAuthentication()
     func clearSession() throws
+}
+
+public extension WalletRepository {
+    var supportsRuntimeMutations: Bool { true }
 }
 
 @MainActor

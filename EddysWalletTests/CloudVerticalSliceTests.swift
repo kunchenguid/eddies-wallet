@@ -124,243 +124,41 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/cloud/household/import" }, "device B never uploads")
     }
 
-    // MARK: - Revision discipline in the app
-
-    func testConflictingWriteIsNotRecordedAndAsksForReReview() async throws {
+    func testCloudAuthorityExposesReadsButNoRuntimeMutations() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
         let transport = RoutingTransport()
         transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 7, balanceCents: 900))
         let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
         _ = try await cloud.bootstrap()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
 
-        let store = WalletStore(
-            repository: cloud,
-            appleSignInProvider: SliceSignInProvider(),
-            initiallySignedIn: true,
-            pinStore: InMemoryParentPINStore(pin: "1234"),
-            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent")
-        )
-        store.openParentGate()
-        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
-        XCTAssertEqual(store.elevation, .active)
-
-        let result = await store.submit(WalletCommand(kind: .deposit, amountCents: 250))
-        guard case .rejected(let event) = result else { return XCTFail("a conflicting write is Not recorded, got \(result)") }
-        XCTAssertEqual(event.syncState, .rejected)
-        XCTAssertTrue(store.needsCloudReview, "the parent is asked to review the latest accepted balance")
-        XCTAssertEqual(cloud.lastConflictRevision, 7)
-        XCTAssertEqual(cloud.revision, 7, "the client adopts the server's current revision before retrying")
-        let deposit = try XCTUnwrap(transport.requests.first { $0.url?.path == "/v1/wallet/deposits" })
-        XCTAssertEqual(deposit.value(forHTTPHeaderField: "If-Match"), "\"rev-2\"")
-        store.acknowledgeCloudReview()
-        XCTAssertFalse(store.needsCloudReview)
-    }
-
-    func testAcceptedCloudWriteAdvancesTheRevisionAndMirrorsAcceptedState() async throws {
-        let local = try LocalWalletRepository(directory: directory)
-        let lineage = UUID()
-        let transport = RoutingTransport()
-        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3))
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000))
-        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
-        _ = try await cloud.bootstrap()
-
-        guard case .accepted = try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 250, reason: "chores")) else {
-            return XCTFail("an accepted Cloud write must be Recorded")
-        }
-        XCTAssertEqual(cloud.revision, 3)
-        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000, "only server-accepted state is rendered")
-        XCTAssertTrue(cloud.snapshot().pendingEvents.isEmpty)
-    }
-
-    func testAcceptedCloudWritePersistsUntilARefreshMirrorsIt() async throws {
-        let local = try LocalWalletRepository(directory: directory)
-        let lineage = UUID()
-        let transport = RoutingTransport()
-        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3))
-        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
-        _ = try await cloud.bootstrap()
-        let original = WalletCommand(
-            kind: .deposit,
-            amountCents: 250,
-            idempotencyKey: "11111111-1111-4111-8111-111111111111"
-        )
-
-        guard case .acceptedAwaitingReplica(let event) = try await cloud.submit(original) else {
-            return XCTFail("an accepted write without its replica must remain distinct")
-        }
-        XCTAssertEqual(event.syncState, .acceptedAwaitingReplica)
-        XCTAssertEqual(cloud.revision, 2, "the unread accepted revision must not skip the missing changes")
+        XCTAssertFalse(cloud.supportsRuntimeMutations)
+        XCTAssertFalse(store.canModifyWallet)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
-        XCTAssertEqual(cloud.snapshot().pendingEvents.first?.syncState, .acceptedAwaitingReplica)
-        XCTAssertFalse(cloud.snapshot().pendingEvents.contains { $0.syncState == .pending })
-        let second = WalletCommand(kind: .deposit, amountCents: 250)
-        guard case .rejected(let blocked) = try await cloud.submit(second) else {
-            return XCTFail("a second identical action must be refused while the first is unreconciled")
+
+        do {
+            _ = try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 250))
+            XCTFail("Cloud money writes must be unavailable")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudRuntimeWritesUnavailable)
         }
-        XCTAssertTrue(blocked.explanation.contains("still catching up with Cloud"))
-        let deposits = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
-        XCTAssertEqual(deposits.count, 1)
-        XCTAssertEqual(deposits.first?.value(forHTTPHeaderField: "Idempotency-Key"), original.idempotencyKey)
-
-        let reloaded = try LocalWalletRepository(directory: directory)
-        XCTAssertEqual(reloaded.unsettledCloudMutation?.idempotencyKey, original.idempotencyKey)
-        XCTAssertEqual(reloaded.snapshot().pendingEvents.first?.syncState, .acceptedAwaitingReplica)
-
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000))
-        _ = try await cloud.refresh(for: .parent)
-        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
-        XCTAssertTrue(cloud.snapshot().pendingEvents.isEmpty)
-        XCTAssertNil(local.unsettledCloudMutation)
-    }
-
-    func testAcceptedWritePersistenceFailureStaysAwaitingAndBlocksNewCommands() async throws {
-        let persistence = CloudSliceFailingPersistence()
-        let local = try LocalWalletRepository(persistence: persistence)
-        _ = try await local.setup(ParentSetup(nickname: "Test Kid"))
-        let lineage = try XCTUnwrap(local.lineageID)
-        let transport = RoutingTransport()
-        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3))
-        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
-        _ = try await cloud.bootstrap()
-        persistence.failNextSave = true
-
-        guard case .acceptedAwaitingReplica(let event) = try await cloud.submit(
-            WalletCommand(kind: .deposit, amountCents: 250)
-        ) else {
-            return XCTFail("an accepted write must stay accepted-awaiting when local persistence fails")
+        do {
+            _ = try await cloud.setAllowance(AllowanceRuleCommand(amountCents: 500, weekday: 1, startDate: .now))
+            XCTFail("Cloud allowance writes must be unavailable")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudRuntimeWritesUnavailable)
         }
-        XCTAssertEqual(event.syncState, .acceptedAwaitingReplica)
-        XCTAssertEqual(cloud.snapshot().pendingEvents.first?.syncState, .acceptedAwaitingReplica)
-
-        guard case .rejected(let blocked) = try await cloud.submit(
-            WalletCommand(kind: .deposit, amountCents: 250)
-        ) else {
-            return XCTFail("the in-memory accepted state must block another command")
+        do {
+            _ = try await cloud.updateChildProfile(ChildProfileUpdate(nickname: "New name"))
+            XCTFail("Cloud profile writes must be unavailable")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudRuntimeWritesUnavailable)
         }
-        XCTAssertTrue(blocked.explanation.contains("still catching up with Cloud"))
-        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }.count, 1)
-
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000))
-        _ = try await cloud.refresh(for: .parent)
-        XCTAssertTrue(cloud.snapshot().pendingEvents.isEmpty)
-        transport.stub(
-            "POST",
-            "/v1/wallet/deposits",
-            CloudSliceFixtures.depositAccepted(revision: 4, entryID: "e-10")
-        )
-        guard case .acceptedAwaitingReplica = try await cloud.submit(
-            WalletCommand(kind: .deposit, amountCents: 250)
-        ) else {
-            return XCTFail("a reconciled repository must accept the next new command")
-        }
-        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }.count, 2)
-    }
-
-    func testMoneyWriteStaysUnsettledUntilItsResponseEntryAppears() async throws {
-        let local = try LocalWalletRepository(directory: directory)
-        let lineage = UUID()
-        let transport = RoutingTransport()
-        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 4, entryID: "server-entry-9"))
-        transport.stub(
-            "GET",
-            "/v1/cloud/changes",
-            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "different-entry")
-        )
-        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
-        _ = try await cloud.bootstrap()
-
-        guard case .acceptedAwaitingReplica = try await cloud.submit(
-            WalletCommand(kind: .deposit, amountCents: 250)
-        ) else {
-            return XCTFail("a different replica entry must never be guessed as the accepted command")
-        }
-        XCTAssertTrue(cloud.hasUnsettledCloudMutation)
-
-        transport.stub(
-            "GET",
-            "/v1/cloud/changes",
-            CloudSliceFixtures.changes(
-                lineage: lineage,
-                revision: 4,
-                balanceCents: 1_250,
-                entryID: "server-entry-9",
-                balanceBeforeCents: 1_000
-            )
-        )
-        _ = try await cloud.refresh(for: .parent)
-        XCTAssertFalse(cloud.hasUnsettledCloudMutation)
-        XCTAssertEqual(cloud.snapshot().activities.first?.remoteID, "server-entry-9")
-    }
-
-    func testAllowanceWriteFailureBlocksEveryMutationAndHandoff() async throws {
-        let local = try LocalWalletRepository(directory: directory)
-        let lineage = UUID()
-        let transport = RoutingTransport()
-        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
-        transport.stub("PUT", "/v1/allowance-rule", CloudSliceFixtures.revisionAccepted(revision: 3))
-        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextExpired(lineage: lineage))
-        let cloudClient = client(transport)
-        let cloud = CloudWalletRepository(client: cloudClient, replica: local, lineageID: lineage, revision: 2)
-        _ = try await cloud.bootstrap()
-        let coordinator = CloudCoordinator(client: cloudClient, subscriptions: silentSubscriptionStore(transport))
-        await coordinator.refreshContext()
-        let store = elevatedStore(repository: cloud, coordinator: coordinator)
-
-        let allowanceUpdated = await store.setAllowance(
-            AllowanceRuleCommand(amountCents: 500, weekday: 1, startDate: .now)
-        )
-        XCTAssertFalse(allowanceUpdated)
-        XCTAssertTrue(cloud.hasUnsettledCloudMutation)
-        guard case .rejected = await store.submit(WalletCommand(kind: .deposit, amountCents: 250)) else {
-            return XCTFail("an unsettled allowance write must block the next money command")
-        }
-        transport.failEverything = true
-        let signedOut = await store.signOutOfCloudOnThisDevice()
-        XCTAssertFalse(signedOut)
-        XCTAssertFalse(store.continueLocallyAfterCloud())
+        XCTAssertFalse(transport.requests.contains { request in
+            request.httpMethod != "GET" && request.url?.path != "/v1/cloud/household/import"
+        })
         XCTAssertTrue(local.isCloudAuthority)
-
-        transport.failEverything = false
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 3))
-        _ = try await cloud.refresh(for: .parent)
-        XCTAssertFalse(cloud.hasUnsettledCloudMutation)
-    }
-
-    func testInFlightMutationBlocksCloudHandoffs() async throws {
-        let local = try LocalWalletRepository(directory: directory)
-        let lineage = UUID()
-        let transport = RoutingTransport()
-        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3))
-        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextExpired(lineage: lineage))
-        let cloudClient = client(transport)
-        let cloud = CloudWalletRepository(client: cloudClient, replica: local, lineageID: lineage, revision: 2)
-        _ = try await cloud.bootstrap()
-        let coordinator = CloudCoordinator(client: cloudClient, subscriptions: silentSubscriptionStore(transport))
-        await coordinator.refreshContext()
-        let store = elevatedStore(repository: cloud, coordinator: coordinator)
-        transport.suspend("POST", "/v1/wallet/deposits")
-
-        let commandTask = Task {
-            try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 250))
-        }
-        await transport.waitUntilSuspended()
-        XCTAssertTrue(cloud.hasUnsettledCloudMutation)
-        let signedOut = await store.signOutOfCloudOnThisDevice()
-        XCTAssertFalse(signedOut)
-        XCTAssertFalse(store.continueLocallyAfterCloud())
-        XCTAssertTrue(local.isCloudAuthority)
-
-        transport.resumeSuspendedRequest()
-        _ = try await commandTask.value
     }
 
     func testNonUUIDCloudEntryKeepsStableLocalIdentity() throws {
@@ -380,52 +178,13 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(first.activities.first?.remoteID, "server-entry-not-a-uuid")
     }
 
-    func testCloudAllowanceReadsTheDueOccurrenceBeforeRecording() async throws {
-        let local = try LocalWalletRepository(directory: directory)
-        let lineage = UUID()
-        let transport = RoutingTransport()
-        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
-        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceDue)
-        transport.stub("POST", "/v1/allowance-rule/a-1/occurrences/o-7/record", CloudSliceFixtures.depositAccepted(revision: 3))
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3))
-        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
-        _ = try await cloud.bootstrap()
-
-        guard case .accepted(let event) = try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500)) else {
-            return XCTFail("the due allowance must be Recorded from accepted changes")
-        }
-        XCTAssertEqual(event.type, .allowance)
-        let request = try XCTUnwrap(transport.requests.first { $0.url?.path.contains("/occurrences/") == true })
-        XCTAssertEqual(request.url?.path, "/v1/allowance-rule/a-1/occurrences/o-7/record")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "If-Match"), "\"rev-2\"")
-    }
-
-    func testCloudAllowanceRefusesWhenTheServerReportsNothingDue() async throws {
-        let local = try LocalWalletRepository(directory: directory)
-        let lineage = UUID()
-        let transport = RoutingTransport()
-        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
-        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceNotDue)
-        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
-        _ = try await cloud.bootstrap()
-
-        do {
-            _ = try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500))
-            XCTFail("an allowance without a due occurrence must be refused")
-        } catch let WalletAPIError.invalidResponse(message) {
-            XCTAssertEqual(message, "There is no allowance due to record right now.")
-        }
-        XCTAssertFalse(transport.requests.contains { $0.url?.path.contains("/occurrences/") == true })
-    }
-
     // MARK: - Expiry, sign-out, outage
 
-    func testExpiredCloudRefusesWritesAndOffersLocalContinuation() async throws {
+    func testExpiredCloudOffersLocalContinuationWithoutLosingTheReplica() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
         let transport = RoutingTransport()
         transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.entitlementRequiredError, status: 403)
         transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextExpired(lineage: lineage))
         let cloudClient = client(transport)
         let cloud = CloudWalletRepository(client: cloudClient, replica: local, lineageID: lineage, revision: 2)
@@ -435,8 +194,8 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(coordinator.isCloudActive)
 
         let store = elevatedStore(repository: cloud, coordinator: coordinator)
-        let result = await store.submit(WalletCommand(kind: .deposit, amountCents: 250))
-        guard case .rejected = result else { return XCTFail("an expired entitlement must refuse Cloud writes") }
+        await store.recoverCloudEntitlements()
+        XCTAssertFalse(store.canModifyWallet)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "reads keep working and nothing was deleted")
 
         XCTAssertTrue(store.continueLocallyAfterCloud(), "the parent can keep using this device")
@@ -467,39 +226,6 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(store.authorityState.isLocalAuthority)
         XCTAssertEqual(store.cloudEntitlement, .none)
         XCTAssertTrue(transport.requests.contains { $0.httpMethod == "DELETE" && $0.url?.path == "/v1/session/current" })
-    }
-
-    func testUnreconciledAcceptedWriteBlocksCloudHandoffsOffline() async throws {
-        let local = try LocalWalletRepository(directory: directory)
-        let lineage = UUID()
-        let transport = RoutingTransport()
-        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3))
-        let cloudClient = client(transport)
-        let cloud = CloudWalletRepository(client: cloudClient, replica: local, lineageID: lineage, revision: 2)
-        _ = try await cloud.bootstrap()
-        guard case .acceptedAwaitingReplica = try await cloud.submit(
-            WalletCommand(kind: .deposit, amountCents: 250)
-        ) else {
-            return XCTFail("the accepted command must await its missing replica")
-        }
-        let coordinator = CloudCoordinator(client: cloudClient, subscriptions: silentSubscriptionStore(transport))
-        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextExpired(lineage: lineage))
-        await coordinator.refreshContext()
-        transport.failEverything = true
-        let store = elevatedStore(repository: cloud, coordinator: coordinator)
-
-        let signedOut = await store.signOutOfCloudOnThisDevice()
-        XCTAssertFalse(signedOut)
-        XCTAssertTrue(store.cloudMessage?.contains("Refresh before signing out") == true)
-        XCTAssertTrue(local.isCloudAuthority)
-        XCTAssertTrue(store.authorityState.isCloudAuthority)
-
-        XCTAssertFalse(store.continueLocallyAfterCloud())
-        XCTAssertTrue(store.cloudMessage?.contains("Refresh before keeping") == true)
-        XCTAssertTrue(local.isCloudAuthority)
-        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
-        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "DELETE" })
     }
 
     func testLocalOnlyWalletKeepsTheDestructiveSignOutWarning() async throws {

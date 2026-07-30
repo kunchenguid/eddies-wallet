@@ -65,7 +65,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
     case revisionConflict(currentRevision: Int64)
     case revisionRequired
     case cloudEntitlementRequired
-    case acceptedStateUnavailable
+    case cloudRuntimeWritesUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -82,7 +82,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         case .revisionConflict: "This wallet changed on another device. Review the latest balance before recording this action."
         case .revisionRequired: "This wallet needs the latest Cloud balance before recording this action."
         case .cloudEntitlementRequired: "Cloud ended, so this action was not recorded. This wallet still works on this device."
-        case .acceptedStateUnavailable: "Cloud accepted this action, but this device has not received the updated wallet yet."
+        case .cloudRuntimeWritesUnavailable: "Cloud changes are read-only in this version."
         }
     }
 }
@@ -825,7 +825,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
                 try requireCurrentLifecycle(generation)
                 rejectedEvents.insert(event, at: 0)
                 return .rejected(event)
-            case .cancelled, .timedOut, .familyNotSetup, .identityMismatch, .revisionRequired, .cloudEntitlementRequired, .acceptedStateUnavailable:
+            case .cancelled, .timedOut, .familyNotSetup, .identityMismatch, .revisionRequired, .cloudEntitlementRequired, .cloudRuntimeWritesUnavailable:
                 throw error
             case .revisionConflict:
                 let event = makeLocalEvent(for: command, state: .rejected, message: "This action was not recorded. Review the latest balance before recording it again.", rejectionReason: error.localizedDescription)

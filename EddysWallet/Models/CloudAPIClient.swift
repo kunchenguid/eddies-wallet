@@ -5,15 +5,6 @@ import Foundation
 /// capability or transaction response for server authority.
 @MainActor
 public final class CloudAPIClient: ParentAuthenticator {
-    /// Accepted Cloud command result: the new household revision plus whatever
-    /// the endpoint returned. Callers refresh from `/v1/cloud/changes` rather
-    /// than trusting a per-endpoint body shape.
-    public struct CommandAcceptance: Equatable, Sendable {
-        public let revision: Int64?
-        public let entryID: String?
-        public let statusCode: Int
-    }
-
     private let baseURL: URL
     private let sessionStore: any SessionStore
     private let transport: any HTTPTransport
@@ -86,10 +77,6 @@ public final class CloudAPIClient: ParentAuthenticator {
         try await send(path: "/v1/cloud/changes?afterRevision=\(revision)", method: "GET", body: nil, authenticated: true).decoded(CloudReplica.self)
     }
 
-    public func allowanceSchedule() async throws -> CloudAllowanceSchedule {
-        try await send(path: "/v1/allowance-rule", method: "GET", body: nil, authenticated: true).decoded(CloudAllowanceSchedule.self)
-    }
-
     /// One-time upload of the complete local household. The manifest carries its
     /// own operation id and aggregate digest, and the idempotency key is stable
     /// across retries so an interrupted upload replays instead of duplicating.
@@ -108,32 +95,6 @@ public final class CloudAPIClient: ParentAuthenticator {
         try await send(path: "/v1/cloud/legacy-context", method: "GET", body: nil, authenticated: true).decoded(CloudLegacyContext.self)
     }
 
-    public func detachLegacy(expectedRevision: Int64, idempotencyKey: String = UUID().uuidString) async throws -> CloudHousehold {
-        try await revisionRequest(path: "/v1/cloud/legacy-detach", revision: expectedRevision, idempotencyKey: idempotencyKey)
-    }
-
-    public func activateLegacy(expectedRevision: Int64, idempotencyKey: String = UUID().uuidString) async throws -> CloudHousehold {
-        try await revisionRequest(path: "/v1/cloud/legacy-activate", revision: expectedRevision, idempotencyKey: idempotencyKey)
-    }
-
-    /// Cloud household mutation. Every write carries the retained revision as
-    /// `If-Match`, so a stale device is refused instead of overwriting.
-    public func command(
-        path: String,
-        body: [String: Any],
-        expectedRevision: Int64,
-        idempotencyKey: String,
-        method: String = "POST"
-    ) async throws -> CommandAcceptance {
-        try await sendCommand(
-            path: path,
-            method: method,
-            body: try JSONSerialization.data(withJSONObject: body),
-            expectedRevision: expectedRevision,
-            idempotencyKey: idempotencyKey
-        )
-    }
-
     public func revokeCurrentSession() async throws {
         _ = try await send(path: "/v1/session/current", method: "DELETE", body: nil, authenticated: true)
         sessionStore.clear()
@@ -145,33 +106,9 @@ public final class CloudAPIClient: ParentAuthenticator {
         sessionStore.clear()
     }
 
-    private func revisionRequest(path: String, revision: Int64, idempotencyKey: String) async throws -> CloudHousehold {
-        try await send(path: path, method: "POST", body: [:], authenticated: true, idempotencyKey: idempotencyKey, revision: revision)
-            .decoded(HouseholdEnvelope.self).household
-    }
-
-    private func send(path: String, method: String, body: [String: Any]?, authenticated: Bool, idempotencyKey: String? = nil, revision: Int64? = nil, pendingStatusCode: Int? = nil) async throws -> Data {
+    private func send(path: String, method: String, body: [String: Any]?, authenticated: Bool, idempotencyKey: String? = nil, pendingStatusCode: Int? = nil) async throws -> Data {
         let data = body.map { try? JSONSerialization.data(withJSONObject: $0) } ?? nil
-        return try await sendData(path: path, method: method, body: data, authenticated: authenticated, idempotencyKey: idempotencyKey, revision: revision, pendingStatusCode: pendingStatusCode)
-    }
-
-    private func sendCommand(path: String, method: String, body: Data, expectedRevision: Int64, idempotencyKey: String) async throws -> CommandAcceptance {
-        var status = 0
-        let data = try await sendData(
-            path: path,
-            method: method,
-            body: body,
-            authenticated: true,
-            idempotencyKey: idempotencyKey,
-            revision: expectedRevision,
-            observedStatus: { status = $0 }
-        )
-        let envelope = try? data.decoded(RevisionEnvelope.self)
-        return CommandAcceptance(
-            revision: envelope?.resolvedRevision,
-            entryID: envelope?.entry?.id,
-            statusCode: status
-        )
+        return try await sendData(path: path, method: method, body: data, authenticated: authenticated, idempotencyKey: idempotencyKey, pendingStatusCode: pendingStatusCode)
     }
 
     private func sendData(
@@ -180,9 +117,7 @@ public final class CloudAPIClient: ParentAuthenticator {
         body: Data?,
         authenticated: Bool,
         idempotencyKey: String? = nil,
-        revision: Int64? = nil,
-        pendingStatusCode: Int? = nil,
-        observedStatus: ((Int) -> Void)? = nil
+        pendingStatusCode: Int? = nil
     ) async throws -> Data {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw WalletAPIError.invalidConfiguration }
         var request = URLRequest(url: url)
@@ -191,7 +126,6 @@ public final class CloudAPIClient: ParentAuthenticator {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
-        if let revision { request.setValue("\"rev-\(revision)\"", forHTTPHeaderField: "If-Match") }
         if authenticated {
             guard let session = sessionStore.session, !session.isExpired else { throw WalletAPIError.noSession }
             request.setValue("Bearer \(session.token)", forHTTPHeaderField: "Authorization")
@@ -199,7 +133,6 @@ public final class CloudAPIClient: ParentAuthenticator {
         do {
             let (data, response) = try await transport.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw WalletAPIError.invalidResponse("The server returned an invalid HTTP response.") }
-            observedStatus?(http.statusCode)
             if http.statusCode == pendingStatusCode {
                 throw WalletAPIError.server(statusCode: http.statusCode, code: "VERIFICATION_PENDING", message: "The Cloud service is still verifying this purchase.")
             }
@@ -236,19 +169,6 @@ private struct HouseholdEnvelope: Decodable {
 private struct CloudAuthResponse: Decodable {
     let token: String
     let expiresAt: Date
-}
-
-/// Accepted wallet commands report the new revision either at the top level or
-/// inside the family/household object, depending on the endpoint.
-private struct RevisionEnvelope: Decodable {
-    private struct Nested: Decodable { let revision: Int64? }
-    struct Entry: Decodable { let id: String? }
-    private let revision: Int64?
-    private let family: Nested?
-    private let household: Nested?
-    let entry: Entry?
-
-    var resolvedRevision: Int64? { revision ?? family?.revision ?? household?.revision }
 }
 
 private struct CloudErrorEnvelope: Decodable {

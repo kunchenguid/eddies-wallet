@@ -162,55 +162,6 @@ final class CloudContractTests: XCTestCase {
         }
     }
 
-    // MARK: - Revision discipline
-
-    func testCloudCommandSendsRetainedRevisionAsIfMatchAndReportsTheNewRevision() async throws {
-        let transport = StubTransport(responses: [.init(statusCode: 201, body: CloudContractFixtures.depositAccepted)])
-        let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: InMemorySessionStore(session: session), transport: transport)
-        let acceptance = try await client.command(
-            path: "/v1/wallet/deposits",
-            body: ["amountCents": 250],
-            expectedRevision: 4,
-            idempotencyKey: "synthetic-deposit-key"
-        )
-        XCTAssertEqual(acceptance.revision, 5)
-        XCTAssertEqual(acceptance.statusCode, 201)
-        let request = try XCTUnwrap(transport.requests.first)
-        XCTAssertEqual(request.value(forHTTPHeaderField: "If-Match"), "\"rev-4\"")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Idempotency-Key"), "synthetic-deposit-key")
-    }
-
-    func testRevisionConflictAndRevisionRequiredAreTypedForReReview() async throws {
-        let conflict = StubTransport(responses: [.init(statusCode: 409, body: CloudContractFixtures.revisionConflictError)])
-        let conflictClient = CloudAPIClient(baseURL: Self.baseURL, sessionStore: InMemorySessionStore(session: session), transport: conflict)
-        do {
-            _ = try await conflictClient.command(path: "/v1/wallet/deposits", body: ["amountCents": 1], expectedRevision: 1, idempotencyKey: "k")
-            XCTFail("a stale revision must conflict")
-        } catch let WalletAPIError.revisionConflict(currentRevision) {
-            XCTAssertEqual(currentRevision, 7, "the client learns the server's current revision")
-        }
-
-        let required = StubTransport(responses: [.init(statusCode: 428, body: CloudContractFixtures.revisionRequiredError)])
-        let requiredClient = CloudAPIClient(baseURL: Self.baseURL, sessionStore: InMemorySessionStore(session: session), transport: required)
-        do {
-            _ = try await requiredClient.command(path: "/v1/wallet/deposits", body: ["amountCents": 1], expectedRevision: 0, idempotencyKey: "k")
-            XCTFail("a Cloud write without the current revision must be refused")
-        } catch WalletAPIError.revisionRequired {
-            // Expected.
-        }
-    }
-
-    func testExpiredEntitlementRejectionIsTypedSoTheAppCanOfferLocalContinuation() async throws {
-        let transport = StubTransport(responses: [.init(statusCode: 403, body: CloudContractFixtures.entitlementRequiredError)])
-        let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: InMemorySessionStore(session: session), transport: transport)
-        do {
-            _ = try await client.command(path: "/v1/wallet/deposits", body: ["amountCents": 1], expectedRevision: 4, idempotencyKey: "k")
-            XCTFail("an expired entitlement must refuse Cloud writes")
-        } catch WalletAPIError.cloudEntitlementRequired {
-            // Expected: the parent is offered local continuation, nothing is deleted.
-        }
-    }
-
     // MARK: - Replica
 
     func testBootstrapDecodesAndMapsIntoTheOneChildSnapshot() async throws {

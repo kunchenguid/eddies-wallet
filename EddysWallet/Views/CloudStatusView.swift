@@ -48,18 +48,6 @@ struct CloudStatusView: View {
                     .foregroundStyle(EW.Color.primaryActive)
                     .accessibilityIdentifier("cloud-continue-local-button")
             }
-            if store.hasUnsettledCloudMutation {
-                Text("This device is still finishing a Cloud change. Refresh before making another change or signing out.")
-                    .font(EW.Font.caption)
-                    .foregroundStyle(EW.Color.gold700)
-                Button("Refresh from Cloud") {
-                    Task { await store.refresh() }
-                }
-                .buttonStyle(.plain)
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.primaryActive)
-                .accessibilityIdentifier("cloud-unsettled-refresh-button")
-            }
             if let message = store.cloudMessage {
                 Text(message)
                     .font(EW.Font.caption)

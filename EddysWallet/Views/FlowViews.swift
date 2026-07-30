@@ -263,9 +263,6 @@ struct MoneyFlowView: View {
         case .pending:
             resultState = .pending
             resultMessage = "This parent action is queued locally. It is not included in the accepted balance until it syncs."
-        case .acceptedAwaitingReplica:
-            resultState = .acceptedAwaitingReplica
-            resultMessage = "Cloud recorded this action. This device has not shown it yet and will refresh."
         case .rejected(let event):
             resultState = .rejected
             resultMessage = event.rejectionReason ?? "This action was not recorded and did not change the accepted balance."

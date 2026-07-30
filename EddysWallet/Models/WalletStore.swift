@@ -719,6 +719,7 @@ public final class WalletStore: ObservableObject {
     /// Whether a parent surface may show Cloud purchase/restore controls at all.
     public var canOfferCloudPlans: Bool { !cloudPlans.isEmpty }
     public var needsCloudSignIn: Bool { cloudCoordinator?.hasSession == false }
+    public var canModifyWallet: Bool { repository.supportsRuntimeMutations }
     public var canContinueLocallyAfterCloud: Bool {
         repository is CloudWalletRepository && cloudEntitlement.permitsLocalContinuation
     }
@@ -728,9 +729,6 @@ public final class WalletStore: ObservableObject {
     }
     /// Only a Cloud device can sign out without erasing local data.
     public var canSignOutOfCloudOnThisDevice: Bool { repository is CloudWalletRepository }
-    public var hasUnsettledCloudMutation: Bool {
-        (repository as? CloudWalletRepository)?.hasUnsettledCloudMutation == true
-    }
 
     /// Reads backend capability and StoreKit products together. Plans stay empty
     /// unless both are ready, so the parent never sees an unusable price.
@@ -786,10 +784,6 @@ public final class WalletStore: ObservableObject {
     public func continueLocallyAfterCloud() -> Bool {
         guard elevation == .active, let cloudCoordinator,
               let cloud = repository as? CloudWalletRepository else { return false }
-        guard !cloud.hasUnsettledCloudMutation else {
-            cloudMessage = "This device is still catching up with Cloud. Refresh before keeping the wallet on this device only."
-            return false
-        }
         guard canContinueLocallyAfterCloud else { return false }
         do {
             try cloudCoordinator.continueLocally(with: cloud.localReplica)
@@ -810,10 +804,6 @@ public final class WalletStore: ObservableObject {
     @discardableResult
     public func signOutOfCloudOnThisDevice() async -> Bool {
         guard elevation == .active, let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return false }
-        guard !cloud.hasUnsettledCloudMutation else {
-            cloudMessage = "This device is still catching up with Cloud. Refresh before signing out of Cloud."
-            return false
-        }
         do {
             try cloud.localReplica.continueLocallyAfterCloud()
         } catch {

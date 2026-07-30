@@ -24,10 +24,11 @@ struct ParentAreaView: View {
     /// Shows the first-actions spotlight right after setup, and whenever the
     /// wallet has no recorded activity or allowance rule yet.
     private var showsHandoffCard: Bool {
-        store.showsFirstActionsHandoff
+        store.canModifyWallet
+            && (store.showsFirstActionsHandoff
             || (store.snapshot.activities.isEmpty
                 && store.snapshot.pendingEvents.isEmpty
-                && store.snapshot.allowance == nil)
+                && store.snapshot.allowance == nil))
     }
 
     var body: some View {
@@ -60,8 +61,12 @@ struct ParentAreaView: View {
                         }
                     }
 
-                    SectionHeader("Parent actions")
-                    actionGrid
+                    if store.canModifyWallet {
+                        SectionHeader("Parent actions")
+                        actionGrid
+                    } else {
+                        cloudReadOnlyCard
+                    }
 
                     SectionHeader("Cloud")
                     CloudStatusView()
@@ -219,42 +224,75 @@ struct ParentAreaView: View {
     }
 
     private var allowanceCard: some View {
-        Button {
-            isShowingAllowance = true
-        } label: {
-            HStack(alignment: .top, spacing: EW.Space.three) {
-                IconBadge("calendar", foreground: EW.Color.gold700, background: EW.Color.goldTint)
-                VStack(alignment: .leading, spacing: EW.Space.one) {
-                    Text("Next allowance")
-                        .font(EW.Font.bodyBold)
-                        .foregroundStyle(EW.Color.textPrimary)
-                    if let allowance = store.snapshot.allowance {
-                        Text("\(Money(cents: allowance.amountCents).display) \(allowance.cadence)")
-                            .font(EW.Font.body)
-                            .foregroundStyle(EW.Color.textSecondary)
-                        Text("Starting \(allowance.nextDate.formatted(.dateTime.month(.abbreviated).day()))")
-                            .font(EW.Font.caption)
+        Group {
+            if store.canModifyWallet {
+                Button {
+                    isShowingAllowance = true
+                } label: {
+                    HStack(spacing: EW.Space.two) {
+                        allowanceCardContent
+                        Image(systemName: "chevron.right")
                             .foregroundStyle(EW.Color.textTertiary)
-                        if allowance.syncState != .recorded {
-                            StatusPill(state: allowance.syncState)
-                        }
-                    } else {
-                        Text("Set a weekly allowance")
-                            .font(EW.Font.body)
-                            .foregroundStyle(EW.Color.textSecondary)
                     }
                 }
-                .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: EW.Space.two)
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(EW.Color.textTertiary)
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens allowance setup")
+            } else {
+                allowanceCardContent
             }
-            .frame(minHeight: 44, maxHeight: .infinity, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .buttonStyle(.plain)
+        .frame(minHeight: 44, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .ewCard(variant: .alt)
-        .accessibilityHint("Opens allowance setup")
+    }
+
+    private var allowanceCardContent: some View {
+        HStack(alignment: .top, spacing: EW.Space.three) {
+            IconBadge("calendar", foreground: EW.Color.gold700, background: EW.Color.goldTint)
+            VStack(alignment: .leading, spacing: EW.Space.one) {
+                Text("Next allowance")
+                    .font(EW.Font.bodyBold)
+                    .foregroundStyle(EW.Color.textPrimary)
+                if let allowance = store.snapshot.allowance {
+                    Text("\(Money(cents: allowance.amountCents).display) \(allowance.cadence)")
+                        .font(EW.Font.body)
+                        .foregroundStyle(EW.Color.textSecondary)
+                    Text("Starting \(allowance.nextDate.formatted(.dateTime.month(.abbreviated).day()))")
+                        .font(EW.Font.caption)
+                        .foregroundStyle(EW.Color.textTertiary)
+                    if allowance.syncState != .recorded {
+                        StatusPill(state: allowance.syncState)
+                    }
+                } else {
+                    Text(store.canModifyWallet ? "Set a weekly allowance" : "No weekly allowance")
+                        .font(EW.Font.body)
+                        .foregroundStyle(EW.Color.textSecondary)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: EW.Space.two)
+        }
+    }
+
+    private var cloudReadOnlyCard: some View {
+        VStack(alignment: .leading, spacing: EW.Space.three) {
+            Label("Cloud wallet is read-only", systemImage: "icloud")
+                .font(EW.Font.headingSmall)
+                .foregroundStyle(EW.Color.textPrimary)
+            Text("This version shows the wallet accepted by Cloud. Recording money, changing allowance, and editing the child profile stay unavailable until Cloud write support is ready.")
+                .font(EW.Font.body)
+                .foregroundStyle(EW.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Refresh from Cloud") {
+                Task { await store.refresh() }
+            }
+            .buttonStyle(.plain)
+            .font(EW.Font.bodyBold)
+            .foregroundStyle(EW.Color.primaryActive)
+            .accessibilityIdentifier("cloud-read-only-refresh-button")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .ewCard(variant: .alt)
     }
 
     private var syncStatusCard: some View {
@@ -282,15 +320,6 @@ struct ParentAreaView: View {
                         .frame(minHeight: 44)
                     }
                     .buttonStyle(.plain)
-                    if event.syncState == .acceptedAwaitingReplica {
-                        Button("Refresh from Cloud") {
-                            Task { await store.refresh() }
-                        }
-                        .buttonStyle(.plain)
-                        .font(EW.Font.body)
-                        .foregroundStyle(EW.Color.primaryActive)
-                        .accessibilityIdentifier("cloud-reconciliation-refresh-button")
-                    }
                 }
             }
         }
@@ -348,10 +377,12 @@ struct ParentAreaView: View {
 
     private var settingsCard: some View {
         VStack(spacing: 0) {
-            settingsRow(title: "Edit child profile", icon: "person.crop.circle", accessibilityIdentifier: "edit-child-profile-settings") {
-                isShowingEditProfile = true
+            if store.canModifyWallet {
+                settingsRow(title: "Edit child profile", icon: "person.crop.circle", accessibilityIdentifier: "edit-child-profile-settings") {
+                    isShowingEditProfile = true
+                }
+                Divider().overlay(EW.Color.border)
             }
-            Divider().overlay(EW.Color.border)
             settingsRow(title: "Change PIN", icon: "lock.rotation") {
                 isShowingChangePIN = true
             }
@@ -428,7 +459,6 @@ struct ParentAreaView: View {
         switch state {
         case .recorded: EW.Color.green700
         case .pending: EW.Color.gold700
-        case .acceptedAwaitingReplica: EW.Color.gold700
         case .rejected: EW.Color.red600
         case .draft: EW.Color.textSecondary
         }
@@ -438,7 +468,6 @@ struct ParentAreaView: View {
         switch state {
         case .recorded: EW.Color.green100
         case .pending: EW.Color.goldTint
-        case .acceptedAwaitingReplica: EW.Color.goldTint
         case .rejected: EW.Color.dangerTint
         case .draft: EW.Color.ink100
         }
