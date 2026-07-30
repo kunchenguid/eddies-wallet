@@ -1809,15 +1809,15 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
     /// Simulates a response disappearing after the service handled the exact
     /// request. The same stub remains available for an idempotent replay.
     func dropNextResponse(_ method: String, _ path: String) {
-        withState { $0.droppedResponseKeys.insert("\(method) \(path)") }
+        _ = withState { $0.droppedResponseKeys.insert("\(method) \(path)") }
     }
 
     func timeOutNextResponse(_ method: String, _ path: String) {
-        withState { $0.timedOutKeys.insert("\(method) \(path)") }
+        _ = withState { $0.timedOutKeys.insert("\(method) \(path)") }
     }
 
     func timeOutSuspendedResponse(_ method: String, _ path: String) {
-        withState { $0.timedOutAfterSuspensionKeys.insert("\(method) \(path)") }
+        _ = withState { $0.timedOutAfterSuspensionKeys.insert("\(method) \(path)") }
     }
 
     func suspend(_ method: String, _ path: String) {
