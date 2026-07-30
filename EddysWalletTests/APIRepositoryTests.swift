@@ -647,24 +647,45 @@ private final class StubHTTPTransport: HTTPTransport {
     }
 }
 
+/// `HTTPTransport.data(for:)` is nonisolated, so the parked request runs on a
+/// cooperative thread while the test body polls and completes it from the main
+/// actor. Unsynchronised stored properties corrupt their own buffers and kill
+/// the test host with SIGSEGV instead of failing an assertion, so all state
+/// lives in one lock-guarded value.
 private final class SuspendingHTTPTransport: HTTPTransport {
-    private(set) var requests: [URLRequest] = []
-    private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
-    /// Result delivered if complete/fail races ahead of the suspension callback.
-    private var pendingResult: Result<(Data, URLResponse), Error>?
+    private struct State {
+        var requests: [URLRequest] = []
+        var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+        /// Result delivered if complete/fail races ahead of the suspension callback.
+        var pendingResult: Result<(Data, URLResponse), Error>?
+    }
+
+    private let lock = NSLock()
+    private var state = State()
+
+    private func withState<T>(_ body: (inout State) -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(&state)
+    }
+
+    var requests: [URLRequest] { withState { $0.requests } }
 
     /// True while a request is parked in `withCheckedThrowingContinuation`.
-    var isAwaitingCompletion: Bool { continuation != nil }
+    var isAwaitingCompletion: Bool { withState { $0.continuation != nil } }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        requests.append(request)
+        withState { $0.requests.append(request) }
         return try await withCheckedThrowingContinuation { continuation in
-            if let pendingResult {
-                self.pendingResult = nil
-                continuation.resume(with: pendingResult)
-            } else {
-                self.continuation = continuation
+            let pending: Result<(Data, URLResponse), Error>? = withState { state in
+                guard let pendingResult = state.pendingResult else {
+                    state.continuation = continuation
+                    return nil
+                }
+                state.pendingResult = nil
+                return pendingResult
             }
+            if let pending { continuation.resume(with: pending) }
         }
     }
 
@@ -684,13 +705,16 @@ private final class SuspendingHTTPTransport: HTTPTransport {
     }
 
     private func deliver(_ result: Result<(Data, URLResponse), Error>) {
-        if let continuation {
-            self.continuation = nil
-            continuation.resume(with: result)
-        } else {
-            // complete/fail can observe `requests` before the suspension callback assigns `continuation`.
-            pendingResult = result
+        let parked: CheckedContinuation<(Data, URLResponse), Error>? = withState { state in
+            guard let continuation = state.continuation else {
+                // complete/fail can observe `requests` before the suspension callback assigns `continuation`.
+                state.pendingResult = result
+                return nil
+            }
+            state.continuation = nil
+            return continuation
         }
+        parked?.resume(with: result)
     }
 }
 

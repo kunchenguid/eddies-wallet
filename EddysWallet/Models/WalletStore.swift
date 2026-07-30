@@ -509,6 +509,16 @@ public final class WalletStore: ObservableObject {
                 }
                 errorMessage = nil
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
+            case .cancelled:
+                // A Cloud read still in flight when the parent signed this
+                // device out of Cloud, or kept it going locally, comes back
+                // refused by the replica's hand-off lease. The hand-off has
+                // already published the local wallet, and this retired Cloud
+                // repository no longer has a snapshot to offer, so a
+                // superseded read must change nothing: no error - the two
+                // Apple sign-in paths drop `.cancelled` the same way - and
+                // above all no emptied balance over the parent's wallet.
+                break
             default:
                 guard generation == refreshGeneration, requestedRole == viewRole else { return }
                 errorMessage = userMessage(for: error)

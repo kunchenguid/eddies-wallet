@@ -1241,6 +1241,33 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(transport.requests.contains { $0.httpMethod == "DELETE" && $0.url?.path == "/v1/session/current" })
     }
 
+    /// A Cloud read can still be in flight when the parent signs this device
+    /// out of Cloud: `WalletStore` starts unstructured refreshes of its own, so
+    /// the hand-off always races one. The replica refuses the superseded read
+    /// through its hand-off lease, and that refusal must never reach the parent
+    /// as an error - least of all as sign-in copy on a wallet that no longer
+    /// needs a session at all.
+    func testACloudReadSupersededByTheSignOutNeverShowsTheParentAnError() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+
+        // Exactly what a late read observes once the hand-off has committed:
+        // the repository is still the Cloud one, but the replica has moved on.
+        try cloud.localReplica.continueLocallyAfterCloud()
+        await store.refresh()
+
+        XCTAssertNil(store.errorMessage, "a Cloud read the sign-out superseded is not news for the parent")
+        XCTAssertFalse(store.sessionExpired, "a signed-out wallet never asks for a parent session")
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "the wallet is still here")
+        XCTAssertFalse(local.isCloudAuthority, "the late read cannot reclaim Cloud authority")
+    }
+
     func testLocalOnlyWalletKeepsTheDestructiveSignOutWarning() async throws {
         let local = try await localWalletWithHistory()
         let store = elevatedStore(repository: local, coordinator: nil)
@@ -1726,6 +1753,14 @@ extension JSONDecoder {
 }
 
 /// Routes stubbed responses by method and path, and can simulate an outage.
+///
+/// `HTTPTransport.data(for:)` is nonisolated, so the app reaches a transport
+/// from whichever cooperative thread runs the calling task - including the
+/// unstructured refreshes `WalletStore` starts, which overlap the test body's
+/// own calls. `URLSessionTransport` is safe under that concurrency and every
+/// double has to be too: unsynchronised stored properties corrupt their own
+/// buffers and kill the test host with SIGSEGV instead of failing an
+/// assertion. All state therefore lives in one lock-guarded value.
 final class RoutingTransport: HTTPTransport, @unchecked Sendable {
     private struct Stub {
         let statusCode: Int
@@ -1733,98 +1768,146 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
         let headers: [String: String]
     }
 
-    private(set) var requests: [URLRequest] = []
-    private(set) var committedMutationKeys: Set<String> = []
-    var committedMutationCount: Int { committedMutationKeys.count }
-    var failEverything = false
-    private var stubs: [String: [Stub]] = [:]
-    private var droppedResponseKeys: Set<String> = []
-    private var timedOutKeys: Set<String> = []
-    private var timedOutAfterSuspensionKeys: Set<String> = []
-    private var suspendedKey: String?
-    private var suspendedRequestContinuation: CheckedContinuation<Void, Never>?
-    private var suspensionObservedContinuation: CheckedContinuation<Void, Never>?
+    private struct State {
+        var requests: [URLRequest] = []
+        var committedMutationKeys: Set<String> = []
+        var failEverything = false
+        var stubs: [String: [Stub]] = [:]
+        var droppedResponseKeys: Set<String> = []
+        var timedOutKeys: Set<String> = []
+        var timedOutAfterSuspensionKeys: Set<String> = []
+        var suspendedKey: String?
+        var suspendedRequestContinuation: CheckedContinuation<Void, Never>?
+        var suspensionObservedContinuation: CheckedContinuation<Void, Never>?
+    }
+
+    private let lock = NSLock()
+    private var state = State()
+
+    private func withState<T>(_ body: (inout State) -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body(&state)
+    }
+
+    var requests: [URLRequest] { withState { $0.requests } }
+    var committedMutationKeys: Set<String> { withState { $0.committedMutationKeys } }
+    var committedMutationCount: Int { withState { $0.committedMutationKeys.count } }
+    var failEverything: Bool {
+        get { withState { $0.failEverything } }
+        set { withState { $0.failEverything = newValue } }
+    }
 
     func stub(_ method: String, _ path: String, _ body: Data, status: Int = 200, headers: [String: String] = [:]) {
-        stubs["\(method) \(path)"] = [Stub(statusCode: status, body: body, headers: headers)]
+        withState { $0.stubs["\(method) \(path)"] = [Stub(statusCode: status, body: body, headers: headers)] }
     }
 
     func enqueue(_ method: String, _ path: String, _ body: Data, status: Int = 200, headers: [String: String] = [:]) {
-        stubs["\(method) \(path)", default: []].append(Stub(statusCode: status, body: body, headers: headers))
+        withState { $0.stubs["\(method) \(path)", default: []].append(Stub(statusCode: status, body: body, headers: headers)) }
     }
 
     /// Simulates a response disappearing after the service handled the exact
     /// request. The same stub remains available for an idempotent replay.
     func dropNextResponse(_ method: String, _ path: String) {
-        droppedResponseKeys.insert("\(method) \(path)")
+        withState { $0.droppedResponseKeys.insert("\(method) \(path)") }
     }
 
     func timeOutNextResponse(_ method: String, _ path: String) {
-        timedOutKeys.insert("\(method) \(path)")
+        withState { $0.timedOutKeys.insert("\(method) \(path)") }
     }
 
     func timeOutSuspendedResponse(_ method: String, _ path: String) {
-        timedOutAfterSuspensionKeys.insert("\(method) \(path)")
+        withState { $0.timedOutAfterSuspensionKeys.insert("\(method) \(path)") }
     }
 
     func suspend(_ method: String, _ path: String) {
-        suspendedKey = "\(method) \(path)"
+        withState { $0.suspendedKey = "\(method) \(path)" }
     }
 
     func waitUntilSuspended() async {
-        if suspendedRequestContinuation != nil {
-            return
-        }
         await withCheckedContinuation { continuation in
-            suspensionObservedContinuation = continuation
+            let alreadySuspended = withState { state -> Bool in
+                if state.suspendedRequestContinuation != nil { return true }
+                state.suspensionObservedContinuation = continuation
+                return false
+            }
+            if alreadySuspended { continuation.resume() }
         }
     }
 
     func resumeSuspendedRequest() {
-        suspendedKey = nil
-        suspendedRequestContinuation?.resume()
-        suspendedRequestContinuation = nil
+        let suspended: CheckedContinuation<Void, Never>? = withState { state in
+            state.suspendedKey = nil
+            let suspended = state.suspendedRequestContinuation
+            state.suspendedRequestContinuation = nil
+            return suspended
+        }
+        suspended?.resume()
+    }
+
+    /// The whole routing decision is taken under one lock so a concurrent
+    /// caller can never observe or interleave a half-updated stub queue.
+    private enum Decision {
+        case failure(URLError)
+        case unstubbed
+        case respond(Stub, suspending: Bool)
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        requests.append(request)
-        if failEverything { throw URLError(.notConnectedToInternet) }
         let key = "\(request.httpMethod ?? "GET") \(request.url?.path ?? "")"
-        if droppedResponseKeys.remove(key) != nil {
-            if let stub = stubs[key]?.first {
-                recordCommit(for: request, statusCode: stub.statusCode)
+        let decision: Decision = withState { state in
+            state.requests.append(request)
+            if state.failEverything { return .failure(URLError(.notConnectedToInternet)) }
+            if state.droppedResponseKeys.remove(key) != nil {
+                if let stub = state.stubs[key]?.first {
+                    Self.recordCommit(for: request, statusCode: stub.statusCode, in: &state)
+                }
+                return .failure(URLError(.networkConnectionLost))
             }
-            throw URLError(.networkConnectionLost)
+            if state.timedOutKeys.remove(key) != nil {
+                return .failure(URLError(.timedOut))
+            }
+            guard var queued = state.stubs[key], let stub = queued.first else {
+                return .unstubbed
+            }
+            if queued.count > 1 {
+                queued.removeFirst()
+                state.stubs[key] = queued
+            }
+            let suspending = key == state.suspendedKey
+            if suspending { state.suspendedKey = nil }
+            return .respond(stub, suspending: suspending)
         }
-        if timedOutKeys.remove(key) != nil {
-            throw URLError(.timedOut)
-        }
-        guard var queued = stubs[key], let stub = queued.first else {
+
+        switch decision {
+        case .failure(let error):
+            throw error
+        case .unstubbed:
             return (Data(), HTTPURLResponse(url: request.url!, statusCode: 501, httpVersion: nil, headerFields: nil)!)
-        }
-        if queued.count > 1 {
-            queued.removeFirst()
-            stubs[key] = queued
-        }
-        if key == suspendedKey {
-            suspendedKey = nil
-            await withCheckedContinuation { continuation in
-                suspendedRequestContinuation = continuation
-                suspensionObservedContinuation?.resume()
-                suspensionObservedContinuation = nil
+        case .respond(let stub, let suspending):
+            if suspending {
+                await withCheckedContinuation { continuation in
+                    let observer: CheckedContinuation<Void, Never>? = withState { state in
+                        state.suspendedRequestContinuation = continuation
+                        let observer = state.suspensionObservedContinuation
+                        state.suspensionObservedContinuation = nil
+                        return observer
+                    }
+                    observer?.resume()
+                }
+                if withState({ $0.timedOutAfterSuspensionKeys.remove(key) != nil }) {
+                    throw URLError(.timedOut)
+                }
             }
-            if timedOutAfterSuspensionKeys.remove(key) != nil {
-                throw URLError(.timedOut)
-            }
+            withState { Self.recordCommit(for: request, statusCode: stub.statusCode, in: &$0) }
+            return (stub.body, HTTPURLResponse(url: request.url!, statusCode: stub.statusCode, httpVersion: nil, headerFields: stub.headers)!)
         }
-        recordCommit(for: request, statusCode: stub.statusCode)
-        return (stub.body, HTTPURLResponse(url: request.url!, statusCode: stub.statusCode, httpVersion: nil, headerFields: stub.headers)!)
     }
 
-    private func recordCommit(for request: URLRequest, statusCode: Int) {
+    private static func recordCommit(for request: URLRequest, statusCode: Int, in state: inout State) {
         guard (200..<300).contains(statusCode),
               let key = request.value(forHTTPHeaderField: "Idempotency-Key") else { return }
-        committedMutationKeys.insert(key)
+        state.committedMutationKeys.insert(key)
     }
 }
 
