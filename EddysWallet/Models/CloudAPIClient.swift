@@ -25,7 +25,7 @@ public final class CloudAPIClient: ParentAuthenticator {
             path: "/v1/auth/apple",
             method: "POST",
             body: ["identityToken": identityToken, "nonce": nonce],
-            authenticated: false
+            session: .never
         ).decoded(CloudAuthResponse.self)
         guard !response.token.isEmpty, response.expiresAt > .now else {
             throw WalletAPIError.invalidResponse("The authentication service returned an invalid session.")
@@ -46,12 +46,17 @@ public final class CloudAPIClient: ParentAuthenticator {
         try sessionStore.save(session)
     }
 
+    /// Capability discovery stays readable without a session, but presents the
+    /// parent session whenever this device has one. The service may scope Cloud
+    /// availability to a named parent, and it can only do that when it can see
+    /// who is asking; an anonymous read still returns the public answer.
     public func capabilities() async throws -> CloudCapabilities {
-        try await send(path: "/v1/capabilities", method: "GET", body: nil, authenticated: false).decoded(CloudCapabilities.self)
+        try await send(path: "/v1/capabilities", method: "GET", body: nil, session: .presentedWhenAvailable)
+            .decoded(CloudCapabilities.self)
     }
 
     public func context() async throws -> CloudContext {
-        try await send(path: "/v1/cloud/context", method: "GET", body: nil, authenticated: true).decoded(CloudContext.self)
+        try await send(path: "/v1/cloud/context", method: "GET", body: nil, session: .required).decoded(CloudContext.self)
     }
 
     /// The server receives Apple's signed JWS. No decoded client claim is sent.
@@ -62,7 +67,7 @@ public final class CloudAPIClient: ParentAuthenticator {
             path: "/v1/cloud/transactions",
             method: "POST",
             body: ["signedTransaction": transactionJWS],
-            authenticated: true,
+            session: .required,
             idempotencyKey: UUID().uuidString,
             pendingStatusCode: 202
         ).decoded(CloudContext.self)
@@ -70,15 +75,15 @@ public final class CloudAPIClient: ParentAuthenticator {
 
     public func bootstrap(cursor: String? = nil) async throws -> CloudReplica {
         let suffix = cursor.map { "?cursor=" + ($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "") } ?? ""
-        return try await send(path: "/v1/cloud/bootstrap\(suffix)", method: "GET", body: nil, authenticated: true).decoded(CloudReplica.self)
+        return try await send(path: "/v1/cloud/bootstrap\(suffix)", method: "GET", body: nil, session: .required).decoded(CloudReplica.self)
     }
 
     public func changes(afterRevision revision: Int64) async throws -> CloudReplica {
-        try await send(path: "/v1/cloud/changes?afterRevision=\(revision)", method: "GET", body: nil, authenticated: true).decoded(CloudReplica.self)
+        try await send(path: "/v1/cloud/changes?afterRevision=\(revision)", method: "GET", body: nil, session: .required).decoded(CloudReplica.self)
     }
 
     public func allowanceSchedule() async throws -> CloudAllowanceSchedule {
-        try await send(path: "/v1/allowance-rule", method: "GET", body: nil, authenticated: true).decoded(CloudAllowanceSchedule.self)
+        try await send(path: "/v1/allowance-rule", method: "GET", body: nil, session: .required).decoded(CloudAllowanceSchedule.self)
     }
 
     /// Sends one already-persisted runtime mutation. The exact body, key, and
@@ -90,7 +95,7 @@ public final class CloudAPIClient: ParentAuthenticator {
             path: mutation.path,
             method: mutation.method,
             body: mutation.body,
-            authenticated: true,
+            session: .required,
             idempotencyKey: mutation.idempotencyKey,
             expectedRevision: mutation.expectedRevision
         )
@@ -125,18 +130,18 @@ public final class CloudAPIClient: ParentAuthenticator {
             path: "/v1/cloud/household/import",
             method: "POST",
             body: manifest.requestBody,
-            authenticated: true,
+            session: .required,
             idempotencyKey: idempotencyKey
         )
         return try data.decoded(HouseholdEnvelope.self).household
     }
 
     public func legacyContext() async throws -> CloudLegacyContext {
-        try await send(path: "/v1/cloud/legacy-context", method: "GET", body: nil, authenticated: true).decoded(CloudLegacyContext.self)
+        try await send(path: "/v1/cloud/legacy-context", method: "GET", body: nil, session: .required).decoded(CloudLegacyContext.self)
     }
 
     public func revokeCurrentSession() async throws {
-        _ = try await send(path: "/v1/session/current", method: "DELETE", body: nil, authenticated: true)
+        _ = try await send(path: "/v1/session/current", method: "DELETE", body: nil, session: .required)
         sessionStore.clear()
     }
 
@@ -146,16 +151,27 @@ public final class CloudAPIClient: ParentAuthenticator {
         sessionStore.clear()
     }
 
-    private func send(path: String, method: String, body: [String: Any]?, authenticated: Bool, idempotencyKey: String? = nil, pendingStatusCode: Int? = nil) async throws -> Data {
+    /// How a request presents the parent session.
+    private enum SessionPresentation {
+        /// Never authenticated, even when a session exists.
+        case never
+        /// A valid session is required; the request fails without one.
+        case required
+        /// A valid session is presented when this device has one, and the
+        /// request is still made anonymously when it does not.
+        case presentedWhenAvailable
+    }
+
+    private func send(path: String, method: String, body: [String: Any]?, session: SessionPresentation, idempotencyKey: String? = nil, pendingStatusCode: Int? = nil) async throws -> Data {
         let data = body.map { try? JSONSerialization.data(withJSONObject: $0) } ?? nil
-        return try await sendData(path: path, method: method, body: data, authenticated: authenticated, idempotencyKey: idempotencyKey, pendingStatusCode: pendingStatusCode)
+        return try await sendData(path: path, method: method, body: data, session: session, idempotencyKey: idempotencyKey, pendingStatusCode: pendingStatusCode)
     }
 
     private func sendData(
         path: String,
         method: String,
         body: Data?,
-        authenticated: Bool,
+        session: SessionPresentation,
         idempotencyKey: String? = nil,
         pendingStatusCode: Int? = nil
     ) async throws -> Data {
@@ -163,7 +179,7 @@ public final class CloudAPIClient: ParentAuthenticator {
             path: path,
             method: method,
             body: body,
-            authenticated: authenticated,
+            session: session,
             idempotencyKey: idempotencyKey,
             pendingStatusCode: pendingStatusCode
         ).data
@@ -173,7 +189,7 @@ public final class CloudAPIClient: ParentAuthenticator {
         path: String,
         method: String,
         body: Data?,
-        authenticated: Bool,
+        session: SessionPresentation,
         idempotencyKey: String? = nil,
         pendingStatusCode: Int? = nil,
         expectedRevision: Int64? = nil
@@ -186,9 +202,18 @@ public final class CloudAPIClient: ParentAuthenticator {
         if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
         if let expectedRevision { request.setValue("\"rev-\(expectedRevision)\"", forHTTPHeaderField: "If-Match") }
-        if authenticated {
-            guard let session = sessionStore.session, !session.isExpired else { throw WalletAPIError.noSession }
-            request.setValue("Bearer \(session.token)", forHTTPHeaderField: "Authorization")
+        switch session {
+        case .never:
+            break
+        case .required:
+            guard let stored = sessionStore.session, !stored.isExpired else { throw WalletAPIError.noSession }
+            request.setValue("Bearer \(stored.token)", forHTTPHeaderField: "Authorization")
+        case .presentedWhenAvailable:
+            // An expired session is never presented: it would only invite a 401
+            // that clears the session behind an otherwise public read.
+            if let stored = sessionStore.session, !stored.isExpired {
+                request.setValue("Bearer \(stored.token)", forHTTPHeaderField: "Authorization")
+            }
         }
         do {
             let (data, response) = try await transport.data(for: request)
