@@ -343,6 +343,10 @@ final class EvidenceCaptureUITests: XCTestCase {
             app.buttons["Done. Back to Eddie's wallet"].tap()
             XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
             XCTAssertEqual(app.staticTexts["US$1.25"].exists, acceptedAmountVisibleToKid)
+            if acceptedAmountVisibleToKid {
+                XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "offline")).firstMatch.exists)
+                XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "reconnect")).firstMatch.exists)
+            }
             capture("\(captureName)-kid")
         }
 

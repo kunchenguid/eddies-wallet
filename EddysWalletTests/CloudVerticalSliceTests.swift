@@ -764,9 +764,16 @@ final class CloudVerticalSliceTests: XCTestCase {
         guard case .accepted = await submission.value else {
             return XCTFail("the original suspended mutation should complete")
         }
+        for _ in 0..<50 where store.snapshot.acceptedBalanceCents != 1_000 {
+            await Task.yield()
+        }
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
         XCTAssertFalse(cloud.hasUnsettledMutation)
         XCTAssertEqual(cloud.snapshot().activities.filter { $0.remoteID == "background-entry" }.count, 1)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_000)
+        XCTAssertFalse(store.snapshot.isStale)
+        XCTAssertFalse(store.isOffline)
+        XCTAssertTrue(store.authorityState.isCloudAuthority)
     }
 
     func testBackgroundRefreshDoesNotReplaySuspendedDefinitiveRejection() async throws {
@@ -793,7 +800,10 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
         XCTAssertFalse(cloud.hasUnsettledMutation)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
-        XCTAssertFalse(store.needsCloudReview)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+        XCTAssertFalse(store.isOffline)
+        XCTAssertFalse(store.snapshot.isStale)
+        XCTAssertTrue(store.authorityState.isCloudAuthority)
     }
 
     func testSuspendedAmbiguousAttemptAllowsOneReplayOnlyAfterCompletion() async throws {
@@ -810,17 +820,18 @@ final class CloudVerticalSliceTests: XCTestCase {
         }
         await transport.waitUntilSuspended()
         let overlappingRefresh = Task { try await cloud.refresh(for: .child) }
-        do {
-            _ = try await overlappingRefresh.value
-            XCTFail("the overlapping refresh must remain waiting")
-        } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
-        }
+        for _ in 0..<5 { await Task.yield() }
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
 
         transport.resumeSuspendedRequest()
         guard case .pending = try await submission.value else {
             return XCTFail("the timed-out original attempt is ambiguous")
+        }
+        do {
+            _ = try await overlappingRefresh.value
+            XCTFail("the joined ambiguous settlement must remain waiting")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
         }
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
 
@@ -872,6 +883,30 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(transport.committedMutationCount, 1)
         XCTAssertFalse(relaunched.hasUnsettledMutation)
         XCTAssertEqual(relaunched.snapshot().activities.filter { $0.remoteID == "session-replay-entry" }.count, 1)
+    }
+
+    func testAuthorityChangeWhileMutationIsSuspendedIgnoresLateResponse() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "ignored-authority-entry"), status: 201)
+        transport.suspend("POST", "/v1/wallet/deposits")
+
+        let submission = Task {
+            try await cloud.submit(
+                WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "authority-change-key")
+            )
+        }
+        await transport.waitUntilSuspended()
+        let operationID = try XCTUnwrap(cloud.localReplica.unsettledCloudMutation?.operationID)
+        try cloud.localReplica.clearCloudMutation(operationID: operationID)
+        try cloud.localReplica.continueLocallyAfterCloud()
+        transport.resumeSuspendedRequest()
+
+        guard case .pending = try await submission.value else {
+            return XCTFail("a late response cannot reclaim relinquished Cloud authority")
+        }
+        XCTAssertFalse(cloud.localReplica.isCloudAuthority)
+        XCTAssertEqual(cloud.localReplica.snapshot().acceptedBalanceCents, 750)
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
     }
 
     func testTimeoutBeforeReceiptCompletesOnlyOriginalRequestOnReplay() async throws {

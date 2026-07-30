@@ -493,18 +493,19 @@ public final class WalletStore: ObservableObject {
                 needsCloudReview = true
                 errorMessage = userMessage(for: error)
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
-            case .cloudAcceptedAwaitingReplica, .cloudMutationAwaitingReconciliation:
+            case .cloudAcceptedAwaitingReplica:
                 guard generation == refreshGeneration, requestedRole == viewRole else { return }
-                if hasRejectedCloudMutationCleanup {
-                    isOffline = false
-                    if let cloud = repository as? CloudWalletRepository {
-                        authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
-                    }
-                } else {
-                    isOffline = true
-                    if let cloud = repository as? CloudWalletRepository {
-                        authorityState = .cloudOffline(lineageID: cloud.lineageID, revision: cloud.revision)
-                    }
+                isOffline = false
+                if let cloud = repository as? CloudWalletRepository {
+                    authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+                }
+                errorMessage = nil
+                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
+            case .cloudMutationAwaitingReconciliation:
+                guard generation == refreshGeneration, requestedRole == viewRole else { return }
+                isOffline = false
+                if let cloud = repository as? CloudWalletRepository {
+                    authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
                 }
                 errorMessage = nil
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()

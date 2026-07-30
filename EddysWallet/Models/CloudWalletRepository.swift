@@ -20,7 +20,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private var nextReadGeneration = 0
     private var lastAppliedReadGeneration = 0
     private var mutationLifecycleGeneration = 0
-    private var inFlightMutationAttempt: MutationAttempt?
+    private var activeSettlement: ActiveSettlement?
     /// A persisted replica is readable immediately, but a new process may not
     /// write from it until one successful server read confirms its revision.
     public private(set) var isReadyForRuntimeMutations = false
@@ -70,7 +70,12 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             case .observed:
                 return snapshot()
             case .waiting(let error):
-                throw error
+                switch error {
+                case .noSession, .unauthorized:
+                    throw error
+                default:
+                    throw WalletAPIError.cloudMutationAwaitingReconciliation
+                }
             case .acceptedAwaitingReplica:
                 throw WalletAPIError.cloudAcceptedAwaitingReplica
             }
@@ -302,12 +307,48 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         case acceptedAwaitingReplica(WalletAPIError?)
     }
 
-    private struct MutationAttempt: Equatable {
+    private struct ActiveSettlement {
+        let token: UUID
         let operationID: UUID
-        let lifecycleGeneration: Int
+        let task: Task<Settlement, Error>
     }
 
     private func settle(_ original: PendingCloudMutation) async throws -> Settlement {
+        if let activeSettlement {
+            guard activeSettlement.operationID == original.operationID else {
+                return .waiting(.cloudMutationAwaitingReconciliation)
+            }
+            return try await activeSettlement.task.value
+        }
+        let token = UUID()
+        let lifecycleGeneration = mutationLifecycleGeneration
+        let task = Task { @MainActor [self] in
+            try await performSettlement(
+                original,
+                token: token,
+                lifecycleGeneration: lifecycleGeneration
+            )
+        }
+        activeSettlement = ActiveSettlement(
+            token: token,
+            operationID: original.operationID,
+            task: task
+        )
+        do {
+            let result = try await task.value
+            clearSettlement(token: token)
+            return result
+        } catch {
+            clearSettlement(token: token)
+            throw error
+        }
+    }
+
+    private func performSettlement(
+        _ original: PendingCloudMutation,
+        token: UUID,
+        lifecycleGeneration: Int
+    ) async throws -> Settlement {
         var mutation = original
         if mutation.phase == .rejected {
             let rejection = rejectionError(from: mutation)
@@ -331,25 +372,20 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         }
         let attemptedMutation = mutation
         if mutation.phase == .awaitingOutcome {
-            guard inFlightMutationAttempt == nil else {
-                return .waiting(.cloudMutationAwaitingReconciliation)
-            }
-            let attempt = MutationAttempt(
+            guard isActive(
                 operationID: mutation.operationID,
-                lifecycleGeneration: mutationLifecycleGeneration
-            )
-            guard isActive(attempt) else {
+                token: token,
+                lifecycleGeneration: lifecycleGeneration
+            ) else {
                 return .waiting(.cancelled)
-            }
-            inFlightMutationAttempt = attempt
-            defer {
-                if inFlightMutationAttempt == attempt {
-                    inFlightMutationAttempt = nil
-                }
             }
             do {
                 let acceptance = try await client.mutate(mutation)
-                guard inFlightMutationAttempt == attempt, isActive(attempt) else {
+                guard isActive(
+                    operationID: mutation.operationID,
+                    token: token,
+                    lifecycleGeneration: lifecycleGeneration
+                ) else {
                     return .waiting(.cancelled)
                 }
                 mutation.phase = .acceptedAwaitingReplica
@@ -358,7 +394,11 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 activeMutation = mutation
                 try? replica.markCloudMutationAccepted(mutation)
             } catch let rejection as WalletAPIError {
-                guard inFlightMutationAttempt == attempt, isActive(attempt) else {
+                guard isActive(
+                    operationID: mutation.operationID,
+                    token: token,
+                    lifecycleGeneration: lifecycleGeneration
+                ) else {
                     return .waiting(.cancelled)
                 }
                 if isDefinitiveRejection(rejection) {
@@ -384,7 +424,11 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 }
                 return .waiting(rejection)
             } catch {
-                guard inFlightMutationAttempt == attempt, isActive(attempt) else {
+                guard isActive(
+                    operationID: mutation.operationID,
+                    token: token,
+                    lifecycleGeneration: lifecycleGeneration
+                ) else {
                     return .waiting(.cancelled)
                 }
                 return .waiting(.network("Cloud is unavailable right now. The previous change will be checked again."))
@@ -392,25 +436,25 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         }
         return await observeAcceptedMutation(
             mutation,
-            lifecycleGeneration: mutationLifecycleGeneration
+            token: token,
+            lifecycleGeneration: lifecycleGeneration
         )
     }
 
     private func observeAcceptedMutation(
         _ accepted: PendingCloudMutation,
+        token: UUID,
         lifecycleGeneration: Int
     ) async -> Settlement {
         do {
             let readGeneration = beginRead()
             let changes = try await client.changes(afterRevision: accepted.expectedRevision)
-            guard mutationLifecycleGeneration == lifecycleGeneration else {
+            guard isActive(
+                operationID: accepted.operationID,
+                token: token,
+                lifecycleGeneration: lifecycleGeneration
+            ) else {
                 return .waiting(.cancelled)
-            }
-            guard activeMutation?.operationID == accepted.operationID else {
-                let event = accepted.acceptedEntryID.flatMap { entryID in
-                    replica.snapshot().activities.first { $0.remoteID == entryID }
-                }
-                return activeMutation == nil ? .observed(event) : .waiting(.cancelled)
             }
             var resolving = accepted
             if resolving.acceptedEntryID == nil,
@@ -441,9 +485,23 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         }
     }
 
-    private func isActive(_ attempt: MutationAttempt) -> Bool {
-        mutationLifecycleGeneration == attempt.lifecycleGeneration
-            && activeMutation?.operationID == attempt.operationID
+    private func isActive(
+        operationID: UUID,
+        token: UUID,
+        lifecycleGeneration: Int
+    ) -> Bool {
+        activeSettlement?.token == token
+            && mutationLifecycleGeneration == lifecycleGeneration
+            && activeMutation?.operationID == operationID
+            && replica.cloudApplicationLease == replicaApplicationLease
+            && replica.isCloudAuthority
+            && replica.unsettledCloudMutation?.operationID == operationID
+    }
+
+    private func clearSettlement(token: UUID) {
+        if activeSettlement?.token == token {
+            activeSettlement = nil
+        }
     }
 
     private func isDefinitiveRejection(_ error: WalletAPIError) -> Bool {
