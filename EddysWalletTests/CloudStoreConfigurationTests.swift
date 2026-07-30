@@ -133,6 +133,49 @@ final class CloudStoreConfigurationTests: XCTestCase {
         }
     }
 
+    // MARK: - Debug proof surface
+
+    #if DEBUG
+    /// Regression coverage for the eddies-wallet-v0.1.4 tag CI failure. Resolving
+    /// products can take an unbounded first call - under `xcodebuild` it is a
+    /// live App Store round trip - and that run sat at "loading" for the whole
+    /// window, reported as a product failure on a build whose products were fine.
+    ///
+    /// The surface stays trustworthy only while "not answered yet" is impossible
+    /// to confuse with any answer, so a test can wait out a slow store without
+    /// ever waiting out a broken one.
+    func testDiagnosticsLoadingIsDistinctFromEveryTerminalVerdict() {
+        let terminal: [CloudDiagnosticsStatus] = [
+            .loaded(count: 2),
+            .loaded(count: 0),
+            .missingProducts(found: 1),
+            .storeKitError,
+        ]
+
+        XCTAssertFalse(CloudDiagnosticsStatus.loading.isTerminal)
+        for status in terminal {
+            XCTAssertTrue(status.isTerminal, "\(status.label) is an answer, not a pending load")
+            XCTAssertNotEqual(
+                status.label, CloudDiagnosticsStatus.loading.label,
+                "a terminal verdict must never render as the pending label"
+            )
+        }
+    }
+
+    /// The exact strings the UI proof test judges. A silent copy edit here would
+    /// otherwise turn into a UI test that waits for a label that never appears.
+    func testDiagnosticsStatusLabelsAreTheExactStringsTheProofTestReads() {
+        XCTAssertEqual(CloudDiagnosticsStatus.loading.label, "loading")
+        XCTAssertEqual(
+            CloudDiagnosticsStatus.loaded(count: CloudProductID.ordered.count).label,
+            "loaded 2 products",
+            "the success label must name both configured Cloud products"
+        )
+        XCTAssertEqual(CloudDiagnosticsStatus.missingProducts(found: 1).label, "missing products (1)")
+        XCTAssertEqual(CloudDiagnosticsStatus.storeKitError.label, "storekit error")
+    }
+    #endif
+
     func testNoSubscriptionOffersAFreeTrialOrIntroductoryOffer() throws {
         let subscriptions = subscriptions(in: try loadStoreKitConfiguration())
 

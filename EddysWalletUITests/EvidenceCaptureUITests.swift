@@ -141,9 +141,10 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(link.waitForExistence(timeout: 5))
         link.tap()
 
-        let status = app.staticTexts["storekit-diagnostics-status"]
-        XCTAssertTrue(status.waitForExistence(timeout: 15))
-        XCTAssertEqual(status.label, "loaded 2 products")
+        // Same cold-start exposure as the proof test, and worse: this tour used
+        // to read the label with no wait at all, and only ever passed because it
+        // runs later and inherits the device's warmed product cache.
+        XCTAssertEqual(terminalStoreKitDiagnosticsStatus(in: app), "loaded 2 products")
         XCTAssertEqual(app.staticTexts["storekit-product-com.kunchenguid.eddieswallet.cloud.monthly"].label, "com.kunchenguid.eddieswallet.cloud.monthly")
         XCTAssertEqual(app.staticTexts["storekit-product-com.kunchenguid.eddieswallet.cloud.annual"].label, "com.kunchenguid.eddieswallet.cloud.annual")
         XCTAssertEqual(app.staticTexts["storekit-price-com.kunchenguid.eddieswallet.cloud.monthly"].label, "$2.99")
