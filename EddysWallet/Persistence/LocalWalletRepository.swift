@@ -31,6 +31,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     private let persistence: any LocalWalletPersisting
     private var aggregate: LocalWalletAggregate?
     private var readOnlyReason: String?
+    private var cloudHandoffGeneration = 0
     public private(set) var recoveryState: WalletRecoveryState?
     /// A pre-Core-Data marker/cache is a migration input only. It stays
     /// read-only and is never promoted to local authority because it may hold
@@ -177,6 +178,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
 
     public var isCloudAuthority: Bool { cloudRevision != nil }
     var unsettledCloudMutation: PendingCloudMutation? { aggregate?.metadata.unsettledCloudMutation }
+    var cloudApplicationLease: Int { cloudHandoffGeneration }
     public var cloudImportOperationID: UUID? { aggregate?.metadata.cloudImportOperationID }
     public var hasCompletedCloudImport: Bool { aggregate?.metadata.cloudImportCompleted == true }
     /// Reserves the one-time import identity before the upload starts, so a
@@ -271,6 +273,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         candidate.metadata.serverRevision = 0
         candidate.metadata.lastServerSync = nil
         try persist(candidate)
+        cloudHandoffGeneration += 1
     }
 
     /// Applies an accepted Cloud replica in one transactional save. A malformed
@@ -279,8 +282,12 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     func applyCloudReplica(
         _ replica: CloudReplica,
         merging: Bool,
-        resolving mutation: PendingCloudMutation? = nil
+        resolving mutation: PendingCloudMutation? = nil,
+        applicationLease: Int
     ) throws -> Bool {
+        guard applicationLease == cloudHandoffGeneration else {
+            throw WalletAPIError.cancelled
+        }
         guard replica.household.isCloudAuthoritative, let lineageID = replica.household.lineageID else {
             throw WalletAPIError.invalidResponse("The Cloud wallet did not report a usable household.")
         }
@@ -289,6 +296,11 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             throw WalletAPIError.invalidResponse("This Cloud wallet belongs to a different wallet history.")
         }
         var metadata = aggregate?.metadata ?? LocalWalletMetadata(lineageID: lineageID)
+        if metadata.authority == "cloud",
+           metadata.confirmedCloudLineageID == lineageID,
+           replica.household.revision < metadata.serverRevision {
+            throw WalletAPIError.invalidResponse("An older Cloud wallet response was ignored.")
+        }
         let existingReplicaMatches = hasAcceptedCloudReplica(lineageID: lineageID)
         let fallbackNickname = metadata.lineageID == lineageID ? aggregate?.snapshot.childNickname : nil
         metadata.lineageID = lineageID

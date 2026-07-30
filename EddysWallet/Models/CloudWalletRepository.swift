@@ -14,8 +14,11 @@ public final class CloudWalletRepository: WalletRepository {
 
     private let client: CloudAPIClient
     private let replica: LocalWalletRepository
+    private let replicaApplicationLease: Int
     private var requiresBootstrap: Bool
     private var activeMutation: PendingCloudMutation?
+    private var nextReadGeneration = 0
+    private var lastAppliedReadGeneration = 0
     /// A persisted replica is readable immediately, but a new process may not
     /// write from it until one successful server read confirms its revision.
     public private(set) var isReadyForRuntimeMutations = false
@@ -29,6 +32,7 @@ public final class CloudWalletRepository: WalletRepository {
     ) {
         self.client = client
         self.replica = replica
+        self.replicaApplicationLease = replica.cloudApplicationLease
         self.lineageID = lineageID
         self.revision = revision
         self.requiresBootstrap = requiresBootstrap || !replica.hasAcceptedCloudReplica(lineageID: lineageID)
@@ -58,6 +62,7 @@ public final class CloudWalletRepository: WalletRepository {
     }
 
     public func refresh(for _: UserRole) async throws -> WalletSnapshot {
+        let attemptedReadGeneration = nextReadGeneration + 1
         if let activeMutation {
             switch try await settle(activeMutation) {
             case .observed:
@@ -72,16 +77,20 @@ public final class CloudWalletRepository: WalletRepository {
             if requiresBootstrap {
                 return try await bootstrap()
             }
+            let readGeneration = beginRead()
             let changes = try await client.changes(afterRevision: revision)
-            try apply(changes, merging: true)
+            try apply(changes, merging: true, readGeneration: readGeneration)
             return snapshot()
         } catch {
-            isReadyForRuntimeMutations = false
+            if lastAppliedReadGeneration < attemptedReadGeneration {
+                isReadyForRuntimeMutations = false
+            }
             throw error
         }
     }
 
     public func bootstrap() async throws -> WalletSnapshot {
+        let readGeneration = beginRead()
         var page = try await client.bootstrap()
         var entries = page.entries
         var guardrail = 0
@@ -100,7 +109,7 @@ public final class CloudWalletRepository: WalletRepository {
             allowanceRule: page.allowanceRule,
             nextCursor: nil
         )
-        try apply(complete, merging: false)
+        try apply(complete, merging: false, readGeneration: readGeneration)
         requiresBootstrap = false
         return snapshot()
     }
@@ -205,6 +214,7 @@ public final class CloudWalletRepository: WalletRepository {
         var path: String
         var kind: CloudMutationKind
         var body: [String: Any]
+        var authoritativeAmountCents = command.amountCents
         switch command.kind {
         case .deposit:
             kind = .deposit
@@ -231,6 +241,10 @@ public final class CloudWalletRepository: WalletRepository {
             guard let rule = schedule.allowanceRule, let occurrenceID = rule.nextOccurrenceID else {
                 throw WalletAPIError.server(statusCode: 409, code: "ALLOWANCE_NOT_SCHEDULED", message: "There is no scheduled allowance occurrence to record.")
             }
+            guard command.amountCents == rule.amountCents else {
+                throw WalletAPIError.invalidResponse("The allowance amount changed. Review the current schedule before recording it.")
+            }
+            authoritativeAmountCents = rule.amountCents
             kind = .recordAllowance
             path = "/v1/allowance-rule/\(pathComponent(rule.id))/occurrences/\(pathComponent(occurrenceID))/record"
             body = [:]
@@ -245,7 +259,7 @@ public final class CloudWalletRepository: WalletRepository {
             body: try encodedBody(body),
             idempotencyKey: command.idempotencyKey,
             expectedRevision: revision,
-            amountCents: command.amountCents,
+            amountCents: authoritativeAmountCents,
             reason: command.reason
         )
     }
@@ -283,6 +297,9 @@ public final class CloudWalletRepository: WalletRepository {
 
     private func settle(_ original: PendingCloudMutation) async throws -> Settlement {
         var mutation = original
+        if mutation.phase == .rejected {
+            throw rejectionError(from: mutation)
+        }
         if mutation.phase == .awaitingOutcome {
             do {
                 let acceptance = try await client.mutate(mutation)
@@ -294,19 +311,28 @@ public final class CloudWalletRepository: WalletRepository {
                 // relaunch will replay the same key. In memory we keep the
                 // accepted proof so this result can never become rejection.
                 try? replica.markCloudMutationAccepted(mutation)
-            } catch let error as WalletAPIError {
-                if isDefinitiveRejection(error) {
-                    if case .revisionConflict = error {
+            } catch let rejection as WalletAPIError {
+                if isDefinitiveRejection(rejection) {
+                    if case .revisionConflict = rejection {
                         isReadyForRuntimeMutations = false
-                    } else if error == .revisionRequired {
+                    } else if rejection == .revisionRequired {
                         isReadyForRuntimeMutations = false
                     }
-                    if (try? clear(mutation)) == nil {
-                        activeMutation = replica.unsettledCloudMutation
+                    do {
+                        try clear(mutation)
+                    } catch {
+                        mutation.phase = .rejected
+                        storeRejection(rejection, in: &mutation)
+                        activeMutation = mutation
+                        do {
+                            try replica.markCloudMutationAccepted(mutation)
+                        } catch {
+                            return .waiting(.cloudMutationAwaitingReconciliation)
+                        }
                     }
-                    throw error
+                    throw rejection
                 }
-                return .waiting(error)
+                return .waiting(rejection)
             } catch {
                 return .waiting(.network("Cloud is unavailable right now. The previous change will be checked again."))
             }
@@ -316,6 +342,7 @@ public final class CloudWalletRepository: WalletRepository {
 
     private func observeAcceptedMutation(_ accepted: PendingCloudMutation) async -> Settlement {
         do {
+            let readGeneration = beginRead()
             let changes = try await client.changes(afterRevision: accepted.expectedRevision)
             var resolving = accepted
             if resolving.acceptedEntryID == nil,
@@ -328,7 +355,12 @@ public final class CloudWalletRepository: WalletRepository {
                     try? replica.markCloudMutationAccepted(resolving)
                 }
             }
-            let observed = try apply(changes, merging: true, resolving: resolving)
+            let observed = try apply(
+                changes,
+                merging: true,
+                resolving: resolving,
+                readGeneration: readGeneration
+            )
             guard observed else { return .acceptedAwaitingReplica(nil) }
             let event = resolving.acceptedEntryID.flatMap { entryID in
                 replica.snapshot().activities.first { $0.remoteID == entryID }
@@ -365,10 +397,20 @@ public final class CloudWalletRepository: WalletRepository {
     private func apply(
         _ replicaPayload: CloudReplica,
         merging: Bool,
-        resolving mutation: PendingCloudMutation? = nil
+        resolving mutation: PendingCloudMutation? = nil,
+        readGeneration: Int
     ) throws -> Bool {
-        let observed = try replica.applyCloudReplica(replicaPayload, merging: merging, resolving: mutation)
-        revision = max(revision, replicaPayload.household.revision)
+        guard readGeneration >= lastAppliedReadGeneration else {
+            throw WalletAPIError.cancelled
+        }
+        let observed = try replica.applyCloudReplica(
+            replicaPayload,
+            merging: merging,
+            resolving: mutation,
+            applicationLease: replicaApplicationLease
+        )
+        lastAppliedReadGeneration = readGeneration
+        revision = replicaPayload.household.revision
         isReadyForRuntimeMutations = true
         if observed {
             activeMutation = nil
@@ -376,6 +418,42 @@ public final class CloudWalletRepository: WalletRepository {
             activeMutation = replica.unsettledCloudMutation ?? activeMutation
         }
         return observed
+    }
+
+    private func beginRead() -> Int {
+        nextReadGeneration += 1
+        return nextReadGeneration
+    }
+
+    private func storeRejection(_ error: WalletAPIError, in mutation: inout PendingCloudMutation) {
+        switch error {
+        case .revisionConflict:
+            mutation.rejectionStatusCode = 409
+            mutation.rejectionCode = "REVISION_CONFLICT"
+            mutation.rejectionMessage = "The wallet changed elsewhere. Refresh and review before trying again."
+        case .revisionRequired:
+            mutation.rejectionStatusCode = 428
+            mutation.rejectionCode = "REVISION_REQUIRED"
+            mutation.rejectionMessage = "Cloud changes require the current household revision."
+        case .cloudEntitlementRequired:
+            mutation.rejectionStatusCode = 403
+            mutation.rejectionCode = "CLOUD_ENTITLEMENT_REQUIRED"
+            mutation.rejectionMessage = "Cloud access is required for this change."
+        case .server(let statusCode, let code, let message):
+            mutation.rejectionStatusCode = statusCode
+            mutation.rejectionCode = code
+            mutation.rejectionMessage = message
+        default:
+            mutation.rejectionMessage = "Cloud did not record this change."
+        }
+    }
+
+    private func rejectionError(from mutation: PendingCloudMutation) -> WalletAPIError {
+        .server(
+            statusCode: mutation.rejectionStatusCode ?? 409,
+            code: mutation.rejectionCode ?? "COMMAND_REJECTED",
+            message: mutation.rejectionMessage ?? "Cloud did not record this change."
+        )
     }
 
     // MARK: - Presentation helpers

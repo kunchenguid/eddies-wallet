@@ -281,6 +281,7 @@ enum CloudMutationPhase: String, Codable, Equatable, Sendable {
     /// The service accepted it, but this device has not observed the accepted
     /// entry or revision in a replica yet.
     case acceptedAwaitingReplica
+    case rejected
 }
 
 struct PendingCloudMutation: Codable, Equatable, Sendable {
@@ -297,6 +298,9 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
     var phase: CloudMutationPhase
     var acceptedEntryID: String?
     var acceptedRevision: Int64?
+    var rejectionStatusCode: Int?
+    var rejectionCode: String?
+    var rejectionMessage: String?
 
     init(
         kind: CloudMutationKind,
@@ -323,6 +327,9 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
         self.phase = .awaitingOutcome
         self.acceptedEntryID = nil
         self.acceptedRevision = nil
+        self.rejectionStatusCode = nil
+        self.rejectionCode = nil
+        self.rejectionMessage = nil
     }
 
     var waitingMessage: String {
@@ -331,6 +338,8 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
             "Cloud has not confirmed this change yet. This device will check the same protected request again. Do not record it again."
         case .acceptedAwaitingReplica:
             "Cloud accepted this change. This device is waiting to see it in the wallet. Do not record it again."
+        case .rejected:
+            rejectionMessage ?? "Cloud did not record this change."
         }
     }
 
@@ -444,10 +453,12 @@ public struct CloudReplica: Codable, Equatable, Sendable {
 public struct CloudAllowanceSchedule: Codable, Equatable, Sendable {
     public struct Rule: Codable, Equatable, Sendable {
         public let id: String
+        public let amountCents: Int
         public let nextOccurrenceID: String?
 
         private enum CodingKeys: String, CodingKey {
             case id
+            case amountCents
             case nextOccurrenceID = "nextOccurrenceId"
         }
     }
