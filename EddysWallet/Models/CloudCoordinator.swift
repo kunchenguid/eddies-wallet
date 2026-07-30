@@ -145,7 +145,9 @@ public final class CloudCoordinator: ObservableObject {
         do {
             _ = try await repository.bootstrap()
         } catch {
-            message = "Cloud owns this wallet. This device is showing its last saved copy and will catch up when it reconnects."
+            message = repository.hasValidReplica
+                ? "Cloud owns this wallet. This device is showing its last saved copy and will catch up when it reconnects."
+                : "Cloud owns this wallet. Reconnect before this device can show the Cloud wallet."
         }
         return repository
     }
@@ -168,7 +170,9 @@ public final class CloudCoordinator: ObservableObject {
         do {
             _ = try await repository.bootstrap()
         } catch {
-            message = "Cloud owns this wallet. This device is showing its last saved copy and will catch up when it reconnects."
+            message = repository.hasValidReplica
+                ? "Cloud owns this wallet. This device is showing its last saved copy and will catch up when it reconnects."
+                : "Cloud owns this wallet. Reconnect before this device can show the Cloud wallet."
         }
         return repository
     }

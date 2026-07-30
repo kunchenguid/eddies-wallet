@@ -25,16 +25,17 @@ public final class CloudWalletRepository: WalletRepository {
         self.replica = replica
         self.lineageID = lineageID
         self.revision = revision
-        self.requiresBootstrap = requiresBootstrap
+        self.requiresBootstrap = requiresBootstrap || !replica.hasAcceptedCloudReplica(lineageID: lineageID)
     }
 
     public var isAuthenticated: Bool { client.hasSession }
     public var hasConfiguredKid: Bool { true }
     public var supportsRuntimeMutations: Bool { false }
     public var localReplica: LocalWalletRepository { replica }
+    public var hasValidReplica: Bool { replica.hasAcceptedCloudReplica(lineageID: lineageID) }
 
-    public func snapshot() -> WalletSnapshot { replica.snapshot() }
-    public func childSnapshot() -> WalletSnapshot { replica.childSnapshot() }
+    public func snapshot() -> WalletSnapshot { hasValidReplica ? replica.snapshot() : .empty() }
+    public func childSnapshot() -> WalletSnapshot { snapshot() }
 
     public func refresh(for _: UserRole) async throws -> WalletSnapshot {
         if requiresBootstrap {
@@ -70,15 +71,22 @@ public final class CloudWalletRepository: WalletRepository {
     }
 
     public func activity(limit: Int) async throws -> [WalletEvent] {
-        try await replica.activity(limit: limit)
+        guard hasValidReplica else { return [] }
+        return try await replica.activity(limit: limit)
     }
 
     public func activityDetail(remoteID: String) async throws -> WalletEvent {
-        try await replica.activityDetail(remoteID: remoteID)
+        guard hasValidReplica else {
+            throw WalletAPIError.server(statusCode: 404, code: "ACTIVITY_NOT_FOUND", message: "The activity entry is not available on this device.")
+        }
+        return try await replica.activityDetail(remoteID: remoteID)
     }
 
     public func loanDetail(remoteID: String) async throws -> LoanDetail {
-        try await replica.loanDetail(remoteID: remoteID)
+        guard hasValidReplica else {
+            throw WalletAPIError.server(statusCode: 404, code: "LOAN_NOT_FOUND", message: "The loan is not available on this device.")
+        }
+        return try await replica.loanDetail(remoteID: remoteID)
     }
 
     public func submit(_: WalletCommand) async throws -> CommandResult {

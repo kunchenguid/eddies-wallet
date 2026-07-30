@@ -54,7 +54,7 @@ enum WalletRepositoryFactory {
         legacy: @autoclosure () -> any WalletRepository,
         cloudClient: CloudAPIClient? = nil
     ) -> any WalletRepository {
-        if let lineageID = local.lineageID, let revision = local.cloudRevision {
+        if let lineageID = local.cloudAuthorityLineageID, let revision = local.cloudRevision {
             return CloudWalletRepository(client: cloudClient ?? CloudAPIClient(), replica: local, lineageID: lineageID, revision: revision)
         }
         return local.hasLegacyInputs ? legacy() : local
@@ -160,8 +160,12 @@ public final class WalletStore: ObservableObject {
             self.authorityState = .localRecovery(recoveryState)
         } else if let cloud = resolvedRepository as? CloudWalletRepository {
             self.authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+        } else if let local = resolvedRepository as? LocalWalletRepository,
+                  let cloudLineageID = local.cloudAuthorityLineageID,
+                  let revision = local.cloudRevision {
+            self.authorityState = .cloud(lineageID: cloudLineageID, revision: revision)
         } else if let local = resolvedRepository as? LocalWalletRepository, let lineageID = local.lineageID {
-            self.authorityState = local.cloudRevision.map { .cloud(lineageID: lineageID, revision: $0) } ?? .local(lineageID: lineageID)
+            self.authorityState = .local(lineageID: lineageID)
         } else if configured {
             self.authorityState = .legacyService
         } else {
@@ -720,6 +724,9 @@ public final class WalletStore: ObservableObject {
     public var canOfferCloudPlans: Bool { !cloudPlans.isEmpty }
     public var needsCloudSignIn: Bool { cloudCoordinator?.hasSession == false }
     public var canModifyWallet: Bool { repository.supportsRuntimeMutations }
+    public var hasValidCloudReplica: Bool {
+        (repository as? CloudWalletRepository)?.hasValidReplica == true
+    }
     public var canContinueLocallyAfterCloud: Bool {
         repository is CloudWalletRepository && cloudEntitlement.permitsLocalContinuation
     }

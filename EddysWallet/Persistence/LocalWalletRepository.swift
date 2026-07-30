@@ -4,6 +4,7 @@ struct LocalWalletMetadata: Codable, Sendable {
     var schemaVersion = 1
     var lineageID: UUID
     var authority = "local"
+    var confirmedCloudLineageID: UUID? = nil
     var serverHouseholdID: String?
     var serverRevision: Int64 = 0
     var lastServerSync: Date?
@@ -166,6 +167,11 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         return aggregate.metadata.serverRevision
     }
 
+    public var cloudAuthorityLineageID: UUID? {
+        guard let aggregate, aggregate.metadata.authority == "cloud" else { return nil }
+        return aggregate.metadata.confirmedCloudLineageID ?? aggregate.metadata.lineageID
+    }
+
     public var isCloudAuthority: Bool { cloudRevision != nil }
     public var cloudImportOperationID: UUID? { aggregate?.metadata.cloudImportOperationID }
     public var hasCompletedCloudImport: Bool { aggregate?.metadata.cloudImportCompleted == true }
@@ -187,10 +193,22 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             snapshot: .empty()
         )
         if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
-        candidate.metadata.lineageID = lineageID
+        if candidate.metadata.authority != "cloud" {
+            candidate.metadata.lastServerSync = nil
+        }
         candidate.metadata.authority = "cloud"
+        candidate.metadata.confirmedCloudLineageID = lineageID
         candidate.metadata.serverRevision = revision
         try persist(candidate)
+    }
+
+    public func hasAcceptedCloudReplica(lineageID: UUID) -> Bool {
+        guard let aggregate,
+              aggregate.metadata.authority == "cloud",
+              cloudAuthorityLineageID == lineageID,
+              aggregate.metadata.lineageID == lineageID,
+              aggregate.metadata.lastServerSync != nil else { return false }
+        return true
     }
 
     /// Cloud ended (expiry, refund, revocation, or an explicit parent choice):
@@ -199,7 +217,9 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     public func continueLocallyAfterCloud() throws {
         var candidate = try writableAggregate()
         candidate.metadata.authority = "local"
+        candidate.metadata.confirmedCloudLineageID = nil
         candidate.metadata.serverRevision = 0
+        candidate.metadata.lastServerSync = nil
         try persist(candidate)
     }
 
@@ -210,17 +230,20 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             throw WalletAPIError.invalidResponse("The Cloud wallet did not report a usable household.")
         }
         if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
-        if let existing = aggregate, existing.metadata.lineageID != lineageID, existing.metadata.authority == "cloud" {
+        if let confirmedLineageID = cloudAuthorityLineageID, confirmedLineageID != lineageID {
             throw WalletAPIError.invalidResponse("This Cloud wallet belongs to a different wallet history.")
         }
         var metadata = aggregate?.metadata ?? LocalWalletMetadata(lineageID: lineageID)
+        let existingReplicaMatches = hasAcceptedCloudReplica(lineageID: lineageID)
+        let fallbackNickname = metadata.lineageID == lineageID ? aggregate?.snapshot.childNickname : nil
         metadata.lineageID = lineageID
         metadata.authority = "cloud"
+        metadata.confirmedCloudLineageID = lineageID
         metadata.serverRevision = replica.household.revision
         metadata.lastServerSync = .now
         metadata.cloudImportCompleted = true
-        let existingEvents = merging ? (aggregate?.snapshot.activities ?? []) : []
-        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: existingEvents, fallbackNickname: aggregate?.snapshot.childNickname)
+        let existingEvents = merging && existingReplicaMatches ? (aggregate?.snapshot.activities ?? []) : []
+        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: existingEvents, fallbackNickname: fallbackNickname)
         try persist(LocalWalletAggregate(metadata: metadata, snapshot: snapshot))
     }
 

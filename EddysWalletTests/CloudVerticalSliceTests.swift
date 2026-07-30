@@ -173,10 +173,62 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(store.repository is CloudWalletRepository)
         XCTAssertTrue(store.authorityState.isCloudAuthority)
         XCTAssertFalse(store.canModifyWallet)
-        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 0)
+        XCTAssertEqual(local.snapshot().acceptedBalanceCents, 750)
         XCTAssertTrue(store.cloudMessage?.contains("Cloud owns this wallet") == true)
         XCTAssertTrue(relaunched.isCloudAuthority)
-        XCTAssertTrue(selected is CloudWalletRepository)
+        let relaunchedCloud = try XCTUnwrap(selected as? CloudWalletRepository)
+        XCTAssertFalse(relaunchedCloud.hasValidReplica)
+        XCTAssertEqual(relaunchedCloud.snapshot().acceptedBalanceCents, 0)
+    }
+
+    func testDifferentLineageCloudAuthorityHidesLocalDataUntilBootstrap() async throws {
+        let local = try await localWalletWithHistory()
+        _ = try await local.submit(WalletCommand(kind: .deposit, amountCents: 125))
+        let localLineage = try XCTUnwrap(local.lineageID)
+        let cloudLineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActive(lineage: cloudLineage, revision: 2))
+        let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
+
+        let adopted = try await coordinator.adoptExistingCloudHousehold(into: local)
+        let cloud = try XCTUnwrap(adopted)
+
+        XCTAssertEqual(local.lineageID, localLineage)
+        XCTAssertEqual(local.cloudAuthorityLineageID, cloudLineage)
+        XCTAssertEqual(local.snapshot().acceptedBalanceCents, 875)
+        XCTAssertFalse(cloud.hasValidReplica)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 0)
+        XCTAssertTrue(cloud.snapshot().activities.isEmpty)
+
+        let relaunched = try LocalWalletRepository(directory: directory)
+        let selected = WalletRepositoryFactory.select(
+            local: relaunched,
+            legacy: MockWalletRepository(),
+            cloudClient: client(transport)
+        )
+        let relaunchedCloud = try XCTUnwrap(selected as? CloudWalletRepository)
+
+        XCTAssertEqual(relaunched.lineageID, localLineage)
+        XCTAssertEqual(relaunched.cloudAuthorityLineageID, cloudLineage)
+        XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 875)
+        XCTAssertFalse(relaunchedCloud.hasValidReplica)
+        XCTAssertEqual(relaunchedCloud.snapshot().acceptedBalanceCents, 0)
+        XCTAssertTrue(CloudStatusView.cloudReplicaUnavailableStatusCopy(deviceNoun: "iPad").contains("Reconnect before"))
+        do {
+            _ = try await relaunchedCloud.submit(WalletCommand(kind: .deposit, amountCents: 25))
+            XCTFail("confirmed Cloud authority must remain read-only")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudRuntimeWritesUnavailable)
+        }
+
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: cloudLineage))
+        _ = try await relaunchedCloud.refresh(for: .parent)
+
+        XCTAssertTrue(relaunchedCloud.hasValidReplica)
+        XCTAssertEqual(relaunchedCloud.snapshot().acceptedBalanceCents, 750)
+        XCTAssertEqual(relaunched.lineageID, cloudLineage)
+        XCTAssertEqual(relaunched.cloudAuthorityLineageID, cloudLineage)
     }
 
     func testCloudAuthorityExposesReadsButNoRuntimeMutations() async throws {
@@ -370,9 +422,10 @@ final class CloudVerticalSliceTests: XCTestCase {
         let store = elevatedStore(repository: cloud, coordinator: CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport)))
         XCTAssertEqual(store.cloudSignOutMode, .cloudDevice)
         XCTAssertTrue(store.canSignOutOfCloudOnThisDevice)
-        let copy = CloudStatusView.noEntitlementStatusCopy(authority: store.authorityState, deviceNoun: "iPad")
-        XCTAssertTrue(copy.contains("last synced Cloud wallet"))
-        XCTAssertFalse(copy.contains("saved only"))
+        XCTAssertFalse(cloud.hasValidReplica)
+        let copy = CloudStatusView.cloudReplicaUnavailableStatusCopy(deviceNoun: "iPad")
+        XCTAssertTrue(copy.contains("Reconnect before"))
+        XCTAssertFalse(copy.contains("last synced"))
     }
 
     func testCloudSignInUsesTheStoredOwnerBeforeOfferingPlans() async throws {

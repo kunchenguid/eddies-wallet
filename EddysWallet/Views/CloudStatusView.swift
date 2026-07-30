@@ -75,34 +75,44 @@ struct CloudStatusView: View {
     }
 
     @ViewBuilder private var statusCopy: some View {
-        switch store.cloudEntitlement {
-        case .active(let accessUntil, _):
-            Text("Cloud is on through \(accessUntil.formatted(date: .abbreviated, time: .omitted)). Backed up and synced across devices using the same parent Apple account.")
+        if store.authorityState.isCloudAuthority, !store.hasValidCloudReplica {
+            Text(Self.cloudReplicaUnavailableStatusCopy(deviceNoun: DeviceCopy.deviceNoun))
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
-        case .billingGrace:
-            Text("Cloud is still on while the App Store retries billing.")
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.textSecondary)
-        case .expired, .refunded, .revoked, .billingRetry:
-            Text("Cloud ended. You can keep using the wallet on this device. Nothing was deleted.")
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.textSecondary)
-        case .verificationPending:
-            Text("Your Cloud plan is being confirmed. Nothing changed on this \(DeviceCopy.deviceNoun) yet.")
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.textSecondary)
-        case .none:
-            Text(Self.noEntitlementStatusCopy(authority: store.authorityState, deviceNoun: DeviceCopy.deviceNoun))
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.textSecondary)
-            if !store.canOfferCloudPlans, !store.needsCloudSignIn {
-                Text("Cloud plans are unavailable right now. Your wallet still works on this device.")
-                    .font(EW.Font.caption)
-                    .foregroundStyle(EW.Color.gold700)
-                    .accessibilityIdentifier("cloud-plans-unavailable-note")
+        } else {
+            switch store.cloudEntitlement {
+            case .active(let accessUntil, _):
+                Text("Cloud is on through \(accessUntil.formatted(date: .abbreviated, time: .omitted)). Backed up and synced across devices using the same parent Apple account.")
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textSecondary)
+            case .billingGrace:
+                Text("Cloud is still on while the App Store retries billing.")
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textSecondary)
+            case .expired, .refunded, .revoked, .billingRetry:
+                Text("Cloud ended. You can keep using the wallet on this device. Nothing was deleted.")
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textSecondary)
+            case .verificationPending:
+                Text("Your Cloud plan is being confirmed. Nothing changed on this \(DeviceCopy.deviceNoun) yet.")
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textSecondary)
+            case .none:
+                Text(Self.noEntitlementStatusCopy(authority: store.authorityState, deviceNoun: DeviceCopy.deviceNoun))
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textSecondary)
+                if !store.canOfferCloudPlans, !store.needsCloudSignIn {
+                    Text("Cloud plans are unavailable right now. Your wallet still works on this device.")
+                        .font(EW.Font.caption)
+                        .foregroundStyle(EW.Color.gold700)
+                        .accessibilityIdentifier("cloud-plans-unavailable-note")
+                }
             }
         }
+    }
+
+    static func cloudReplicaUnavailableStatusCopy(deviceNoun: String) -> String {
+        "Cloud owns this wallet. Reconnect before this \(deviceNoun) can show the Cloud wallet."
     }
 
     static func noEntitlementStatusCopy(authority: WalletAuthorityState, deviceNoun: String) -> String {
