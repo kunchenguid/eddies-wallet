@@ -471,7 +471,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(store.canStartParentMutation)
     }
 
-    func testDefinitiveRejectionSurvivesFailedClearAndRelaunchWithoutReplay() async throws {
+    func testDurableRejectionRetiresLocallyWithoutReplayAndUnblocksLaterWork() async throws {
         let persistence = CloudSliceFailingPersistence()
         let local = try LocalWalletRepository(persistence: persistence)
         let lineage = UUID()
@@ -498,18 +498,61 @@ final class CloudVerticalSliceTests: XCTestCase {
             lineageID: lineage,
             revision: 2
         )
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3), status: 201)
+        transport.stub(
+            "POST",
+            "/v1/wallet/deposits",
+            CloudSliceFixtures.depositAccepted(revision: 3, entryID: "deliberate-later-entry"),
+            status: 201
+        )
+        persistence.failNextSave = true
 
         do {
             _ = try await relaunched.refresh(for: .parent)
-            XCTFail("the durable rejection remains final after entitlement renewal")
+            XCTFail("failed terminal cleanup must remain unresolved")
         } catch {
             XCTAssertEqual(relaunched.unsettledMutationPhase, .rejected)
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+        }
+        XCTAssertTrue(relaunched.snapshot().pendingEvents.isEmpty)
+        XCTAssertThrowsError(try relaunchedLocal.continueLocallyAfterCloud()) { error in
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
         }
         XCTAssertEqual(
             transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }.count,
             1
         )
+
+        do {
+            _ = try await relaunched.refresh(for: .parent)
+            XCTFail("successful cleanup must still surface the stored rejection")
+        } catch WalletAPIError.server(let status, let code, _) {
+            XCTAssertEqual(status, 403)
+            XCTAssertEqual(code, "CLOUD_ENTITLEMENT_REQUIRED")
+        }
+        XCTAssertFalse(relaunched.hasUnsettledMutation)
+        XCTAssertTrue(relaunched.snapshot().pendingEvents.isEmpty)
+        XCTAssertEqual(
+            transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }.count,
+            1
+        )
+
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        _ = try await relaunched.refresh(for: .parent)
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "deliberate-later-entry")
+        )
+        guard case .accepted = try await relaunched.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "deliberate-later-key")
+        ) else {
+            return XCTFail("a deliberate later action is allowed after terminal cleanup")
+        }
+        XCTAssertEqual(
+            transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }.count,
+            2
+        )
+        XCTAssertNoThrow(try relaunchedLocal.continueLocallyAfterCloud())
     }
 
     func testScheduledAllowanceRejectsCallerAmountMismatchBeforeStaging() async throws {

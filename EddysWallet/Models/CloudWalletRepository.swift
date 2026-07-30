@@ -298,7 +298,14 @@ public final class CloudWalletRepository: WalletRepository {
     private func settle(_ original: PendingCloudMutation) async throws -> Settlement {
         var mutation = original
         if mutation.phase == .rejected {
-            throw rejectionError(from: mutation)
+            let rejection = rejectionError(from: mutation)
+            do {
+                try clear(mutation)
+            } catch {
+                activeMutation = mutation
+                return .waiting(.cloudMutationAwaitingReconciliation)
+            }
+            throw rejection
         }
         if mutation.phase == .awaitingOutcome {
             do {

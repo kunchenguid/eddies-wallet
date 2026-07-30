@@ -344,6 +344,7 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
     }
 
     func pendingEvent() -> WalletEvent? {
+        guard phase != .rejected else { return nil }
         guard let type = kind.activityType, let amountCents else { return nil }
         return WalletEvent(
             id: operationID,
