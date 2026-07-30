@@ -111,7 +111,8 @@ struct CloudDiagnosticsView: View {
                     familyShareable: product.isFamilyShareable
                 )
             }
-            status = rows.count == CloudProductID.ordered.count
+            status =
+                rows.count == CloudProductID.ordered.count
                 ? .loaded(count: rows.count)
                 : .missingProducts(found: rows.count)
         } catch {
