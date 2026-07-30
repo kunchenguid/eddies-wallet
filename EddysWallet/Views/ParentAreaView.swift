@@ -304,26 +304,50 @@ struct ParentAreaView: View {
 
     private var mutationControlsNotice: some View {
         HStack(alignment: .top, spacing: EW.Space.three) {
-            Image(systemName: store.hasUnsettledCloudMutation ? "clock.fill" : "icloud.slash")
-                .foregroundStyle(EW.Color.gold700)
-            Text(store.unsettledCloudMutationMessage
-                 ?? "Reconnect and review the latest Cloud wallet before recording another change.")
+            Image(systemName: store.hasRejectedCloudMutationCleanup ? "xmark.circle.fill" : (store.hasUnsettledCloudMutation ? "clock.fill" : "icloud.slash"))
+                .foregroundStyle(store.hasRejectedCloudMutationCleanup ? EW.Color.red600 : EW.Color.gold700)
+            Text(store.hasRejectedCloudMutationCleanup
+                 ? "This change was not recorded. Finish local cleanup before recording another action."
+                 : (store.unsettledCloudMutationMessage
+                    ?? "Reconnect and review the latest Cloud wallet before recording another change."))
                 .font(EW.Font.caption)
                 .foregroundStyle(EW.Color.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(EW.Space.three)
-        .background(EW.Color.goldTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+        .background(store.hasRejectedCloudMutationCleanup ? EW.Color.dangerTint : EW.Color.goldTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
         .accessibilityIdentifier("cloud-mutation-controls-notice")
     }
 
     private var syncStatusCard: some View {
         VStack(alignment: .leading, spacing: EW.Space.three) {
-            Label("Sync status", systemImage: "arrow.triangle.2.circlepath")
+            Label(
+                store.hasRejectedCloudMutationCleanup ? "Cloud cleanup" : "Sync status",
+                systemImage: store.hasRejectedCloudMutationCleanup ? "xmark.circle" : "arrow.triangle.2.circlepath"
+            )
                 .font(EW.Font.headingSmall)
                 .foregroundStyle(EW.Color.textPrimary)
-            if let message = store.unsettledCloudMutationMessage {
+            if store.hasRejectedCloudMutationCleanup {
+                VStack(alignment: .leading, spacing: EW.Space.two) {
+                    StatusPill(state: .rejected)
+                    Text("Not recorded")
+                        .font(EW.Font.bodyBold)
+                        .foregroundStyle(EW.Color.textPrimary)
+                    Text("This change was not recorded. Finish local cleanup on this \(DeviceCopy.deviceNoun) before recording another action.")
+                        .font(EW.Font.caption)
+                        .foregroundStyle(EW.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Finish local cleanup") {
+                        Task { await store.refresh() }
+                    }
+                    .buttonStyle(.plain)
+                    .font(EW.Font.bodyBold)
+                    .foregroundStyle(EW.Color.primaryActive)
+                    .disabled(store.isLoading)
+                }
+                .accessibilityIdentifier("cloud-rejected-cleanup-status")
+            } else if let message = store.unsettledCloudMutationMessage {
                 VStack(alignment: .leading, spacing: EW.Space.two) {
                     StatusPill(state: .pending)
                     Text(store.unsettledCloudMutationWasAccepted ? "Accepted by Cloud" : "Checking with Cloud")

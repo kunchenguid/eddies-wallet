@@ -284,6 +284,13 @@ enum CloudMutationPhase: String, Codable, Equatable, Sendable {
     case rejected
 }
 
+@MainActor
+protocol CloudMutationStatusProviding {
+    var hasUnsettledMutation: Bool { get }
+    var unsettledMutationPhase: CloudMutationPhase? { get }
+    var unsettledMutationMessage: String? { get }
+}
+
 struct PendingCloudMutation: Codable, Equatable, Sendable {
     let operationID: UUID
     let kind: CloudMutationKind

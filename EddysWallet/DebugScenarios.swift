@@ -120,6 +120,19 @@ enum DebugLaunchScenario {
                 entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
                 hasValidCloudReplica: true
             )
+        case "cloud-rejected-cleanup":
+            var cleanupSnapshot = snapshot(.fixture(), environment: environment)
+            cleanupSnapshot.pendingEvents = []
+            return store(
+                repository: ScriptedWalletRepository(
+                    snapshot: cleanupSnapshot,
+                    mutationMode: .rejectedCleanup,
+                    rejectedCleanupFailures: 4
+                ),
+                authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
+                entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+                hasValidCloudReplica: true
+            )
         case "cloud-profile-accepted-waiting":
             return store(
                 repository: ScriptedWalletRepository(snapshot: snapshot(.fixture(), environment: environment), mutationMode: .profileAcceptedWaiting),
@@ -211,28 +224,34 @@ enum ScriptedMutationMode: Equatable {
     case waiting
     case acceptedWaiting
     case rejected
+    case rejectedCleanup
     case profileAcceptedWaiting
 }
 
 /// Mock repository wrapper that can fail refreshes (offline / expired
 /// session) and demand family setup before returning snapshots.
 @MainActor
-final class ScriptedWalletRepository: WalletRepository {
+final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProviding {
     private let inner: MockWalletRepository
     var refreshError: WalletAPIError?
     var requiresSetup: Bool
     let mutationMode: ScriptedMutationMode
+    private var rejectedCleanupFailures: Int
+    private var rejectedCleanupActive: Bool
 
     init(
         snapshot: WalletSnapshot,
         refreshError: WalletAPIError? = nil,
         requiresSetup: Bool = false,
-        mutationMode: ScriptedMutationMode = .normal
+        mutationMode: ScriptedMutationMode = .normal,
+        rejectedCleanupFailures: Int = 0
     ) {
         self.inner = MockWalletRepository(snapshot: snapshot)
         self.refreshError = refreshError
         self.requiresSetup = requiresSetup
         self.mutationMode = mutationMode
+        self.rejectedCleanupFailures = rejectedCleanupFailures
+        self.rejectedCleanupActive = mutationMode == .rejectedCleanup
     }
 
     var isAuthenticated: Bool { true }
@@ -243,6 +262,13 @@ final class ScriptedWalletRepository: WalletRepository {
     func refresh(for role: UserRole) async throws -> WalletSnapshot {
         if let refreshError { throw refreshError }
         if requiresSetup { throw WalletAPIError.familyNotSetup }
+        if rejectedCleanupActive {
+            if rejectedCleanupFailures > 0 {
+                rejectedCleanupFailures -= 1
+                throw WalletAPIError.cloudMutationAwaitingReconciliation
+            }
+            rejectedCleanupActive = false
+        }
         return try await inner.refresh(for: role)
     }
 
@@ -253,7 +279,7 @@ final class ScriptedWalletRepository: WalletRepository {
     func submit(_ command: WalletCommand) async throws -> CommandResult {
         if let refreshError { throw refreshError }
         switch mutationMode {
-        case .normal, .profileAcceptedWaiting:
+        case .normal, .profileAcceptedWaiting, .rejectedCleanup:
             return try await inner.submit(command)
         case .waiting:
             return .pending(scriptedEvent(
@@ -275,6 +301,12 @@ final class ScriptedWalletRepository: WalletRepository {
                 rejectionReason: "This wallet changed on another device. Review the latest balance before recording it again."
             ))
         }
+    }
+
+    var hasUnsettledMutation: Bool { rejectedCleanupActive }
+    var unsettledMutationPhase: CloudMutationPhase? { rejectedCleanupActive ? .rejected : nil }
+    var unsettledMutationMessage: String? {
+        rejectedCleanupActive ? "This change was not recorded. Finish local cleanup before recording another action." : nil
     }
 
     func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {

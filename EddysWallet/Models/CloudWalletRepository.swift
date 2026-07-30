@@ -8,7 +8,7 @@ import Foundation
 /// Until a stable server entry id or accepted revision is observed in a reread,
 /// no second mutation or Cloud-to-local authority handoff is allowed.
 @MainActor
-public final class CloudWalletRepository: WalletRepository {
+public final class CloudWalletRepository: WalletRepository, CloudMutationStatusProviding {
     public private(set) var revision: Int64
     public let lineageID: UUID
 

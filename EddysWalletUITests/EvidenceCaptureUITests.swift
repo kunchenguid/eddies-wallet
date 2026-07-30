@@ -371,6 +371,23 @@ final class EvidenceCaptureUITests: XCTestCase {
             acceptedAmountVisibleToKid: false
         )
 
+        let cleanup = launch("cloud-rejected-cleanup")
+        XCTAssertTrue(cleanup.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(cleanup)
+        let cleanupStatus = cleanup.descendants(matching: .any)["cloud-rejected-cleanup-status"]
+        XCTAssertTrue(cleanupStatus.waitForExistence(timeout: 5))
+        XCTAssertTrue(cleanup.staticTexts["Not recorded"].exists)
+        XCTAssertFalse(cleanup.staticTexts["Pending"].exists)
+        XCTAssertFalse(cleanup.staticTexts["Waiting to sync"].exists)
+        XCTAssertFalse(cleanup.staticTexts["Checking with Cloud"].exists)
+        capture("cloud-rejected-local-cleanup")
+        for _ in 0..<4 where cleanupStatus.exists {
+            cleanup.buttons["Finish local cleanup"].tap()
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTAssertFalse(cleanupStatus.exists)
+        capture("cloud-rejected-local-cleanup-finished")
+
         let profile = launch("cloud-profile-accepted-waiting")
         XCTAssertTrue(profile.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(profile)

@@ -495,9 +495,16 @@ public final class WalletStore: ObservableObject {
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudAcceptedAwaitingReplica, .cloudMutationAwaitingReconciliation:
                 guard generation == refreshGeneration, requestedRole == viewRole else { return }
-                isOffline = true
-                if let cloud = repository as? CloudWalletRepository {
-                    authorityState = .cloudOffline(lineageID: cloud.lineageID, revision: cloud.revision)
+                if hasRejectedCloudMutationCleanup {
+                    isOffline = false
+                    if let cloud = repository as? CloudWalletRepository {
+                        authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+                    }
+                } else {
+                    isOffline = true
+                    if let cloud = repository as? CloudWalletRepository {
+                        authorityState = .cloudOffline(lineageID: cloud.lineageID, revision: cloud.revision)
+                    }
                 }
                 errorMessage = nil
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
@@ -787,13 +794,16 @@ public final class WalletStore: ObservableObject {
     public var needsCloudSignIn: Bool { cloudCoordinator?.hasSession == false }
     public var canModifyWallet: Bool { repository.supportsRuntimeMutations }
     public var hasUnsettledCloudMutation: Bool {
-        (repository as? CloudWalletRepository)?.hasUnsettledMutation == true
+        (repository as? any CloudMutationStatusProviding)?.hasUnsettledMutation == true
     }
     public var unsettledCloudMutationWasAccepted: Bool {
-        (repository as? CloudWalletRepository)?.unsettledMutationPhase == .acceptedAwaitingReplica
+        (repository as? any CloudMutationStatusProviding)?.unsettledMutationPhase == .acceptedAwaitingReplica
+    }
+    public var hasRejectedCloudMutationCleanup: Bool {
+        (repository as? any CloudMutationStatusProviding)?.unsettledMutationPhase == .rejected
     }
     public var unsettledCloudMutationMessage: String? {
-        (repository as? CloudWalletRepository)?.unsettledMutationMessage
+        (repository as? any CloudMutationStatusProviding)?.unsettledMutationMessage
     }
     /// Free local authority is always usable. Cloud starts a new mutation only
     /// from a connected, reviewed replica with no unresolved request.
