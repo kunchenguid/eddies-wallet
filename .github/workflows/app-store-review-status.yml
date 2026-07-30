@@ -37,7 +37,6 @@ jobs:
       - name: Poll and notify on a status transition
         env:
           ASC_REVIEW_MONITOR_KEY_ID: ${{ secrets.ASC_REVIEW_MONITOR_KEY_ID }}
-          ASC_REVIEW_MONITOR_ISSUER_ID: ${{ secrets.ASC_REVIEW_MONITOR_ISSUER_ID }}
           ASC_REVIEW_MONITOR_PRIVATE_KEY: ${{ secrets.ASC_REVIEW_MONITOR_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}
           SCHEDULED_VERSION: ${{ vars.ASC_REVIEW_MONITOR_VERSION }}

@@ -4,6 +4,7 @@ import argparse, base64, json, os, re, subprocess, sys, time, urllib.parse, urll
 from pathlib import Path
 
 BUNDLE_ID = "com.kunchenguid.eddieswallet"
+APP_ID = "6795664301"
 ASC_HOST = "api.appstoreconnect.apple.com"
 MAX_CYCLES = 32
 VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){1,2}$")
@@ -12,20 +13,21 @@ STATE_CATEGORY = {
     "PREPARE_FOR_SUBMISSION": "not-submitted", "READY_FOR_REVIEW": "ready-for-review",
     "WAITING_FOR_REVIEW": "waiting-for-review", "IN_REVIEW": "in-review",
     "PENDING_DEVELOPER_RELEASE": "approved", "PENDING_APPLE_RELEASE": "approved",
-    "READY_FOR_SALE": "approved", "REJECTED": "action-required",
+    "ACCEPTED": "approved", "PROCESSING_FOR_DISTRIBUTION": "approved",
+    "READY_FOR_DISTRIBUTION": "approved", "REJECTED": "action-required",
     "METADATA_REJECTED": "action-required", "INVALID_BINARY": "action-required",
-    "DEVELOPER_REJECTED": "withdrawn", "DEVELOPER_REMOVED_FROM_SALE": "not-for-sale",
-    "REMOVED_FROM_SALE": "not-for-sale",
+    "WAITING_FOR_EXPORT_COMPLIANCE": "action-required", "DEVELOPER_REJECTED": "withdrawn",
+    "REPLACED_WITH_NEW_VERSION": "superseded",
 }
 SAFE_STATES = set(STATE_CATEGORY)
-ISSUE_TITLE = "App Store review monitor state"
+ISSUE_TITLE_PREFIX = "App Store review monitor state"
 
 class MonitorError(Exception): pass
 
 def cycle(version, build):
     if not VERSION_RE.fullmatch(version or "") or not BUILD_RE.fullmatch(build or ""):
         raise MonitorError("Cycle must use a numeric marketing version and build number")
-    return {"bundleId": BUNDLE_ID, "version": version, "build": build}
+    return {"appId": APP_ID, "bundleId": BUNDLE_ID, "version": version, "build": build}
 
 def safe_state(value):
     return value if value in SAFE_STATES else "UNKNOWN"
@@ -33,6 +35,10 @@ def safe_state(value):
 def observation(version, build, state):
     state = safe_state(state)
     return {"cycle": cycle(version, build), "state": state, "category": STATE_CATEGORY.get(state, "unknown")}
+
+def issue_title(obs):
+    c = obs["cycle"]
+    return f"{ISSUE_TITLE_PREFIX}: version {c['version']}, build {c['build']}"
 
 def validate_asc_url(url):
     if not isinstance(url, str):
@@ -46,9 +52,8 @@ def validate_asc_url(url):
         raise MonitorError("App Store Connect returned unsafe URL")
     return url
 
-def page_items(fetch, url):
-    """Follow only same-origin ASC pagination links and require JSON:API lists."""
-    seen, items = set(), []
+def page_payloads(fetch, url):
+    seen = set()
     while url:
         validate_asc_url(url)
         if url in seen: raise MonitorError("App Store Connect pagination loop")
@@ -56,10 +61,15 @@ def page_items(fetch, url):
         payload = fetch(url)
         data = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(data, list): raise MonitorError("App Store Connect returned malformed collection")
-        items.extend(data)
+        yield payload
         nxt = payload.get("links", {}).get("next") if isinstance(payload.get("links", {}), dict) else None
         if nxt is not None: validate_asc_url(nxt)
         url = nxt
+
+def page_items(fetch, url):
+    items = []
+    for payload in page_payloads(fetch, url):
+        items.extend(payload["data"])
     return items
 
 def attr(item, kind):
@@ -67,28 +77,66 @@ def attr(item, kind):
         raise MonitorError(f"App Store Connect returned malformed {kind}")
     return item["id"], item["attributes"]
 
+def version_url(version):
+    if not VERSION_RE.fullmatch(version or ""):
+        raise MonitorError("Cycle must use a numeric marketing version and build number")
+    q = urllib.parse.urlencode({
+        "filter[versionString]": version,
+        "filter[platform]": "IOS",
+        "fields[appStoreVersions]": "versionString,appVersionState,platform,build",
+        "include": "build",
+        "fields[builds]": "version,expired",
+        "limit": "50",
+    })
+    return f"https://{ASC_HOST}/v1/apps/{APP_ID}/appStoreVersions?{q}"
+
+def token_scope(version):
+    parsed = urllib.parse.urlsplit(version_url(version))
+    return [f"GET {parsed.path}?{parsed.query}"]
+
+def validate_scope(scope, version):
+    if not isinstance(scope, list) or scope != token_scope(version) or any(not value.startswith("GET /") for value in scope):
+        raise MonitorError("Review monitor token scope is invalid")
+    return scope
+
+def jwt_header(key_id):
+    return {"alg": "ES256", "kid": key_id, "typ": "JWT"}
+
+def jwt_payload(version, issued_at=None, scope=None):
+    now = int(time.time()) if issued_at is None else issued_at
+    selected_scope = token_scope(version) if scope is None else scope
+    validate_scope(selected_scope, version)
+    return {"sub": "user", "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1", "scope": selected_scope}
+
 def resolve(fetch, version, build):
     target = cycle(version, build)
-    q = urllib.parse.urlencode({"filter[bundleId]": BUNDLE_ID, "fields[apps]": "bundleId", "limit": "50"})
-    apps = [x for x in page_items(fetch, "https://api.appstoreconnect.apple.com/v1/apps?" + q)
-            if attr(x, "app")[1].get("bundleId") == BUNDLE_ID]
-    if len(apps) != 1: raise MonitorError("Exact app identity is absent or ambiguous")
-    app_id, _ = attr(apps[0], "app")
-    q = urllib.parse.urlencode({"filter[app]": app_id, "filter[versionString]": version,
-                                "fields[appStoreVersions]": "versionString,appStoreState,platform", "limit": "50"})
     versions = []
-    for item in page_items(fetch, "https://api.appstoreconnect.apple.com/v1/appStoreVersions?" + q):
-        _, attributes = attr(item, "app store version")
-        if attributes.get("versionString") == version: versions.append(item)
+    builds = {}
+    for payload in page_payloads(fetch, version_url(version)):
+        included = payload.get("included", [])
+        if not isinstance(included, list): raise MonitorError("App Store Connect returned malformed included resources")
+        for resource in included:
+            if not isinstance(resource, dict) or resource.get("type") != "builds":
+                raise MonitorError("App Store Connect returned unexpected included resource")
+            build_id, build_attrs = attr(resource, "bound build")
+            if build_id in builds: raise MonitorError("Exact build is ambiguous")
+            builds[build_id] = build_attrs
+        for item in payload["data"]:
+            if not isinstance(item, dict) or item.get("type") != "appStoreVersions":
+                raise MonitorError("App Store Connect returned malformed app store version")
+            _, attributes = attr(item, "app store version")
+            if attributes.get("versionString") == version and attributes.get("platform") == "IOS":
+                versions.append(item)
     if len(versions) != 1: raise MonitorError("Exact marketing version is absent, ambiguous, or superseded")
-    version_id, attributes = attr(versions[0], "app store version")
-    build_item = fetch(f"https://api.appstoreconnect.apple.com/v1/appStoreVersions/{version_id}/build?fields[builds]=version,expired")
-    data = build_item.get("data") if isinstance(build_item, dict) else None
-    if data is None: raise MonitorError("Exact version has no bound build")
-    _, build_attrs = attr(data, "bound build")
-    if build_attrs.get("version") != build or build_attrs.get("expired") is True:
+    _, attributes = attr(versions[0], "app store version")
+    relationships = versions[0].get("relationships")
+    linkage = relationships.get("build", {}).get("data") if isinstance(relationships, dict) else None
+    if not isinstance(linkage, dict) or linkage.get("type") != "builds" or not isinstance(linkage.get("id"), str):
+        raise MonitorError("Exact version has no bound build")
+    build_attrs = builds.get(linkage["id"])
+    if build_attrs is None or build_attrs.get("version") != build or build_attrs.get("expired") is not False:
         raise MonitorError("Exact build is absent, mismatched, expired, or superseded")
-    return observation(target["version"], target["build"], attributes.get("appStoreState"))
+    return observation(target["version"], target["build"], attributes.get("appVersionState"))
 
 def redact(text):
     # Bounded, ASCII-only diagnostics cannot carry server payloads or credentials.
@@ -123,12 +171,12 @@ def update_dedup(entries, obs, rearm=False):
     entries.append({"version": key[0], "build": key[1], "status": obs["state"]})
     return entries[-MAX_CYCLES:], changed
 
-def jwt():
-    key_id, issuer, private = (os.environ.get(x, "") for x in ("ASC_REVIEW_MONITOR_KEY_ID", "ASC_REVIEW_MONITOR_ISSUER_ID", "ASC_REVIEW_MONITOR_PRIVATE_KEY"))
-    if not all((key_id, issuer, private)): raise MonitorError("Review monitor credential is not configured")
+def jwt(version):
+    key_id, private = (os.environ.get(x, "") for x in ("ASC_REVIEW_MONITOR_KEY_ID", "ASC_REVIEW_MONITOR_PRIVATE_KEY"))
+    if not all((key_id, private)): raise MonitorError("Review monitor credential is not configured")
     def enc(v): return base64.urlsafe_b64encode(v).rstrip(b"=").decode()
-    header = enc(json.dumps({"alg":"ES256","kid":key_id,"typ":"JWT"}, separators=(",", ":")).encode())
-    payload = enc(json.dumps({"iss":issuer,"iat":int(time.time()),"exp":int(time.time())+600,"aud":"appstoreconnect-v1"}, separators=(",", ":")).encode())
+    header = enc(json.dumps(jwt_header(key_id), separators=(",", ":")).encode())
+    payload = enc(json.dumps(jwt_payload(version), separators=(",", ":")).encode())
     signing = f"{header}.{payload}"
     key_path = Path(os.environ["RUNNER_TEMP"]) / "asc-review-monitor-key.p8"
     sig_path = Path(os.environ["RUNNER_TEMP"]) / "asc-review-monitor-signature.bin"
@@ -172,35 +220,51 @@ def gh(method, path, payload=None):
         headers={"Authorization":"Bearer "+token,"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"})
     with urllib.request.urlopen(req, timeout=30) as r: return json.loads(r.read())
 
-def notify(obs, rearm):
+def notify(obs, rearm, event_name):
+    if rearm and event_name != "workflow_dispatch":
+        raise MonitorError("Review monitor rearm requires trusted manual dispatch")
     repo=os.environ.get("GITHUB_REPOSITORY", "")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo): raise MonitorError("GitHub repository identity is invalid")
     issues, page = [], 1
     while True:
-        batch=gh("GET", f"/repos/{repo}/issues?state=open&per_page=100&page={page}")
+        batch=gh("GET", f"/repos/{repo}/issues?state=all&per_page=100&page={page}")
         if not isinstance(batch, list): raise MonitorError("GitHub returned malformed issue collection")
         issues.extend(batch)
         if len(batch) < 100: break
         page += 1
-    matches=[x for x in issues if isinstance(x,dict) and x.get("title")==ISSUE_TITLE and "pull_request" not in x]
+    title = issue_title(obs)
+    matches=[x for x in issues if isinstance(x,dict) and x.get("title")==title and "pull_request" not in x]
     if len(matches)>1: raise MonitorError("Notification state issue is ambiguous")
-    if matches: issue=matches[0]
-    else: issue=gh("POST", f"/repos/{repo}/issues", {"title":ISSUE_TITLE,"body":state_document([])})
-    entries, changed=update_dedup(parse_state(issue.get("body")),obs,rearm)
+    issue = matches[0] if matches else None
+    if issue is not None and issue.get("state") == "closed" and not rearm:
+        return "disabled"
+    if issue is not None and issue.get("state") not in ("open", "closed"):
+        raise MonitorError("Notification state issue is malformed")
+    entries, changed=update_dedup(parse_state(issue.get("body") if issue else ""),obs,rearm)
+    body = state_document(entries)
+    if issue is None:
+        issue=gh("POST", f"/repos/{repo}/issues", {"title":title,"body":body})
+    else:
+        payload = {"body": body}
+        if issue.get("state") == "closed": payload["state"] = "open"
+        gh("PATCH", f"/repos/{repo}/issues/{issue.get('number')}", payload)
     number=issue.get("number")
-    gh("PATCH", f"/repos/{repo}/issues/{number}", {"body":state_document(entries)})
+    if not isinstance(number, int): raise MonitorError("Notification state issue is malformed")
     if changed:
         c=obs["cycle"]
         message=f"Review status changed: version {c['version']}, build {c['build']}, {obs['category']} ({obs['state']})."
         gh("POST", f"/repos/{repo}/issues/{number}/comments", {"body":message})
-    return changed
+        return "sent"
+    return "deduplicated"
 
 def main():
     p=argparse.ArgumentParser(); p.add_argument("--version", required=True); p.add_argument("--build", required=True); p.add_argument("--rearm", action="store_true"); args=p.parse_args()
     try:
-        obs=resolve(asc_fetch(jwt()), args.version, args.build)
-        changed=notify(obs,args.rearm)
-        print(f"ASC_REVIEW_MONITOR version={obs['cycle']['version']} build={obs['cycle']['build']} category={obs['category']} state={obs['state']} notification={'sent' if changed else 'deduplicated'}")
+        if args.rearm and os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch":
+            raise MonitorError("Review monitor rearm requires trusted manual dispatch")
+        obs=resolve(asc_fetch(jwt(args.version)), args.version, args.build)
+        outcome=notify(obs,args.rearm,os.environ.get("GITHUB_EVENT_NAME", ""))
+        print(f"ASC_REVIEW_MONITOR version={obs['cycle']['version']} build={obs['cycle']['build']} category={obs['category']} state={obs['state']} notification={outcome}")
     except MonitorError as e:
         print("ASC_REVIEW_MONITOR " + redact(e), file=sys.stderr); return 1
     except Exception:
