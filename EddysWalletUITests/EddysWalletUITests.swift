@@ -366,6 +366,11 @@ final class EddysWalletUITests: XCTestCase {
 
         let status = app.staticTexts["storekit-diagnostics-status"]
         XCTAssertTrue(status.waitForExistence(timeout: 15))
+        let productsLoaded = expectation(
+            for: NSPredicate(format: "label == %@", "loaded 2 products"),
+            evaluatedWith: status
+        )
+        wait(for: [productsLoaded], timeout: 15)
         XCTAssertEqual(status.label, "loaded 2 products", "the checked-in configuration must resolve both Cloud products")
         XCTAssertEqual(app.staticTexts["storekit-product-com.kunchenguid.eddieswallet.cloud.monthly"].label, "com.kunchenguid.eddieswallet.cloud.monthly")
         XCTAssertEqual(app.staticTexts["storekit-product-com.kunchenguid.eddieswallet.cloud.annual"].label, "com.kunchenguid.eddieswallet.cloud.annual")

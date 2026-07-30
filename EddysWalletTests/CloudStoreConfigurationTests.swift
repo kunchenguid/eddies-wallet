@@ -4,7 +4,7 @@ import XCTest
 
 /// Guards the Cloud subscription contract that the App Store Connect products
 /// were configured against. `docs/app-store-configuration.md` records the live
-/// store state; these tests prove the bundled StoreKit configuration and the
+/// store state; these tests prove the checked-in StoreKit configuration and the
 /// runtime product identifiers still agree with it.
 ///
 /// A price edit, an added free trial, or a Family Sharing flip that lands here
@@ -54,16 +54,13 @@ final class CloudStoreConfigurationTests: XCTestCase {
         }
     }
 
-    // MARK: - Bundled StoreKit configuration
+    // MARK: - StoreKit configuration
 
     private func loadStoreKitConfiguration() throws -> [String: Any] {
-        guard let bundle = Bundle(identifier: AppleAppIdentity.bundleIdentifier) else {
-            throw XCTSkip("Host app bundle \(AppleAppIdentity.bundleIdentifier) is not loaded")
-        }
-        guard let url = bundle.url(forResource: "EddysWallet", withExtension: "storekit") else {
-            XCTFail("EddysWallet.storekit is missing from the app bundle resources")
-            return [:]
-        }
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("EddysWallet/Configuration/EddysWallet.storekit")
         let data = try Data(contentsOf: url)
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             XCTFail("EddysWallet.storekit is not a JSON object")
@@ -97,7 +94,7 @@ final class CloudStoreConfigurationTests: XCTestCase {
         XCTAssertEqual(
             Set(subscriptions.compactMap { $0["productID"] as? String }),
             CloudProductID.all,
-            "The bundled StoreKit products must be exactly the runtime product identifiers"
+            "The checked-in StoreKit products must be exactly the runtime product identifiers"
         )
     }
 
