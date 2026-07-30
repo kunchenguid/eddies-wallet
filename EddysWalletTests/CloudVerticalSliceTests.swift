@@ -68,7 +68,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(importRequest.value(forHTTPHeaderField: "Idempotency-Key"), "cloud-import-\(reserved.uuidString.lowercased())")
     }
 
-    func testConfirmedImportKeepsReadOnlyCloudAuthorityWhenPersistenceFails() async throws {
+    func testConfirmedImportRetriesAuthorityPersistenceThroughBootstrap() async throws {
         let persistence = CloudSliceFailingPersistence()
         let local = try LocalWalletRepository(persistence: persistence)
         _ = try await local.setup(ParentSetup(nickname: "Test Kid"))
@@ -80,15 +80,22 @@ final class CloudVerticalSliceTests: XCTestCase {
         let transport = RoutingTransport()
         transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActiveNoHousehold)
         transport.stub("POST", "/v1/cloud/household/import", CloudSliceFixtures.importAccepted(lineage: lineage), status: 201)
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
         let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
         await coordinator.refreshContext()
 
         let cloud = try await coordinator.activateCloud(from: local, familyName: "Test Kid's family")
+        let relaunched = try LocalWalletRepository(persistence: persistence)
+        let selected = WalletRepositoryFactory.select(
+            local: relaunched,
+            legacy: MockWalletRepository(),
+            cloudClient: client(transport)
+        )
 
-        XCTAssertFalse(local.isCloudAuthority, "the simulated protected-store save failed")
+        XCTAssertTrue(local.isCloudAuthority, "bootstrap retries the durable Cloud marker after the first save fails")
         XCTAssertFalse(cloud.supportsRuntimeMutations)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
-        XCTAssertTrue(coordinator.message?.contains("Cloud owns this wallet") == true)
+        XCTAssertTrue(selected is CloudWalletRepository)
     }
 
     func testActivationConflictLeavesTheFreeLocalWalletUntouched() async throws {
@@ -156,12 +163,20 @@ final class CloudVerticalSliceTests: XCTestCase {
         let store = elevatedStore(repository: local, coordinator: coordinator)
 
         await store.recoverCloudEntitlements()
+        let relaunched = try LocalWalletRepository(directory: directory)
+        let selected = WalletRepositoryFactory.select(
+            local: relaunched,
+            legacy: MockWalletRepository(),
+            cloudClient: client(transport)
+        )
 
         XCTAssertTrue(store.repository is CloudWalletRepository)
         XCTAssertTrue(store.authorityState.isCloudAuthority)
         XCTAssertFalse(store.canModifyWallet)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
         XCTAssertTrue(store.cloudMessage?.contains("Cloud owns this wallet") == true)
+        XCTAssertTrue(relaunched.isCloudAuthority)
+        XCTAssertTrue(selected is CloudWalletRepository)
     }
 
     func testCloudAuthorityExposesReadsButNoRuntimeMutations() async throws {
@@ -341,7 +356,7 @@ final class CloudVerticalSliceTests: XCTestCase {
     func testPersistedCloudAuthorityReconstructsTheCloudRepositoryOnRelaunch() async throws {
         let local = try await localWalletWithHistory()
         let lineage = try XCTUnwrap(local.lineageID)
-        try local.markCloudActivated(lineageID: lineage, revision: 9)
+        try local.markCloudAuthorityConfirmed(lineageID: lineage, revision: 9)
         let transport = RoutingTransport()
         let selected = WalletRepositoryFactory.select(
             local: local,

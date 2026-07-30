@@ -141,8 +141,8 @@ public final class CloudCoordinator: ObservableObject {
         }
         self.household = household
         let repository = CloudWalletRepository(client: client, replica: local, lineageID: lineageID, revision: household.revision)
+        try? local.markCloudAuthorityConfirmed(lineageID: lineageID, revision: household.revision)
         do {
-            try local.markCloudActivated(lineageID: lineageID, revision: household.revision)
             _ = try await repository.bootstrap()
         } catch {
             message = "Cloud owns this wallet. This device is showing its last saved copy and will catch up when it reconnects."
@@ -164,6 +164,7 @@ public final class CloudCoordinator: ObservableObject {
             revision: household.revision,
             requiresBootstrap: true
         )
+        try? local.markCloudAuthorityConfirmed(lineageID: lineageID, revision: household.revision)
         do {
             _ = try await repository.bootstrap()
         } catch {

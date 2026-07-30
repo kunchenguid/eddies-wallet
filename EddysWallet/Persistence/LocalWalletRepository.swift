@@ -181,16 +181,15 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         return operationID
     }
 
-    /// Records that the server accepted this household as Cloud-authoritative.
-    public func markCloudActivated(lineageID: UUID, revision: Int64) throws {
-        var candidate = try writableAggregate()
-        guard candidate.metadata.lineageID == lineageID else {
-            throw WalletAPIError.invalidResponse("This Cloud wallet belongs to a different wallet history.")
-        }
+    public func markCloudAuthorityConfirmed(lineageID: UUID, revision: Int64) throws {
+        var candidate = aggregate ?? LocalWalletAggregate(
+            metadata: LocalWalletMetadata(lineageID: lineageID),
+            snapshot: .empty()
+        )
+        if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
+        candidate.metadata.lineageID = lineageID
         candidate.metadata.authority = "cloud"
         candidate.metadata.serverRevision = revision
-        candidate.metadata.cloudImportCompleted = true
-        candidate.metadata.lastServerSync = .now
         try persist(candidate)
     }
 
