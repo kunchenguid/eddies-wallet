@@ -344,7 +344,11 @@ final class EddysWalletUITests: XCTestCase {
 
     // Promotion item 5: runtime StoreKit proof from the real Debug app, since an
     // XCTest-host query returned no products. The Debug-only diagnostics surface
-    // renders exactly what StoreKit resolved from the scheme's configuration.
+    // renders exactly what StoreKit resolved. Under `xcodebuild` that resolution
+    // comes from the live App Store sandbox catalog rather than the scheme's
+    // configuration file - see `terminalStoreKitDiagnosticsStatus` - so this
+    // proves the shipping products and prices, and `CloudStoreConfigurationTests`
+    // separately pins the checked-in configuration to the same values.
     func testDebugStoreKitDiagnosticsProvesTheExactCloudProductsAndPrices() throws {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
@@ -364,14 +368,8 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(link.exists)
         link.tap()
 
-        let status = app.staticTexts["storekit-diagnostics-status"]
-        XCTAssertTrue(status.waitForExistence(timeout: 15))
-        let productsLoaded = expectation(
-            for: NSPredicate(format: "label == %@", "loaded 2 products"),
-            evaluatedWith: status
-        )
-        wait(for: [productsLoaded], timeout: 15)
-        XCTAssertEqual(status.label, "loaded 2 products", "the checked-in configuration must resolve both Cloud products")
+        let status = terminalStoreKitDiagnosticsStatus(in: app)
+        XCTAssertEqual(status, "loaded 2 products", "StoreKit must resolve both Cloud products, and this is what it said instead")
         XCTAssertEqual(app.staticTexts["storekit-product-com.kunchenguid.eddieswallet.cloud.monthly"].label, "com.kunchenguid.eddieswallet.cloud.monthly")
         XCTAssertEqual(app.staticTexts["storekit-product-com.kunchenguid.eddieswallet.cloud.annual"].label, "com.kunchenguid.eddieswallet.cloud.annual")
         XCTAssertEqual(app.staticTexts["storekit-price-com.kunchenguid.eddieswallet.cloud.monthly"].label, "$2.99")
@@ -628,6 +626,51 @@ final class EddysWalletUITests: XCTestCase {
         app.buttons["Show Eddie's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Your wallet is ready!"].exists)
+    }
+}
+
+extension XCTestCase {
+    /// Blocks until the Debug StoreKit proof surface has an answer, and returns
+    /// the status it settled on.
+    ///
+    /// The latency of that answer is not ours to bound. A scheme's
+    /// `StoreKitConfigurationFileReference` is an Xcode-IDE setting that
+    /// `xcodebuild` ignores, so under CI the app resolves the *live* App Store
+    /// sandbox catalog over the network: a bag fetch, a session handshake, and
+    /// a catalog query against `amp-api.sandbox.apple.com`, all on the first
+    /// product request on a cold device. That is why the eddies-wallet-v0.1.4
+    /// tag run sat at "loading" for the whole 15-second window on a build whose
+    /// products, prices, and configuration were correct - the same run's later
+    /// tour resolved in about a second once the device cache was warm.
+    ///
+    /// So wait for the surface to reach *any* terminal status rather than
+    /// racing Apple to a particular one. This hides nothing: a StoreKit error,
+    /// a renamed product, or a partial result is terminal as soon as the store
+    /// answers, so a genuine product-loading failure fails the caller at once
+    /// and names the status the app actually showed instead of expiring into an
+    /// opaque timeout that cannot tell "wrong" from "not yet".
+    func terminalStoreKitDiagnosticsStatus(
+        in app: XCUIApplication,
+        timeout: TimeInterval = 120,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> String {
+        let status = app.staticTexts["storekit-diagnostics-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 15), "the diagnostics surface never rendered", file: file, line: line)
+
+        let deadline = Date().addingTimeInterval(timeout)
+        var label = status.label
+        while label == "loading", Date() < deadline {
+            usleep(250_000)
+            label = status.label
+        }
+        XCTAssertNotEqual(
+            label, "loading",
+            "StoreKit never answered within \(Int(timeout))s; the surface is still loading",
+            file: file,
+            line: line
+        )
+        return label
     }
 }
 
