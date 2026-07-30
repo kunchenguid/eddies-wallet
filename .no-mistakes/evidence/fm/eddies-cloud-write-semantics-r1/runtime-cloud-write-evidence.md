@@ -108,6 +108,8 @@ The Debug-only launch seam and `EvidenceCaptureUITests.testCloudWriteStateTour` 
 - `cloud-write-accepted-waiting-kid-iphone.png`
 - `cloud-write-rejected-iphone.png`
 - `cloud-write-rejected-kid-iphone.png`
+- `cloud-rejected-local-cleanup-iphone.png`
+- `cloud-rejected-local-cleanup-finished-iphone.png`
 - `cloud-profile-accepted-waiting-iphone.png`
 - `cloud-write-reconnect-kid-iphone.png`
 - `cloud-write-reconnect-iphone.png`

@@ -792,8 +792,6 @@ public final class WalletStore: ObservableObject {
         clearPINFailureState()
         deElevate()
     }
-
-
     // MARK: - Cloud (optional, guarded)
 
     /// Whether a parent surface may show Cloud purchase/restore controls at all.
