@@ -44,28 +44,32 @@ struct ParentAreaView: View {
                             .background(EW.Color.dangerTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
                     }
 
-                    if showsHandoffCard {
-                        firstActionsCard
-                    }
-
-                    walletCards
-
-                    SectionHeader("Recent activity")
-                    if store.snapshot.activities.isEmpty {
-                        Text("Nothing recorded yet. Add a first deposit or set the weekly allowance.")
-                            .font(EW.Font.body)
-                            .foregroundStyle(EW.Color.textSecondary)
-                    } else {
-                        ActivityListCard(events: store.snapshot.activities) { event in
-                            selectedEvent = event
+                    if store.canShowWalletData {
+                        if showsHandoffCard {
+                            firstActionsCard
                         }
-                    }
 
-                    if store.canModifyWallet {
-                        SectionHeader("Parent actions")
-                        actionGrid
+                        walletCards
+
+                        SectionHeader("Recent activity")
+                        if store.snapshot.activities.isEmpty {
+                            Text("Nothing recorded yet. Add a first deposit or set the weekly allowance.")
+                                .font(EW.Font.body)
+                                .foregroundStyle(EW.Color.textSecondary)
+                        } else {
+                            ActivityListCard(events: store.snapshot.activities) { event in
+                                selectedEvent = event
+                            }
+                        }
+
+                        if store.canModifyWallet {
+                            SectionHeader("Parent actions")
+                            actionGrid
+                        } else {
+                            cloudReadOnlyCard
+                        }
                     } else {
-                        cloudReadOnlyCard
+                        cloudReplicaUnavailableCard
                     }
 
                     SectionHeader("Cloud")
@@ -167,6 +171,26 @@ struct ParentAreaView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .ewCard()
+    }
+
+    static func cloudReplicaUnavailableMessage(deviceNoun: String) -> String {
+        "Reconnect this \(deviceNoun) to finish Cloud setup and show the wallet balance and activity."
+    }
+
+    private var cloudReplicaUnavailableCard: some View {
+        VStack(alignment: .leading, spacing: EW.Space.three) {
+            Label("Cloud wallet unavailable", systemImage: "icloud.slash")
+                .font(EW.Font.heading)
+                .foregroundStyle(EW.Color.textPrimary)
+            Text(Self.cloudReplicaUnavailableMessage(deviceNoun: DeviceCopy.deviceNoun))
+                .font(EW.Font.body)
+                .foregroundStyle(EW.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .ewCard(variant: .alt)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("parent-cloud-replica-unavailable")
     }
 
     /// Balance + allowance pair on top; loan + sync pair below. On regular

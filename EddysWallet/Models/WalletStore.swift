@@ -727,6 +727,9 @@ public final class WalletStore: ObservableObject {
     public var hasValidCloudReplica: Bool {
         (repository as? CloudWalletRepository)?.hasValidReplica == true
     }
+    public var canShowWalletData: Bool {
+        !authorityState.isCloudAuthority || hasValidCloudReplica
+    }
     public var canContinueLocallyAfterCloud: Bool {
         repository is CloudWalletRepository && cloudEntitlement.permitsLocalContinuation
     }

@@ -202,6 +202,19 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         try persist(candidate)
     }
 
+    public func markCloudImportAccepted(lineageID: UUID, revision: Int64) throws {
+        guard var candidate = aggregate, candidate.metadata.lineageID == lineageID else {
+            throw WalletAPIError.invalidResponse("Cloud confirmed a different wallet history. Nothing was changed.")
+        }
+        if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
+        candidate.metadata.authority = "cloud"
+        candidate.metadata.confirmedCloudLineageID = lineageID
+        candidate.metadata.serverRevision = revision
+        candidate.metadata.lastServerSync = .now
+        candidate.metadata.cloudImportCompleted = true
+        try persist(candidate)
+    }
+
     public func hasAcceptedCloudReplica(lineageID: UUID) -> Bool {
         guard let aggregate,
               aggregate.metadata.authority == "cloud",

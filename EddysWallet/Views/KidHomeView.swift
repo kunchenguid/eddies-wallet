@@ -20,22 +20,26 @@ struct KidHomeView: View {
                 if let statusMessage = kidStatusMessage {
                     kidStatusBanner(statusMessage)
                 }
-                heroBalanceCard
-                if let loan = store.snapshot.loan {
-                    LoanCardView(loan: loan, isParent: false) {
-                        isShowingLoan = true
+                if store.canShowWalletData {
+                    heroBalanceCard
+                    if let loan = store.snapshot.loan {
+                        LoanCardView(loan: loan, isParent: false) {
+                            isShowingLoan = true
+                        }
                     }
-                }
-                if store.snapshot.activities.isEmpty {
-                    emptyWalletCard
+                    if store.snapshot.activities.isEmpty {
+                        emptyWalletCard
+                    } else {
+                        SectionHeader("What's been happening")
+                        ActivityListCard(events: store.snapshot.activities, announcesVirtualMoney: false) { event in
+                            selectedEvent = event
+                        }
+                    }
+                    FreshnessLabel(date: store.snapshot.lastUpdated, isStale: store.snapshot.isStale)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    SectionHeader("What's been happening")
-                    ActivityListCard(events: store.snapshot.activities, announcesVirtualMoney: false) { event in
-                        selectedEvent = event
-                    }
+                    cloudReplicaUnavailableCard
                 }
-                FreshnessLabel(date: store.snapshot.lastUpdated, isStale: store.snapshot.isStale)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, EW.Space.screenMargin)
             .padding(.top, EW.Space.four)
@@ -155,6 +159,25 @@ struct KidHomeView: View {
         .ewCard()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(KidCopy.emptyWalletTitle) \(KidCopy.emptyWalletMessage)")
+    }
+
+    private var cloudReplicaUnavailableCard: some View {
+        VStack(spacing: EW.Space.three) {
+            IconBadge("icloud.slash", foreground: EW.Color.primaryActive, background: EW.Color.cardAlt, size: 56)
+            Text(KidCopy.cloudReplicaUnavailableTitle)
+                .font(EW.Font.heading)
+                .foregroundStyle(EW.Color.textPrimary)
+                .multilineTextAlignment(.center)
+            Text(KidCopy.cloudReplicaUnavailableMessage(deviceNoun: DeviceCopy.deviceNoun))
+                .font(EW.Font.body)
+                .foregroundStyle(EW.Color.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, EW.Space.six)
+        .ewCard(variant: .alt)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("kid-cloud-replica-unavailable")
     }
 }
 

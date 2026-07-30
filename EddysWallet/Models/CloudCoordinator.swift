@@ -141,7 +141,7 @@ public final class CloudCoordinator: ObservableObject {
         }
         self.household = household
         let repository = CloudWalletRepository(client: client, replica: local, lineageID: lineageID, revision: household.revision)
-        try? local.markCloudAuthorityConfirmed(lineageID: lineageID, revision: household.revision)
+        try? local.markCloudImportAccepted(lineageID: lineageID, revision: household.revision)
         do {
             _ = try await repository.bootstrap()
         } catch {

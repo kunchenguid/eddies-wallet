@@ -98,6 +98,35 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(selected is CloudWalletRepository)
     }
 
+    func testAcceptedImportRemainsReadableWhenBootstrapFailsAndOfflineRelaunches() async throws {
+        let local = try await localWalletWithHistory()
+        let lineage = try XCTUnwrap(local.lineageID)
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.stub("POST", "/v1/cloud/household/import", CloudSliceFixtures.importAccepted(lineage: lineage), status: 201)
+        let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
+        await coordinator.refreshContext()
+
+        let cloud = try await coordinator.activateCloud(from: local, familyName: "Test Kid's family")
+        XCTAssertTrue(cloud.hasValidReplica)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+        XCTAssertEqual(cloud.snapshot().activities.count, 2)
+
+        transport.failEverything = true
+        let relaunched = try LocalWalletRepository(directory: directory)
+        let selected = WalletRepositoryFactory.select(
+            local: relaunched,
+            legacy: MockWalletRepository(),
+            cloudClient: client(transport)
+        )
+        let relaunchedCloud = try XCTUnwrap(selected as? CloudWalletRepository)
+
+        XCTAssertTrue(relaunchedCloud.hasValidReplica)
+        XCTAssertEqual(relaunchedCloud.snapshot().acceptedBalanceCents, 750)
+        XCTAssertEqual(relaunchedCloud.snapshot().activities.count, 2)
+        XCTAssertFalse(relaunchedCloud.supportsRuntimeMutations)
+    }
+
     func testActivationConflictLeavesTheFreeLocalWalletUntouched() async throws {
         let local = try await localWalletWithHistory()
         let transport = RoutingTransport()
@@ -214,6 +243,10 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 875)
         XCTAssertFalse(relaunchedCloud.hasValidReplica)
         XCTAssertEqual(relaunchedCloud.snapshot().acceptedBalanceCents, 0)
+        let unavailableStore = elevatedStore(repository: relaunchedCloud, coordinator: nil)
+        XCTAssertFalse(unavailableStore.canShowWalletData)
+        XCTAssertTrue(KidCopy.cloudReplicaUnavailableMessage(deviceNoun: "iPad").contains("reconnect"))
+        XCTAssertTrue(ParentAreaView.cloudReplicaUnavailableMessage(deviceNoun: "iPad").contains("balance and activity"))
         XCTAssertTrue(CloudStatusView.cloudReplicaUnavailableStatusCopy(deviceNoun: "iPad").contains("Reconnect before"))
         do {
             _ = try await relaunchedCloud.submit(WalletCommand(kind: .deposit, amountCents: 25))
@@ -229,6 +262,21 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(relaunchedCloud.snapshot().acceptedBalanceCents, 750)
         XCTAssertEqual(relaunched.lineageID, cloudLineage)
         XCTAssertEqual(relaunched.cloudAuthorityLineageID, cloudLineage)
+    }
+
+    func testValidZeroBalanceCloudReplicaStillShowsWalletData() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.zeroBalanceBootstrap(lineage: lineage))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+
+        XCTAssertTrue(cloud.hasValidReplica)
+        XCTAssertTrue(store.canShowWalletData)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 0)
+        XCTAssertTrue(store.snapshot.activities.isEmpty)
     }
 
     func testCloudAuthorityExposesReadsButNoRuntimeMutations() async throws {
@@ -683,6 +731,16 @@ enum CloudSliceFixtures {
            {"id":"c1111111-1111-4111-8111-111111111111","type":"deposit","direction":"credit","amountCents":1000,"balanceBeforeCents":0,"balanceAfterCents":1000,"reason":"chores","loanId":null,"recordedAt":"2026-07-24T10:00:00.000Z","acceptedRevision":1},
            {"id":"c2222222-2222-4222-8222-222222222222","type":"withdrawal","direction":"debit","amountCents":250,"balanceBeforeCents":1000,"balanceAfterCents":750,"reason":"sticker book","loanId":null,"recordedAt":"2026-07-25T10:00:00.000Z","acceptedRevision":2}],
          "loans":[],"allowanceRule":null,"nextCursor":null}
+        """.utf8)
+    }
+
+    static func zeroBalanceBootstrap(lineage: UUID) -> Data {
+        Data("""
+        {"household":{"lineageId":"\(lineage.uuidString.lowercased())","authority":"cloud","revision":2},
+         "family":{"id":"f-1","name":"Test Kid's family"},
+         "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+         "wallet":{"id":"w-1","balanceCents":0},
+         "entries":[],"loans":[],"allowanceRule":null,"nextCursor":null}
         """.utf8)
     }
 

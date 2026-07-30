@@ -119,6 +119,12 @@ public enum KidCopy {
 
     public static let emptyWalletMessage = "Your parent can add the first dollars."
 
+    public static let cloudReplicaUnavailableTitle = "Your wallet needs to reconnect"
+
+    public static func cloudReplicaUnavailableMessage(deviceNoun: String) -> String {
+        "This \(deviceNoun) needs to reconnect before it can show your wallet."
+    }
+
     public static func parentDoorAccessibilityLabel() -> String {
         "Parent area. Asks for the parent PIN."
     }
