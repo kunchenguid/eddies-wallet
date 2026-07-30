@@ -277,7 +277,7 @@ enum CloudMutationKind: String, Codable, Equatable, Sendable {
 
 enum CloudMutationPhase: String, Codable, Equatable, Sendable {
     case staged
-    /// Transport may have reached the service, so this request is never sent again.
+    /// The request was durably protected before its first transport attempt.
     case awaitingOutcome
     /// The service accepted it, but this device has not observed the accepted
     /// entry or revision in a replica yet.
@@ -345,7 +345,7 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
         case .staged:
             "This change has not been sent. This device must finish protecting it before contacting Cloud."
         case .awaitingOutcome:
-            "Cloud has not confirmed this change yet. This device will check the wallet without sending it again. Do not record it again."
+            "Cloud has not confirmed this change yet. This device will retry the same protected request. Do not record it again."
         case .acceptedAwaitingReplica:
             "Cloud accepted this change. This device is waiting to see it in the wallet. Do not record it again."
         case .rejected:

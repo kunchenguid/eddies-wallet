@@ -310,19 +310,18 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             }
             throw rejection
         }
-        var mayStartTransport = false
         if mutation.phase == .staged {
             mutation.phase = .awaitingOutcome
             do {
                 try replica.markCloudMutationAccepted(mutation)
                 activeMutation = mutation
-                mayStartTransport = true
             } catch {
                 activeMutation = original
                 return .waiting(.cloudMutationAwaitingReconciliation)
             }
         }
-        if mutation.phase == .awaitingOutcome, mayStartTransport {
+        let attemptedMutation = mutation
+        if mutation.phase == .awaitingOutcome {
             do {
                 let acceptance = try await client.mutate(mutation)
                 mutation.phase = .acceptedAwaitingReplica
@@ -346,6 +345,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                         do {
                             try replica.markCloudMutationAccepted(mutation)
                         } catch {
+                            activeMutation = attemptedMutation
                             return .waiting(.cloudMutationAwaitingReconciliation)
                         }
                     }
@@ -356,34 +356,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 return .waiting(.network("Cloud is unavailable right now. The previous change will be checked again."))
             }
         }
-        if mutation.phase == .awaitingOutcome {
-            return await observeAttemptedMutation(mutation)
-        }
         return await observeAcceptedMutation(mutation)
-    }
-
-    private func observeAttemptedMutation(_ attempted: PendingCloudMutation) async -> Settlement {
-        do {
-            let readGeneration = beginRead()
-            let changes = try await client.changes(afterRevision: attempted.expectedRevision)
-            let observed = try apply(
-                changes,
-                merging: true,
-                resolving: attempted,
-                readGeneration: readGeneration
-            )
-            guard observed else {
-                return .waiting(.cloudMutationAwaitingReconciliation)
-            }
-            let event = attempted.acceptedEntryID.flatMap { entryID in
-                replica.snapshot().activities.first { $0.remoteID == entryID }
-            }
-            return .observed(event)
-        } catch let error as WalletAPIError {
-            return .waiting(error)
-        } catch {
-            return .waiting(.network("Cloud is unavailable right now. The previous change will be checked again."))
-        }
     }
 
     private func observeAcceptedMutation(_ accepted: PendingCloudMutation) async -> Settlement {

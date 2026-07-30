@@ -336,7 +336,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(event.remoteID, "etag-entry")
     }
 
-    func testResponseLossUsesReadOnlyReconciliationWithoutReplayingTransport() async throws {
+    func testResponseLossReplaysExactRequestAndObservesOneCommit() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
         transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "lost-response-entry"), status: 201)
         transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "lost-response-entry"))
@@ -350,22 +350,20 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(cloud.hasUnsettledMutation)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
 
-        do {
-            _ = try await cloud.refresh(for: .parent)
-            XCTFail("a read without exact acceptance proof must remain unresolved")
-        } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
-        }
+        _ = try await cloud.refresh(for: .parent)
 
         let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
-        XCTAssertEqual(writes.count, 1)
+        XCTAssertEqual(writes.count, 2)
+        XCTAssertEqual(writes[0].httpBody, writes[1].httpBody)
         XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["response-loss-key"])
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }), ["\"rev-2\""])
+        XCTAssertEqual(transport.committedMutationCount, 1)
         XCTAssertEqual(cloud.snapshot().activities.filter { $0.remoteID == "lost-response-entry" }.count, 1)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
-        XCTAssertTrue(cloud.hasUnsettledMutation)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
     }
 
-    func testServerCommandInProgressNeverReplaysAttemptedTransport() async throws {
+    func testServerCommandInProgressReplaysOnlyTheOriginalRequest() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
         transport.enqueue("POST", "/v1/wallet/deposits", CloudSliceFixtures.commandInProgressError, status: 409)
         transport.enqueue("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "in-progress-entry"), status: 201)
@@ -377,22 +375,36 @@ final class CloudVerticalSliceTests: XCTestCase {
             return XCTFail("COMMAND_IN_PROGRESS is ambiguous, not a rejection")
         }
         XCTAssertTrue(cloud.hasUnsettledMutation)
-        do {
-            _ = try await cloud.refresh(for: .parent)
-            XCTFail("command-in-progress remains blocked without accepted proof")
-        } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
-        }
+        _ = try await cloud.refresh(for: .parent)
 
         let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
-        XCTAssertEqual(writes.count, 1)
+        XCTAssertEqual(writes.count, 2)
+        XCTAssertEqual(writes[0].httpBody, writes[1].httpBody)
         XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["in-progress-key"])
-        XCTAssertTrue(cloud.hasUnsettledMutation)
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }), ["\"rev-2\""])
+        XCTAssertEqual(transport.committedMutationCount, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
     }
 
-    func testMalformedAcceptedResponseStaysBlockedWithoutGuessingByContent() async throws {
-        let (cloud, transport, _) = try await writableCloud()
-        transport.stub("POST", "/v1/wallet/deposits", Data("{\"wallet\":{\"balanceCents\":1000}}".utf8), status: 201)
+    func testMalformedAcceptedResponseReplaysExactRequestWithoutContentInference() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.enqueue("POST", "/v1/wallet/deposits", Data("{\"wallet\":{\"balanceCents\":1000}}".utf8), status: 201)
+        transport.enqueue(
+            "POST",
+            "/v1/wallet/deposits",
+            CloudSliceFixtures.depositAccepted(revision: 3, entryID: "malformed-replay-entry"),
+            status: 201
+        )
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(
+                lineage: lineage,
+                revision: 3,
+                balanceCents: 1_000,
+                entryID: "malformed-replay-entry"
+            )
+        )
 
         guard case .pending = try await cloud.submit(
             WalletCommand(kind: .deposit, amountCents: 250, reason: "identical content", idempotencyKey: "malformed-key")
@@ -403,6 +415,17 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(cloud.hasUnsettledMutation)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+
+        _ = try await cloud.refresh(for: .parent)
+
+        let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
+        XCTAssertEqual(writes.count, 2)
+        XCTAssertEqual(writes[0].httpBody, writes[1].httpBody)
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["malformed-key"])
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }), ["\"rev-2\""])
+        XCTAssertEqual(transport.committedMutationCount, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertEqual(cloud.snapshot().activities.filter { $0.remoteID == "malformed-replay-entry" }.count, 1)
     }
 
     func testAcceptedWriteWithFailedReplicaPersistenceIsNeverReportedRejected() async throws {
@@ -587,27 +610,37 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })
     }
 
-    func testFailedRejectionClearAndMarkerPersistenceNeverReplayAfterRelaunch() async throws {
+    func testRejectedPersistenceFailuresRemainWaitingUntilExactReplayIsAccepted() async throws {
         let persistence = CloudSliceFailingPersistence()
         let local = try LocalWalletRepository(persistence: persistence)
         let lineage = UUID()
         let transport = RoutingTransport()
         transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.entitlementRequiredError, status: 403)
+        transport.enqueue("POST", "/v1/wallet/deposits", CloudSliceFixtures.entitlementRequiredError, status: 403)
+        transport.enqueue("POST", "/v1/wallet/deposits", CloudSliceFixtures.entitlementRequiredError, status: 403)
+        transport.enqueue(
+            "POST",
+            "/v1/wallet/deposits",
+            CloudSliceFixtures.depositAccepted(revision: 3, entryID: "accepted-after-waiting"),
+            status: 201
+        )
         let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
         _ = try await cloud.bootstrap()
         let firstMutationSave = persistence.saveCount + 1
-        persistence.failOnSaveNumbers = [firstMutationSave + 2, firstMutationSave + 3]
+        persistence.failOnSaveNumbers = [
+            firstMutationSave + 2,
+            firstMutationSave + 3,
+            firstMutationSave + 4,
+            firstMutationSave + 5,
+        ]
 
-        do {
-            _ = try await cloud.submit(
-                WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "terminal-no-replay-key")
-            )
-            XCTFail("failed terminal persistence must remain safely blocked")
-        } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+        guard case .pending(let waiting) = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "rejection-waiting-key")
+        ) else {
+            return XCTFail("a rejection without durable settlement must remain Waiting")
         }
-        XCTAssertEqual(cloud.unsettledMutationPhase, .rejected)
+        XCTAssertEqual(waiting.syncState, .pending)
+        XCTAssertEqual(cloud.unsettledMutationPhase, .awaitingOutcome)
         XCTAssertEqual(local.unsettledCloudMutation?.phase, .awaitingOutcome)
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
 
@@ -619,25 +652,36 @@ final class CloudVerticalSliceTests: XCTestCase {
             revision: 2
         )
         transport.stub(
-            "POST",
-            "/v1/wallet/deposits",
-            CloudSliceFixtures.depositAccepted(revision: 3, entryID: "must-not-land"),
-            status: 201
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(
+                lineage: lineage,
+                revision: 3,
+                balanceCents: 1_000,
+                entryID: "accepted-after-waiting"
+            )
         )
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
 
-        for _ in 0..<3 {
-            do {
-                _ = try await relaunched.refresh(for: .parent)
-                XCTFail("read-only reconciliation cannot clear an unproven attempt")
-            } catch {
-                XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
-            }
+        do {
+            _ = try await relaunched.refresh(for: .parent)
+            XCTFail("a repeated rejection without durable settlement stays Waiting")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
         }
-
         XCTAssertEqual(relaunched.unsettledMutationPhase, .awaitingOutcome)
-        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
-        XCTAssertThrowsError(try relaunchedLocal.continueLocallyAfterCloud())
+        XCTAssertFalse(relaunched.snapshot().pendingEvents.isEmpty)
+
+        _ = try await relaunched.refresh(for: .parent)
+
+        let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
+        XCTAssertEqual(writes.count, 3)
+        XCTAssertEqual(writes[0].httpBody, writes[1].httpBody)
+        XCTAssertEqual(writes[1].httpBody, writes[2].httpBody)
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["rejection-waiting-key"])
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }), ["\"rev-2\""])
+        XCTAssertEqual(transport.committedMutationCount, 1)
+        XCTAssertFalse(relaunched.hasUnsettledMutation)
+        XCTAssertEqual(relaunched.snapshot().activities.filter { $0.remoteID == "accepted-after-waiting" }.count, 1)
     }
 
     func testScheduledAllowanceRejectsCallerAmountMismatchBeforeStaging() async throws {
@@ -698,9 +742,10 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
     }
 
-    func testTimeoutRetainsTheOriginalRequestAndBlocksANewKey() async throws {
-        let (cloud, transport, _) = try await writableCloud()
+    func testTimeoutBeforeReceiptCompletesOnlyOriginalRequestOnReplay() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
         transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "timeout-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "timeout-entry"))
         transport.timeOutNextResponse("POST", "/v1/wallet/deposits")
 
         guard case .pending = try await cloud.submit(
@@ -715,9 +760,19 @@ final class CloudVerticalSliceTests: XCTestCase {
         }
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
         XCTAssertEqual(cloud.localReplica.unsettledCloudMutation?.idempotencyKey, "timeout-original-key")
+
+        _ = try await cloud.refresh(for: .parent)
+
+        let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
+        XCTAssertEqual(writes.count, 2)
+        XCTAssertEqual(writes[0].httpBody, writes[1].httpBody)
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["timeout-original-key"])
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }), ["\"rev-2\""])
+        XCTAssertEqual(transport.committedMutationCount, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
     }
 
-    func testRelaunchReconcilesAttemptedMutationWithoutTransportReplay() async throws {
+    func testRelaunchReplaysOnlyPersistedBodyRevisionAndKey() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
         transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "relaunched-entry"), status: 201)
         transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "relaunched-entry"))
@@ -758,18 +813,16 @@ final class CloudVerticalSliceTests: XCTestCase {
             lineageID: lineage,
             revision: 2
         )
-        do {
-            _ = try await relaunched.refresh(for: .parent)
-            XCTFail("relaunch cannot infer acceptance from replica content")
-        } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
-        }
+        _ = try await relaunched.refresh(for: .parent)
 
         let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
-        XCTAssertEqual(writes.count, 1)
+        XCTAssertEqual(writes.count, 2)
+        XCTAssertEqual(writes[0].httpBody, writes[1].httpBody)
         XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["relaunch-stable-key"])
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }), ["\"rev-2\""])
+        XCTAssertEqual(transport.committedMutationCount, 1)
         XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 1_000)
-        XCTAssertTrue(relaunched.hasUnsettledMutation)
+        XCTAssertFalse(relaunched.hasUnsettledMutation)
     }
 
     func testAcceptedAllowanceRuleUsesRevisionObservation() async throws {
@@ -1514,6 +1567,8 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
     }
 
     private(set) var requests: [URLRequest] = []
+    private(set) var committedMutationKeys: Set<String> = []
+    var committedMutationCount: Int { committedMutationKeys.count }
     var failEverything = false
     private var stubs: [String: [Stub]] = [:]
     private var droppedResponseKeys: Set<String> = []
@@ -1564,6 +1619,9 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
         if failEverything { throw URLError(.notConnectedToInternet) }
         let key = "\(request.httpMethod ?? "GET") \(request.url?.path ?? "")"
         if droppedResponseKeys.remove(key) != nil {
+            if let stub = stubs[key]?.first {
+                recordCommit(for: request, statusCode: stub.statusCode)
+            }
             throw URLError(.networkConnectionLost)
         }
         if timedOutKeys.remove(key) != nil {
@@ -1584,7 +1642,14 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
                 suspensionObservedContinuation = nil
             }
         }
+        recordCommit(for: request, statusCode: stub.statusCode)
         return (stub.body, HTTPURLResponse(url: request.url!, statusCode: stub.statusCode, httpVersion: nil, headerFields: stub.headers)!)
+    }
+
+    private func recordCommit(for request: URLRequest, statusCode: Int) {
+        guard (200..<300).contains(statusCode),
+              let key = request.value(forHTTPHeaderField: "Idempotency-Key") else { return }
+        committedMutationKeys.insert(key)
     }
 }
 

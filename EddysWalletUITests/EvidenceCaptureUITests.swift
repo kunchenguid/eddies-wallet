@@ -354,7 +354,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         )
         openDepositResult(
             "cloud-write-waiting",
-            expectedMessage: "Cloud has not confirmed this change yet. This device will check the wallet without sending it again. Do not record it again.",
+            expectedMessage: "Cloud has not confirmed this change yet. This device will retry the same protected request. Do not record it again.",
             captureName: "cloud-write-waiting",
             acceptedAmountVisibleToKid: false
         )
