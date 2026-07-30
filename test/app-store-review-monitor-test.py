@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Credential-free regression tests for the review monitor's pure contracts."""
-import importlib.util, json, os, pathlib, sys, unittest
+import importlib.util, io, json, os, pathlib, sys, unittest
 from unittest import mock
 sys.dont_write_bytecode=True
 ROOT=pathlib.Path(__file__).resolve().parents[1]
@@ -38,6 +38,11 @@ class ResolutionTests(unittest.TestCase):
         })
         for state, category in m.STATE_CATEGORY.items():
             self.assertEqual(m.resolve(fixture(state),"0.1","12.1")["category"],category)
+        compliance=m.resolve(fixture("WAITING_FOR_EXPORT_COMPLIANCE"),"0.1","12.1")
+        self.assertEqual((compliance["state"],compliance["category"]),
+                         ("WAITING_FOR_EXPORT_COMPLIANCE","waiting-on-apple"))
+        rows,_=m.update_dedup([],compliance)
+        self.assertEqual(rows[-1]["status"],"WAITING_FOR_EXPORT_COMPLIANCE")
     def test_future_unknown_state_has_one_safe_transition(self):
         o=m.resolve(fixture("<future-secret-state>"),"0.1","12.1")
         self.assertEqual((o["state"],o["category"]),("UNKNOWN","unknown"))
@@ -139,6 +144,32 @@ class SafetyTests(unittest.TestCase):
             self.assertEqual(m.notify(obs,False,"schedule"),"disabled")
         self.assertTrue(calls)
         self.assertTrue(all(method=="GET" for method,_,_ in calls))
+    def test_closed_cycle_main_never_touches_apple(self):
+        target=m.cycle("0.1","12.1")
+        issue={"number":7,"title":m.issue_title(target),"body":m.state_document([]),"state":"closed"}
+        output=io.StringIO()
+        with mock.patch.object(m,"gh",return_value=[issue]), \
+             mock.patch.object(m,"jwt",side_effect=AssertionError("JWT touched")) as jwt_mock, \
+             mock.patch.object(m,"asc_fetch",side_effect=AssertionError("Apple fetch touched")) as fetch_mock, \
+             mock.patch.object(sys,"argv",["monitor","--version","0.1","--build","12.1"]), \
+             mock.patch("sys.stdout",output), \
+             mock.patch.dict(os.environ,{"GITHUB_REPOSITORY":"owner/repo","GITHUB_EVENT_NAME":"schedule"}):
+            self.assertEqual(m.main(),0)
+        jwt_mock.assert_not_called()
+        fetch_mock.assert_not_called()
+        self.assertIn("notification=disabled",output.getvalue())
+    def test_ambiguous_cycle_refuses_before_apple(self):
+        target=m.cycle("0.1","12.1")
+        issue={"number":7,"title":m.issue_title(target),"body":m.state_document([]),"state":"closed"}
+        with mock.patch.object(m,"gh",return_value=[issue,dict(issue,number=8)]), \
+             mock.patch.object(m,"jwt",side_effect=AssertionError("JWT touched")) as jwt_mock, \
+             mock.patch.object(m,"asc_fetch",side_effect=AssertionError("Apple fetch touched")) as fetch_mock, \
+             mock.patch.object(sys,"argv",["monitor","--version","0.1","--build","12.1"]), \
+             mock.patch("sys.stderr",io.StringIO()), \
+             mock.patch.dict(os.environ,{"GITHUB_REPOSITORY":"owner/repo","GITHUB_EVENT_NAME":"schedule"}):
+            self.assertEqual(m.main(),1)
+        jwt_mock.assert_not_called()
+        fetch_mock.assert_not_called()
     def test_trusted_rearm_reopens_same_cycle_issue(self):
         obs=m.observation("0.1","12.1","IN_REVIEW")
         issue={"number":7,"title":m.issue_title(obs),"body":m.state_document([]),"state":"closed"}

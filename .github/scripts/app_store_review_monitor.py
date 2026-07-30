@@ -16,7 +16,7 @@ STATE_CATEGORY = {
     "ACCEPTED": "approved", "PROCESSING_FOR_DISTRIBUTION": "approved",
     "READY_FOR_DISTRIBUTION": "approved", "REJECTED": "action-required",
     "METADATA_REJECTED": "action-required", "INVALID_BINARY": "action-required",
-    "WAITING_FOR_EXPORT_COMPLIANCE": "action-required", "DEVELOPER_REJECTED": "withdrawn",
+    "WAITING_FOR_EXPORT_COMPLIANCE": "waiting-on-apple", "DEVELOPER_REJECTED": "withdrawn",
     "REPLACED_WITH_NEW_VERSION": "superseded",
 }
 SAFE_STATES = set(STATE_CATEGORY)
@@ -36,8 +36,8 @@ def observation(version, build, state):
     state = safe_state(state)
     return {"cycle": cycle(version, build), "state": state, "category": STATE_CATEGORY.get(state, "unknown")}
 
-def issue_title(obs):
-    c = obs["cycle"]
+def issue_title(value):
+    c = value.get("cycle", value)
     return f"{ISSUE_TITLE_PREFIX}: version {c['version']}, build {c['build']}"
 
 def validate_asc_url(url):
@@ -220,9 +220,7 @@ def gh(method, path, payload=None):
         headers={"Authorization":"Bearer "+token,"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"})
     with urllib.request.urlopen(req, timeout=30) as r: return json.loads(r.read())
 
-def notify(obs, rearm, event_name):
-    if rearm and event_name != "workflow_dispatch":
-        raise MonitorError("Review monitor rearm requires trusted manual dispatch")
+def find_cycle_issue(target):
     repo=os.environ.get("GITHUB_REPOSITORY", "")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo): raise MonitorError("GitHub repository identity is invalid")
     issues, page = [], 1
@@ -232,14 +230,21 @@ def notify(obs, rearm, event_name):
         issues.extend(batch)
         if len(batch) < 100: break
         page += 1
-    title = issue_title(obs)
+    title = issue_title(target)
     matches=[x for x in issues if isinstance(x,dict) and x.get("title")==title and "pull_request" not in x]
     if len(matches)>1: raise MonitorError("Notification state issue is ambiguous")
     issue = matches[0] if matches else None
+    if issue is not None and (issue.get("state") not in ("open", "closed") or not isinstance(issue.get("number"), int)):
+        raise MonitorError("Notification state issue is malformed")
+    return repo, issue
+
+def notify(obs, rearm, event_name, located=None):
+    if rearm and event_name != "workflow_dispatch":
+        raise MonitorError("Review monitor rearm requires trusted manual dispatch")
+    repo, issue = find_cycle_issue(obs["cycle"]) if located is None else located
+    title = issue_title(obs)
     if issue is not None and issue.get("state") == "closed" and not rearm:
         return "disabled"
-    if issue is not None and issue.get("state") not in ("open", "closed"):
-        raise MonitorError("Notification state issue is malformed")
     entries, changed=update_dedup(parse_state(issue.get("body") if issue else ""),obs,rearm)
     body = state_document(entries)
     if issue is None:
@@ -262,8 +267,13 @@ def main():
     try:
         if args.rearm and os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch":
             raise MonitorError("Review monitor rearm requires trusted manual dispatch")
+        target=cycle(args.version,args.build)
+        located=find_cycle_issue(target)
+        if located[1] is not None and located[1].get("state") == "closed" and not args.rearm:
+            print(f"ASC_REVIEW_MONITOR version={target['version']} build={target['build']} notification=disabled")
+            return 0
         obs=resolve(asc_fetch(jwt(args.version)), args.version, args.build)
-        outcome=notify(obs,args.rearm,os.environ.get("GITHUB_EVENT_NAME", ""))
+        outcome=notify(obs,args.rearm,os.environ.get("GITHUB_EVENT_NAME", ""),located)
         print(f"ASC_REVIEW_MONITOR version={obs['cycle']['version']} build={obs['cycle']['build']} category={obs['category']} state={obs['state']} notification={outcome}")
     except MonitorError as e:
         print("ASC_REVIEW_MONITOR " + redact(e), file=sys.stderr); return 1
