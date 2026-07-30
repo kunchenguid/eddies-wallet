@@ -1,0 +1,29 @@
+Review monitor cycle resolver evidence
+
+Command exercised:
+  .github/scripts/review_monitor_cycle.sh
+
+CASE: schedule with neither cycle variable
+No App Store review cycle is armed. Set the ASC_REVIEW_MONITOR_VERSION and ASC_REVIEW_MONITOR_BUILD repository variables together to watch one.
+armed=false
+exit=0
+
+CASE: schedule with only version
+ASC_REVIEW_MONITOR is half configured. Set both ASC_REVIEW_MONITOR_VERSION and ASC_REVIEW_MONITOR_BUILD, or neither.
+exit=1
+
+CASE: armed schedule with exact version and build
+armed=true
+version=0.1.4
+build=5.1
+rearm=false
+exit=0
+
+CASE: manual dispatch with exact cycle and rearm
+armed=true
+version=0.1.4
+build=5.1
+rearm=true
+exit=0
+
+The resolver ran without Apple credentials or network access; the unarmed case terminates before the workflow's credential-bearing poll step.

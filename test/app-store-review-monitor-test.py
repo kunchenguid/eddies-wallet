@@ -443,11 +443,15 @@ class CycleResolutionTests(unittest.TestCase):
                 text=True,
             )
             return completed, dict(
-                line.split("=", 1) for line in output.read_text().splitlines() if "=" in line
+                line.split("=", 1)
+                for line in output.read_text().splitlines()
+                if "=" in line
             )
 
     def test_resolver_is_executable(self):
-        self.assertTrue(os.access(self.RESOLVER, os.X_OK), "the workflow runs it directly")
+        self.assertTrue(
+            os.access(self.RESOLVER, os.X_OK), "the workflow runs it directly"
+        )
 
     def test_deliberately_unarmed_schedule_succeeds_without_watching_anything(self):
         completed, outputs = self.resolve(EVENT_NAME="schedule")
@@ -472,7 +476,8 @@ class CycleResolutionTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(
-            outputs, {"armed": "true", "version": "0.1.4", "build": "5.1", "rearm": "false"}
+            outputs,
+            {"armed": "true", "version": "0.1.4", "build": "5.1", "rearm": "false"},
         )
 
     def test_a_schedule_can_never_rearm_itself(self):
@@ -493,17 +498,27 @@ class CycleResolutionTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(
-            outputs, {"armed": "true", "version": "0.1.4", "build": "5.1", "rearm": "true"}
+            outputs,
+            {"armed": "true", "version": "0.1.4", "build": "5.1", "rearm": "true"},
         )
 
     def test_manual_dispatch_without_an_exact_cycle_fails(self):
-        completed, _ = self.resolve(EVENT_NAME="workflow_dispatch", INPUT_VERSION="0.1.4")
+        completed, _ = self.resolve(
+            EVENT_NAME="workflow_dispatch", INPUT_VERSION="0.1.4"
+        )
         self.assertEqual(completed.returncode, 1)
         self.assertIn("requires both", completed.stderr)
 
     def test_resolver_contacts_nothing_and_reads_no_credential(self):
         source = self.RESOLVER.read_text()
-        for forbidden in ("curl", "wget", "python3", "appstoreconnect", "PRIVATE_KEY", "GH_TOKEN"):
+        for forbidden in (
+            "curl",
+            "wget",
+            "python3",
+            "appstoreconnect",
+            "PRIVATE_KEY",
+            "GH_TOKEN",
+        ):
             self.assertNotIn(forbidden, source)
 
 

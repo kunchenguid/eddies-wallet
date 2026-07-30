@@ -32,16 +32,16 @@ App Store Connect holds **one** iOS App Store version record, in `PREPARE_FOR_SU
 
 The uploaded builds are TestFlight artifacts, not App Store candidates: a build is only a candidate once it is attached to the version record. All uploaded builds declare `usesNonExemptEncryption = false`, so export compliance is already answered at the build level and App Review does not ask again.
 
-### Review preparation that is not App Store Connect's to answer
+### Review preparation blocked outside this repository
 
-Two review-preparation items cannot be completed through the App Store Connect API and are not repository state:
+Three review-preparation items cannot be completed truthfully from this repository:
+
+- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. This repository publishes no privacy policy today, so the field cannot be filled truthfully from anything committed here. Publishing one is a captain decision about real data-handling commitments, not a metadata edit.
 
 - **App Privacy (data collection) answers** have no public API surface; they are entered in the App Store Connect console.
 - **App Review contact details** (name, email, phone) are the captain's real contact information. They must never be invented, and no synthetic value belongs in that field.
 
-A **privacy policy URL** is mandatory for any app, and doubly so for an auto-renewable subscription. This repository publishes no privacy policy today, so the field cannot be filled truthfully from anything committed here. Publishing one is a captain decision about real data-handling commitments, not a metadata edit.
-
-Guideline 3.1.2 also requires the in-app purchase surface itself to show subscription title, length, and price alongside links to the privacy policy and the terms of use. `CloudStatusView` shows title, price, and period today; the two links depend on a published privacy policy and are therefore blocked on the same decision.
+Guideline 3.1.2 also requires the in-app purchase surface itself to show subscription title, length, and price alongside links to the privacy policy and the terms of use. `CloudStatusView` shows title, price, and period today; the two links remain blocked on the captain's decisions about those published destinations.
 
 The notification URL points at the private backend route `POST /v1/app-store/notifications`. That route exists but stays dark until the backend's In-App Purchase configuration is installed, so Apple's notifications are addressed but not yet consumed.
 
