@@ -13,6 +13,9 @@ struct LocalWalletMetadata: Codable, Sendable {
     /// import replays instead of creating a second household.
     var cloudImportOperationID: UUID?
     var cloudImportCompleted = false
+    /// At most one exact Cloud request can be unresolved. It is stored beside
+    /// replica provenance so relaunch cannot mint a second idempotency key.
+    var unsettledCloudMutation: PendingCloudMutation? = nil
 }
 
 private struct LocalWalletAggregate: Codable, Sendable {
@@ -173,6 +176,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     }
 
     public var isCloudAuthority: Bool { cloudRevision != nil }
+    var unsettledCloudMutation: PendingCloudMutation? { aggregate?.metadata.unsettledCloudMutation }
     public var cloudImportOperationID: UUID? { aggregate?.metadata.cloudImportOperationID }
     public var hasCompletedCloudImport: Bool { aggregate?.metadata.cloudImportCompleted == true }
     /// Reserves the one-time import identity before the upload starts, so a
@@ -199,6 +203,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         candidate.metadata.authority = "cloud"
         candidate.metadata.confirmedCloudLineageID = lineageID
         candidate.metadata.serverRevision = revision
+        candidate.metadata.unsettledCloudMutation = nil
         try persist(candidate)
     }
 
@@ -212,6 +217,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         candidate.metadata.serverRevision = revision
         candidate.metadata.lastServerSync = .now
         candidate.metadata.cloudImportCompleted = true
+        candidate.metadata.unsettledCloudMutation = nil
         try persist(candidate)
     }
 
@@ -224,11 +230,42 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         return true
     }
 
+    func stageCloudMutation(_ mutation: PendingCloudMutation) throws {
+        var candidate = try writableAggregate()
+        guard candidate.metadata.authority == "cloud" else {
+            throw WalletAPIError.invalidResponse("Cloud does not own this wallet.")
+        }
+        guard candidate.metadata.unsettledCloudMutation == nil else {
+            throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
+        candidate.metadata.unsettledCloudMutation = mutation
+        try persist(candidate)
+    }
+
+    func markCloudMutationAccepted(_ mutation: PendingCloudMutation) throws {
+        var candidate = try writableAggregate()
+        guard candidate.metadata.unsettledCloudMutation?.operationID == mutation.operationID else {
+            throw WalletAPIError.invalidResponse("The pending Cloud change could not be matched.")
+        }
+        candidate.metadata.unsettledCloudMutation = mutation
+        try persist(candidate)
+    }
+
+    func clearCloudMutation(operationID: UUID) throws {
+        var candidate = try writableAggregate()
+        guard candidate.metadata.unsettledCloudMutation?.operationID == operationID else { return }
+        candidate.metadata.unsettledCloudMutation = nil
+        try persist(candidate)
+    }
+
     /// Cloud ended (expiry, refund, revocation, or an explicit parent choice):
     /// the mirrored history stays and this device becomes the accepted authority
     /// again. Nothing is deleted.
     public func continueLocallyAfterCloud() throws {
         var candidate = try writableAggregate()
+        guard candidate.metadata.unsettledCloudMutation == nil else {
+            throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
         candidate.metadata.authority = "local"
         candidate.metadata.confirmedCloudLineageID = nil
         candidate.metadata.serverRevision = 0
@@ -238,7 +275,12 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
 
     /// Applies an accepted Cloud replica in one transactional save. A malformed
     /// or non-Cloud household is refused instead of replacing local history.
-    public func applyCloudReplica(_ replica: CloudReplica, merging: Bool) throws {
+    @discardableResult
+    func applyCloudReplica(
+        _ replica: CloudReplica,
+        merging: Bool,
+        resolving mutation: PendingCloudMutation? = nil
+    ) throws -> Bool {
         guard replica.household.isCloudAuthoritative, let lineageID = replica.household.lineageID else {
             throw WalletAPIError.invalidResponse("The Cloud wallet did not report a usable household.")
         }
@@ -257,7 +299,13 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         metadata.cloudImportCompleted = true
         let existingEvents = merging && existingReplicaMatches ? (aggregate?.snapshot.activities ?? []) : []
         let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: existingEvents, fallbackNickname: fallbackNickname)
+        let candidateMutation = mutation ?? metadata.unsettledCloudMutation
+        let observed = candidateMutation?.isObserved(in: replica, mappedSnapshot: snapshot) == true
+        if observed {
+            metadata.unsettledCloudMutation = nil
+        }
         try persist(LocalWalletAggregate(metadata: metadata, snapshot: snapshot))
+        return observed
     }
 
     /// The complete local household as an upload manifest. Loans are rebuilt

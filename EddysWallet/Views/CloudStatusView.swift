@@ -35,7 +35,7 @@ struct CloudStatusView: View {
             if store.needsCloudReview {
                 reviewNotice
             }
-            if store.cloudEntitlement.grantsCloud, store.authorityState.isCloudAuthority {
+            if store.cloudEntitlement.grantsCloud, store.authorityState.isCloudAuthority, store.hasValidCloudReplica {
                 Text("This \(DeviceCopy.deviceNoun) is syncing with Cloud.")
                     .font(EW.Font.caption)
                     .foregroundStyle(EW.Color.textTertiary)
@@ -56,7 +56,7 @@ struct CloudStatusView: View {
                     .foregroundStyle(EW.Color.gold700)
                     .accessibilityIdentifier("cloud-message")
             }
-            Text("Cloud is optional. Your wallet keeps working on this device without it.")
+            Text(optionalCloudCopy)
                 .font(EW.Font.caption)
                 .foregroundStyle(EW.Color.textTertiary)
             #if DEBUG
@@ -109,6 +109,13 @@ struct CloudStatusView: View {
                 }
             }
         }
+    }
+
+    private var optionalCloudCopy: String {
+        if store.authorityState.isCloudAuthority, !store.hasValidCloudReplica {
+            return "After this device syncs once, its last accepted Cloud wallet stays readable offline."
+        }
+        return "Cloud is optional. Your wallet keeps working on this device without it."
     }
 
     static func cloudReplicaUnavailableStatusCopy(deviceNoun: String) -> String {

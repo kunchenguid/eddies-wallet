@@ -3,7 +3,7 @@ import XCTest
 @testable import EddysWallet
 
 /// End-to-end behaviour of the guarded Cloud slice against synthetic backend
-/// responses: activation upload, replica bootstrap, read-only Cloud authority,
+/// responses: activation upload, replica bootstrap, runtime write settlement,
 /// expiry with local continuation, authority-aware sign-out, outage, and
 /// corrupt local history. No Apple account, purchase, or real family data.
 @MainActor
@@ -93,7 +93,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         )
 
         XCTAssertTrue(local.isCloudAuthority, "bootstrap retries the durable Cloud marker after the first save fails")
-        XCTAssertFalse(cloud.supportsRuntimeMutations)
+        XCTAssertTrue(cloud.supportsRuntimeMutations)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
         XCTAssertTrue(selected is CloudWalletRepository)
     }
@@ -124,7 +124,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(relaunchedCloud.hasValidReplica)
         XCTAssertEqual(relaunchedCloud.snapshot().acceptedBalanceCents, 750)
         XCTAssertEqual(relaunchedCloud.snapshot().activities.count, 2)
-        XCTAssertFalse(relaunchedCloud.supportsRuntimeMutations)
+        XCTAssertTrue(relaunchedCloud.supportsRuntimeMutations)
     }
 
     func testActivationConflictLeavesTheFreeLocalWalletUntouched() async throws {
@@ -201,7 +201,8 @@ final class CloudVerticalSliceTests: XCTestCase {
 
         XCTAssertTrue(store.repository is CloudWalletRepository)
         XCTAssertTrue(store.authorityState.isCloudAuthority)
-        XCTAssertFalse(store.canModifyWallet)
+        XCTAssertTrue(store.canModifyWallet)
+        XCTAssertFalse(store.canStartParentMutation)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 0)
         XCTAssertEqual(local.snapshot().acceptedBalanceCents, 750)
         XCTAssertTrue(store.cloudMessage?.contains("Cloud owns this wallet") == true)
@@ -250,10 +251,11 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(CloudStatusView.cloudReplicaUnavailableStatusCopy(deviceNoun: "iPad").contains("Reconnect before"))
         do {
             _ = try await relaunchedCloud.submit(WalletCommand(kind: .deposit, amountCents: 25))
-            XCTFail("confirmed Cloud authority must remain read-only")
+            XCTFail("a device without a valid Cloud replica must not write")
         } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudRuntimeWritesUnavailable)
+            XCTAssertTrue(error is WalletAPIError)
         }
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })
 
         transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: cloudLineage))
         _ = try await relaunchedCloud.refresh(for: .parent)
@@ -279,41 +281,379 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(store.snapshot.activities.isEmpty)
     }
 
-    func testCloudAuthorityExposesReadsButNoRuntimeMutations() async throws {
-        let local = try LocalWalletRepository(directory: directory)
+    func testSuccessfulCloudWriteUsesIfMatchThenObservesTheStableEntry() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "e-9"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "e-9"))
+
+        let command = WalletCommand(kind: .deposit, amountCents: 250, reason: "synthetic chores", idempotencyKey: "stable-write-key")
+        guard case .accepted(let event) = try await cloud.submit(command) else {
+            return XCTFail("the accepted entry must be observed before Recorded")
+        }
+
+        XCTAssertEqual(event.remoteID, "e-9")
+        XCTAssertEqual(cloud.revision, 3)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+        let request = try XCTUnwrap(transport.requests.first { $0.url?.path == "/v1/wallet/deposits" })
+        XCTAssertEqual(request.value(forHTTPHeaderField: "If-Match"), "\"rev-2\"")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Idempotency-Key"), "stable-write-key")
+        XCTAssertTrue(transport.requests.contains { $0.url?.path == "/v1/cloud/changes" && $0.url?.query == "afterRevision=2" })
+    }
+
+    func testAcceptedResponseWithoutEntryUsesAcceptedRevisionToProveObservation() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionAccepted(revision: 3), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "revision-entry"))
+
+        guard case .accepted(let event) = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "revision-fallback-key")
+        ) else {
+            return XCTFail("the accepted revision must resolve its exact ledger entry")
+        }
+
+        XCTAssertEqual(event.remoteID, "revision-entry")
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testAcceptedRevisionCanComeOnlyFromTheResponseETag() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub(
+            "POST",
+            "/v1/wallet/deposits",
+            Data("{}".utf8),
+            status: 201,
+            headers: ["ETag": "\"rev-3\""]
+        )
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "etag-entry"))
+
+        guard case .accepted(let event) = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "etag-fallback-key")
+        ) else {
+            return XCTFail("the ETag revision must prove the exact observed write")
+        }
+        XCTAssertEqual(event.remoteID, "etag-entry")
+    }
+
+    func testResponseLossKeepsOneKeyAndExactRetryReconcilesTheCommit() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "lost-response-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "lost-response-entry"))
+        transport.dropNextResponse("POST", "/v1/wallet/deposits")
+
+        let command = WalletCommand(kind: .deposit, amountCents: 250, reason: "synthetic response loss", idempotencyKey: "response-loss-key")
+        guard case .pending(let waiting) = try await cloud.submit(command) else {
+            return XCTFail("a lost response is unresolved, not rejected")
+        }
+        XCTAssertEqual(waiting.syncState, .pending)
+        XCTAssertTrue(cloud.hasUnsettledMutation)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+
+        _ = try await cloud.refresh(for: .parent)
+
+        let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
+        XCTAssertEqual(writes.count, 2)
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["response-loss-key"])
+        XCTAssertEqual(cloud.snapshot().activities.filter { $0.remoteID == "lost-response-entry" }.count, 1)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testServerCommandInProgressKeepsTheOriginalRetryIdentity() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.enqueue("POST", "/v1/wallet/deposits", CloudSliceFixtures.commandInProgressError, status: 409)
+        transport.enqueue("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "in-progress-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "in-progress-entry"))
+
+        guard case .pending = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "in-progress-key")
+        ) else {
+            return XCTFail("COMMAND_IN_PROGRESS is ambiguous, not a rejection")
+        }
+        XCTAssertTrue(cloud.hasUnsettledMutation)
+        _ = try await cloud.refresh(for: .parent)
+
+        let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
+        XCTAssertEqual(writes.count, 2)
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["in-progress-key"])
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testMalformedAcceptedResponseStaysBlockedWithoutGuessingByContent() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", Data("{\"wallet\":{\"balanceCents\":1000}}".utf8), status: 201)
+
+        guard case .pending = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, reason: "identical content", idempotencyKey: "malformed-key")
+        ) else {
+            return XCTFail("an unreadable proof must remain unresolved")
+        }
+
+        XCTAssertTrue(cloud.hasUnsettledMutation)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+    }
+
+    func testAcceptedWriteWithFailedReplicaPersistenceIsNeverReportedRejected() async throws {
+        let persistence = CloudSliceFailingPersistence()
+        let local = try LocalWalletRepository(persistence: persistence)
         let lineage = UUID()
         let transport = RoutingTransport()
         transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "persistence-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "persistence-entry"))
         let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
         _ = try await cloud.bootstrap()
+        // Stage and accepted-proof saves succeed. The accepted replica save is
+        // the third write from here and fails after the server has accepted.
+        persistence.failOnSaveNumber = persistence.saveCount + 3
+
+        guard case .acceptedAwaitingReplica(let event) = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "persistence-key")
+        ) else {
+            return XCTFail("local persistence failure after acceptance cannot become rejection")
+        }
+
+        XCTAssertTrue(event.explanation.contains("Cloud accepted"))
+        XCTAssertTrue(cloud.hasUnsettledMutation)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+    }
+
+    func testAcceptedWriteWithFailedRereadIsNeverReportedRejected() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "accepted-unseen"), status: 201)
+        transport.dropNextResponse("GET", "/v1/cloud/changes")
+
+        guard case .acceptedAwaitingReplica(let event) = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "accepted-unseen-key")
+        ) else {
+            return XCTFail("server acceptance plus failed reread needs its own truthful result")
+        }
+
+        XCTAssertEqual(event.syncState, .pending)
+        XCTAssertTrue(event.explanation.contains("Cloud accepted"))
+        XCTAssertTrue(cloud.hasUnsettledMutation)
+        XCTAssertEqual(cloud.unsettledMutationPhase, .acceptedAwaitingReplica)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+    }
+
+    func testAcceptedProfileWriteWithFailedRereadIsDistinctFromRejection() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        transport.stub("PUT", "/v1/child", CloudSliceFixtures.profileAccepted(revision: 3), status: 200)
+        transport.dropNextResponse("GET", "/v1/cloud/changes")
         let store = elevatedStore(repository: cloud, coordinator: nil)
 
-        XCTAssertFalse(cloud.supportsRuntimeMutations)
-        XCTAssertFalse(store.canModifyWallet)
-        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+        let saved = await store.updateChildProfile(nickname: "Synthetic Maya")
+
+        XCTAssertFalse(saved, "the stale replica cannot claim the new name is already visible")
+        XCTAssertEqual(store.latestParentMutationOutcome, .acceptedAwaitingReplica)
+        XCTAssertNil(store.errorMessage)
+        XCTAssertTrue(cloud.hasUnsettledMutation)
+        XCTAssertEqual(store.snapshot.childNickname, "Test Kid")
+    }
+
+    func testExplicitConflictKeepsReplicaUnchangedAndRequiresReview() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+
+        guard case .rejected(let event) = await store.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "stale-revision-key")
+        ) else {
+            return XCTFail("a 409 is an explicit rejection")
+        }
+
+        XCTAssertEqual(event.syncState, .rejected)
+        XCTAssertTrue(store.needsCloudReview)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertFalse(store.canStartParentMutation)
+    }
+
+    func testConcurrentIdenticalActionsDoNotShareIdentityOrSendTwice() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "concurrent-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "concurrent-entry"))
+        transport.suspend("POST", "/v1/wallet/deposits")
+
+        let first = Task { try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 250, reason: "same", idempotencyKey: "first-key")) }
+        await transport.waitUntilSuspended()
+        let second = try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 250, reason: "same", idempotencyKey: "second-key"))
+        guard case .rejected(let blocked) = second else {
+            return XCTFail("the independent second action must be blocked, not folded into the first")
+        }
+        XCTAssertTrue(blocked.rejectionReason?.contains("previous Cloud change") == true)
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+
+        transport.resumeSuspendedRequest()
+        guard case .accepted = try await first.value else { return XCTFail("the first action should settle") }
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+    }
+
+    func testTimeoutRetainsTheOriginalRequestAndBlocksANewKey() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "timeout-entry"), status: 201)
+        transport.timeOutNextResponse("POST", "/v1/wallet/deposits")
+
+        guard case .pending = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "timeout-original-key")
+        ) else {
+            return XCTFail("a timeout is ambiguous")
+        }
+        guard case .rejected = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "timeout-new-key")
+        ) else {
+            return XCTFail("a new action must be blocked until the timeout is reconciled")
+        }
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+        XCTAssertEqual(cloud.localReplica.unsettledCloudMutation?.idempotencyKey, "timeout-original-key")
+    }
+
+    func testRelaunchRetriesThePersistedMutationWithTheSameKey() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "relaunched-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "relaunched-entry"))
+        transport.dropNextResponse("POST", "/v1/wallet/deposits")
+
+        guard case .pending = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "relaunch-stable-key")
+        ) else {
+            return XCTFail("the first response is intentionally lost")
+        }
+
+        let relaunchedLocal = try LocalWalletRepository(directory: directory)
+        let signedOutClient = CloudAPIClient(
+            baseURL: Self.baseURL,
+            sessionStore: InMemorySessionStore(),
+            transport: transport
+        )
+        let selected = WalletRepositoryFactory.select(
+            local: relaunchedLocal,
+            legacy: MockWalletRepository(),
+            cloudClient: signedOutClient
+        )
+        let signedOutRelaunch = try XCTUnwrap(selected as? CloudWalletRepository)
+        XCTAssertTrue(signedOutRelaunch.hasUnsettledMutation)
+        do {
+            _ = try await signedOutRelaunch.refresh(for: .parent)
+            XCTFail("missing session must not resolve the previous ambiguous attempt")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .noSession)
+        }
+        XCTAssertTrue(signedOutRelaunch.hasUnsettledMutation)
+        XCTAssertNotNil(relaunchedLocal.unsettledCloudMutation)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }.count, 1)
+
+        let relaunched = CloudWalletRepository(
+            client: client(transport),
+            replica: relaunchedLocal,
+            lineageID: lineage,
+            revision: 2
+        )
+        _ = try await relaunched.refresh(for: .parent)
+
+        let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
+        XCTAssertEqual(writes.count, 2)
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["relaunch-stable-key"])
+        XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 1_000)
+        XCTAssertFalse(relaunched.hasUnsettledMutation)
+    }
+
+    func testAcceptedAllowanceRuleUsesRevisionObservation() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("PUT", "/v1/allowance-rule", CloudSliceFixtures.profileAccepted(revision: 3), status: 200)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceRuleChanges(lineage: lineage, revision: 3))
+
+        let snapshot = try await cloud.setAllowance(
+            AllowanceRuleCommand(amountCents: 600, weekday: 2, startDate: Date(timeIntervalSince1970: 1_800_000_000), idempotencyKey: "allowance-rule-key")
+        )
+
+        XCTAssertEqual(snapshot.allowance?.amountCents, 600)
+        XCTAssertEqual(snapshot.allowance?.weekday, 2)
+        XCTAssertEqual(cloud.revision, 3)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testUnsettledMutationBlocksEveryCloudToLocalAuthorityHandoff() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "handoff-entry"), status: 201)
+        transport.dropNextResponse("POST", "/v1/wallet/deposits")
+        guard case .pending = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "handoff-key")
+        ) else {
+            return XCTFail("the mutation should remain unresolved")
+        }
+
+        XCTAssertThrowsError(try cloud.localReplica.continueLocallyAfterCloud()) { error in
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+        }
+        XCTAssertTrue(cloud.localReplica.isCloudAuthority)
+        let relaunchedLocal = try LocalWalletRepository(directory: directory)
+        XCTAssertTrue(relaunchedLocal.isCloudAuthority)
+        XCTAssertNotNil(relaunchedLocal.unsettledCloudMutation)
+    }
+
+    func testRelaunchAndFailedRefreshCannotWriteFromAStaleReplica() async throws {
+        let (cloud, _, lineage) = try await writableCloud()
+        XCTAssertTrue(cloud.isReadyForRuntimeMutations)
+        let relaunchedLocal = try LocalWalletRepository(directory: directory)
+
+        let transport = RoutingTransport()
+        transport.failEverything = true
+        let relaunched = CloudWalletRepository(
+            client: client(transport),
+            replica: relaunchedLocal,
+            lineageID: lineage,
+            revision: 2
+        )
+        XCTAssertTrue(relaunched.hasValidReplica)
+        XCTAssertFalse(relaunched.isReadyForRuntimeMutations)
 
         do {
-            _ = try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 250))
-            XCTFail("Cloud money writes must be unavailable")
+            _ = try await relaunched.submit(
+                WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "stale-relaunch-key")
+            )
+            XCTFail("a persisted replica must be refreshed before it can write")
         } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudRuntimeWritesUnavailable)
+            XCTAssertEqual(error as? WalletAPIError, .revisionRequired)
         }
+        XCTAssertFalse(relaunched.hasUnsettledMutation)
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })
+
         do {
-            _ = try await cloud.setAllowance(AllowanceRuleCommand(amountCents: 500, weekday: 1, startDate: .now))
-            XCTFail("Cloud allowance writes must be unavailable")
+            _ = try await relaunched.refresh(for: .parent)
+            XCTFail("the synthetic refresh is offline")
         } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudRuntimeWritesUnavailable)
+            XCTAssertFalse(relaunched.isReadyForRuntimeMutations)
         }
-        do {
-            _ = try await cloud.updateChildProfile(ChildProfileUpdate(nickname: "New name"))
-            XCTFail("Cloud profile writes must be unavailable")
-        } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudRuntimeWritesUnavailable)
+        XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 750)
+
+        transport.failEverything = false
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        _ = try await relaunched.refresh(for: .parent)
+        XCTAssertTrue(relaunched.isReadyForRuntimeMutations)
+    }
+
+    func testKnownOfflineCloudReplicaStaysReadableAndDoesNotQueueANewAction() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        transport.failEverything = true
+        await store.refresh()
+
+        XCTAssertTrue(store.isOffline)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+        XCTAssertTrue(cloud.hasValidReplica)
+        XCTAssertFalse(cloud.isReadyForRuntimeMutations)
+        XCTAssertFalse(store.canStartParentMutation)
+        guard case .rejected(let event) = await store.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "offline-new-key")
+        ) else {
+            return XCTFail("known-offline Cloud should ask for reconnect instead of staging a new request")
         }
-        XCTAssertFalse(transport.requests.contains { request in
-            request.httpMethod != "GET" && request.url?.path != "/v1/cloud/household/import"
-        })
-        XCTAssertTrue(local.isCloudAuthority)
+        XCTAssertTrue(event.rejectionReason?.contains("Reconnect") == true)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })
     }
 
     func testNonUUIDCloudEntryKeepsStableLocalIdentity() throws {
@@ -350,7 +690,8 @@ final class CloudVerticalSliceTests: XCTestCase {
 
         let store = elevatedStore(repository: cloud, coordinator: coordinator)
         await store.recoverCloudEntitlements()
-        XCTAssertFalse(store.canModifyWallet)
+        XCTAssertTrue(store.canModifyWallet)
+        XCTAssertFalse(store.canStartParentMutation)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "reads keep working and nothing was deleted")
 
         transport.failEverything = true
@@ -604,10 +945,68 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(local.snapshot().acceptedBalanceCents, 750, "the accepted local history is untouched")
     }
 
+    // MARK: - Optional real loopback boundary
+
+    /// Opt-in proof using the production Cloud client and repository against a
+    /// synthetic local-auth backend plus disposable PostgreSQL. Normal test runs
+    /// skip it because this frontend repository does not own or start the
+    /// separately maintained service. The evidence report records the exact
+    /// synthetic setup used by the shipping lane.
+    func testSyntheticAppClientToBackendToPostgreSQLWrite() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let rawBaseURL = environment["EW_CLOUD_E2E_BASE_URL"],
+              let baseURL = URL(string: rawBaseURL),
+              let token = environment["EW_CLOUD_E2E_TOKEN"],
+              let rawLineage = environment["EW_CLOUD_E2E_LINEAGE"],
+              let lineage = UUID(uuidString: rawLineage),
+              let rawRevision = environment["EW_CLOUD_E2E_REVISION"],
+              let revision = Int64(rawRevision) else {
+            throw XCTSkip("Set the synthetic loopback Cloud E2E environment to run this external boundary proof.")
+        }
+
+        let client = CloudAPIClient(
+            baseURL: baseURL,
+            sessionStore: InMemorySessionStore(session: AuthSession(token: token, expiresAt: .distantFuture)),
+            transport: URLSessionTransport()
+        )
+        let local = try LocalWalletRepository(inMemory: true)
+        let cloud = CloudWalletRepository(client: client, replica: local, lineageID: lineage, revision: revision, requiresBootstrap: true)
+        let initial = try await cloud.bootstrap()
+        let amount = 321
+        let expectedBalance = initial.acceptedBalanceCents + amount
+
+        guard case .accepted(let event) = try await cloud.submit(
+            WalletCommand(
+                kind: .deposit,
+                amountCents: amount,
+                reason: "synthetic app to PostgreSQL proof",
+                idempotencyKey: "synthetic-app-postgres-write"
+            )
+        ) else {
+            return XCTFail("the real loopback boundary must observe the accepted server entry")
+        }
+
+        XCTAssertNotNil(event.remoteID)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, expectedBalance)
+        XCTAssertEqual(cloud.revision, revision + 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
     // MARK: - Helpers
 
     private func client(_ transport: RoutingTransport) -> CloudAPIClient {
         CloudAPIClient(baseURL: Self.baseURL, sessionStore: InMemorySessionStore(session: session), transport: transport)
+    }
+
+    private func writableCloud() async throws -> (CloudWalletRepository, RoutingTransport, UUID) {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        XCTAssertTrue(cloud.hasValidReplica)
+        return (cloud, transport, lineage)
     }
 
     /// A subscription store that does not subscribe to StoreKit streams, so unit
@@ -664,6 +1063,9 @@ enum CloudSliceFixtures {
     static let entitlementRequiredError = Data("""
     {"error":{"code":"CLOUD_ENTITLEMENT_REQUIRED","message":"An active Cloud subscription is required to record this action."}}
     """.utf8)
+    static let commandInProgressError = Data("""
+    {"error":{"code":"COMMAND_IN_PROGRESS","message":"The command is still being processed. Retry it."}}
+    """.utf8)
     static let conflictError = Data("""
     {"error":{"code":"CLOUD_HOUSEHOLD_CONFLICT","message":"A different Cloud household already belongs to this parent."}}
     """.utf8)
@@ -708,6 +1110,10 @@ enum CloudSliceFixtures {
 
     static func revisionAccepted(revision: Int64) -> Data {
         Data("{\"revision\":\(revision)}".utf8)
+    }
+
+    static func profileAccepted(revision: Int64) -> Data {
+        Data("{\"family\":{\"revision\":\(revision)}}".utf8)
     }
 
     static func revisionChanges(lineage: UUID, revision: Int64) -> Data {
@@ -763,6 +1169,17 @@ enum CloudSliceFixtures {
         """.utf8)
     }
 
+    static func allowanceRuleChanges(lineage: UUID, revision: Int64) -> Data {
+        Data("""
+        {"household":{"lineageId":"\(lineage.uuidString.lowercased())","authority":"cloud","revision":\(revision)},
+         "family":{"id":"f-1","name":"Test Kid's family"},
+         "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+         "wallet":{"id":"w-1","balanceCents":750},
+         "entries":[],"loans":[],
+         "allowanceRule":{"id":"a-2","amountCents":600,"cadence":"weekly","weekday":2,"startDate":"2027-01-15","endDate":null,"active":true}}
+        """.utf8)
+    }
+
     static func changes(
         lineage: UUID,
         revision: Int64,
@@ -812,17 +1229,34 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
     private struct Stub {
         let statusCode: Int
         let body: Data
+        let headers: [String: String]
     }
 
     private(set) var requests: [URLRequest] = []
     var failEverything = false
-    private var stubs: [String: Stub] = [:]
+    private var stubs: [String: [Stub]] = [:]
+    private var droppedResponseKeys: Set<String> = []
+    private var timedOutKeys: Set<String> = []
     private var suspendedKey: String?
     private var suspendedRequestContinuation: CheckedContinuation<Void, Never>?
     private var suspensionObservedContinuation: CheckedContinuation<Void, Never>?
 
-    func stub(_ method: String, _ path: String, _ body: Data, status: Int = 200) {
-        stubs["\(method) \(path)"] = Stub(statusCode: status, body: body)
+    func stub(_ method: String, _ path: String, _ body: Data, status: Int = 200, headers: [String: String] = [:]) {
+        stubs["\(method) \(path)"] = [Stub(statusCode: status, body: body, headers: headers)]
+    }
+
+    func enqueue(_ method: String, _ path: String, _ body: Data, status: Int = 200, headers: [String: String] = [:]) {
+        stubs["\(method) \(path)", default: []].append(Stub(statusCode: status, body: body, headers: headers))
+    }
+
+    /// Simulates a response disappearing after the service handled the exact
+    /// request. The same stub remains available for an idempotent replay.
+    func dropNextResponse(_ method: String, _ path: String) {
+        droppedResponseKeys.insert("\(method) \(path)")
+    }
+
+    func timeOutNextResponse(_ method: String, _ path: String) {
+        timedOutKeys.insert("\(method) \(path)")
     }
 
     func suspend(_ method: String, _ path: String) {
@@ -855,10 +1289,20 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
                 suspensionObservedContinuation = nil
             }
         }
-        guard let stub = stubs[key] else {
+        if droppedResponseKeys.remove(key) != nil {
+            throw URLError(.networkConnectionLost)
+        }
+        if timedOutKeys.remove(key) != nil {
+            throw URLError(.timedOut)
+        }
+        guard var queued = stubs[key], let stub = queued.first else {
             return (Data(), HTTPURLResponse(url: request.url!, statusCode: 501, httpVersion: nil, headerFields: nil)!)
         }
-        return (stub.body, HTTPURLResponse(url: request.url!, statusCode: stub.statusCode, httpVersion: nil, headerFields: nil)!)
+        if queued.count > 1 {
+            queued.removeFirst()
+            stubs[key] = queued
+        }
+        return (stub.body, HTTPURLResponse(url: request.url!, statusCode: stub.statusCode, httpVersion: nil, headerFields: stub.headers)!)
     }
 }
 
@@ -910,14 +1354,18 @@ private enum CloudSlicePersistenceError: Error {
 private final class CloudSliceFailingPersistence: LocalWalletPersisting {
     var payload: Data?
     var failNextSave = false
+    var failOnSaveNumber: Int?
+    private(set) var saveCount = 0
 
     func load() throws -> Data? {
         payload
     }
 
     func save(_ payload: Data) throws {
-        if failNextSave {
+        saveCount += 1
+        if failNextSave || failOnSaveNumber == saveCount {
             failNextSave = false
+            failOnSaveNumber = nil
             throw CloudSlicePersistenceError.failed
         }
         self.payload = payload

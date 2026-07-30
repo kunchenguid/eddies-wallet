@@ -77,6 +77,46 @@ public final class CloudAPIClient: ParentAuthenticator {
         try await send(path: "/v1/cloud/changes?afterRevision=\(revision)", method: "GET", body: nil, authenticated: true).decoded(CloudReplica.self)
     }
 
+    public func allowanceSchedule() async throws -> CloudAllowanceSchedule {
+        try await send(path: "/v1/allowance-rule", method: "GET", body: nil, authenticated: true).decoded(CloudAllowanceSchedule.self)
+    }
+
+    /// Sends one already-persisted runtime mutation. The exact body, key, and
+    /// revision come from the durable record so retries cannot drift. A 2xx
+    /// response is usable only when it includes a stable entry id or accepted
+    /// revision, either in the JSON body or its revision ETag.
+    func mutate(_ mutation: PendingCloudMutation) async throws -> CloudMutationAcceptance {
+        let response = try await sendResponse(
+            path: mutation.path,
+            method: mutation.method,
+            body: mutation.body,
+            authenticated: true,
+            idempotencyKey: mutation.idempotencyKey,
+            expectedRevision: mutation.expectedRevision
+        )
+        guard let object = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
+            throw WalletAPIError.invalidResponse("Cloud accepted a response that this device could not reconcile.")
+        }
+        let rawEntryID = (object["entry"] as? [String: Any])?["id"] as? String
+        let entryID = rawEntryID?.isEmpty == false ? rawEntryID : nil
+        let bodyRevision = Self.int64(object["revision"])
+            ?? Self.int64((object["family"] as? [String: Any])?["revision"])
+            ?? Self.int64((object["household"] as? [String: Any])?["revision"])
+        let etagRevision = response.http.value(forHTTPHeaderField: "ETag").flatMap(Self.revision(fromETag:))
+        let reportedRevision = bodyRevision ?? etagRevision
+        let nextRevision = mutation.expectedRevision == .max ? nil : mutation.expectedRevision + 1
+        let acceptedRevision: Int64? = if let reportedRevision, let nextRevision, reportedRevision == nextRevision {
+            reportedRevision
+        } else {
+            nil
+        }
+        let accepted = CloudMutationAcceptance(entryID: entryID, revision: acceptedRevision)
+        guard accepted.entryID != nil || accepted.revision != nil else {
+            throw WalletAPIError.invalidResponse("Cloud accepted a response without an entry id or revision.")
+        }
+        return accepted
+    }
+
     /// One-time upload of the complete local household. The manifest carries its
     /// own operation id and aggregate digest, and the idempotency key is stable
     /// across retries so an interrupted upload replays instead of duplicating.
@@ -119,6 +159,25 @@ public final class CloudAPIClient: ParentAuthenticator {
         idempotencyKey: String? = nil,
         pendingStatusCode: Int? = nil
     ) async throws -> Data {
+        try await sendResponse(
+            path: path,
+            method: method,
+            body: body,
+            authenticated: authenticated,
+            idempotencyKey: idempotencyKey,
+            pendingStatusCode: pendingStatusCode
+        ).data
+    }
+
+    private func sendResponse(
+        path: String,
+        method: String,
+        body: Data?,
+        authenticated: Bool,
+        idempotencyKey: String? = nil,
+        pendingStatusCode: Int? = nil,
+        expectedRevision: Int64? = nil
+    ) async throws -> CloudHTTPResponse {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw WalletAPIError.invalidConfiguration }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -126,6 +185,7 @@ public final class CloudAPIClient: ParentAuthenticator {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
+        if let expectedRevision { request.setValue("\"rev-\(expectedRevision)\"", forHTTPHeaderField: "If-Match") }
         if authenticated {
             guard let session = sessionStore.session, !session.isExpired else { throw WalletAPIError.noSession }
             request.setValue("Bearer \(session.token)", forHTTPHeaderField: "Authorization")
@@ -150,10 +210,30 @@ public final class CloudAPIClient: ParentAuthenticator {
                 }
                 throw WalletAPIError.server(statusCode: http.statusCode, code: envelope?.error.code ?? "HTTP_\(http.statusCode)", message: envelope?.error.message ?? "The Cloud service did not accept this request.")
             }
-            return data
+            return CloudHTTPResponse(data: data, http: http)
         } catch let error as WalletAPIError { throw error
         } catch { throw WalletAPIError.network("Cloud is unavailable right now. Your wallet is still available on this device.") }
     }
+
+    private static func int64(_ value: Any?) -> Int64? {
+        if let value = value as? NSNumber {
+            guard CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
+            guard let parsed = Int64(value.stringValue), parsed >= 0 else { return nil }
+            return parsed
+        }
+        if let value = value as? String, let parsed = Int64(value), parsed >= 0 { return parsed }
+        return nil
+    }
+
+    private static func revision(fromETag value: String) -> Int64? {
+        guard value.hasPrefix("\"rev-"), value.hasSuffix("\"") else { return nil }
+        return Int64(value.dropFirst(5).dropLast())
+    }
+}
+
+private struct CloudHTTPResponse {
+    let data: Data
+    let http: HTTPURLResponse
 }
 
 public struct CloudLegacyContext: Codable, Equatable, Sendable {

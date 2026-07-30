@@ -24,7 +24,7 @@ struct ParentAreaView: View {
     /// Shows the first-actions spotlight right after setup, and whenever the
     /// wallet has no recorded activity or allowance rule yet.
     private var showsHandoffCard: Bool {
-        store.canModifyWallet
+        store.canStartParentMutation
             && (store.showsFirstActionsHandoff
             || (store.snapshot.activities.isEmpty
                 && store.snapshot.pendingEvents.isEmpty
@@ -64,9 +64,10 @@ struct ParentAreaView: View {
 
                         if store.canModifyWallet {
                             SectionHeader("Parent actions")
+                            if !store.canStartParentMutation {
+                                mutationControlsNotice
+                            }
                             actionGrid
-                        } else {
-                            cloudReadOnlyCard
                         }
                     } else {
                         cloudReplicaUnavailableCard
@@ -174,7 +175,7 @@ struct ParentAreaView: View {
     }
 
     static func cloudReplicaUnavailableMessage(deviceNoun: String) -> String {
-        "Reconnect this \(deviceNoun) to finish Cloud setup and show the wallet balance and activity."
+        "Reconnect this \(deviceNoun) to show the Cloud wallet balance and activity."
     }
 
     private var cloudReplicaUnavailableCard: some View {
@@ -199,7 +200,7 @@ struct ParentAreaView: View {
     @ViewBuilder
     private var walletCards: some View {
         let loan = store.snapshot.loan
-        let hasPending = !store.snapshot.pendingEvents.isEmpty
+        let hasPending = !store.snapshot.pendingEvents.isEmpty || store.hasUnsettledCloudMutation
         if isRegularWidth {
             HStack(alignment: .top, spacing: EW.Space.five) {
                 balanceCard.frame(maxWidth: .infinity)
@@ -251,6 +252,7 @@ struct ParentAreaView: View {
         Group {
             if store.canModifyWallet {
                 Button {
+                    guard store.canStartParentMutation else { return }
                     isShowingAllowance = true
                 } label: {
                     HStack(spacing: EW.Space.two) {
@@ -260,7 +262,9 @@ struct ParentAreaView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Opens allowance setup")
+                .disabled(!store.canStartParentMutation)
+                .opacity(store.canStartParentMutation ? 1 : 0.55)
+                .accessibilityHint(store.canStartParentMutation ? "Opens allowance setup" : "Reconnect and finish checking the previous Cloud change first")
             } else {
                 allowanceCardContent
             }
@@ -298,25 +302,20 @@ struct ParentAreaView: View {
         }
     }
 
-    private var cloudReadOnlyCard: some View {
-        VStack(alignment: .leading, spacing: EW.Space.three) {
-            Label("Cloud wallet is read-only", systemImage: "icloud")
-                .font(EW.Font.headingSmall)
-                .foregroundStyle(EW.Color.textPrimary)
-            Text("This version shows the wallet accepted by Cloud. Recording money, changing allowance, and editing the child profile stay unavailable until Cloud write support is ready.")
-                .font(EW.Font.body)
+    private var mutationControlsNotice: some View {
+        HStack(alignment: .top, spacing: EW.Space.three) {
+            Image(systemName: store.hasUnsettledCloudMutation ? "clock.fill" : "icloud.slash")
+                .foregroundStyle(EW.Color.gold700)
+            Text(store.unsettledCloudMutationMessage
+                 ?? "Reconnect and review the latest Cloud wallet before recording another change.")
+                .font(EW.Font.caption)
                 .foregroundStyle(EW.Color.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Refresh from Cloud") {
-                Task { await store.refresh() }
-            }
-            .buttonStyle(.plain)
-            .font(EW.Font.bodyBold)
-            .foregroundStyle(EW.Color.primaryActive)
-            .accessibilityIdentifier("cloud-read-only-refresh-button")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .ewCard(variant: .alt)
+        .padding(EW.Space.three)
+        .background(EW.Color.goldTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+        .accessibilityIdentifier("cloud-mutation-controls-notice")
     }
 
     private var syncStatusCard: some View {
@@ -324,6 +323,26 @@ struct ParentAreaView: View {
             Label("Sync status", systemImage: "arrow.triangle.2.circlepath")
                 .font(EW.Font.headingSmall)
                 .foregroundStyle(EW.Color.textPrimary)
+            if let message = store.unsettledCloudMutationMessage {
+                VStack(alignment: .leading, spacing: EW.Space.two) {
+                    StatusPill(state: .pending)
+                    Text(store.unsettledCloudMutationWasAccepted ? "Accepted by Cloud" : "Checking with Cloud")
+                        .font(EW.Font.bodyBold)
+                        .foregroundStyle(EW.Color.textPrimary)
+                    Text(message)
+                        .font(EW.Font.caption)
+                        .foregroundStyle(EW.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Check again") {
+                        Task { await store.refresh() }
+                    }
+                    .buttonStyle(.plain)
+                    .font(EW.Font.bodyBold)
+                    .foregroundStyle(EW.Color.primaryActive)
+                    .disabled(store.isLoading)
+                }
+                .accessibilityIdentifier("cloud-mutation-status")
+            }
             ForEach(store.snapshot.pendingEvents) { event in
                 VStack(alignment: .leading, spacing: EW.Space.two) {
                     Button {
@@ -380,29 +399,29 @@ struct ParentAreaView: View {
     }
 
     private var depositButton: some View {
-        ActionButton(title: "Add deposit", icon: "arrow.down.circle", tint: EW.Color.primary) { flow = .deposit }
+        ActionButton(title: "Add deposit", icon: "arrow.down.circle", tint: EW.Color.primary, isEnabled: store.canStartParentMutation) { flow = .deposit }
     }
 
     private var withdrawalButton: some View {
-        ActionButton(title: "Record withdrawal", icon: "arrow.up.circle", tint: EW.Color.textSecondary) { flow = .withdrawal }
+        ActionButton(title: "Record withdrawal", icon: "arrow.up.circle", tint: EW.Color.textSecondary, isEnabled: store.canStartParentMutation) { flow = .withdrawal }
     }
 
     private var loanButton: some View {
-        ActionButton(title: "Create loan", icon: "hand.raised", tint: EW.Color.peach700) { flow = .loan }
+        ActionButton(title: "Create loan", icon: "hand.raised", tint: EW.Color.peach700, isEnabled: store.canStartParentMutation) { flow = .loan }
     }
 
     private var repaymentButton: some View {
-        ActionButton(title: "Record repayment", icon: "arrow.triangle.2.circlepath", tint: EW.Color.green700) { flow = .repayment }
+        ActionButton(title: "Record repayment", icon: "arrow.triangle.2.circlepath", tint: EW.Color.green700, isEnabled: store.canStartParentMutation) { flow = .repayment }
     }
 
     private var allowanceActionButton: some View {
-        ActionButton(title: "Record allowance", icon: "gift", tint: EW.Color.gold700) { flow = .allowance }
+        ActionButton(title: "Record allowance", icon: "gift", tint: EW.Color.gold700, isEnabled: store.canStartParentMutation) { flow = .allowance }
     }
 
     private var settingsCard: some View {
         VStack(spacing: 0) {
             if store.canModifyWallet {
-                settingsRow(title: "Edit child profile", icon: "person.crop.circle", accessibilityIdentifier: "edit-child-profile-settings") {
+                settingsRow(title: "Edit child profile", icon: "person.crop.circle", isEnabled: store.canStartParentMutation, accessibilityIdentifier: "edit-child-profile-settings") {
                     isShowingEditProfile = true
                 }
                 Divider().overlay(EW.Color.border)
@@ -457,7 +476,7 @@ struct ParentAreaView: View {
         }
     }
 
-    private func settingsRow(title: String, icon: String, role: ButtonRole? = nil, accessibilityIdentifier: String? = nil, action: @escaping () -> Void) -> some View {
+    private func settingsRow(title: String, icon: String, role: ButtonRole? = nil, isEnabled: Bool = true, accessibilityIdentifier: String? = nil, action: @escaping () -> Void) -> some View {
         Button(role: role, action: action) {
             HStack(spacing: EW.Space.three) {
                 Image(systemName: icon)
@@ -476,6 +495,8 @@ struct ParentAreaView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.5)
         .accessibilityIdentifier(accessibilityIdentifier ?? title)
     }
 
@@ -506,6 +527,7 @@ struct EditChildProfileView: View {
     @State private var nickname = ""
     @State private var didSave = false
     @State private var localError: String?
+    @State private var mutationOutcome: ParentMutationOutcome?
 
     private var trimmedNickname: String {
         nickname.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -536,6 +558,7 @@ struct EditChildProfileView: View {
                             .onChange(of: nickname) { _, _ in
                                 didSave = false
                                 localError = nil
+                                mutationOutcome = nil
                             }
                     }
                     .ewCard()
@@ -544,6 +567,16 @@ struct EditChildProfileView: View {
                         Label("Child profile saved.", systemImage: "checkmark.circle.fill")
                             .font(EW.Font.bodyBold)
                             .foregroundStyle(EW.Color.green700)
+                    } else if let mutationOutcome,
+                              mutationOutcome == .waitingForCloud || mutationOutcome == .acceptedAwaitingReplica {
+                        VStack(alignment: .leading, spacing: EW.Space.two) {
+                            StatusPill(state: .pending)
+                            Text(mutationOutcome.message)
+                                .font(EW.Font.caption)
+                                .foregroundStyle(EW.Color.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .accessibilityIdentifier("child-profile-cloud-waiting")
                     }
                     if let localError {
                         Text(localError)
@@ -558,8 +591,13 @@ struct EditChildProfileView: View {
                     Button {
                         Task {
                             let ok = await store.updateChildProfile(nickname: nickname)
-                            didSave = ok
-                            localError = ok ? nil : (store.errorMessage ?? "The child profile could not be saved.")
+                            mutationOutcome = store.latestParentMutationOutcome
+                            didSave = ok && mutationOutcome == .recorded
+                            if mutationOutcome == .waitingForCloud || mutationOutcome == .acceptedAwaitingReplica {
+                                localError = nil
+                            } else {
+                                localError = didSave ? nil : (store.errorMessage ?? "The child profile could not be saved.")
+                            }
                         }
                     } label: {
                         if store.isLoading {
@@ -571,8 +609,8 @@ struct EditChildProfileView: View {
                         }
                     }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(store.isLoading || !isValid)
-                    .opacity(store.isLoading || !isValid ? 0.45 : 1)
+                    .disabled(store.isLoading || !isValid || !store.canStartParentMutation || mutationOutcome == .waitingForCloud || mutationOutcome == .acceptedAwaitingReplica)
+                    .opacity(store.isLoading || !isValid || !store.canStartParentMutation || mutationOutcome == .waitingForCloud || mutationOutcome == .acceptedAwaitingReplica ? 0.45 : 1)
                 }
                 .padding(EW.Space.screenMargin)
                 .frame(maxWidth: 620)

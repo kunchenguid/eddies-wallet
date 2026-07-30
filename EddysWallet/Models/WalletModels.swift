@@ -506,7 +506,38 @@ public struct LoanDetail: Sendable {
 public enum CommandResult: Sendable {
     case accepted(WalletEvent)
     case pending(WalletEvent)
+    case acceptedAwaitingReplica(WalletEvent)
     case rejected(WalletEvent)
+}
+
+/// Parent-visible result for mutations that do not create ledger entries.
+/// Cloud acceptance and local observation are separate so a failed reread can
+/// never turn an accepted profile or allowance change into "Not recorded".
+public enum ParentMutationOutcome: Equatable, Sendable {
+    case recorded
+    case waitingForCloud
+    case acceptedAwaitingReplica
+    case notRecorded
+
+    public var syncState: SyncState {
+        switch self {
+        case .recorded: .recorded
+        case .waitingForCloud, .acceptedAwaitingReplica: .pending
+        case .notRecorded: .rejected
+        }
+    }
+
+    public var message: String {
+        switch self {
+        case .recorded: "Recorded."
+        case .waitingForCloud:
+            "Cloud has not confirmed this change yet. This device will check the same protected request again. Do not save it again."
+        case .acceptedAwaitingReplica:
+            "Cloud accepted this change. This device is waiting to see the updated wallet. Do not save it again."
+        case .notRecorded:
+            "This change was not recorded. Review the latest wallet before trying again."
+        }
+    }
 }
 
 @MainActor

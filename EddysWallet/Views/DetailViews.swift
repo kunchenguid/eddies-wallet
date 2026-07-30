@@ -180,6 +180,8 @@ struct LoanDetailView: View {
                         if isParent && !loan.isPaid && store.canModifyWallet {
                             Button("Record repayment", action: onRepay)
                                 .buttonStyle(PrimaryButtonStyle())
+                                .disabled(!store.canStartParentMutation)
+                                .opacity(store.canStartParentMutation ? 1 : 0.5)
                         }
 
                         if isParent {
