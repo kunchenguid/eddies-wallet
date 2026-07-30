@@ -6,4 +6,5 @@ DerivedData/
 *.xcarchive
 *.xcuserstate
 xcuserdata/
+__pycache__/
 .claude/settings.local.json

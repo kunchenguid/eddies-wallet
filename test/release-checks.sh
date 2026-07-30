@@ -39,7 +39,7 @@ forbid_grep() {
   fi
 }
 
-WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml)
+WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-store-review-status.yml)
 
 # --- Workflow syntax -------------------------------------------------------
 
@@ -133,6 +133,39 @@ else
   fail "asc-build-status.yml is workflow_dispatch-only"
 fi
 require_grep '^  contents: read$' .github/workflows/asc-build-status.yml "asc-build-status.yml permissions are contents: read"
+
+# The review monitor is deliberately separate from release/upload paths. It
+# runs only from trusted schedules or trusted manual dispatches, observes one
+# configured exact cycle, and may write only the bounded GitHub issue used for
+# notification deduplication.
+REVIEW_WORKFLOW=.github/workflows/app-store-review-status.yml
+REVIEW_SCRIPT=.github/scripts/app_store_review_monitor.py
+require_grep '^  schedule:$' "$REVIEW_WORKFLOW" "review monitor has a schedule trigger"
+require_grep '^  workflow_dispatch:$' "$REVIEW_WORKFLOW" "review monitor has a manual trigger"
+for forbidden in 'pull_request' 'pull_request_target' 'workflow_run' 'repository_dispatch' '^  push:'; do
+  forbid_grep "$forbidden" "$REVIEW_WORKFLOW" "review monitor excludes untrusted trigger ($forbidden)"
+done
+require_grep '^  contents: read$' "$REVIEW_WORKFLOW" "review monitor needs contents read only"
+require_grep '^  issues: write$' "$REVIEW_WORKFLOW" "review monitor grants only issue write for dedup notifications"
+require_grep '^concurrency:$' "$REVIEW_WORKFLOW" "review monitor serializes transition deduplication"
+require_grep '^  group: app-store-review-status$' "$REVIEW_WORKFLOW" "review monitor uses one concurrency group"
+require_grep '^  cancel-in-progress: false$' "$REVIEW_WORKFLOW" "review monitor does not cancel active polling"
+forbid_grep '^[[:space:]]*(actions|pull-requests|checks|id-token|packages): write' "$REVIEW_WORKFLOW" "review monitor has no extra write permissions"
+require_grep 'ASC_REVIEW_MONITOR_KEY_ID' "$REVIEW_WORKFLOW" "review monitor uses its dedicated key ID secret"
+require_grep 'ASC_REVIEW_MONITOR_PRIVATE_KEY' "$REVIEW_WORKFLOW" "review monitor uses its dedicated private-key secret"
+forbid_grep 'ASC_REVIEW_MONITOR_ISSUER_ID' "$REVIEW_WORKFLOW" "review monitor individual key has no issuer secret"
+forbid_grep 'APP_STORE_CONNECT_API_KEY' "$REVIEW_WORKFLOW" "review monitor never reuses upload credentials"
+require_grep 'ASC_REVIEW_MONITOR_VERSION' "$REVIEW_WORKFLOW" "review monitor requires scheduled exact version configuration"
+require_grep 'ASC_REVIEW_MONITOR_BUILD' "$REVIEW_WORKFLOW" "review monitor requires scheduled exact build configuration"
+require_grep 'actions/checkout@[0-9a-f]{40}' "$REVIEW_WORKFLOW" "review monitor pins checkout immutably"
+require_grep 'method="GET"' "$REVIEW_SCRIPT" "review monitor makes App Store Connect GET requests"
+forbidden_apple_mutation='appStoreVersionSubmissions|reviewSubmissions|--request POST|--request PATCH|--request DELETE|urlopen\(.*method="POST"'
+forbid_grep "$forbidden_apple_mutation" "$REVIEW_SCRIPT" "review monitor contains no Apple mutation path"
+if python3 test/app-store-review-monitor-test.py >/dev/null; then
+  pass "review monitor deterministic fixtures and negative controls"
+else
+  fail "review monitor deterministic fixtures and negative controls"
+fi
 
 # --- Export options --------------------------------------------------------
 

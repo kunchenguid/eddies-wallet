@@ -4,7 +4,7 @@ Eddie's Wallet uses release-please for version PRs, changelog generation, tags, 
 The native iOS app is then archived with Xcode on GitHub Actions and uploaded to TestFlight.
 The pipeline mirrors a proven sibling-project release lifecycle: deliberate human control over the release trigger, unattended automation for everything after it.
 
-Scope is TestFlight only. Nothing in this repository submits for App Store review, publishes publicly, or changes pricing, availability, or production state.
+Scope is TestFlight only. Nothing in this repository submits for App Store review, publishes publicly, or changes pricing, availability, or production state. The separate read-only App Review observer is documented in [App Store review-status monitor](app-store-review-monitor.md); it can observe one already-submitted exact cycle but cannot submit, release, or alter Apple state.
 
 ## The captain approval boundary
 
@@ -58,8 +58,8 @@ Do not claim TestFlight success from a green upload step alone: success means Ap
 ## Security and trust boundaries
 
 - Ordinary pull requests (including forks) validate through `.github/workflows/ci.yml`, which references no secrets and runs with `contents: read`. No `pull_request_target` trigger exists in this repository.
-- Apple credentials are reachable only from `eddies-wallet-v*` tag pushes, published releases, and explicit tag dispatches of `release.yml`/`asc-build-status.yml`. Tags and dispatches require repository write access.
-- The App Store Connect API key exists on the runner only as a short-lived file under the runner's home (`chmod 600`), written from the secret for `xcodebuild`/`altool` authentication, and the runner is destroyed after the job. Never persist that key material anywhere else.
+- The release/upload App Store Connect credentials are reachable only from `eddies-wallet-v*` tag pushes, published releases, and explicit tag dispatches of `release.yml`/`asc-build-status.yml`. Tags and dispatches require repository write access. The separate least-privilege review-monitor credential has the narrower triggers and access described in [App Store review-status monitor](app-store-review-monitor.md).
+- The release/upload App Store Connect private key exists on the runner only as a short-lived file under the runner's home (`chmod 600`), written from the secret for `xcodebuild`/`altool` authentication, and the runner is destroyed after the job. Never persist that key material anywhere else.
 - All actions are pinned to full commit SHAs.
 - The Apple team ID intentionally stays out of Git (see `EddysWallet/README.md`); `release.yml` reads it from the nonsecret `APPLE_TEAM_ID` repository variable and injects it into a runner-temp copy of `ExportOptions.plist`.
 - `test/release-checks.sh` enforces all of the above and the version-derivation contract; CI runs it on every pull request, and it runs locally with no credentials or network.
