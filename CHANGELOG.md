@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.4](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.3...eddies-wallet-v0.1.4) (2026-07-30)
+
+
+### Features
+
+* add guarded read-only Cloud wallet flow ([#29](https://github.com/kunchenguid/eddies-wallet/issues/29)) ([d2f3aa5](https://github.com/kunchenguid/eddies-wallet/commit/d2f3aa58232d453e68e47551d57a668e9b683c9c))
+* add protected local wallets and guarded Cloud foundation ([#25](https://github.com/kunchenguid/eddies-wallet/issues/25)) ([ad6382b](https://github.com/kunchenguid/eddies-wallet/commit/ad6382b81d9ca7ad7873b6bfcc8868f12350be14))
+* add safe Cloud runtime writes ([#30](https://github.com/kunchenguid/eddies-wallet/issues/30)) ([2b71191](https://github.com/kunchenguid/eddies-wallet/commit/2b71191fbc9775db98bb86cb887d47ecb57f9733))
+
 ## [0.1.3](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.2...eddies-wallet-v0.1.3) (2026-07-29)
 
 
