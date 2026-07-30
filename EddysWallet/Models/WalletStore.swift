@@ -881,8 +881,9 @@ public final class WalletStore: ObservableObject {
         }
     }
 
-    /// Moves this device to Cloud authority once, and only from the backend's
-    /// projected entitlement. Any failure leaves the free local wallet intact.
+    /// Moves this device to Cloud authority from verified backend state: either
+    /// a projected entitlement for local activation or an existing Cloud
+    /// household for adoption. Any failure leaves the free local wallet intact.
     private func activateCloudIfPaid() async {
         guard let cloudCoordinator else { return }
         guard let local = repository as? LocalWalletRepository else { return }

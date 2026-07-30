@@ -132,7 +132,7 @@ public struct CloudCapabilities: Codable, Equatable, Sendable {
 }
 
 /// Server household authority. An unknown or malformed value is never treated
-/// as Cloud, so a bad response can never enable Cloud writes.
+/// as Cloud, so a bad response can never establish Cloud authority.
 public enum CloudAuthorityMode: String, Codable, Equatable, Sendable {
     case legacyService = "legacy_service"
     case cloud
@@ -175,7 +175,7 @@ public struct CloudHousehold: Codable, Equatable, Sendable {
         revision = try container.decodeIfPresent(Int64.self, forKey: .revision) ?? 0
     }
 
-    /// Cloud writes require a real Cloud household with a usable lineage.
+    /// Cloud authority requires a real Cloud household with a usable lineage.
     public var isCloudAuthoritative: Bool { authority == .cloud && lineageID != nil }
 }
 

@@ -125,8 +125,30 @@ final class EvidenceCaptureUITests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(expiredCloudCard.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Cloud ended. This wallet now works on this device only. Nothing was deleted."].exists)
+        XCTAssertTrue(app.staticTexts["Cloud ended. You can keep using the wallet on this device. Nothing was deleted."].exists)
         capture("cloud-expired-local-fallback")
+    }
+
+    func testStoreKitDiagnosticsTour() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+
+        let link = app.descendants(matching: .any)["cloud-storekit-diagnostics-link"]
+        for _ in 0..<10 where !link.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(link.waitForExistence(timeout: 5))
+        link.tap()
+
+        let status = app.staticTexts["storekit-diagnostics-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 15))
+        XCTAssertEqual(status.label, "loaded 2 products")
+        XCTAssertEqual(app.staticTexts["storekit-product-com.kunchenguid.eddieswallet.cloud.monthly"].label, "com.kunchenguid.eddieswallet.cloud.monthly")
+        XCTAssertEqual(app.staticTexts["storekit-product-com.kunchenguid.eddieswallet.cloud.annual"].label, "com.kunchenguid.eddieswallet.cloud.annual")
+        XCTAssertEqual(app.staticTexts["storekit-price-com.kunchenguid.eddieswallet.cloud.monthly"].label, "$2.99")
+        XCTAssertEqual(app.staticTexts["storekit-price-com.kunchenguid.eddieswallet.cloud.annual"].label, "$24.99")
+        capture("cloud-storekit-diagnostics")
     }
 
     func testKidSurfacesTour() throws {

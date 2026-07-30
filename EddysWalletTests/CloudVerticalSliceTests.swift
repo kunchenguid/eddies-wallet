@@ -3,9 +3,9 @@ import XCTest
 @testable import EddysWallet
 
 /// End-to-end behaviour of the guarded Cloud slice against synthetic backend
-/// responses: activation upload, replica bootstrap, revision conflict and
-/// re-review, expiry with local continuation, authority-aware sign-out, outage,
-/// and corrupt local history. No Apple account, purchase, or real family data.
+/// responses: activation upload, replica bootstrap, read-only Cloud authority,
+/// expiry with local continuation, authority-aware sign-out, outage, and
+/// corrupt local history. No Apple account, purchase, or real family data.
 @MainActor
 final class CloudVerticalSliceTests: XCTestCase {
     private var directory: URL!

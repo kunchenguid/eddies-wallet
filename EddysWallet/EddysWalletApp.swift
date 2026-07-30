@@ -15,7 +15,7 @@ struct EddysWalletApp: App {
         #endif
         // Production composition owns the guarded Cloud slice: one Cloud API
         // client over the keychain session, its StoreKit coordinator, and the
-        // wallet store that may move authority only on a verified entitlement.
+        // wallet store that may move authority only from verified backend state.
         let sessionStore = KeychainSessionStore()
         let cloudClient = CloudAPIClient(sessionStore: sessionStore)
         let repository = WalletRepositoryFactory.makeDefault(cloudClient: cloudClient)

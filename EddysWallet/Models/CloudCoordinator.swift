@@ -4,9 +4,9 @@ import StoreKit
 /// Guarded Cloud vertical slice: capability, plans, purchase delivery,
 /// activation upload, replica bootstrap, and authority hand-offs.
 ///
-/// Nothing here grants Cloud. The backend's projected entitlement in a verified
-/// `CloudContext` is the only value that can move this device to Cloud
-/// authority, and the free local wallet keeps working whenever any of it fails.
+/// Nothing here grants Cloud. A verified backend entitlement may activate the
+/// local household, while a verified Cloud household may be adopted on another
+/// device. The free local wallet keeps working whenever either path fails.
 @MainActor
 public final class CloudCoordinator: ObservableObject {
     public enum Availability: Equatable, Sendable {

@@ -105,8 +105,8 @@ public final class CloudSubscriptionStore: ObservableObject {
             lastVerifiedContext = context
             switch context.entitlementState {
             case .active, .billingGrace:
-                // Delivery means the backend enabled the Cloud household. Only
-                // now may the StoreKit transaction be finished.
+                // Delivery means the backend projected an entitlement that
+                // grants Cloud. Only now may the transaction be finished.
                 state = .verifiedPaid
                 await transaction.finish()
             case .verificationPending:
