@@ -26,6 +26,23 @@ The Apple team ID stays out of Git by repository convention; `release.yml` reads
 
 In-App Purchase needs no entitlement key. `EddysWallet/EddysWallet.entitlements` declares only Sign in with Apple, which is correct; the capability lives on the App ID, not in the entitlements file.
 
+### App Store version and build lineage
+
+App Store Connect holds **one** iOS App Store version record, in `PREPARE_FOR_SUBMISSION`. It was created with the placeholder version string `1.0`, while every build this repository has ever uploaded carries a `0.1.x` marketing version derived from its release tag (`docs/release.md` owns that derivation). Apple will not bind a build to a version record whose version string differs from the build's marketing version, so **the version record must be aligned to the exact candidate's marketing version before that candidate can be attached**. Align App Store Connect to the repository's release lineage; do not invent a version the repository has never cut.
+
+The uploaded builds are TestFlight artifacts, not App Store candidates: a build is only a candidate once it is attached to the version record. All uploaded builds declare `usesNonExemptEncryption = false`, so export compliance is already answered at the build level and App Review does not ask again.
+
+### Review preparation blocked outside this repository
+
+Three review-preparation items cannot be completed truthfully from this repository:
+
+- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. This repository publishes no privacy policy today, so the field cannot be filled truthfully from anything committed here. Publishing one is a captain decision about real data-handling commitments, not a metadata edit.
+
+- **App Privacy (data collection) answers** have no public API surface; they are entered in the App Store Connect console.
+- **App Review contact details** (name, email, phone) are the captain's real contact information. They must never be invented, and no synthetic value belongs in that field.
+
+Guideline 3.1.2 also requires the in-app purchase surface itself to show subscription title, length, and price alongside links to the privacy policy and the terms of use. `CloudStatusView` shows title, price, and period today; the two links remain blocked on the captain's decisions about those published destinations.
+
 The notification URL points at the private backend route `POST /v1/app-store/notifications`. That route exists but stays dark until the backend's In-App Purchase configuration is installed, so Apple's notifications are addressed but not yet consumed.
 
 The backend also needs this app's non-secret identifiers as ordinary host configuration, not as secrets: the app Apple ID above and the Cloud subscription group id below, alongside the issuer and key identifiers of the In-App Purchase key.
@@ -78,6 +95,13 @@ None of the following has happened, and this file must not be edited to imply ot
 - This App Store Connect configuration work did not cut a TestFlight build or merge release pull request 26. That pull request remains open and captain-owned; this task-scoped boundary does not negate the TestFlight uploads App Store Connect has already accepted for this app.
 - No submission for App Review, and no request for Apple's test notification.
 - The in-app Cloud surface still renders its guarded state, because the backend Cloud path is intentionally off.
+- No build is attached to the App Store version record, no App Store listing screenshots exist, and no App Review submission object has been created.
+
+### The guarded state is not a product-discovery failure
+
+The in-app note "Cloud plans are unavailable right now" is selected by the **backend** capability branch, not by StoreKit. `CloudSubscriptionStore.loadProducts()` reads `/v1/capabilities` first and returns before asking StoreKit for anything, so while the service is dark the app never issues a product query at all. A screenshot of that note therefore says nothing about whether Apple's catalog resolves the two products.
+
+Product discovery is proven separately, and independently of the backend: `testDebugStoreKitDiagnosticsProvesTheExactCloudProductsAndPrices` drives the Debug-only diagnostics surface, which talks only to StoreKit. Under `xcodebuild` that resolves the **live App Store catalog** rather than the checked-in configuration file, and `ci.yml` runs it on every release tag, so each candidate tag carries its own live proof of both product identifiers, both localized prices, both periods, and Family Sharing being off.
 
 ## Reconfiguring
 

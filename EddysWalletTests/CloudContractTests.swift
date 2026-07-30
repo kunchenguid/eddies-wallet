@@ -48,13 +48,57 @@ final class CloudContractTests: XCTestCase {
         XCTAssertTrue(futureFields.canOfferCloud, "unknown future fields are ignored")
     }
 
-    func testCapabilityRequestIsUnauthenticatedAndUsesThePublishedPath() async throws {
+    func testCapabilityRequestStaysReadableWithoutASessionAndUsesThePublishedPath() async throws {
         let transport = StubTransport(responses: [.init(statusCode: 200, body: CloudContractFixtures.capabilitiesReady)])
         let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: InMemorySessionStore(), transport: transport)
         _ = try await client.capabilities()
         let request = try XCTUnwrap(transport.requests.first)
         XCTAssertEqual(request.url?.path, "/v1/capabilities")
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"), "capability is readable without a session")
+    }
+
+    /// The service may scope Cloud availability to a named parent, which it can
+    /// only do when the capability read says who is asking.
+    func testCapabilityRequestPresentsTheParentSessionWhenThisDeviceHasOne() async throws {
+        let transport = StubTransport(responses: [.init(statusCode: 200, body: CloudContractFixtures.capabilitiesReady)])
+        let client = CloudAPIClient(
+            baseURL: Self.baseURL,
+            sessionStore: InMemorySessionStore(session: session),
+            transport: transport
+        )
+        _ = try await client.capabilities()
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.url?.path, "/v1/capabilities")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(session.token)")
+    }
+
+    /// An expired session would only invite a 401 that clears the stored session
+    /// behind an otherwise public read, so it is never presented.
+    func testCapabilityRequestNeverPresentsAnExpiredSession() async throws {
+        let transport = StubTransport(responses: [.init(statusCode: 200, body: CloudContractFixtures.capabilitiesReady)])
+        let expired = AuthSession(token: "synthetic-expired-session", expiresAt: .distantPast)
+        let client = CloudAPIClient(
+            baseURL: Self.baseURL,
+            sessionStore: InMemorySessionStore(session: expired),
+            transport: transport
+        )
+        let capabilities = try await client.capabilities()
+        XCTAssertTrue(capabilities.canOfferCloud, "an expired session must not turn a public read into a failure")
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    /// Presenting the session on a public read must not weaken any authenticated
+    /// route: those still refuse outright rather than falling back to anonymous.
+    func testAuthenticatedCloudRoutesStillRefuseWithoutASession() async throws {
+        let transport = StubTransport(responses: [.init(statusCode: 200, body: CloudContractFixtures.contextActive)])
+        let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: InMemorySessionStore(), transport: transport)
+        do {
+            _ = try await client.context()
+            XCTFail("an authenticated route must not be sent without a session")
+        } catch WalletAPIError.noSession {
+            XCTAssertTrue(transport.requests.isEmpty, "no unauthenticated request may reach the service")
+        }
     }
 
     // MARK: - Context
