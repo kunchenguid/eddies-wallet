@@ -5,7 +5,9 @@ import importlib.util
 import io
 import os
 import pathlib
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -421,6 +423,90 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(len(comments), 1)
 
 
+class CycleResolutionTests(unittest.TestCase):
+    """The resolver decides whether a run may contact Apple at all."""
+
+    RESOLVER = ROOT / ".github/scripts/review_monitor_cycle.sh"
+
+    def resolve(self, **env):
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "github-output"
+            output.touch()
+            completed = subprocess.run(
+                [str(self.RESOLVER)],
+                env={
+                    "PATH": os.environ.get("PATH", ""),
+                    "GITHUB_OUTPUT": str(output),
+                    **env,
+                },
+                capture_output=True,
+                text=True,
+            )
+            return completed, dict(
+                line.split("=", 1) for line in output.read_text().splitlines() if "=" in line
+            )
+
+    def test_resolver_is_executable(self):
+        self.assertTrue(os.access(self.RESOLVER, os.X_OK), "the workflow runs it directly")
+
+    def test_deliberately_unarmed_schedule_succeeds_without_watching_anything(self):
+        completed, outputs = self.resolve(EVENT_NAME="schedule")
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(outputs.get("armed"), "false")
+        self.assertNotIn("version", outputs)
+
+    def test_half_configured_schedule_still_fails_loudly(self):
+        for env in (
+            {"SCHEDULED_VERSION": "0.1.4"},
+            {"SCHEDULED_BUILD": "5.1"},
+        ):
+            with self.subTest(env=env):
+                completed, outputs = self.resolve(EVENT_NAME="schedule", **env)
+                self.assertEqual(completed.returncode, 1)
+                self.assertIn("half configured", completed.stderr)
+                self.assertEqual(outputs, {})
+
+    def test_armed_schedule_passes_the_exact_cycle_through(self):
+        completed, outputs = self.resolve(
+            EVENT_NAME="schedule", SCHEDULED_VERSION="0.1.4", SCHEDULED_BUILD="5.1"
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            outputs, {"armed": "true", "version": "0.1.4", "build": "5.1", "rearm": "false"}
+        )
+
+    def test_a_schedule_can_never_rearm_itself(self):
+        _, outputs = self.resolve(
+            EVENT_NAME="schedule",
+            SCHEDULED_VERSION="0.1.4",
+            SCHEDULED_BUILD="5.1",
+            INPUT_REARM="true",
+        )
+        self.assertEqual(outputs.get("rearm"), "false")
+
+    def test_manual_dispatch_carries_its_inputs_including_rearm(self):
+        completed, outputs = self.resolve(
+            EVENT_NAME="workflow_dispatch",
+            INPUT_VERSION="0.1.4",
+            INPUT_BUILD="5.1",
+            INPUT_REARM="true",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            outputs, {"armed": "true", "version": "0.1.4", "build": "5.1", "rearm": "true"}
+        )
+
+    def test_manual_dispatch_without_an_exact_cycle_fails(self):
+        completed, _ = self.resolve(EVENT_NAME="workflow_dispatch", INPUT_VERSION="0.1.4")
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("requires both", completed.stderr)
+
+    def test_resolver_contacts_nothing_and_reads_no_credential(self):
+        source = self.RESOLVER.read_text()
+        for forbidden in ("curl", "wget", "python3", "appstoreconnect", "PRIVATE_KEY", "GH_TOKEN"):
+            self.assertNotIn(forbidden, source)
+
+
 class WorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -451,7 +537,6 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_only_dedup_uses_github_writes_and_apple_is_get_only(self):
         self.assertNotRegex(self.source, r"api\.appstoreconnect\.apple\.com[^\n]*POST")
-        self.assertIn("request GET", self.source) if False else None
         self.assertNotIn('"POST", "https://api.appstoreconnect.apple.com', self.source)
         self.assertNotIn('"PATCH", "https://api.appstoreconnect.apple.com', self.source)
         self.assertIn('"POST", f"/repos/{repo}/issues', self.source)

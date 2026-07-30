@@ -19,7 +19,13 @@ Do these steps only when there is a submitted review cycle to monitor:
    - `ASC_REVIEW_MONITOR_VERSION`: the submitted marketing version, for example `0.1`.
    - `ASC_REVIEW_MONITOR_BUILD`: the build number bound to that submitted App Store version, for example `123.1`.
 
-The scheduled monitor refuses visibly when either variable is absent or malformed. It reads only the stable Eddie App Store app resource `6795664301`, which is bound to bundle ID `com.kunchenguid.eddieswallet`, then requires exactly one matching iOS marketing version and that version's included, bound, unexpired build. It never lists apps or falls back to the newest version or build. Change both variables together for a new cycle.
+`.github/scripts/review_monitor_cycle.sh` resolves the cycle before any credential is in scope, and it distinguishes "no cycle to watch" from "the wrong cycle":
+
+- **Neither variable set** - the deliberate state between review cycles. The run reports `notification=not-armed`, contacts Apple not at all, and **succeeds**. A schedule that failed here instead would keep this workflow permanently red between cycles, which is how a real transition notification gets ignored.
+- **Exactly one variable set** - a half cycle identity can only point at the wrong version or the wrong build, so the run **fails visibly**.
+- **Both set** - the run polls that exact cycle.
+
+An armed cycle still refuses visibly when either value is malformed. The monitor reads only the stable Eddie App Store app resource `6795664301`, which is bound to bundle ID `com.kunchenguid.eddieswallet`, then requires exactly one matching iOS marketing version and that version's included, bound, unexpired build. It never lists apps or falls back to the newest version or build. Change both variables together for a new cycle, and clear both together to disarm it.
 
 ## Verify and operate
 
@@ -31,7 +37,7 @@ The monitor maps all current `AppVersionState` values into `not-submitted`, `rea
 
 Each cycle's sole notification surface is the repository issue titled `App Store review monitor state: version <version>, build <build>`. Its hidden machine state accepts at most 32 exact-cycle entries. A state transition adds one bounded comment, and repeated polls in the same state do not comment again. Closing that issue deliberately disables the exact cycle: scheduled runs detect it before creating an Apple JWT, leave it closed, and perform no Apple request, issue write, or comment. To resume and deliberately re-notify, manually dispatch the workflow for the same version and build with **rearm** selected. Only that trusted manual path polls Apple and reopens the same issue; it never creates a second issue for the cycle. Rearming cannot release or mutate Apple state.
 
-To disable one cycle, close its exact-cycle state issue. To disable all polling, disable the **Monitor App Store review status** workflow in GitHub Actions (or remove its `schedule` trigger in a normal PR). Removing the two nonsecret cycle variables also makes scheduled runs fail closed. Disable or delete the dedicated monitor key if the monitor is permanently retired.
+To disable one cycle, close its exact-cycle state issue. To disarm the schedule entirely, clear both nonsecret cycle variables: scheduled runs then report `notification=not-armed` and make no Apple request. To stop the workflow from running at all, disable **Monitor App Store review status** in GitHub Actions (or remove its `schedule` trigger in a normal PR). Disable or delete the dedicated monitor key if the monitor is permanently retired.
 
 ## Trust and API boundaries
 

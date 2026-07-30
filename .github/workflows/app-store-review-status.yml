@@ -34,34 +34,35 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Poll and notify on a status transition
+      - name: Resolve the exact review cycle
+        id: cycle
         env:
-          ASC_REVIEW_MONITOR_KEY_ID: ${{ secrets.ASC_REVIEW_MONITOR_KEY_ID }}
-          ASC_REVIEW_MONITOR_PRIVATE_KEY: ${{ secrets.ASC_REVIEW_MONITOR_PRIVATE_KEY }}
-          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
           SCHEDULED_VERSION: ${{ vars.ASC_REVIEW_MONITOR_VERSION }}
           SCHEDULED_BUILD: ${{ vars.ASC_REVIEW_MONITOR_BUILD }}
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_BUILD: ${{ inputs.build }}
           INPUT_REARM: ${{ inputs.rearm }}
+        run: .github/scripts/review_monitor_cycle.sh
+
+      - name: Report that no cycle is armed
+        if: steps.cycle.outputs.armed != 'true'
+        run: printf '### App Store review monitor\n\n`notification=not-armed`\n' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Poll and notify on a status transition
+        if: steps.cycle.outputs.armed == 'true'
+        env:
+          ASC_REVIEW_MONITOR_KEY_ID: ${{ secrets.ASC_REVIEW_MONITOR_KEY_ID }}
+          ASC_REVIEW_MONITOR_PRIVATE_KEY: ${{ secrets.ASC_REVIEW_MONITOR_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          CYCLE_VERSION: ${{ steps.cycle.outputs.version }}
+          CYCLE_BUILD: ${{ steps.cycle.outputs.build }}
+          CYCLE_REARM: ${{ steps.cycle.outputs.rearm }}
         run: |
           set -euo pipefail
           umask 077
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            version="$SCHEDULED_VERSION"
-            build="$SCHEDULED_BUILD"
-            rearm="false"
-            if [ -z "$version" ] || [ -z "$build" ]; then
-              echo "ASC_REVIEW_MONITOR scheduled cycle is not configured; set ASC_REVIEW_MONITOR_VERSION and ASC_REVIEW_MONITOR_BUILD repository variables." >&2
-              exit 1
-            fi
-          else
-            version="$INPUT_VERSION"
-            build="$INPUT_BUILD"
-            rearm="$INPUT_REARM"
-          fi
-          args=(--version "$version" --build "$build")
-          if [ "$rearm" = "true" ]; then args+=(--rearm); fi
+          args=(--version "$CYCLE_VERSION" --build "$CYCLE_BUILD")
+          if [ "$CYCLE_REARM" = "true" ]; then args+=(--rearm); fi
           output="$(python3 .github/scripts/app_store_review_monitor.py "${args[@]}")"
           printf '%s\n' "$output"
           printf '### App Store review monitor\n\n`%s`\n' "$output" >> "$GITHUB_STEP_SUMMARY"

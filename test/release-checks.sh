@@ -158,6 +158,17 @@ forbid_grep 'APP_STORE_CONNECT_API_KEY' "$REVIEW_WORKFLOW" "review monitor never
 require_grep 'ASC_REVIEW_MONITOR_VERSION' "$REVIEW_WORKFLOW" "review monitor requires scheduled exact version configuration"
 require_grep 'ASC_REVIEW_MONITOR_BUILD' "$REVIEW_WORKFLOW" "review monitor requires scheduled exact build configuration"
 require_grep 'actions/checkout@[0-9a-f]{40}' "$REVIEW_WORKFLOW" "review monitor pins checkout immutably"
+# Arming is resolved before any credential is in scope, so an unarmed schedule
+# never reaches Apple and never leaves this workflow permanently red.
+REVIEW_CYCLE_RESOLVER=.github/scripts/review_monitor_cycle.sh
+require_grep 'review_monitor_cycle\.sh' "$REVIEW_WORKFLOW" "review monitor resolves its cycle before polling"
+require_grep "if: steps\.cycle\.outputs\.armed == 'true'" "$REVIEW_WORKFLOW" "review monitor polls Apple only for an armed cycle"
+forbid_grep 'ASC_REVIEW_MONITOR_PRIVATE_KEY' "$REVIEW_CYCLE_RESOLVER" "cycle resolver handles no credential"
+if [ -x "$REVIEW_CYCLE_RESOLVER" ]; then
+  pass "cycle resolver is executable"
+else
+  fail "cycle resolver is executable"
+fi
 require_grep 'method="GET"' "$REVIEW_SCRIPT" "review monitor makes App Store Connect GET requests"
 forbidden_apple_mutation='appStoreVersionSubmissions|reviewSubmissions|--request POST|--request PATCH|--request DELETE|urlopen\(.*method="POST"'
 forbid_grep "$forbidden_apple_mutation" "$REVIEW_SCRIPT" "review monitor contains no Apple mutation path"
