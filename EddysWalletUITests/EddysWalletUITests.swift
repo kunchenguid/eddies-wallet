@@ -400,6 +400,41 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "$24.99")).count, 0)
     }
 
+    func testRejectedCloudCleanupIsTerminalAndLocallyRetryable() throws {
+        let app = launch("cloud-rejected-cleanup")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let cleanup = app.descendants(matching: .any)["cloud-rejected-cleanup-status"]
+        XCTAssertTrue(cleanup.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Not recorded"].exists)
+        XCTAssertTrue(app.staticTexts["This change was not recorded. Finish local cleanup on this iPhone before recording another action."].exists)
+        XCTAssertFalse(app.staticTexts["Pending"].exists)
+        XCTAssertFalse(app.staticTexts["Waiting to sync"].exists)
+        XCTAssertFalse(app.staticTexts["Checking with Cloud"].exists)
+        XCTAssertFalse(app.staticTexts["Accepted by Cloud"].exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "reconnect")).firstMatch.exists)
+        let allowance = app.buttons["parent-allowance-card"]
+        XCTAssertTrue(allowance.waitForExistence(timeout: 3))
+        XCTAssertTrue(allowance.label.contains("Next allowance"))
+        XCTAssertFalse(allowance.label.localizedCaseInsensitiveContains("reconnect"))
+        XCTAssertFalse(allowance.label.localizedCaseInsensitiveContains("checking"))
+
+        for _ in 0..<4 where cleanup.exists {
+            let finish = app.buttons["Finish local cleanup"]
+            XCTAssertTrue(finish.waitForExistence(timeout: 3))
+            finish.tap()
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTAssertFalse(cleanup.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["cloud-mutation-controls-notice"].exists)
+
+        app.buttons["Done. Back to Eddie's wallet"].tap()
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Not recorded"].exists)
+        XCTAssertFalse(app.staticTexts["Checking with Cloud"].exists)
+    }
+
     // Report criterion 2 (P3): backgrounding drops elevation; foregrounding
     // shows the kid home again.
     func testBackgroundingDropsParentElevation() throws {

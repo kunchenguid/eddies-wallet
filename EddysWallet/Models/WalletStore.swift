@@ -128,6 +128,9 @@ public final class WalletStore: ObservableObject {
     /// Set when another device moved the Cloud household first, so the parent
     /// reviews the latest accepted balance before retrying.
     @Published public private(set) var needsCloudReview = false
+    /// Last result for profile and allowance mutations, which do not create a
+    /// ledger event but still need truthful accepted/waiting/rejected copy.
+    @Published public private(set) var latestParentMutationOutcome: ParentMutationOutcome?
 
     public private(set) var repository: any WalletRepository
     public let gatePolicy: ParentGatePolicy
@@ -140,6 +143,9 @@ public final class WalletStore: ObservableObject {
     private var cooldownUntil: Date?
     private var cooldownTask: Task<Void, Never>?
     private var refreshGeneration = 0
+    #if DEBUG
+    private var debugHasValidCloudReplica: Bool?
+    #endif
 
     public init(
         repository: (any WalletRepository)? = nil,
@@ -482,6 +488,27 @@ public final class WalletStore: ObservableObject {
                 }
                 errorMessage = userMessage(for: error)
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
+            case .revisionConflict, .revisionRequired:
+                guard generation == refreshGeneration, requestedRole == viewRole else { return }
+                needsCloudReview = true
+                errorMessage = userMessage(for: error)
+                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
+            case .cloudAcceptedAwaitingReplica:
+                guard generation == refreshGeneration, requestedRole == viewRole else { return }
+                isOffline = false
+                if let cloud = repository as? CloudWalletRepository {
+                    authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+                }
+                errorMessage = nil
+                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
+            case .cloudMutationAwaitingReconciliation:
+                guard generation == refreshGeneration, requestedRole == viewRole else { return }
+                isOffline = false
+                if let cloud = repository as? CloudWalletRepository {
+                    authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+                }
+                errorMessage = nil
+                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             default:
                 guard generation == refreshGeneration, requestedRole == viewRole else { return }
                 errorMessage = userMessage(for: error)
@@ -563,10 +590,12 @@ public final class WalletStore: ObservableObject {
         let generation = refreshGeneration
         isLoading = true
         errorMessage = nil
+        latestParentMutationOutcome = nil
         do {
             let refreshed = try await repository.setAllowance(command)
             if generation == refreshGeneration, elevation == .active {
                 snapshot = refreshed
+                latestParentMutationOutcome = .recorded
                 isLoading = false
             }
             return true
@@ -575,12 +604,25 @@ public final class WalletStore: ObservableObject {
                 sessionExpired = repository.hasConfiguredKid
                 if elevation != .none { deElevate() }
             } else if generation == refreshGeneration, elevation == .active {
-                errorMessage = userMessage(for: error)
+                switch error {
+                case .cloudAcceptedAwaitingReplica:
+                    latestParentMutationOutcome = .acceptedAwaitingReplica
+                    snapshot = repository.snapshot()
+                    errorMessage = nil
+                case .cloudMutationAwaitingReconciliation:
+                    latestParentMutationOutcome = .waitingForCloud
+                    snapshot = repository.snapshot()
+                    errorMessage = nil
+                default:
+                    latestParentMutationOutcome = .notRecorded
+                    errorMessage = userMessage(for: error)
+                }
                 isLoading = false
             }
             return false
         } catch {
             if generation == refreshGeneration, elevation == .active {
+                latestParentMutationOutcome = .notRecorded
                 errorMessage = userMessage(for: error)
                 isLoading = false
             }
@@ -601,10 +643,12 @@ public final class WalletStore: ObservableObject {
         let generation = refreshGeneration
         isLoading = true
         errorMessage = nil
+        latestParentMutationOutcome = nil
         do {
             let refreshed = try await repository.updateChildProfile(ChildProfileUpdate(nickname: nickname))
             if generation == refreshGeneration, elevation == .active {
                 snapshot = refreshed
+                latestParentMutationOutcome = .recorded
                 isLoading = false
             }
             return true
@@ -613,12 +657,25 @@ public final class WalletStore: ObservableObject {
                 sessionExpired = repository.hasConfiguredKid
                 if elevation != .none { deElevate() }
             } else if generation == refreshGeneration, elevation == .active {
-                errorMessage = userMessage(for: error)
+                switch error {
+                case .cloudAcceptedAwaitingReplica:
+                    latestParentMutationOutcome = .acceptedAwaitingReplica
+                    snapshot = repository.snapshot()
+                    errorMessage = nil
+                case .cloudMutationAwaitingReconciliation:
+                    latestParentMutationOutcome = .waitingForCloud
+                    snapshot = repository.snapshot()
+                    errorMessage = nil
+                default:
+                    latestParentMutationOutcome = .notRecorded
+                    errorMessage = userMessage(for: error)
+                }
                 isLoading = false
             }
             return false
         } catch {
             if generation == refreshGeneration, elevation == .active {
+                latestParentMutationOutcome = .notRecorded
                 errorMessage = userMessage(for: error)
                 isLoading = false
             }
@@ -638,11 +695,24 @@ public final class WalletStore: ObservableObject {
             )
             return .rejected(event)
         }
+        if repository is CloudWalletRepository, isOffline || needsCloudReview {
+            return .rejected(WalletEvent(
+                type: activityType(for: command.kind),
+                amountCents: max(command.amountCents, 0),
+                reason: command.reason,
+                syncState: .rejected,
+                explanation: "This new action was not sent.",
+                rejectionReason: isOffline
+                    ? "Reconnect and refresh the Cloud wallet before recording a new action."
+                    : "Review the latest Cloud balance before recording a new action."
+            ))
+        }
         let generation = refreshGeneration
         do {
             let result = try await repository.submit(command)
             if generation == refreshGeneration, elevation == .active {
                 snapshot = repository.snapshot()
+                errorMessage = nil
             }
             return result
         } catch let error as WalletAPIError {
@@ -650,17 +720,23 @@ public final class WalletStore: ObservableObject {
                 sessionExpired = repository.hasConfiguredKid
                 if elevation != .none { deElevate() }
             }
-            if case .revisionConflict = error {
+            if case .revisionConflict = error,
+               generation == refreshGeneration,
+               elevation == .active {
                 // Another device moved first: nothing was recorded here, and the
                 // parent reviews the refreshed balance before retrying.
                 needsCloudReview = true
                 Task { [weak self] in await self?.refresh() }
             }
-            if case .revisionRequired = error {
+            if case .revisionRequired = error,
+               generation == refreshGeneration,
+               elevation == .active {
                 needsCloudReview = true
                 Task { [weak self] in await self?.refresh() }
             }
-            if case .cloudEntitlementRequired = error {
+            if case .cloudEntitlementRequired = error,
+               generation == refreshGeneration,
+               elevation == .active {
                 cloudEntitlement = cloudCoordinator?.entitlement ?? .expired
             }
             let event = WalletEvent(
@@ -716,16 +792,42 @@ public final class WalletStore: ObservableObject {
         clearPINFailureState()
         deElevate()
     }
-
-
     // MARK: - Cloud (optional, guarded)
 
     /// Whether a parent surface may show Cloud purchase/restore controls at all.
     public var canOfferCloudPlans: Bool { !cloudPlans.isEmpty }
     public var needsCloudSignIn: Bool { cloudCoordinator?.hasSession == false }
     public var canModifyWallet: Bool { repository.supportsRuntimeMutations }
+    public var hasUnsettledCloudMutation: Bool {
+        (repository as? any CloudMutationStatusProviding)?.hasUnsettledMutation == true
+    }
+    public var unsettledCloudMutationWasAccepted: Bool {
+        (repository as? any CloudMutationStatusProviding)?.unsettledMutationPhase == .acceptedAwaitingReplica
+    }
+    public var hasRejectedCloudMutationCleanup: Bool {
+        (repository as? any CloudMutationStatusProviding)?.unsettledMutationPhase == .rejected
+    }
+    public var unsettledCloudMutationMessage: String? {
+        (repository as? any CloudMutationStatusProviding)?.unsettledMutationMessage
+    }
+    /// Free local authority is always usable. Cloud starts a new mutation only
+    /// from a connected, reviewed replica with no unresolved request.
+    public var canStartParentMutation: Bool {
+        guard canModifyWallet else { return false }
+        guard authorityState.isCloudAuthority else { return true }
+        let hasCurrentRevision = (repository as? CloudWalletRepository)?.isReadyForRuntimeMutations ?? true
+        return hasValidCloudReplica
+            && hasCurrentRevision
+            && !hasUnsettledCloudMutation
+            && !isOffline
+            && !needsCloudReview
+            && !cloudEntitlement.permitsLocalContinuation
+    }
     public var hasValidCloudReplica: Bool {
-        (repository as? CloudWalletRepository)?.hasValidReplica == true
+        #if DEBUG
+        if let debugHasValidCloudReplica { return debugHasValidCloudReplica }
+        #endif
+        return (repository as? CloudWalletRepository)?.hasValidReplica == true
     }
     public var canShowWalletData: Bool {
         !authorityState.isCloudAuthority || hasValidCloudReplica
@@ -924,10 +1026,16 @@ public final class WalletStore: ObservableObject {
     /// Debug-only scenario seam. This is intentionally compiled out of
     /// Release, and is the sole place scripted authority/entitlement states
     /// may enter the app.
-    func applyDebugCloudState(authority: WalletAuthorityState, purchase: PurchaseAttemptState = .idle, entitlement: CloudEntitlementState = .none) {
+    func applyDebugCloudState(
+        authority: WalletAuthorityState,
+        purchase: PurchaseAttemptState = .idle,
+        entitlement: CloudEntitlementState = .none,
+        hasValidReplica: Bool? = nil
+    ) {
         authorityState = authority
         purchaseAttempt = purchase
         cloudEntitlement = entitlement
+        debugHasValidCloudReplica = hasValidReplica
     }
     #endif
 

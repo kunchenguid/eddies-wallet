@@ -4,6 +4,48 @@ import XCTest
 
 @MainActor
 final class WalletTests: XCTestCase {
+    func testRejectedCleanupAllowanceAccessibilityCopyIsLocalAndTerminal() {
+        let hint = ParentAreaView.allowanceAccessibilityHint(
+            canStartParentMutation: false,
+            hasRejectedCloudMutationCleanup: true
+        )
+        XCTAssertEqual(hint, "Finish local cleanup before changing the allowance")
+        for forbidden in ["reconnect", "checking", "pending", "accepted", "network"] {
+            XCTAssertFalse(hint.localizedCaseInsensitiveContains(forbidden))
+        }
+    }
+
+    func testRejectedCloudCleanupNeverMarksNetworkOffline() async {
+        let repository = ScriptedWalletRepository(
+            snapshot: .fixture(),
+            mutationMode: .rejectedCleanup,
+            rejectedCleanupFailures: 3
+        )
+        let store = WalletStore(
+            repository: repository,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent")
+        )
+        store.applyDebugCloudState(
+            authority: .cloud(lineageID: UUID(), revision: 7),
+            entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+            hasValidReplica: true
+        )
+
+        await store.refresh()
+        XCTAssertTrue(store.hasRejectedCloudMutationCleanup)
+        XCTAssertFalse(store.isOffline)
+        XCTAssertTrue(store.authorityState.isCloudAuthority)
+
+        for _ in 0..<4 where store.hasRejectedCloudMutationCleanup {
+            await store.refresh()
+            XCTAssertFalse(store.isOffline)
+        }
+        XCTAssertFalse(store.hasRejectedCloudMutationCleanup)
+        XCTAssertFalse(store.hasUnsettledCloudMutation)
+    }
+
     func testMissingNicknameUsesNeutralFallbacksAndSetupStartsBlank() {
         XCTAssertTrue(SetupView.initialNickname.isEmpty)
         XCTAssertNil(ChildProfileCopy.configuredNickname(from: "   "))

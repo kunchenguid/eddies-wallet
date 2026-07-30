@@ -310,6 +310,123 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
     }
 
+    func testCloudWriteStateTour() throws {
+        func openDepositResult(
+            _ scenario: String,
+            expectedMessage: String,
+            captureName: String,
+            acceptedAmountVisibleToKid: Bool
+        ) {
+            let app = launch(scenario)
+            XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+            unlockParentArea(app)
+            let deposit = app.buttons["Add deposit"]
+            for _ in 0..<6 where !deposit.isHittable { app.swipeUp() }
+            XCTAssertTrue(deposit.waitForExistence(timeout: 5))
+            deposit.tap()
+            let amount = app.textFields["Amount in virtual dollars"]
+            XCTAssertTrue(amount.waitForExistence(timeout: 5))
+            amount.tap()
+            amount.typeText("1.25")
+            app.buttons["Review"].tap()
+            if !app.staticTexts["Review before recording"].waitForExistence(timeout: 3) {
+                app.buttons["Review"].tap()
+            }
+            XCTAssertTrue(app.staticTexts["Review before recording"].waitForExistence(timeout: 5))
+            app.buttons["Confirm add deposit"].tap()
+            XCTAssertTrue(app.staticTexts[expectedMessage].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["money-flow-result"].exists)
+            Thread.sleep(forTimeInterval: 0.4)
+            capture(captureName)
+            app.buttons["Done"].tap()
+            XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+            app.buttons["Done. Back to Eddie's wallet"].tap()
+            XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
+            XCTAssertEqual(app.staticTexts["US$1.25"].exists, acceptedAmountVisibleToKid)
+            if acceptedAmountVisibleToKid {
+                XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "offline")).firstMatch.exists)
+                XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "reconnect")).firstMatch.exists)
+            }
+            capture("\(captureName)-kid")
+        }
+
+        openDepositResult(
+            "cloud-write-recorded",
+            expectedMessage: "This virtual money event was accepted and added to Eddie's wallet.",
+            captureName: "cloud-write-recorded",
+            acceptedAmountVisibleToKid: true
+        )
+        openDepositResult(
+            "cloud-write-waiting",
+            expectedMessage: "Cloud has not confirmed this change yet. This device will retry the same protected request. Do not record it again.",
+            captureName: "cloud-write-waiting",
+            acceptedAmountVisibleToKid: false
+        )
+        openDepositResult(
+            "cloud-write-accepted-waiting",
+            expectedMessage: "Cloud accepted this change. This device is waiting to see it in the wallet. Do not record it again.",
+            captureName: "cloud-write-accepted-waiting",
+            acceptedAmountVisibleToKid: false
+        )
+        openDepositResult(
+            "cloud-write-rejected",
+            expectedMessage: "This wallet changed on another device. Review the latest balance before recording it again.",
+            captureName: "cloud-write-rejected",
+            acceptedAmountVisibleToKid: false
+        )
+
+        let cleanup = launch("cloud-rejected-cleanup")
+        XCTAssertTrue(cleanup.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(cleanup)
+        let cleanupStatus = cleanup.descendants(matching: .any)["cloud-rejected-cleanup-status"]
+        XCTAssertTrue(cleanupStatus.waitForExistence(timeout: 5))
+        XCTAssertTrue(cleanup.staticTexts["Not recorded"].exists)
+        XCTAssertFalse(cleanup.staticTexts["Pending"].exists)
+        XCTAssertFalse(cleanup.staticTexts["Waiting to sync"].exists)
+        XCTAssertFalse(cleanup.staticTexts["Checking with Cloud"].exists)
+        let allowance = cleanup.buttons["parent-allowance-card"]
+        XCTAssertTrue(allowance.waitForExistence(timeout: 3))
+        XCTAssertTrue(allowance.label.contains("Next allowance"))
+        XCTAssertFalse(allowance.label.localizedCaseInsensitiveContains("reconnect"))
+        XCTAssertFalse(allowance.label.localizedCaseInsensitiveContains("checking"))
+        capture("cloud-rejected-local-cleanup")
+        for _ in 0..<4 where cleanupStatus.exists {
+            cleanup.buttons["Finish local cleanup"].tap()
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTAssertFalse(cleanupStatus.exists)
+        capture("cloud-rejected-local-cleanup-finished")
+
+        let profile = launch("cloud-profile-accepted-waiting")
+        XCTAssertTrue(profile.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(profile)
+        let editProfile = profile.descendants(matching: .any)["edit-child-profile-settings"]
+        for _ in 0..<6 where !editProfile.isHittable { profile.swipeUp() }
+        XCTAssertTrue(editProfile.waitForExistence(timeout: 5))
+        editProfile.tap()
+        let field = profile.descendants(matching: .any)["child-nickname-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        if let current = field.value as? String, !current.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        }
+        field.typeText("Maya")
+        profile.buttons["Save child profile"].tap()
+        XCTAssertTrue(profile.descendants(matching: .any)["child-profile-cloud-waiting"].waitForExistence(timeout: 5))
+        XCTAssertTrue(profile.staticTexts["Cloud accepted this change. This device is waiting to see the updated wallet. Do not save it again."].exists)
+        XCTAssertFalse(profile.staticTexts["Child profile saved."].exists)
+        capture("cloud-profile-accepted-waiting")
+
+        let reconnect = launch("cloud-reconnect")
+        XCTAssertTrue(reconnect.staticTexts["Your wallet needs to reconnect"].waitForExistence(timeout: 10))
+        XCTAssertFalse(reconnect.staticTexts["US$0.00"].exists)
+        capture("cloud-write-reconnect-kid")
+        unlockParentArea(reconnect)
+        XCTAssertTrue(reconnect.descendants(matching: .any)["parent-cloud-replica-unavailable"].waitForExistence(timeout: 5))
+        XCTAssertFalse(reconnect.buttons["Add deposit"].exists)
+        capture("cloud-write-reconnect")
+    }
+
     func testChildNicknameEditorTour() throws {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))

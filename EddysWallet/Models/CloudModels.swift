@@ -249,6 +249,143 @@ public struct CloudRevisionConflict: Equatable, Sendable {
     public let currentRevision: Int64
 }
 
+/// The one unresolved runtime mutation a Cloud device may retain. Keeping the
+/// exact request bytes, revision, and idempotency key makes response loss safe:
+/// reconciliation can only replay this request, never mint a replacement key.
+enum CloudMutationKind: String, Codable, Equatable, Sendable {
+    case deposit
+    case withdrawal
+    case loan
+    case repayment
+    case recordAllowance
+    case setAllowance
+    case childProfile
+
+    var activityType: ActivityType? {
+        switch self {
+        case .deposit: .deposit
+        case .withdrawal: .withdrawal
+        case .loan: .loan
+        case .repayment: .repayment
+        case .recordAllowance: .allowance
+        case .setAllowance, .childProfile: nil
+        }
+    }
+
+    var isMoney: Bool { activityType != nil }
+}
+
+enum CloudMutationPhase: String, Codable, Equatable, Sendable {
+    case staged
+    /// The request was durably protected before its first transport attempt.
+    case awaitingOutcome
+    /// The service accepted it, but this device has not observed the accepted
+    /// entry or revision in a replica yet.
+    case acceptedAwaitingReplica
+    case rejected
+}
+
+@MainActor
+protocol CloudMutationStatusProviding {
+    var hasUnsettledMutation: Bool { get }
+    var unsettledMutationPhase: CloudMutationPhase? { get }
+    var unsettledMutationMessage: String? { get }
+}
+
+struct PendingCloudMutation: Codable, Equatable, Sendable {
+    let operationID: UUID
+    let kind: CloudMutationKind
+    let method: String
+    let path: String
+    let body: Data
+    let idempotencyKey: String
+    let expectedRevision: Int64
+    let amountCents: Int?
+    let reason: String?
+    let createdAt: Date
+    var phase: CloudMutationPhase
+    var acceptedEntryID: String?
+    var acceptedRevision: Int64?
+    var rejectionStatusCode: Int?
+    var rejectionCode: String?
+    var rejectionMessage: String?
+
+    init(
+        kind: CloudMutationKind,
+        method: String,
+        path: String,
+        body: Data,
+        idempotencyKey: String,
+        expectedRevision: Int64,
+        amountCents: Int? = nil,
+        reason: String? = nil,
+        operationID: UUID = UUID(),
+        createdAt: Date = .now
+    ) {
+        self.operationID = operationID
+        self.kind = kind
+        self.method = method
+        self.path = path
+        self.body = body
+        self.idempotencyKey = idempotencyKey
+        self.expectedRevision = expectedRevision
+        self.amountCents = amountCents
+        self.reason = reason
+        self.createdAt = createdAt
+        self.phase = .staged
+        self.acceptedEntryID = nil
+        self.acceptedRevision = nil
+        self.rejectionStatusCode = nil
+        self.rejectionCode = nil
+        self.rejectionMessage = nil
+    }
+
+    var waitingMessage: String {
+        switch phase {
+        case .staged:
+            "This change has not been sent. This device must finish protecting it before contacting Cloud."
+        case .awaitingOutcome:
+            "Cloud has not confirmed this change yet. This device will retry the same protected request. Do not record it again."
+        case .acceptedAwaitingReplica:
+            "Cloud accepted this change. This device is waiting to see it in the wallet. Do not record it again."
+        case .rejected:
+            rejectionMessage ?? "Cloud did not record this change."
+        }
+    }
+
+    func pendingEvent() -> WalletEvent? {
+        guard phase != .rejected else { return nil }
+        guard let type = kind.activityType, let amountCents else { return nil }
+        return WalletEvent(
+            id: operationID,
+            remoteID: "cloud-pending-\(operationID.uuidString.lowercased())",
+            type: type,
+            amountCents: amountCents,
+            reason: reason,
+            date: createdAt,
+            syncState: .pending,
+            explanation: waitingMessage
+        )
+    }
+
+    func isObserved(in replica: CloudReplica, mappedSnapshot: WalletSnapshot) -> Bool {
+        if let acceptedEntryID {
+            return replica.entries.contains { $0.id == acceptedEntryID }
+                && mappedSnapshot.activities.contains { $0.remoteID == acceptedEntryID }
+        }
+        guard let acceptedRevision, replica.household.revision >= acceptedRevision else { return false }
+        if kind.isMoney {
+            return replica.entries.filter { $0.acceptedRevision == acceptedRevision }.count == 1
+        }
+        return true
+    }
+}
+
+struct CloudMutationAcceptance: Equatable, Sendable {
+    let entryID: String?
+    let revision: Int64?
+}
+
 // MARK: - Cloud replica payloads
 
 /// The accepted Cloud aggregate returned by bootstrap and changes. Only fields
@@ -327,10 +464,12 @@ public struct CloudReplica: Codable, Equatable, Sendable {
 public struct CloudAllowanceSchedule: Codable, Equatable, Sendable {
     public struct Rule: Codable, Equatable, Sendable {
         public let id: String
+        public let amountCents: Int
         public let nextOccurrenceID: String?
 
         private enum CodingKeys: String, CodingKey {
             case id
+            case amountCents
             case nextOccurrenceID = "nextOccurrenceId"
         }
     }

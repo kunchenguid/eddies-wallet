@@ -171,6 +171,7 @@ struct ActionButton: View {
     let title: String
     let icon: String
     let tint: Color
+    var isEnabled = true
     let action: () -> Void
 
     var body: some View {
@@ -178,6 +179,8 @@ struct ActionButton: View {
             Label(title, systemImage: icon)
         }
         .buttonStyle(ActionButtonStyle(tint: tint))
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.5)
     }
 }
 

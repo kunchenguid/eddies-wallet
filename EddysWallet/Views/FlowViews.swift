@@ -199,26 +199,53 @@ struct MoneyFlowView: View {
     }
 
     private var result: some View {
-        VStack(spacing: EW.Space.five) {
-            Spacer()
-            Image(systemName: resultState == .recorded ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                .font(.system(size: 58))
-                .foregroundStyle(resultState == .recorded ? EW.Color.green600 : EW.Color.red600)
-            if let resultState {
-                StatusPill(state: resultState)
+        ScrollView {
+            VStack(spacing: EW.Space.five) {
+                Image(systemName: resultIcon)
+                    .font(.system(size: 58))
+                    .foregroundStyle(resultColor)
+                if let resultState {
+                    StatusPill(state: resultState)
+                }
+                Text(resultMessage)
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 420)
             }
-            Text(resultMessage)
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 420)
-            Spacer()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, EW.Space.screenMargin)
+            .padding(.top, EW.Space.seven)
+            .padding(.bottom, EW.Space.five)
+        }
+        .defaultScrollAnchor(.top)
+        .id("money-result-\(resultState?.rawValue ?? "none")")
+        .safeAreaInset(edge: .bottom) {
             Button("Done") { dismiss() }
                 .buttonStyle(PrimaryButtonStyle())
                 .padding(.horizontal, EW.Space.screenMargin)
+                .padding(.vertical, EW.Space.three)
+                .background(EW.Color.appBackground)
         }
-        .padding(.vertical, EW.Space.seven)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("money-flow-result")
+    }
+
+    private var resultIcon: String {
+        switch resultState {
+        case .recorded: "checkmark.circle.fill"
+        case .pending: "clock.fill"
+        case .rejected, .draft, nil: "exclamationmark.circle.fill"
+        }
+    }
+
+    private var resultColor: Color {
+        switch resultState {
+        case .recorded: EW.Color.green600
+        case .pending: EW.Color.gold700
+        case .rejected, .draft, nil: EW.Color.red600
+        }
     }
 
     private var formIntro: String {
@@ -260,9 +287,12 @@ struct MoneyFlowView: View {
         case .accepted:
             resultState = .recorded
             resultMessage = "This virtual money event was accepted and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
-        case .pending:
+        case .pending(let event):
             resultState = .pending
-            resultMessage = "This parent action is queued locally. It is not included in the accepted balance until it syncs."
+            resultMessage = event.explanation
+        case .acceptedAwaitingReplica(let event):
+            resultState = .pending
+            resultMessage = event.explanation
         case .rejected(let event):
             resultState = .rejected
             resultMessage = event.rejectionReason ?? "This action was not recorded and did not change the accepted balance."
@@ -350,11 +380,17 @@ struct AllowanceView: View {
                         weekday: weekday,
                         startDate: startDate
                     )
-                    let accepted = await store.setAllowance(command)
-                    resultState = accepted ? .recorded : .rejected
-                    resultMessage = accepted
-                        ? "The weekly allowance plan was recorded. Its next occurrence is separate from an allowance event until your parent records it."
-                        : (store.errorMessage ?? "The allowance plan was not recorded.")
+                    _ = await store.setAllowance(command)
+                    let outcome = store.latestParentMutationOutcome ?? .notRecorded
+                    resultState = outcome.syncState
+                    switch outcome {
+                    case .recorded:
+                        resultMessage = "The weekly allowance plan was recorded. Its next occurrence is separate from an allowance event until your parent records it."
+                    case .waitingForCloud, .acceptedAwaitingReplica:
+                        resultMessage = outcome.message
+                    case .notRecorded:
+                        resultMessage = store.errorMessage ?? outcome.message
+                    }
                     showReview = false
                     showDraft = false
                 }
