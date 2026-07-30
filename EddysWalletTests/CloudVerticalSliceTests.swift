@@ -742,6 +742,138 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
     }
 
+    func testBackgroundRefreshDoesNotReplaySuspendedAcceptedMutation() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "background-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "background-entry"))
+        transport.suspend("POST", "/v1/wallet/deposits")
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+
+        let submission = Task {
+            await store.submit(
+                WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "background-accepted-key")
+            )
+        }
+        await transport.waitUntilSuspended()
+        store.handleAppBackgrounded()
+        for _ in 0..<5 { await Task.yield() }
+
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+        transport.resumeSuspendedRequest()
+
+        guard case .accepted = await submission.value else {
+            return XCTFail("the original suspended mutation should complete")
+        }
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertEqual(cloud.snapshot().activities.filter { $0.remoteID == "background-entry" }.count, 1)
+    }
+
+    func testBackgroundRefreshDoesNotReplaySuspendedDefinitiveRejection() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
+        transport.suspend("POST", "/v1/wallet/deposits")
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+
+        let submission = Task {
+            await store.submit(
+                WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "background-rejected-key")
+            )
+        }
+        await transport.waitUntilSuspended()
+        store.handleAppBackgrounded()
+        for _ in 0..<5 { await Task.yield() }
+
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+        transport.resumeSuspendedRequest()
+
+        guard case .rejected = await submission.value else {
+            return XCTFail("the original definitive result should remain rejected")
+        }
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+        XCTAssertFalse(store.needsCloudReview)
+    }
+
+    func testSuspendedAmbiguousAttemptAllowsOneReplayOnlyAfterCompletion() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "barrier-replay-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "barrier-replay-entry"))
+        transport.suspend("POST", "/v1/wallet/deposits")
+        transport.timeOutSuspendedResponse("POST", "/v1/wallet/deposits")
+
+        let submission = Task {
+            try await cloud.submit(
+                WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "barrier-replay-key")
+            )
+        }
+        await transport.waitUntilSuspended()
+        let overlappingRefresh = Task { try await cloud.refresh(for: .child) }
+        do {
+            _ = try await overlappingRefresh.value
+            XCTFail("the overlapping refresh must remain waiting")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+        }
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+
+        transport.resumeSuspendedRequest()
+        guard case .pending = try await submission.value else {
+            return XCTFail("the timed-out original attempt is ambiguous")
+        }
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+
+        _ = try await cloud.refresh(for: .parent)
+
+        let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
+        XCTAssertEqual(writes.count, 2)
+        XCTAssertEqual(writes[0].httpBody, writes[1].httpBody)
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["barrier-replay-key"])
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }), ["\"rev-2\""])
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testSessionInvalidationIgnoresLateAcceptanceUntilRelaunchReplay() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "session-replay-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "session-replay-entry"))
+        transport.suspend("POST", "/v1/wallet/deposits")
+
+        let submission = Task {
+            try await cloud.submit(
+                WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "session-replay-key")
+            )
+        }
+        await transport.waitUntilSuspended()
+        cloud.clearAuthentication()
+        transport.resumeSuspendedRequest()
+
+        guard case .pending = try await submission.value else {
+            return XCTFail("the late response must not settle an invalidated repository lifecycle")
+        }
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+        XCTAssertEqual(cloud.unsettledMutationPhase, .awaitingOutcome)
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+
+        let relaunchedLocal = try LocalWalletRepository(directory: directory)
+        let relaunched = CloudWalletRepository(
+            client: client(transport),
+            replica: relaunchedLocal,
+            lineageID: lineage,
+            revision: 2
+        )
+        _ = try await relaunched.refresh(for: .parent)
+
+        let writes = transport.requests.filter { $0.url?.path == "/v1/wallet/deposits" }
+        XCTAssertEqual(writes.count, 2)
+        XCTAssertEqual(writes[0].httpBody, writes[1].httpBody)
+        XCTAssertEqual(Set(writes.compactMap { $0.value(forHTTPHeaderField: "Idempotency-Key") }), ["session-replay-key"])
+        XCTAssertEqual(transport.committedMutationCount, 1)
+        XCTAssertFalse(relaunched.hasUnsettledMutation)
+        XCTAssertEqual(relaunched.snapshot().activities.filter { $0.remoteID == "session-replay-entry" }.count, 1)
+    }
+
     func testTimeoutBeforeReceiptCompletesOnlyOriginalRequestOnReplay() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
         transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "timeout-entry"), status: 201)
@@ -1573,6 +1705,7 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
     private var stubs: [String: [Stub]] = [:]
     private var droppedResponseKeys: Set<String> = []
     private var timedOutKeys: Set<String> = []
+    private var timedOutAfterSuspensionKeys: Set<String> = []
     private var suspendedKey: String?
     private var suspendedRequestContinuation: CheckedContinuation<Void, Never>?
     private var suspensionObservedContinuation: CheckedContinuation<Void, Never>?
@@ -1593,6 +1726,10 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
 
     func timeOutNextResponse(_ method: String, _ path: String) {
         timedOutKeys.insert("\(method) \(path)")
+    }
+
+    func timeOutSuspendedResponse(_ method: String, _ path: String) {
+        timedOutAfterSuspensionKeys.insert("\(method) \(path)")
     }
 
     func suspend(_ method: String, _ path: String) {
@@ -1640,6 +1777,9 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
                 suspendedRequestContinuation = continuation
                 suspensionObservedContinuation?.resume()
                 suspensionObservedContinuation = nil
+            }
+            if timedOutAfterSuspensionKeys.remove(key) != nil {
+                throw URLError(.timedOut)
             }
         }
         recordCommit(for: request, statusCode: stub.statusCode)

@@ -719,17 +719,23 @@ public final class WalletStore: ObservableObject {
                 sessionExpired = repository.hasConfiguredKid
                 if elevation != .none { deElevate() }
             }
-            if case .revisionConflict = error {
+            if case .revisionConflict = error,
+               generation == refreshGeneration,
+               elevation == .active {
                 // Another device moved first: nothing was recorded here, and the
                 // parent reviews the refreshed balance before retrying.
                 needsCloudReview = true
                 Task { [weak self] in await self?.refresh() }
             }
-            if case .revisionRequired = error {
+            if case .revisionRequired = error,
+               generation == refreshGeneration,
+               elevation == .active {
                 needsCloudReview = true
                 Task { [weak self] in await self?.refresh() }
             }
-            if case .cloudEntitlementRequired = error {
+            if case .cloudEntitlementRequired = error,
+               generation == refreshGeneration,
+               elevation == .active {
                 cloudEntitlement = cloudCoordinator?.entitlement ?? .expired
             }
             let event = WalletEvent(
