@@ -44,6 +44,15 @@ final class EvidenceCaptureUITests: XCTestCase {
         try? screenshot.pngRepresentation.write(to: url)
     }
 
+    private func capture(_ name: String, element: XCUIElement) {
+        guard let evidenceDirectory else { return }
+        let screenshot = element.screenshot()
+        try? FileManager.default.createDirectory(at: evidenceDirectory, withIntermediateDirectories: true)
+        let idiom = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        let url = evidenceDirectory.appendingPathComponent("\(name)-\(idiom).png")
+        try? screenshot.pngRepresentation.write(to: url)
+    }
+
     private func captureBrandPlacement(_ name: String) throws {
         guard let evidenceDirectory else { return }
         let screenshot = XCUIScreen.main.screenshot()
@@ -127,6 +136,32 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(expiredCloudCard.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Cloud ended. You can keep using the wallet on this device. Nothing was deleted."].exists)
         capture("cloud-expired-local-fallback")
+    }
+
+    func testPurchaseFailureAttributionTour() throws {
+        var app = launch("cloud-purchase-store-error")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+        let storeError = app.staticTexts["cloud-purchase-store-error"]
+        for _ in 0..<4 where !storeError.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(storeError.waitForExistence(timeout: 5))
+        XCTAssertEqual(storeError.label, "The App Store could not finish confirming that purchase. Cloud is still off, and your wallet is unchanged.")
+        XCTAssertFalse(app.staticTexts["cloud-purchase-rejected"].exists)
+        capture("cloud-purchase-app-store-error", element: app.descendants(matching: .any)["cloud-backup-sync-card"])
+
+        app = launch("cloud-purchase-server-rejected")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+        let serverRejected = app.staticTexts["cloud-purchase-rejected"]
+        for _ in 0..<4 where !serverRejected.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(serverRejected.waitForExistence(timeout: 5))
+        XCTAssertEqual(serverRejected.label, "That plan could not be confirmed, so Cloud is still off. Your wallet is unchanged.")
+        XCTAssertFalse(app.staticTexts["cloud-purchase-store-error"].exists)
+        capture("cloud-purchase-server-rejected", element: app.descendants(matching: .any)["cloud-backup-sync-card"])
     }
 
     func testStoreKitDiagnosticsTour() throws {

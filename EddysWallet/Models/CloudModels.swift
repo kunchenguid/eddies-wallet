@@ -64,6 +64,7 @@ public enum PurchaseAttemptState: Equatable, Sendable {
     case pending
     case cancelled
     case clientUnverified
+    case storeClientError
     case serverVerifying
     case serverPending
     case serverRejected(correlationID: String?)

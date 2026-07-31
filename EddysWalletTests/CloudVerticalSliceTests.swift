@@ -1,4 +1,5 @@
 import Foundation
+import StoreKit
 import XCTest
 @testable import EddysWallet
 
@@ -1564,6 +1565,164 @@ final class CloudVerticalSliceTests: XCTestCase {
         for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
         return store
     }
+}
+
+@MainActor
+final class CloudSubscriptionStoreTests: XCTestCase {
+    private let session = AuthSession(token: "synthetic-session", expiresAt: .distantFuture)
+    private let accountToken = UUID()
+
+    func testPurchaseStoreKitThrowRecoversVerifiedCurrentEntitlementAndDeliversIt() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        operations.purchaseResult = .failure(StubCloudStoreKitError.purchaseFailed)
+        operations.entitlements = [transaction()]
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.purchase(productID: CloudProductID.monthly, accountToken: accountToken)
+
+        XCTAssertEqual(store.state, .verifiedPaid)
+        XCTAssertEqual(operations.purchaseCallCount, 1)
+        XCTAssertEqual(operations.currentEntitlementsCallCount, 1)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+    }
+
+    func testUnknownPurchaseResultRecoversVerifiedCurrentEntitlement() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        operations.purchaseResult = .success(.unknown)
+        operations.entitlements = [transaction()]
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.purchase(productID: CloudProductID.monthly, accountToken: accountToken)
+
+        XCTAssertEqual(store.state, .verifiedPaid)
+        XCTAssertEqual(operations.currentEntitlementsCallCount, 1)
+    }
+
+    func testRestoreStoreKitErrorRecoversVerifiedCurrentEntitlement() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        operations.syncError = StubCloudStoreKitError.syncFailed
+        operations.entitlements = [transaction()]
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.restorePurchases()
+
+        XCTAssertEqual(store.state, .verifiedPaid)
+        XCTAssertEqual(operations.syncCallCount, 1)
+        XCTAssertEqual(operations.currentEntitlementsCallCount, 1)
+    }
+
+    func testStoreKitFailureWithoutCurrentEntitlementUsesClientError() async {
+        let transport = RoutingTransport()
+        let operations = StubCloudStoreKitOperations()
+        operations.purchaseResult = .failure(StubCloudStoreKitError.purchaseFailed)
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.purchase(productID: CloudProductID.monthly, accountToken: accountToken)
+
+        XCTAssertEqual(store.state, .storeClientError)
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/cloud/transactions" })
+    }
+
+    func testBackendFourHundredRemainsServerRejected() async {
+        let transport = RoutingTransport()
+        transport.stub(
+            "POST",
+            "/v1/cloud/transactions",
+            Data("""
+            {"error":{"code":"STORE_TRANSACTION_REJECTED","message":"Rejected by service"}}
+            """.utf8),
+            status: 403
+        )
+        let operations = StubCloudStoreKitOperations()
+        operations.purchaseResult = .success(.success(transaction()))
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.purchase(productID: CloudProductID.monthly, accountToken: accountToken)
+
+        XCTAssertEqual(store.state, .serverRejected(correlationID: nil))
+    }
+
+    func testConcurrentRecoveryWaitsForSingleDeliveryToComplete() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.suspend("POST", "/v1/cloud/transactions")
+        let operations = StubCloudStoreKitOperations()
+        operations.entitlements = [transaction()]
+        let store = makeStore(transport: transport, operations: operations)
+
+        let firstRecovery = Task { await store.recoverCurrentEntitlements() }
+        await transport.waitUntilSuspended()
+
+        var concurrentRecoveryFinished = false
+        let concurrentRecovery = Task {
+            let recovered = await store.recoverCurrentEntitlements()
+            concurrentRecoveryFinished = true
+            return recovered
+        }
+        await Task.yield()
+
+        XCTAssertFalse(concurrentRecoveryFinished)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+
+        transport.resumeSuspendedRequest()
+        let initialRecovery = await firstRecovery.value
+        XCTAssertTrue(initialRecovery)
+        let coalescedRecovery = await concurrentRecovery.value
+        XCTAssertTrue(coalescedRecovery)
+        XCTAssertTrue(concurrentRecoveryFinished)
+        let completedRecovery = await store.recoverCurrentEntitlements()
+        XCTAssertTrue(completedRecovery)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+    }
+
+    private func transaction() -> CloudStoreKitTransaction {
+        CloudStoreKitTransaction(productID: CloudProductID.monthly, jwsRepresentation: "synthetic.signed.transaction")
+    }
+
+    private func makeStore(transport: RoutingTransport, operations: StubCloudStoreKitOperations) -> CloudSubscriptionStore {
+        let client = CloudAPIClient(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: session),
+            transport: transport
+        )
+        return CloudSubscriptionStore(client: client, storeKit: operations, observeTransactions: false)
+    }
+}
+
+@MainActor
+private final class StubCloudStoreKitOperations: CloudStoreKitOperations {
+    var purchaseResult: Result<CloudStoreKitPurchaseResult, Error> = .failure(StubCloudStoreKitError.purchaseFailed)
+    var entitlements: [CloudStoreKitTransaction] = []
+    var syncError: Error?
+    private(set) var purchaseCallCount = 0
+    private(set) var currentEntitlementsCallCount = 0
+    private(set) var syncCallCount = 0
+
+    func purchase(productID _: String, product _: Product?, accountToken _: UUID) async throws -> CloudStoreKitPurchaseResult {
+        purchaseCallCount += 1
+        return try purchaseResult.get()
+    }
+
+    func currentEntitlements() async -> [CloudStoreKitTransaction] {
+        currentEntitlementsCallCount += 1
+        return entitlements
+    }
+
+    func sync() async throws {
+        syncCallCount += 1
+        if let syncError { throw syncError }
+    }
+}
+
+private enum StubCloudStoreKitError: Error {
+    case purchaseFailed
+    case syncFailed
 }
 
 // MARK: - Fixtures and stubs
