@@ -1648,7 +1648,7 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         XCTAssertEqual(store.state, .serverRejected(correlationID: nil))
     }
 
-    func testConcurrentAndCompletedRecoveryDeliverTransactionOnlyOnce() async {
+    func testConcurrentRecoveryWaitsForSingleDeliveryToComplete() async {
         let transport = RoutingTransport()
         transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
         transport.suspend("POST", "/v1/cloud/transactions")
@@ -1659,13 +1659,23 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         let firstRecovery = Task { await store.recoverCurrentEntitlements() }
         await transport.waitUntilSuspended()
 
-        let concurrentRecovery = await store.recoverCurrentEntitlements()
-        XCTAssertTrue(concurrentRecovery)
+        var concurrentRecoveryFinished = false
+        let concurrentRecovery = Task {
+            let recovered = await store.recoverCurrentEntitlements()
+            concurrentRecoveryFinished = true
+            return recovered
+        }
+        await Task.yield()
+
+        XCTAssertFalse(concurrentRecoveryFinished)
         XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
 
         transport.resumeSuspendedRequest()
         let initialRecovery = await firstRecovery.value
         XCTAssertTrue(initialRecovery)
+        let coalescedRecovery = await concurrentRecovery.value
+        XCTAssertTrue(coalescedRecovery)
+        XCTAssertTrue(concurrentRecoveryFinished)
         let completedRecovery = await store.recoverCurrentEntitlements()
         XCTAssertTrue(completedRecovery)
         XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)

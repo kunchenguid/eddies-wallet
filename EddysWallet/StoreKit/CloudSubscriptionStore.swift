@@ -95,6 +95,7 @@ public final class CloudSubscriptionStore: ObservableObject {
     private let storeKit: any CloudStoreKitOperations
     private var updateTask: Task<Void, Never>?
     private var deliveriesInFlight: Set<String> = []
+    private var deliveryWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var completedDeliveries: Set<String> = []
 
     public init(client: CloudAPIClient, observeTransactions: Bool = true) {
@@ -222,9 +223,14 @@ public final class CloudSubscriptionStore: ObservableObject {
 
     private func deliver(_ transaction: CloudStoreKitTransaction) async {
         let jws = transaction.jwsRepresentation
-        guard !deliveriesInFlight.contains(jws), !completedDeliveries.contains(jws) else { return }
+        guard !completedDeliveries.contains(jws) else { return }
+        if deliveriesInFlight.contains(jws) {
+            await withCheckedContinuation { continuation in
+                deliveryWaiters[jws, default: []].append(continuation)
+            }
+            return
+        }
         deliveriesInFlight.insert(jws)
-        defer { deliveriesInFlight.remove(jws) }
         state = .serverVerifying
         do {
             let context = try await client.deliver(transactionJWS: jws)
@@ -263,6 +269,11 @@ public final class CloudSubscriptionStore: ObservableObject {
             }
         } catch {
             state = .serverPending
+        }
+        deliveriesInFlight.remove(jws)
+        let waiters = deliveryWaiters.removeValue(forKey: jws) ?? []
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 }
