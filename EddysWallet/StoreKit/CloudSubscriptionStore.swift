@@ -94,6 +94,8 @@ public final class CloudSubscriptionStore: ObservableObject {
     private let client: CloudAPIClient
     private let storeKit: any CloudStoreKitOperations
     private var updateTask: Task<Void, Never>?
+    private var deliveriesInFlight: Set<String> = []
+    private var completedDeliveries: Set<String> = []
 
     public init(client: CloudAPIClient, observeTransactions: Bool = true) {
         self.client = client
@@ -219,9 +221,14 @@ public final class CloudSubscriptionStore: ObservableObject {
     }
 
     private func deliver(_ transaction: CloudStoreKitTransaction) async {
+        let jws = transaction.jwsRepresentation
+        guard !deliveriesInFlight.contains(jws), !completedDeliveries.contains(jws) else { return }
+        deliveriesInFlight.insert(jws)
+        defer { deliveriesInFlight.remove(jws) }
         state = .serverVerifying
         do {
-            let context = try await client.deliver(transactionJWS: transaction.jwsRepresentation)
+            let context = try await client.deliver(transactionJWS: jws)
+            completedDeliveries.insert(jws)
             lastVerifiedContext = context
             switch context.entitlementState {
             case .active, .billingGrace:
@@ -241,9 +248,11 @@ public final class CloudSubscriptionStore: ObservableObject {
         } catch let error as WalletAPIError {
             switch error {
             case .server(let status, _, _) where status == 202:
+                completedDeliveries.insert(jws)
                 // Accepted but not yet verified: pending, never finished.
                 state = .serverPending
             case .server(let status, _, _) where (400..<500).contains(status):
+                completedDeliveries.insert(jws)
                 state = .serverRejected(correlationID: nil)
             case .unauthorized, .noSession:
                 state = .serverRejected(correlationID: nil)

@@ -1648,6 +1648,29 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         XCTAssertEqual(store.state, .serverRejected(correlationID: nil))
     }
 
+    func testConcurrentAndCompletedRecoveryDeliverTransactionOnlyOnce() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.suspend("POST", "/v1/cloud/transactions")
+        let operations = StubCloudStoreKitOperations()
+        operations.entitlements = [transaction()]
+        let store = makeStore(transport: transport, operations: operations)
+
+        let firstRecovery = Task { await store.recoverCurrentEntitlements() }
+        await transport.waitUntilSuspended()
+
+        let concurrentRecovery = await store.recoverCurrentEntitlements()
+        XCTAssertTrue(concurrentRecovery)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+
+        transport.resumeSuspendedRequest()
+        let initialRecovery = await firstRecovery.value
+        XCTAssertTrue(initialRecovery)
+        let completedRecovery = await store.recoverCurrentEntitlements()
+        XCTAssertTrue(completedRecovery)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+    }
+
     private func transaction() -> CloudStoreKitTransaction {
         CloudStoreKitTransaction(productID: CloudProductID.monthly, jwsRepresentation: "synthetic.signed.transaction")
     }
