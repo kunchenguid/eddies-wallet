@@ -2,7 +2,7 @@
 
 This file records the App Store Connect state that exists today for `com.kunchenguid.eddieswallet`, so a future change does not re-request setup that is already done or drift the app's product identifiers away from the store.
 
-It is a record of configuration, not a claim of product readiness. Nothing here asserts that a purchase, a Sandbox transaction, backend receipt verification, a TestFlight build, or App Review has succeeded. See "What is deliberately not done" below.
+It is a record of configuration and the live evidence boundary, not a claim of product readiness. One Sandbox purchase through TestFlight reached Apple and the backend notification path, but complete client transaction delivery and Cloud activation remain unproven. See "Live Sandbox evidence and remaining boundaries" below.
 
 ## Shared Apple account
 
@@ -43,7 +43,7 @@ Three review-preparation items cannot be completed truthfully from this reposito
 
 Guideline 3.1.2 also requires the in-app purchase surface itself to show subscription title, length, and price alongside links to the privacy policy and the terms of use. `CloudStatusView` shows title, price, and period today; the two links remain blocked on the captain's decisions about those published destinations.
 
-The notification URL points at the private backend route `POST /v1/app-store/notifications`. That route exists but stays dark until the backend's In-App Purchase configuration is installed, so Apple's notifications are addressed but not yet consumed.
+The notification URL points at the private backend route `POST /v1/app-store/notifications`. A live Sandbox notification has reached that route, passed the backend's App Store verification, and been persisted.
 
 The backend also needs this app's non-secret identifiers as ordinary host configuration, not as secrets: the app Apple ID above and the Cloud subscription group id below, alongside the issuer and key identifiers of the In-App Purchase key.
 
@@ -85,21 +85,24 @@ The accepted product is $2.99 charged each month on a monthly subscription and $
 
 `EddysWallet/Configuration/EddysWallet.storekit` must keep matching the store: same product IDs, same periods, same prices, Family Sharing off, and no introductory offer. `EddysWalletTests/CloudStoreConfigurationTests.swift` enforces that, and `EddysWallet/Models/CloudModels.swift` holds the product IDs the client requests at runtime. Changing a price or adding a trial in one place only is a drift bug.
 
-## What is deliberately not done
+## Live Sandbox evidence and remaining boundaries
 
-None of the following has happened, and this file must not be edited to imply otherwise without evidence:
+A captain-supplied live report proves one narrow Sandbox/TestFlight path: Apple completed the purchase, Apple's server notification passed the live backend verifier and persisted, and the app made no transaction-delivery request. This does not prove client delivery, backend-projected entitlement recovery, Cloud activation, backup, sync, renewal, or production purchase behavior.
 
-- No purchase, renewal, grace, expiry, refund, or revocation has been exercised in Sandbox or production.
-- No backend receipt or transaction verification has run. The backend's App Store Server API credential is not installed on the host yet. The credential itself already exists and is held in the captain's secret manager, so no new key is needed and none should be requested; a separate backend task installs it. That credential is a distinct **In-App Purchase** key: the App Store Connect API key used for uploads is a different key class, and the App Store Server API rejects the upload key.
-- No Sandbox purchase testing has run. A Sandbox Apple Account exists and its credentials are captain-held; exercising it is deliberately deferred to a captain-triggered pass after a build reaches TestFlight. App Store Connect's API can list, modify, and clear purchase history for sandbox testers but cannot create one; that is console-only.
+The client recovery and error-attribution contract is owned by [`EddysWallet/README.md`](../EddysWallet/README.md).
+
+The following remain deliberately unproven or undone:
+
+- No successful client transaction-delivery request or Cloud activation has been exercised live.
+- No renewal, grace, expiry, refund, or revocation has been exercised in Sandbox or production.
+- The backend's In-App Purchase credential is installed and has verified the observed Sandbox notification. It remains distinct from the App Store Connect API key used for uploads; no new key is needed and none should be requested.
 - This App Store Connect configuration work did not cut a TestFlight build or merge release pull request 26. That pull request remains open and captain-owned; this task-scoped boundary does not negate the TestFlight uploads App Store Connect has already accepted for this app.
 - No submission for App Review, and no request for Apple's test notification.
-- The in-app Cloud surface still renders its guarded state, because the backend Cloud path is intentionally off.
 - No build is attached to the App Store version record, no App Store listing screenshots exist, and no App Review submission object has been created.
 
 ### The guarded state is not a product-discovery failure
 
-The in-app note "Cloud plans are unavailable right now" is selected by the **backend** capability branch, not by StoreKit. `CloudSubscriptionStore.loadProducts()` reads `/v1/capabilities` first and returns before asking StoreKit for anything, so while the service is dark the app never issues a product query at all. A screenshot of that note therefore says nothing about whether Apple's catalog resolves the two products.
+The in-app note "Cloud plans are unavailable right now" is selected by the **backend** capability branch, not by StoreKit. `CloudSubscriptionStore.loadProducts()` reads `/v1/capabilities` first and returns before asking StoreKit for anything when activation is unavailable. A screenshot of that note therefore says nothing about whether Apple's catalog resolves the two products.
 
 Product discovery is proven separately, and independently of the backend: `testDebugStoreKitDiagnosticsProvesTheExactCloudProductsAndPrices` drives the Debug-only diagnostics surface, which talks only to StoreKit. Under `xcodebuild` that resolves the **live App Store catalog** rather than the checked-in configuration file, and `ci.yml` runs it on every release tag, so each candidate tag carries its own live proof of both product identifiers, both localized prices, both periods, and Family Sharing being off.
 

@@ -1,6 +1,6 @@
 # Eddie's Wallet
 
-Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and iPad: a calm, parent-managed pretend wallet that helps one child practice allowance, spending, borrowing, and repayment. This repository exists so you can read the source, build it in the iOS Simulator, and follow the accompanying code walkthrough. It is **not** an installable download, an App Store product, or a live, end-to-end-verified financial service.
+Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and iPad: a calm, parent-managed pretend wallet that helps one child practice allowance, spending, borrowing, and repayment. This repository exists so you can read the source, build it in the iOS Simulator, and follow the accompanying code walkthrough. It is **not** a public download, an App Store product, or a live, end-to-end-verified financial service.
 
 **Every dollar the app displays is virtual, pretend, and nonredeemable. No real money ever moves through Eddie's Wallet.** There are no banks, cards, payment rails, or cash-out paths. One signed-in parent records every change (allowance, deposits, withdrawals, loans, repayments). The managed child profile is a read-only view: the child has no independent account, login, or way to change the wallet.
 
@@ -15,7 +15,7 @@ Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and i
 - A copied web design system and click-through prototype, packaged as the `eddies-wallet-design` agent skill under `.agents/skills/eddies-wallet-design/`, kept as visual reference material; the native app is the maintained implementation.
 - A `0.1.0` source release and `eddies-wallet-v0.1.0` tag, with release notes in `CHANGELOG.md`.
 
-What does not exist: an App Store listing, a privacy manifest, verified live sign-in, or committed evidence of an installable TestFlight build. See [Known limitations](#known-limitations).
+What does not exist: an App Store listing, a privacy manifest, verified live sign-in, or a public release. See [Known limitations](#known-limitations).
 
 ## Getting started
 
@@ -49,7 +49,7 @@ If your installed simulator runtime differs, substitute any available iPhone des
 
 ## Architecture boundary
 
-This repository contains only the client. A complete free wallet is stored locally on one device in protected Core Data, where it is the accepted authority. The optional Cloud design uses a separately maintained, privately operated service through a small versioned HTTP API; its source, operations, and credentials are not part of this repository. `LocalWalletRepository` owns free-local data, while the Cloud client keeps server authority for Cloud households. StoreKit and live Cloud activation are under development, so this repository makes no claim that a subscription is purchasable, backed up, synced, or TestFlight-verified. Details are in [`EddysWallet/README.md`](EddysWallet/README.md).
+This repository contains only the client. A complete free wallet is stored locally on one device in protected Core Data, where it is the accepted authority. The optional Cloud design uses a separately maintained, privately operated service through a small versioned HTTP API; its source, operations, and credentials are not part of this repository. `LocalWalletRepository` owns free-local data, while the Cloud client keeps server authority for Cloud households. StoreKit and live Cloud activation are under development and are not proven end to end. The authoritative live StoreKit and backend evidence boundary is in [`docs/app-store-configuration.md`](docs/app-store-configuration.md); client behavior is detailed in [`EddysWallet/README.md`](EddysWallet/README.md).
 
 ## Project layout
 
@@ -65,7 +65,7 @@ This repository contains only the client. A complete free wallet is stored local
 ## Known limitations
 
 - This is an unfinished MVP. Live Apple sign-in, first-run free-wallet setup with a real parent identity, the legacy service-wallet flow, and optional Cloud have **not** been verified end to end; verification so far covers local builds, the test suite, and synthetic UI scenarios.
-- The `0.1.0` source release exists, but there is no verified downloadable or App Store-ready build: no privacy manifest, signed archive evidence, verified TestFlight upload, purchasable StoreKit product, or live Cloud evidence is committed here. The [App Store Connect configuration record](docs/app-store-configuration.md) distinguishes completed store setup from the work that remains deliberately unproven.
+- The `0.1.0` source release exists, but there is no public download or App Store-ready build. The [App Store Connect configuration record](docs/app-store-configuration.md) owns the exact live StoreKit, TestFlight, and backend evidence boundary and distinguishes that narrow proof from complete Cloud activation.
 - Pull requests run a credential-free build-and-test workflow on GitHub Actions; everything else about verification remains local evidence.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.
 - The `.agents/skills/eddies-wallet-design/` prototype is unmaintained reference material and may not run as-is.
