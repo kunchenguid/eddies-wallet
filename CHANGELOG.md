@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.5](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.4...eddies-wallet-v0.1.5) (2026-07-31)
+
+
+### Features
+
+* **EddysWallet:** add session-aware Cloud capability reads ([#33](https://github.com/kunchenguid/eddies-wallet/issues/33)) ([3ac50e6](https://github.com/kunchenguid/eddies-wallet/commit/3ac50e67789af0b50fda5c72e4aefcba0909b960))
+
+
+### Bug Fixes
+
+* **EddysWallet:** preserve wallet after superseded Cloud reads ([#35](https://github.com/kunchenguid/eddies-wallet/issues/35)) ([84672a1](https://github.com/kunchenguid/eddies-wallet/commit/84672a1a4e174608323310d67e0cd96815afcab1))
+
 ## [0.1.4](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.3...eddies-wallet-v0.1.4) (2026-07-30)
 
 
