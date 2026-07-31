@@ -6,7 +6,14 @@ name: CI
 # this repository is public, so macOS runner minutes are free and pull requests
 # get the same build-and-test gate.
 on:
+  # release-please opens its release PR with GITHUB_TOKEN, which creates a
+  # pull_request run that can only sit in action_required. Its output set is
+  # exactly these three files, so excluding them means no run is ever created.
   pull_request:
+    paths-ignore:
+      - .release-please-manifest.json
+      - CHANGELOG.md
+      - version.txt
   push:
     tags:
       - 'eddies-wallet-v*'
