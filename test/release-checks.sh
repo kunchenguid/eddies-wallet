@@ -488,8 +488,8 @@ require_grep 'automatic signing regenerate a development certificate' docs/relea
 require_grep 'READY_TO_SUBMIT' "$APP_STORE_DOC" "App Store configuration record states the product state"
 require_grep 'SIXTEEN_DAYS' "$APP_STORE_DOC" "App Store configuration record states the billing grace period"
 require_grep '/v1/app-store/notifications' "$APP_STORE_DOC" "App Store configuration record states the notification route"
-require_grep 'What is deliberately not done' "$APP_STORE_DOC" \
-  "App Store configuration record keeps its unproven-state disclaimer"
+require_grep 'Live Sandbox evidence and remaining boundaries' "$APP_STORE_DOC" \
+  "App Store configuration record keeps its live evidence boundary"
 forbid_grep 'submitted for App Review|purchase succeeded|Sandbox purchase verified' "$APP_STORE_DOC" \
   "App Store configuration record claims no purchase, Sandbox, or App Review success"
 
