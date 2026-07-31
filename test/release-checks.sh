@@ -80,6 +80,106 @@ require_grep '^  pull_request:$' .github/workflows/ci.yml "ci.yml validates pull
 require_grep '^  contents: read$' .github/workflows/ci.yml "ci.yml permissions are contents: read"
 forbid_grep '^[[:space:]]*(contents|actions|pull-requests|id-token|packages): write' .github/workflows/ci.yml "ci.yml grants no write permission"
 
+# --- release PR must create no CI run --------------------------------------
+# release-please opens its PR with GITHUB_TOKEN, which can only produce
+# action_required pull_request runs. Every path it writes must stay inside
+# ci.yml's pull_request.paths-ignore so no run is created.
+#
+# Expected outputs are derived from release-please-config.json (release-type,
+# changelog-path, version-file, extra-files) plus the manifest path from
+# release-please.yml, so the ignore contract cannot silently drift when the
+# strategy or extra-files change.
+if ci_event_shape_out="$(ruby -ryaml -e '
+  wf = YAML.load_file(".github/workflows/ci.yml")
+  # YAML parses a bare `on:` key as boolean true; accept either form.
+  on = wf[true] || wf["on"]
+  abort "ci.yml missing on: mapping" unless on.is_a?(Hash)
+  expected_keys = %w[pull_request push release workflow_dispatch]
+  actual_keys = on.keys.map(&:to_s)
+  unless actual_keys == expected_keys
+    abort "ci.yml on: keys drifted: expected #{expected_keys.inspect}, got #{actual_keys.inspect}"
+  end
+  push = on["push"]
+  unless push.is_a?(Hash) && push["tags"] == ["eddies-wallet-v*"] && push.keys.map(&:to_s) == ["tags"]
+    abort "ci.yml push trigger must remain tags-only eddies-wallet-v* (got #{push.inspect})"
+  end
+  release = on["release"]
+  unless release.is_a?(Hash) && release["types"] == ["published"]
+    abort "ci.yml release trigger must remain types: [published] (got #{release.inspect})"
+  end
+  unless on["workflow_dispatch"].is_a?(Hash)
+    abort "ci.yml workflow_dispatch must remain a mapping"
+  end
+  pr = on["pull_request"]
+  unless pr.is_a?(Hash)
+    abort "ci.yml pull_request must be a mapping with paths-ignore"
+  end
+  if pr.key?("paths")
+    abort "ci.yml pull_request must not combine paths with paths-ignore"
+  end
+  ignore = pr["paths-ignore"]
+  unless ignore.is_a?(Array) && !ignore.empty?
+    abort "ci.yml pull_request.paths-ignore must be a non-empty array"
+  end
+  puts "keys=#{actual_keys.join(",")} ignore=#{ignore.join(",")}"
+')"; then
+  pass "ci.yml pull_request event shape preserves non-PR triggers ($ci_event_shape_out)"
+else
+  fail "ci.yml pull_request event shape preserves non-PR triggers: $ci_event_shape_out"
+fi
+
+if release_ci_ignore_out="$(ruby -ryaml -rjson -e '
+  config = JSON.parse(File.read("release-please-config.json"))
+  pkg = config.fetch("packages").fetch(".")
+  release_type = pkg["release-type"] || config["release-type"] || "node"
+  changelog = pkg["changelog-path"] || config["changelog-path"] || "CHANGELOG.md"
+
+  expected = [changelog]
+  case release_type
+  when "simple"
+    expected << (pkg["version-file"] || config["version-file"] || "version.txt")
+  when "node"
+    expected << "package.json"
+    expected << "package-lock.json" if File.exist?("package-lock.json")
+  when "go"
+    # changelog only by default
+  else
+    abort "unsupported release-please release-type for ignore derivation: #{release_type}"
+  end
+
+  extra = pkg["extra-files"] || config["extra-files"] || []
+  extra.each do |entry|
+    path = entry.is_a?(Hash) ? entry["path"] : entry
+    expected << path if path && !path.to_s.empty?
+  end
+
+  # Manifest path is authoritative from the release-please workflow input.
+  manifest = ".release-please-manifest.json"
+  File.read(".github/workflows/release-please.yml").scan(/manifest-file:\s*(\S+)/) do |m|
+    manifest = m[0]
+  end
+  expected << manifest
+  expected = expected.map(&:to_s).uniq
+
+  wf = YAML.load_file(".github/workflows/ci.yml")
+  on = wf[true] || wf["on"] || {}
+  pr = on["pull_request"] || {}
+  ignore = Array(pr["paths-ignore"]).map(&:to_s)
+  missing = expected.reject { |path| ignore.include?(path) }
+  if missing.empty?
+    puts "ignore covers #{expected.join(",")}"
+    exit 0
+  end
+  abort "ci.yml pull_request.paths-ignore missing release-please outputs: #{missing.join(", ")} (expected #{expected.join(", ")}; have #{ignore.join(", ")})"
+')"; then
+  pass "ci.yml pull_request ignores every config-derived release-please output ($release_ci_ignore_out)"
+else
+  fail "ci.yml pull_request ignores every config-derived release-please output: $release_ci_ignore_out"
+fi
+
+require_grep '"release-type": "simple"' release-please-config.json \
+  "release-please still uses the simple strategy (output set: CHANGELOG.md, version.txt, manifest)"
+
 # The secret-bearing release workflow must be reachable only from a trusted
 # eddies-wallet-v* tag, a published release, or an explicit tag dispatch.
 forbid_grep '^  pull_request:' .github/workflows/release.yml "release.yml has no pull_request trigger"
