@@ -139,6 +139,8 @@ struct CloudStatusView: View {
             purchaseNote("That plan could not be confirmed, so Cloud is still off. Your wallet is unchanged.", identifier: "cloud-purchase-rejected")
         case .clientUnverified:
             purchaseNote("The App Store could not verify that purchase, so Cloud stays off.", identifier: "cloud-purchase-unverified")
+        case .storeClientError:
+            purchaseNote("The App Store could not finish confirming that purchase. Cloud is still off, and your wallet is unchanged.", identifier: "cloud-purchase-store-error")
         case .cancelled:
             purchaseNote("Purchase cancelled. Nothing changed.", identifier: "cloud-purchase-cancelled")
         case .activationConflict:

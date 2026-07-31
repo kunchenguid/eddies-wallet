@@ -2,6 +2,88 @@ import Foundation
 import StoreKit
 
 @MainActor
+protocol CloudStoreKitOperations {
+    func purchase(productID: String, product: Product?, accountToken: UUID) async throws -> CloudStoreKitPurchaseResult
+    func currentEntitlements() async -> [CloudStoreKitTransaction]
+    func sync() async throws
+}
+
+enum CloudStoreKitPurchaseResult {
+    case success(CloudStoreKitTransaction)
+    case pending
+    case userCancelled
+    case clientUnverified
+    case unknown
+}
+
+@MainActor
+struct CloudStoreKitTransaction {
+    let productID: String
+    let jwsRepresentation: String
+    private let finish: () async -> Void
+
+    init(productID: String, jwsRepresentation: String, finish: @escaping () async -> Void = {}) {
+        self.productID = productID
+        self.jwsRepresentation = jwsRepresentation
+        self.finish = finish
+    }
+
+    func finishTransaction() async {
+        await finish()
+    }
+}
+
+@MainActor
+private struct SystemCloudStoreKitOperations: CloudStoreKitOperations {
+    func purchase(productID: String, product: Product?, accountToken: UUID) async throws -> CloudStoreKitPurchaseResult {
+        let selectedProduct: Product
+        if let product {
+            selectedProduct = product
+        } else if let resolved = try await Product.products(for: [productID]).first(where: { $0.id == productID }) {
+            selectedProduct = resolved
+        } else {
+            throw CloudStoreKitError.productUnavailable
+        }
+        switch try await selectedProduct.purchase(options: [.appAccountToken(accountToken)]) {
+        case .success(let verification):
+            guard case .verified(let transaction) = verification else { return .clientUnverified }
+            return .success(CloudStoreKitTransaction(
+                productID: transaction.productID,
+                jwsRepresentation: verification.jwsRepresentation,
+                finish: { await transaction.finish() }
+            ))
+        case .pending:
+            return .pending
+        case .userCancelled:
+            return .userCancelled
+        @unknown default:
+            return .unknown
+        }
+    }
+
+    func currentEntitlements() async -> [CloudStoreKitTransaction] {
+        var entitlements: [CloudStoreKitTransaction] = []
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result else { continue }
+            entitlements.append(CloudStoreKitTransaction(
+                productID: transaction.productID,
+                jwsRepresentation: result.jwsRepresentation,
+                finish: { await transaction.finish() }
+            ))
+        }
+        return entitlements
+    }
+
+    func sync() async throws {
+        try await AppStore.sync()
+    }
+}
+
+enum CloudStoreKitError: Error {
+    case productUnavailable
+}
+
+@MainActor
 public final class CloudSubscriptionStore: ObservableObject {
     @Published public private(set) var products: [Product] = []
     @Published public private(set) var state: PurchaseAttemptState = .idle
@@ -10,10 +92,19 @@ public final class CloudSubscriptionStore: ObservableObject {
     @Published public private(set) var lastVerifiedContext: CloudContext?
 
     private let client: CloudAPIClient
+    private let storeKit: any CloudStoreKitOperations
     private var updateTask: Task<Void, Never>?
 
     public init(client: CloudAPIClient, observeTransactions: Bool = true) {
         self.client = client
+        self.storeKit = SystemCloudStoreKitOperations()
+        guard observeTransactions else { return }
+        startObservingIfAuthenticated()
+    }
+
+    init(client: CloudAPIClient, storeKit: any CloudStoreKitOperations, observeTransactions: Bool = true) {
+        self.client = client
+        self.storeKit = storeKit
         guard observeTransactions else { return }
         startObservingIfAuthenticated()
     }
@@ -46,22 +137,31 @@ public final class CloudSubscriptionStore: ObservableObject {
     }
 
     public func purchase(_ product: Product, accountToken: UUID) async {
-        guard CloudProductID.all.contains(product.id) else { state = .productsUnavailable; return }
-        state = .purchasing(productID: product.id)
+        await purchase(productID: product.id, product: product, accountToken: accountToken)
+    }
+
+    func purchase(productID: String, accountToken: UUID) async {
+        await purchase(productID: productID, product: nil, accountToken: accountToken)
+    }
+
+    private func purchase(productID: String, product: Product?, accountToken: UUID) async {
+        guard CloudProductID.all.contains(productID) else { state = .productsUnavailable; return }
+        state = .purchasing(productID: productID)
         do {
-            switch try await product.purchase(options: [.appAccountToken(accountToken)]) {
-            case .success(let verification):
-                guard case .verified(let transaction) = verification else { state = .clientUnverified; return }
-                await deliver(transaction, jws: verification.jwsRepresentation)
+            switch try await storeKit.purchase(productID: productID, product: product, accountToken: accountToken) {
+            case .success(let transaction):
+                await deliver(transaction)
             case .pending:
                 state = .pending
             case .userCancelled:
                 state = .cancelled
-            @unknown default:
-                state = .serverRejected(correlationID: nil)
+            case .clientUnverified:
+                state = .clientUnverified
+            case .unknown:
+                await handleStoreKitFailure()
             }
         } catch {
-            state = .serverRejected(correlationID: nil)
+            await handleStoreKitFailure()
         }
     }
 
@@ -69,18 +169,29 @@ public final class CloudSubscriptionStore: ObservableObject {
     /// uses currentEntitlements and never prompts with AppStore.sync().
     public func restorePurchases() async {
         do {
-            try await AppStore.sync()
+            try await storeKit.sync()
             await recoverCurrentEntitlements()
         } catch {
-            state = .serverRejected(correlationID: nil)
+            await handleStoreKitFailure()
         }
     }
 
-    public func recoverCurrentEntitlements() async {
-        guard client.hasSession else { return }
-        for await result in Transaction.currentEntitlements {
-            guard case .verified(let transaction) = result, CloudProductID.all.contains(transaction.productID) else { continue }
-            await deliver(transaction, jws: result.jwsRepresentation)
+    @discardableResult
+    public func recoverCurrentEntitlements() async -> Bool {
+        guard client.hasSession else { return false }
+        var recovered = false
+        for transaction in await storeKit.currentEntitlements() {
+            guard CloudProductID.all.contains(transaction.productID) else { continue }
+            recovered = true
+            await deliver(transaction)
+        }
+        return recovered
+    }
+
+    private func handleStoreKitFailure() async {
+        let recovered = await recoverCurrentEntitlements()
+        if !recovered {
+            state = .storeClientError
         }
     }
 
@@ -89,26 +200,35 @@ public final class CloudSubscriptionStore: ObservableObject {
         // Retry delivery left unfinished by a prior interrupted launch before
         // subscribing to the long-lived update stream.
         for await result in Transaction.unfinished {
-            guard case .verified(let transaction) = result, CloudProductID.all.contains(transaction.productID) else { continue }
-            await deliver(transaction, jws: result.jwsRepresentation)
+            guard let transaction = verifiedStoreKitTransaction(from: result), CloudProductID.all.contains(transaction.productID) else { continue }
+            await deliver(transaction)
         }
         for await result in Transaction.updates {
-            guard case .verified(let transaction) = result, CloudProductID.all.contains(transaction.productID) else { continue }
-            await deliver(transaction, jws: result.jwsRepresentation)
+            guard let transaction = verifiedStoreKitTransaction(from: result), CloudProductID.all.contains(transaction.productID) else { continue }
+            await deliver(transaction)
         }
     }
 
-    private func deliver(_ transaction: Transaction, jws: String) async {
+    private func verifiedStoreKitTransaction(from result: VerificationResult<Transaction>) -> CloudStoreKitTransaction? {
+        guard case .verified(let transaction) = result else { return nil }
+        return CloudStoreKitTransaction(
+            productID: transaction.productID,
+            jwsRepresentation: result.jwsRepresentation,
+            finish: { await transaction.finish() }
+        )
+    }
+
+    private func deliver(_ transaction: CloudStoreKitTransaction) async {
         state = .serverVerifying
         do {
-            let context = try await client.deliver(transactionJWS: jws)
+            let context = try await client.deliver(transactionJWS: transaction.jwsRepresentation)
             lastVerifiedContext = context
             switch context.entitlementState {
             case .active, .billingGrace:
                 // Delivery means the backend projected an entitlement that
                 // grants Cloud. Only now may the transaction be finished.
                 state = .verifiedPaid
-                await transaction.finish()
+                await transaction.finishTransaction()
             case .verificationPending:
                 state = .serverPending
             case .none:
