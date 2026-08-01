@@ -1916,6 +1916,35 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         XCTAssertEqual(operations.currentEntitlementsCallCount, 3, "passive, immediate, and exactly one delayed sweep")
     }
 
+    func testRestoreEmptyDelayedRescanDoesNotClobberPreexistingUpdateDelivery() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.suspend("POST", "/v1/cloud/transactions")
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations, observeTransactions: true)
+        store.delayedRescanDelayNanoseconds = 500_000_000
+
+        await waitUntil("the updates listener subscribes") {
+            operations.updateEventsCallCount == 1
+        }
+        operations.yieldUpdate(.verified(transaction()))
+        await transport.waitUntilSuspended()
+
+        let restore = Task { await store.restorePurchases() }
+        await waitUntil("the immediate restore sweep finishes") {
+            operations.syncCallCount == 1 && operations.currentEntitlementsCallCount >= 2 && operations.statusCallCount >= 2
+        }
+        transport.resumeSuspendedRequest()
+        await waitUntil("the pre-existing update delivery activates Cloud") {
+            store.state == .verifiedPaid
+        }
+        await restore.value
+
+        XCTAssertEqual(store.state, .verifiedPaid)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+        XCTAssertEqual(operations.currentEntitlementsCallCount, 3, "passive, immediate, and exactly one delayed sweep")
+    }
+
     func testRestoreCancelledDuringDelayedRescanStopsCleanly() async {
         let transport = RoutingTransport()
         let operations = StubCloudStoreKitOperations()

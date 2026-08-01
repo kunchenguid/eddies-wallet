@@ -326,7 +326,7 @@ public final class CloudSubscriptionStore: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         if await recoverWithDiscovery(phase: .delayed) { return }
-        guard deliveryGeneration == startingDeliveryGeneration else { return }
+        guard deliveryGeneration == startingDeliveryGeneration, deliveriesInFlight.isEmpty else { return }
         state = .storeClientError
     }
 
@@ -472,6 +472,7 @@ public final class CloudSubscriptionStore: ObservableObject {
             state = .serverPending
             recoveryEvidence.recordDelivery(.network)
         }
+        deliveryGeneration &+= 1
         deliveriesInFlight.remove(jws)
         let waiters = deliveryWaiters.removeValue(forKey: jws) ?? []
         for waiter in waiters {
