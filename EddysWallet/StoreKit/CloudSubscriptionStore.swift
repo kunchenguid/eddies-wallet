@@ -218,6 +218,7 @@ public final class CloudSubscriptionStore: ObservableObject {
     private var deliveriesInFlight: Set<String> = []
     private var deliveryWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var completedDeliveries: Set<String> = []
+    private var deliveryGeneration = 0
 
     /// The one bounded wait between an empty post-sync sweep and its single
     /// delayed rescan. Injectable so tests stay deterministic.
@@ -307,6 +308,7 @@ public final class CloudSubscriptionStore: ObservableObject {
     /// exactly one bounded delayed rescan runs; only when both come back empty
     /// does the parent see the truthful App Store/client failure state.
     public func restorePurchases() async {
+        let startingDeliveryGeneration = deliveryGeneration
         do {
             try await storeKit.sync()
         } catch {
@@ -324,6 +326,7 @@ public final class CloudSubscriptionStore: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         if await recoverWithDiscovery(phase: .delayed) { return }
+        guard deliveryGeneration == startingDeliveryGeneration else { return }
         state = .storeClientError
     }
 
@@ -420,6 +423,7 @@ public final class CloudSubscriptionStore: ObservableObject {
             return
         }
         deliveriesInFlight.insert(jws)
+        deliveryGeneration &+= 1
         state = .serverVerifying
         do {
             let context = try await client.deliver(transactionJWS: jws)
