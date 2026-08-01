@@ -164,6 +164,28 @@ final class EvidenceCaptureUITests: XCTestCase {
         capture("cloud-purchase-server-rejected", element: app.descendants(matching: .any)["cloud-backup-sync-card"])
     }
 
+    func testCloudRecoveryDetailsTour() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+
+        let link = app.descendants(matching: .any)["cloud-recovery-details-link"]
+        for _ in 0..<10 where !link.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(link.waitForExistence(timeout: 5), "the local recovery readout is reachable from Parent > Cloud in every build")
+        link.tap()
+
+        XCTAssertTrue(app.staticTexts["Cloud recovery details"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Local diagnostics only.")).firstMatch.exists)
+        // Scripted states compose no Cloud stack, so the readout says so truthfully.
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Cloud recovery has not run")).firstMatch.exists)
+        // The safe readout never renders anything shaped like a payload or identifier.
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "signedTransaction")).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "jws")).firstMatch.exists)
+        capture("cloud-recovery-details")
+    }
+
     func testStoreKitDiagnosticsTour() throws {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))

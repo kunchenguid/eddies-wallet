@@ -64,6 +64,13 @@ struct CloudStatusView: View {
                 .font(EW.Font.caption)
                 .accessibilityIdentifier("cloud-storekit-diagnostics-link")
             #endif
+            // Local-only aggregate recovery outcomes, safe to show in every
+            // build including Release. Nothing sensitive can appear on it.
+            NavigationLink("Cloud recovery details") {
+                CloudRecoveryEvidenceView(subscriptions: store.cloudSubscriptionStore)
+            }
+                .font(EW.Font.caption)
+                .accessibilityIdentifier("cloud-recovery-details-link")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .ewCard(variant: .alt)
@@ -129,6 +136,24 @@ struct CloudStatusView: View {
         return "This wallet is saved only on this \(deviceNoun). Cloud adds backup and sync on devices using the same parent Apple account."
     }
 
+    /// The backend verified the delivered transaction and projected its real
+    /// non-granting state, so the copy names that state instead of claiming a
+    /// rejection.
+    static func entitlementNotActiveCopy(for entitlement: CloudEntitlementState) -> String {
+        switch entitlement {
+        case .expired:
+            "This Cloud plan has expired, so Cloud stays off. Your wallet is unchanged."
+        case .refunded:
+            "This Cloud plan was refunded, so Cloud stays off. Your wallet is unchanged."
+        case .revoked:
+            "The App Store revoked this Cloud plan, so Cloud stays off. Your wallet is unchanged."
+        case .billingRetry:
+            "The App Store is still trying to bill this Cloud plan. Cloud stays off for now, and your wallet is unchanged."
+        default:
+            "This Cloud plan is not active, so Cloud stays off. Your wallet is unchanged."
+        }
+    }
+
     @ViewBuilder private var purchaseStateCopy: some View {
         switch store.purchaseAttempt {
         case .pending:
@@ -141,6 +166,8 @@ struct CloudStatusView: View {
             purchaseNote("The App Store could not verify that purchase, so Cloud stays off.", identifier: "cloud-purchase-unverified")
         case .storeClientError:
             purchaseNote("The App Store could not finish confirming that purchase. Cloud is still off, and your wallet is unchanged.", identifier: "cloud-purchase-store-error")
+        case .entitlementNotActive(let entitlement):
+            purchaseNote(Self.entitlementNotActiveCopy(for: entitlement), identifier: "cloud-purchase-not-active")
         case .cancelled:
             purchaseNote("Purchase cancelled. Nothing changed.", identifier: "cloud-purchase-cancelled")
         case .activationConflict:

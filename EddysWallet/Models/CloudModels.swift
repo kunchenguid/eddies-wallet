@@ -69,6 +69,10 @@ public enum PurchaseAttemptState: Equatable, Sendable {
     case serverPending
     case serverRejected(correlationID: String?)
     case verifiedPaid
+    /// A verified transaction was delivered, but the backend projection does
+    /// not grant Cloud (expired, refunded, revoked, or billing retry). Always
+    /// rendered as that real state, never as a generic server rejection.
+    case entitlementNotActive(CloudEntitlementState)
     case activationConflict
 }
 

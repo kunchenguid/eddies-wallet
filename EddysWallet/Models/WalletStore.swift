@@ -807,6 +807,9 @@ public final class WalletStore: ObservableObject {
     /// Whether a parent surface may show Cloud purchase/restore controls at all.
     public var canOfferCloudPlans: Bool { !cloudPlans.isEmpty }
     public var needsCloudSignIn: Bool { cloudCoordinator?.hasSession == false }
+    /// The StoreKit coordinator backing the local Cloud recovery evidence
+    /// readout. Nil where Cloud was never composed (scripted UI-test states).
+    public var cloudSubscriptionStore: CloudSubscriptionStore? { cloudCoordinator?.subscriptionStore }
     public var canModifyWallet: Bool { repository.supportsRuntimeMutations }
     public var hasUnsettledCloudMutation: Bool {
         (repository as? any CloudMutationStatusProviding)?.hasUnsettledMutation == true

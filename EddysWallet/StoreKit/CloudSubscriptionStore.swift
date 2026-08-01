@@ -4,7 +4,12 @@ import StoreKit
 @MainActor
 protocol CloudStoreKitOperations {
     func purchase(productID: String, product: Product?, accountToken: UUID) async throws -> CloudStoreKitPurchaseResult
-    func currentEntitlements() async -> [CloudStoreKitTransaction]
+    func currentEntitlements() async -> CloudStoreKitScanOutcome
+    func latestTransactions() async -> CloudStoreKitScanOutcome
+    func transactionHistory() async -> CloudStoreKitScanOutcome
+    func subscriptionStatusTransactions() async -> CloudStoreKitScanOutcome
+    func unfinishedEvents() -> AsyncStream<CloudStoreKitStreamEvent>
+    func updateEvents() -> AsyncStream<CloudStoreKitStreamEvent>
     func sync() async throws
 }
 
@@ -31,6 +36,39 @@ struct CloudStoreKitTransaction {
     func finishTransaction() async {
         await finish()
     }
+}
+
+/// The aggregate result of scanning one passive StoreKit discovery surface:
+/// verified transactions, which are deliverable, and a count of unverified
+/// results, which are recorded for local diagnostics and never delivered.
+@MainActor
+struct CloudStoreKitScanOutcome {
+    private(set) var verified: [CloudStoreKitTransaction]
+    private(set) var unverifiedCount: Int
+
+    init(verified: [CloudStoreKitTransaction] = [], unverifiedCount: Int = 0) {
+        self.verified = verified
+        self.unverifiedCount = unverifiedCount
+    }
+
+    mutating func record(_ result: VerificationResult<Transaction>) {
+        switch result {
+        case .verified(let transaction):
+            verified.append(CloudStoreKitTransaction(
+                productID: transaction.productID,
+                jwsRepresentation: result.jwsRepresentation,
+                finish: { await transaction.finish() }
+            ))
+        case .unverified:
+            unverifiedCount += 1
+        }
+    }
+}
+
+/// One sighting on a long-lived StoreKit transaction stream.
+enum CloudStoreKitStreamEvent {
+    case verified(CloudStoreKitTransaction)
+    case unverified
 }
 
 @MainActor
@@ -61,21 +99,100 @@ private struct SystemCloudStoreKitOperations: CloudStoreKitOperations {
         }
     }
 
-    func currentEntitlements() async -> [CloudStoreKitTransaction] {
-        var entitlements: [CloudStoreKitTransaction] = []
+    func currentEntitlements() async -> CloudStoreKitScanOutcome {
+        var outcome = CloudStoreKitScanOutcome()
         for await result in Transaction.currentEntitlements {
-            guard case .verified(let transaction) = result else { continue }
-            entitlements.append(CloudStoreKitTransaction(
-                productID: transaction.productID,
-                jwsRepresentation: result.jwsRepresentation,
-                finish: { await transaction.finish() }
-            ))
+            outcome.record(result)
         }
-        return entitlements
+        return outcome
+    }
+
+    /// `Transaction.latest(for:)` yields the most recent transaction per
+    /// product even when it has expired - exactly the history shape current
+    /// entitlements cannot surface.
+    func latestTransactions() async -> CloudStoreKitScanOutcome {
+        var outcome = CloudStoreKitScanOutcome()
+        for productID in CloudProductID.ordered {
+            if let result = await Transaction.latest(for: productID) {
+                outcome.record(result)
+            }
+        }
+        return outcome
+    }
+
+    /// `Transaction.all` is finite per Apple's documentation, and every entry
+    /// is still an Apple-signed transaction the existing backend route can
+    /// verify. Recovery filters it to the configured Cloud products.
+    func transactionHistory() async -> CloudStoreKitScanOutcome {
+        var outcome = CloudStoreKitScanOutcome()
+        for await result in Transaction.all {
+            outcome.record(result)
+        }
+        return outcome
+    }
+
+    /// Each subscription status carries its signed `transaction`. The renewal
+    /// info is a different JWS type the backend route does not accept, so only
+    /// the transaction field is recorded. Both Cloud products share one
+    /// subscription group, so each group is queried once.
+    func subscriptionStatusTransactions() async -> CloudStoreKitScanOutcome {
+        var outcome = CloudStoreKitScanOutcome()
+        guard let products = try? await Product.products(for: CloudProductID.ordered) else { return outcome }
+        var queriedGroups: Set<String> = []
+        for product in products {
+            guard let groupID = product.subscription?.subscriptionGroupID, queriedGroups.insert(groupID).inserted else { continue }
+            guard let statuses = try? await Product.SubscriptionInfo.status(for: groupID) else { continue }
+            for status in statuses {
+                outcome.record(status.transaction)
+            }
+        }
+        return outcome
+    }
+
+    func unfinishedEvents() -> AsyncStream<CloudStoreKitStreamEvent> {
+        Self.bridge { continuation in
+            for await result in Transaction.unfinished {
+                continuation.yield(Self.streamEvent(from: result))
+            }
+        }
+    }
+
+    func updateEvents() -> AsyncStream<CloudStoreKitStreamEvent> {
+        Self.bridge { continuation in
+            for await result in Transaction.updates {
+                continuation.yield(Self.streamEvent(from: result))
+            }
+        }
     }
 
     func sync() async throws {
         try await AppStore.sync()
+    }
+
+    private static func streamEvent(from result: VerificationResult<Transaction>) -> CloudStoreKitStreamEvent {
+        switch result {
+        case .verified(let transaction):
+            return .verified(CloudStoreKitTransaction(
+                productID: transaction.productID,
+                jwsRepresentation: result.jwsRepresentation,
+                finish: { await transaction.finish() }
+            ))
+        case .unverified:
+            return .unverified
+        }
+    }
+
+    /// Bridges a StoreKit sequence into a stream whose consumer owns the
+    /// lifetime: cancelling the consumer's task ends the stream, which cancels
+    /// the bridge task instead of leaking a StoreKit listener.
+    private static func bridge(_ iterate: @escaping (AsyncStream<CloudStoreKitStreamEvent>.Continuation) async -> Void) -> AsyncStream<CloudStoreKitStreamEvent> {
+        AsyncStream { continuation in
+            let task = Task { @MainActor in
+                await iterate(continuation)
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 }
 
@@ -90,13 +207,21 @@ public final class CloudSubscriptionStore: ObservableObject {
     /// The last context the backend returned for a delivered transaction. This
     /// is the only value that may enable Cloud in the app.
     @Published public private(set) var lastVerifiedContext: CloudContext?
+    /// Local aggregate recovery evidence: per-surface counts and outcome
+    /// classes only. Safe to render on parent surfaces; never sent anywhere.
+    @Published public private(set) var recoveryEvidence = CloudRecoveryEvidence()
 
     private let client: CloudAPIClient
     private let storeKit: any CloudStoreKitOperations
-    private var updateTask: Task<Void, Never>?
+    private var recoveryTask: Task<Void, Never>?
+    private var updatesTask: Task<Void, Never>?
     private var deliveriesInFlight: Set<String> = []
     private var deliveryWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var completedDeliveries: Set<String> = []
+
+    /// The one bounded wait between an empty post-sync sweep and its single
+    /// delayed rescan. Injectable so tests stay deterministic.
+    var delayedRescanDelayNanoseconds: UInt64 = 30_000_000_000
 
     public init(client: CloudAPIClient, observeTransactions: Bool = true) {
         self.client = client
@@ -112,11 +237,19 @@ public final class CloudSubscriptionStore: ObservableObject {
         startObservingIfAuthenticated()
     }
 
-    deinit { updateTask?.cancel() }
+    deinit {
+        recoveryTask?.cancel()
+        updatesTask?.cancel()
+    }
 
     public func startObservingIfAuthenticated() {
-        guard client.hasSession, updateTask == nil else { return }
-        updateTask = Task { [weak self] in await self?.observeTransactionUpdates() }
+        guard client.hasSession else { return }
+        if recoveryTask == nil {
+            recoveryTask = Task { [weak self] in await self?.observeRecoveryAndUnfinished() }
+        }
+        if updatesTask == nil {
+            updatesTask = Task { [weak self] in await self?.observeTransactionUpdates() }
+        }
     }
 
     /// Products are usable only when both the backend capability and exactly
@@ -169,56 +302,112 @@ public final class CloudSubscriptionStore: ObservableObject {
     }
 
     /// Explicit parent action only. Normal launch/device replacement recovery
-    /// uses currentEntitlements and never prompts with AppStore.sync().
+    /// uses passive surfaces and never prompts with AppStore.sync(). When the
+    /// sync returns but the immediate sweep finds no usable Cloud transaction,
+    /// exactly one bounded delayed rescan runs; only when both come back empty
+    /// does the parent see the truthful App Store/client failure state.
     public func restorePurchases() async {
         do {
             try await storeKit.sync()
-            await recoverCurrentEntitlements()
         } catch {
+            recoveryEvidence.recordSync(.threw)
             await handleStoreKitFailure()
+            return
         }
+        recoveryEvidence.recordSync(.returned)
+        if await recoverWithDiscovery(phase: .immediate) { return }
+        do {
+            try await Task.sleep(nanoseconds: delayedRescanDelayNanoseconds)
+        } catch {
+            // Cancelled while waiting: nothing truthful to claim either way.
+            return
+        }
+        guard !Task.isCancelled else { return }
+        if await recoverWithDiscovery(phase: .delayed) { return }
+        state = .storeClientError
     }
 
+    /// Passive recovery across every supported discovery surface. Never
+    /// prompts; used at launch, on device replacement, and as the fallback
+    /// when a StoreKit call throws or answers unexpectedly.
     @discardableResult
     public func recoverCurrentEntitlements() async -> Bool {
+        await recoverWithDiscovery(phase: .passive)
+    }
+
+    /// One bounded passive sweep in documented fallback order: current
+    /// entitlements, latest transaction per Cloud product, Cloud-filtered
+    /// history, then subscription-status transactions. The first verified
+    /// Cloud transaction found is delivered through the existing backend route
+    /// and ends the sweep, so one sweep issues at most one delivery. Repeated
+    /// sightings of that same signed transaction across surfaces and sweeps
+    /// coalesce inside `deliver`, so one logical recovery never issues
+    /// duplicate concurrent deliveries. Unverified results are counted for the
+    /// local evidence surface and never delivered.
+    @discardableResult
+    private func recoverWithDiscovery(phase: CloudRecoveryEvidence.ScanPhase) async -> Bool {
         guard client.hasSession else { return false }
-        var recovered = false
-        for transaction in await storeKit.currentEntitlements() {
-            guard CloudProductID.all.contains(transaction.productID) else { continue }
-            recovered = true
-            await deliver(transaction)
+        let scans: [(CloudRecoveryEvidence.Surface, () async -> CloudStoreKitScanOutcome)] = [
+            (.currentEntitlements, { await self.storeKit.currentEntitlements() }),
+            (.latestTransaction, { await self.storeKit.latestTransactions() }),
+            (.transactionHistory, { await self.storeKit.transactionHistory() }),
+            (.subscriptionStatus, { await self.storeKit.subscriptionStatusTransactions() }),
+        ]
+        for (surface, scan) in scans {
+            if Task.isCancelled { return false }
+            let outcome = await scan()
+            let cloudTransactions = outcome.verified.filter { CloudProductID.all.contains($0.productID) }
+            recoveryEvidence.recordScan(
+                surface: surface,
+                phase: phase,
+                verifiedCloud: cloudTransactions.count,
+                unverified: outcome.unverifiedCount
+            )
+            if let transaction = cloudTransactions.first {
+                await deliver(transaction)
+                return true
+            }
         }
-        return recovered
+        return false
     }
 
     private func handleStoreKitFailure() async {
-        let recovered = await recoverCurrentEntitlements()
+        let recovered = await recoverWithDiscovery(phase: .passive)
         if !recovered {
             state = .storeClientError
         }
     }
 
-    private func observeTransactionUpdates() async {
-        await recoverCurrentEntitlements()
-        // Retry delivery left unfinished by a prior interrupted launch before
-        // subscribing to the long-lived update stream.
-        for await result in Transaction.unfinished {
-            guard let transaction = verifiedStoreKitTransaction(from: result), CloudProductID.all.contains(transaction.productID) else { continue }
-            await deliver(transaction)
-        }
-        for await result in Transaction.updates {
-            guard let transaction = verifiedStoreKitTransaction(from: result), CloudProductID.all.contains(transaction.productID) else { continue }
-            await deliver(transaction)
+    /// Initial finite recovery followed by the unfinished backlog, kept
+    /// separate from the updates listener so a never-terminating unfinished
+    /// sequence can never block update delivery.
+    private func observeRecoveryAndUnfinished() async {
+        await recoverWithDiscovery(phase: .passive)
+        for await event in storeKit.unfinishedEvents() {
+            switch event {
+            case .verified(let transaction):
+                guard CloudProductID.all.contains(transaction.productID) else { continue }
+                recoveryEvidence.recordStreamSighting(surface: .unfinished, verified: true)
+                await deliver(transaction)
+            case .unverified:
+                recoveryEvidence.recordStreamSighting(surface: .unfinished, verified: false)
+            }
         }
     }
 
-    private func verifiedStoreKitTransaction(from result: VerificationResult<Transaction>) -> CloudStoreKitTransaction? {
-        guard case .verified(let transaction) = result else { return nil }
-        return CloudStoreKitTransaction(
-            productID: transaction.productID,
-            jwsRepresentation: result.jwsRepresentation,
-            finish: { await transaction.finish() }
-        )
+    /// Apple's documented infinite launch listener, subscribed in its own
+    /// long-lived task.
+    private func observeTransactionUpdates() async {
+        for await event in storeKit.updateEvents() {
+            switch event {
+            case .verified(let transaction):
+                guard CloudProductID.all.contains(transaction.productID) else { continue }
+                recoveryEvidence.recordStreamSighting(surface: .transactionUpdates, verified: true)
+                await deliver(transaction)
+            case .unverified:
+                recoveryEvidence.recordStreamSighting(surface: .transactionUpdates, verified: false)
+            }
+        }
     }
 
     private func deliver(_ transaction: CloudStoreKitTransaction) async {
@@ -241,15 +430,19 @@ public final class CloudSubscriptionStore: ObservableObject {
                 // Delivery means the backend projected an entitlement that
                 // grants Cloud. Only now may the transaction be finished.
                 state = .verifiedPaid
+                recoveryEvidence.recordDelivery(.active)
                 await transaction.finishTransaction()
-            case .verificationPending:
-                state = .serverPending
-            case .none:
-                // A 2xx that carries no entitlement is not a grant. Keep the
+            case .verificationPending, .none:
+                // A 2xx that carries no grant is not a grant. Keep the
                 // transaction unfinished so a later launch retries delivery.
                 state = .serverPending
+                recoveryEvidence.recordDelivery(.pending)
             case .expired, .refunded, .revoked, .billingRetry:
-                state = .serverRejected(correlationID: nil)
+                // The backend verified the transaction and projected its real
+                // non-granting state. Render that truthfully, never as a
+                // server rejection.
+                state = .entitlementNotActive(context.entitlementState)
+                recoveryEvidence.recordDelivery(.inactive)
             }
         } catch let error as WalletAPIError {
             switch error {
@@ -257,18 +450,23 @@ public final class CloudSubscriptionStore: ObservableObject {
                 completedDeliveries.insert(jws)
                 // Accepted but not yet verified: pending, never finished.
                 state = .serverPending
+                recoveryEvidence.recordDelivery(.pending)
             case .server(let status, _, _) where (400..<500).contains(status):
                 completedDeliveries.insert(jws)
                 state = .serverRejected(correlationID: nil)
+                recoveryEvidence.recordDelivery(.rejected)
             case .unauthorized, .noSession:
                 state = .serverRejected(correlationID: nil)
+                recoveryEvidence.recordDelivery(.rejected)
             default:
                 // Network, timeout, or an unreadable response: unknown outcome,
                 // so never grant and never finish the transaction.
                 state = .serverPending
+                recoveryEvidence.recordDelivery(.network)
             }
         } catch {
             state = .serverPending
+            recoveryEvidence.recordDelivery(.network)
         }
         deliveriesInFlight.remove(jws)
         let waiters = deliveryWaiters.removeValue(forKey: jws) ?? []

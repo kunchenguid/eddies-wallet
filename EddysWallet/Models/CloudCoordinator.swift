@@ -40,6 +40,8 @@ public final class CloudCoordinator: ObservableObject {
     public var isCloudActive: Bool { entitlement.grantsCloud }
     public var hasSession: Bool { client.hasSession }
     public var permitsLocalContinuation: Bool { entitlement.permitsLocalContinuation }
+    /// Owns StoreKit recovery and its local, privacy-safe evidence surface.
+    public var subscriptionStore: CloudSubscriptionStore { subscriptions }
 
     public func authenticateCloud(identity: AppleIdentity) async throws {
         _ = try await client.authenticateApple(
