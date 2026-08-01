@@ -137,6 +137,7 @@ public final class WalletStore: ObservableObject {
     private let appleSignInProvider: (any AppleSignInProviding)?
     private let cloudCoordinator: CloudCoordinator?
     private var cloudObservation: Task<Void, Never>?
+    private var cloudActivationTask: Task<Void, Never>?
     private let pinStore: any ParentPINStore
     private let identityStore: any ParentIdentityStore
     private var failedPINAttempts = 0
@@ -190,6 +191,10 @@ public final class WalletStore: ObservableObject {
             // Free local setup uses native Apple identity only. Backend sessions
             // are only exchanged by explicit Cloud flows.
             self.appleSignInProvider = AppleSignInCoordinator()
+        }
+
+        cloudCoordinator?.onTransactionUpdate = { [weak self] in
+            await self?.adoptCoordinatorState()
         }
 
         if self.isSignedIn, !isMockRepository, self.recoveryState == nil {
@@ -807,6 +812,9 @@ public final class WalletStore: ObservableObject {
     /// Whether a parent surface may show Cloud purchase/restore controls at all.
     public var canOfferCloudPlans: Bool { !cloudPlans.isEmpty }
     public var needsCloudSignIn: Bool { cloudCoordinator?.hasSession == false }
+    /// The StoreKit coordinator backing the local Cloud recovery evidence
+    /// readout. Nil where Cloud was never composed (scripted UI-test states).
+    public var cloudSubscriptionStore: CloudSubscriptionStore? { cloudCoordinator?.subscriptionStore }
     public var canModifyWallet: Bool { repository.supportsRuntimeMutations }
     public var hasUnsettledCloudMutation: Bool {
         (repository as? any CloudMutationStatusProviding)?.hasUnsettledMutation == true
@@ -1000,6 +1008,20 @@ public final class WalletStore: ObservableObject {
         guard let cloudCoordinator else { return }
         guard let local = repository as? LocalWalletRepository else { return }
         guard cloudCoordinator.isCloudActive || cloudCoordinator.household != nil else { return }
+        if let cloudActivationTask {
+            await cloudActivationTask.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performCloudActivation(using: local, coordinator: cloudCoordinator)
+        }
+        cloudActivationTask = task
+        await task.value
+        cloudActivationTask = nil
+    }
+
+    private func performCloudActivation(using local: LocalWalletRepository, coordinator cloudCoordinator: CloudCoordinator) async {
         let previousAuthority = authorityState
         authorityState = .transitioningToCloud
         do {

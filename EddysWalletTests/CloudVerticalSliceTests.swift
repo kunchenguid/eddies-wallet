@@ -1474,6 +1474,137 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(local.snapshot().acceptedBalanceCents, 750, "the accepted local history is untouched")
     }
 
+    // MARK: - Restore truthfulness at the parent surface
+
+    /// The observed 0.1.6 incident path end to end: a completed Restore sync
+    /// with no usable Cloud transaction must reach the parent as the truthful
+    /// App Store/client failure, with no transaction POST and no silent idle.
+    func testRestoreSyncSuccessWithZeroTransactionsSurfacesTruthfulClientErrorToParent() async throws {
+        let local = try await localWalletWithHistory()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextNoEntitlement)
+        let apiClient = client(transport)
+        let operations = StubCloudStoreKitOperations()
+        let subscriptions = CloudSubscriptionStore(client: apiClient, storeKit: operations, observeTransactions: false)
+        subscriptions.delayedRescanDelayNanoseconds = 10_000_000
+        let coordinator = CloudCoordinator(client: apiClient, subscriptions: subscriptions)
+        let store = elevatedStore(repository: local, coordinator: coordinator)
+
+        await store.restoreCloudPurchases()
+
+        XCTAssertEqual(store.purchaseAttempt, .storeClientError)
+        XCTAssertEqual(store.cloudEntitlement, .none)
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/cloud/transactions" }, "no transaction POST may leave the device")
+        XCTAssertEqual(operations.syncCallCount, 1)
+        XCTAssertEqual(operations.currentEntitlementsCallCount, 2, "immediate sweep plus exactly one delayed rescan")
+        XCTAssertEqual(store.cloudSubscriptionStore?.recoveryEvidence.lastSyncOutcome, .returned)
+        XCTAssertEqual(store.cloudSubscriptionStore?.recoveryEvidence.deliveryOutcome, .notAttempted)
+    }
+
+    /// A verified transaction recovered on the delayed rescan still activates
+    /// through the one existing delivery route, and the parent surface adopts
+    /// the backend context rather than re-deriving state locally.
+    func testRestoreDelayedRescanRecoveryAdoptsTheBackendContextForParent() async throws {
+        let local = try await localWalletWithHistory()
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActiveNoHousehold)
+        let apiClient = client(transport)
+        let operations = StubCloudStoreKitOperations()
+        let subscriptions = CloudSubscriptionStore(client: apiClient, storeKit: operations, observeTransactions: false)
+        subscriptions.delayedRescanDelayNanoseconds = 500_000_000
+        let coordinator = CloudCoordinator(client: apiClient, subscriptions: subscriptions)
+        let store = elevatedStore(repository: local, coordinator: coordinator)
+
+        let restore = Task { await store.restoreCloudPurchases() }
+        let deadline = Date().addingTimeInterval(2)
+        while operations.currentEntitlementsCallCount == 0 || operations.statusCallCount == 0 {
+            if Date() > deadline { return XCTFail("timed out waiting for the immediate sweep") }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        operations.latestOutcome = CloudStoreKitScanOutcome(verified: [
+            CloudStoreKitTransaction(productID: CloudProductID.monthly, jwsRepresentation: "synthetic.signed.transaction"),
+        ])
+        await restore.value
+
+        XCTAssertEqual(store.purchaseAttempt, .verifiedPaid)
+        guard case .active = store.cloudEntitlement else {
+            return XCTFail("the parent surface adopts the backend-projected entitlement")
+        }
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+        XCTAssertEqual(store.cloudSubscriptionStore?.recoveryEvidence.surfaces[.latestTransaction]?.phase, .delayed)
+    }
+
+    func testIndependentTransactionUpdatePropagatesInactiveStateToParent() async throws {
+        let local = try await localWalletWithHistory()
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextWithEntitlement("revoked"))
+        let apiClient = client(transport)
+        let operations = StubCloudStoreKitOperations()
+        let subscriptions = CloudSubscriptionStore(client: apiClient, storeKit: operations, observeTransactions: true)
+        let coordinator = CloudCoordinator(client: apiClient, subscriptions: subscriptions)
+        let store = elevatedStore(repository: local, coordinator: coordinator)
+
+        await waitUntil("the transaction updates listener subscribes") {
+            operations.updateEventsCallCount == 1
+        }
+        operations.yieldUpdate(.verified(CloudStoreKitTransaction(
+            productID: CloudProductID.monthly,
+            jwsRepresentation: "synthetic.signed.revoked",
+            purchaseDate: Date(timeIntervalSince1970: 200)
+        )))
+        await waitUntil("the parent adopts the transaction update") {
+            store.purchaseAttempt == .entitlementNotActive(.revoked)
+        }
+
+        XCTAssertEqual(store.cloudEntitlement, .revoked)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+    }
+
+    func testConcurrentParentAdoptionsCoalesceCloudActivation() async throws {
+        let local = try await localWalletWithHistory()
+        let lineage = try XCTUnwrap(local.lineageID)
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.stub("POST", "/v1/cloud/household/import", CloudSliceFixtures.importAccepted(lineage: lineage), status: 201)
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.suspend("POST", "/v1/cloud/household/import")
+        let apiClient = client(transport)
+        let coordinator = CloudCoordinator(client: apiClient, subscriptions: silentSubscriptionStore(transport))
+        _ = await coordinator.refreshContext()
+        let store = elevatedStore(repository: local, coordinator: coordinator)
+
+        var firstFinished = false
+        let first = Task {
+            await coordinator.onTransactionUpdate?()
+            firstFinished = true
+        }
+        await transport.waitUntilSuspended()
+
+        var secondFinished = false
+        let second = Task {
+            await coordinator.onTransactionUpdate?()
+            secondFinished = true
+        }
+        await Task.yield()
+
+        XCTAssertFalse(firstFinished)
+        XCTAssertFalse(secondFinished)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/household/import" }.count, 1)
+
+        transport.resumeSuspendedRequest()
+        await first.value
+        await second.value
+
+        XCTAssertTrue(firstFinished)
+        XCTAssertTrue(secondFinished)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/household/import" }.count, 1)
+        guard case .cloud(let authorityLineage, _) = store.authorityState else {
+            return XCTFail("the coalesced activation becomes Cloud authority")
+        }
+        XCTAssertEqual(authorityLineage, lineage)
+    }
+
     // MARK: - Optional real loopback boundary
 
     /// Opt-in proof using the production Cloud client and repository against a
@@ -1538,10 +1669,10 @@ final class CloudVerticalSliceTests: XCTestCase {
         return (cloud, transport, lineage)
     }
 
-    /// A subscription store that does not subscribe to StoreKit streams, so unit
-    /// tests never depend on the local StoreKit environment.
+    /// A subscription store whose StoreKit surfaces are all stubbed empty, so
+    /// unit tests never depend on the local StoreKit environment or network.
     private func silentSubscriptionStore(_ transport: RoutingTransport) -> CloudSubscriptionStore {
-        CloudSubscriptionStore(client: client(transport), observeTransactions: false)
+        CloudSubscriptionStore(client: client(transport), storeKit: StubCloudStoreKitOperations(), observeTransactions: false)
     }
 
     private func localWalletWithHistory() async throws -> LocalWalletRepository {
@@ -1565,6 +1696,17 @@ final class CloudVerticalSliceTests: XCTestCase {
         for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
         return store
     }
+
+    private func waitUntil(_ description: String, condition: @escaping @MainActor () -> Bool) async {
+        let deadline = Date().addingTimeInterval(2)
+        while !condition() {
+            if Date() > deadline {
+                XCTFail("timed out waiting for \(description)")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
 }
 
 @MainActor
@@ -1577,7 +1719,7 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
         let operations = StubCloudStoreKitOperations()
         operations.purchaseResult = .failure(StubCloudStoreKitError.purchaseFailed)
-        operations.entitlements = [transaction()]
+        operations.entitlementOutcome = CloudStoreKitScanOutcome(verified: [transaction()])
         let store = makeStore(transport: transport, operations: operations)
 
         await store.purchase(productID: CloudProductID.monthly, accountToken: accountToken)
@@ -1593,7 +1735,7 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
         let operations = StubCloudStoreKitOperations()
         operations.purchaseResult = .success(.unknown)
-        operations.entitlements = [transaction()]
+        operations.entitlementOutcome = CloudStoreKitScanOutcome(verified: [transaction()])
         let store = makeStore(transport: transport, operations: operations)
 
         await store.purchase(productID: CloudProductID.monthly, accountToken: accountToken)
@@ -1607,7 +1749,7 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
         let operations = StubCloudStoreKitOperations()
         operations.syncError = StubCloudStoreKitError.syncFailed
-        operations.entitlements = [transaction()]
+        operations.entitlementOutcome = CloudStoreKitScanOutcome(verified: [transaction()])
         let store = makeStore(transport: transport, operations: operations)
 
         await store.restorePurchases()
@@ -1653,7 +1795,7 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
         transport.suspend("POST", "/v1/cloud/transactions")
         let operations = StubCloudStoreKitOperations()
-        operations.entitlements = [transaction()]
+        operations.entitlementOutcome = CloudStoreKitScanOutcome(verified: [transaction()])
         let store = makeStore(transport: transport, operations: operations)
 
         let firstRecovery = Task { await store.recoverCurrentEntitlements() }
@@ -1681,42 +1823,554 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
     }
 
-    private func transaction() -> CloudStoreKitTransaction {
-        CloudStoreKitTransaction(productID: CloudProductID.monthly, jwsRepresentation: "synthetic.signed.transaction")
+    // MARK: - Truthful restore after a successful sync
+
+    /// The exact 0.1.6 incident branch: sync returns, nothing usable is in
+    /// the store, and the state must not stay silently idle.
+    func testRestoreSyncSuccessWithZeroUsableTransactionsEndsWithTruthfulClientError() async {
+        let transport = RoutingTransport()
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations)
+        store.delayedRescanDelayNanoseconds = 10_000_000
+
+        await store.restorePurchases()
+
+        XCTAssertEqual(store.state, .storeClientError, "a completed sync with no usable Cloud transaction is a truthful App Store/client failure, never silent idle")
+        XCTAssertEqual(operations.syncCallCount, 1, "sync stays behind the explicit Restore action only")
+        XCTAssertEqual(operations.currentEntitlementsCallCount, 2, "the immediate sweep plus exactly one delayed rescan")
+        XCTAssertEqual(operations.latestCallCount, 2)
+        XCTAssertEqual(operations.historyCallCount, 2)
+        XCTAssertEqual(operations.statusCallCount, 2)
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/cloud/transactions" }, "nothing usable was found, so no transaction POST may leave the device")
+        XCTAssertEqual(store.recoveryEvidence.lastSyncOutcome, .returned)
+        XCTAssertEqual(store.recoveryEvidence.deliveryOutcome, .notAttempted)
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.currentEntitlements]?.phase, .delayed)
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.currentEntitlements]?.verifiedCloud, 0)
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.subscriptionStatus]?.phase, .delayed)
     }
 
-    private func makeStore(transport: RoutingTransport, operations: StubCloudStoreKitOperations) -> CloudSubscriptionStore {
+    func testRestoreFindsTransactionThroughLatestTransactionSurface() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        operations.latestOutcome = CloudStoreKitScanOutcome(verified: [transaction()])
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.restorePurchases()
+
+        XCTAssertEqual(store.state, .verifiedPaid)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+        XCTAssertEqual(operations.historyCallCount, 0, "the chain stops at the first usable surface")
+        XCTAssertEqual(operations.statusCallCount, 0)
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.latestTransaction]?.verifiedCloud, 1)
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.latestTransaction]?.phase, .immediate)
+        XCTAssertEqual(store.recoveryEvidence.deliveryOutcome, .active)
+        guard case .active = store.lastVerifiedContext?.entitlementState else {
+            return XCTFail("the backend context is adopted, never re-derived locally")
+        }
+    }
+
+    func testRecoveryDeliversNewestVerifiedCloudCandidate() async throws {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        operations.latestOutcome = CloudStoreKitScanOutcome(verified: [
+            transaction(
+                productID: CloudProductID.monthly,
+                jwsRepresentation: "synthetic.signed.older",
+                purchaseDate: Date(timeIntervalSince1970: 100)
+            ),
+            transaction(
+                productID: CloudProductID.annual,
+                jwsRepresentation: "synthetic.signed.newer",
+                purchaseDate: Date(timeIntervalSince1970: 200)
+            ),
+        ])
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.restorePurchases()
+
+        let posts = transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }
+        XCTAssertEqual(posts.count, 1)
+        let body = try XCTUnwrap(posts.first?.httpBody).jsonObject()
+        XCTAssertEqual(body["signedTransaction"] as? String, "synthetic.signed.newer")
+    }
+
+    func testRestoreFindsCloudTransactionThroughHistoryAndFiltersNonCloud() async throws {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        operations.historyOutcome = CloudStoreKitScanOutcome(verified: [nonCloudTransaction(), transaction()])
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.restorePurchases()
+
+        XCTAssertEqual(store.state, .verifiedPaid)
+        let posts = transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }
+        XCTAssertEqual(posts.count, 1, "history delivers only the configured Cloud transaction")
+        let body = try XCTUnwrap(posts.first?.httpBody).jsonObject()
+        XCTAssertEqual(body["signedTransaction"] as? String, "synthetic.signed.transaction")
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.transactionHistory]?.verifiedCloud, 1, "non-Cloud history entries are filtered out before delivery")
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.transactionHistory]?.phase, .immediate)
+    }
+
+    func testRestoreFindsTransactionThroughSubscriptionStatusSurface() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        operations.statusOutcome = CloudStoreKitScanOutcome(verified: [transaction()])
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.restorePurchases()
+
+        XCTAssertEqual(store.state, .verifiedPaid)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.subscriptionStatus]?.verifiedCloud, 1)
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.subscriptionStatus]?.phase, .immediate)
+        XCTAssertEqual(store.recoveryEvidence.deliveryOutcome, .active)
+    }
+
+    func testRestoreUnverifiedOnlyResultsAreCountedAndNeverDelivered() async {
+        let transport = RoutingTransport()
+        let operations = StubCloudStoreKitOperations()
+        operations.entitlementOutcome = CloudStoreKitScanOutcome(verified: [], unverifiedCount: 2)
+        operations.statusOutcome = CloudStoreKitScanOutcome(verified: [], unverifiedCount: 1)
+        let store = makeStore(transport: transport, operations: operations)
+        store.delayedRescanDelayNanoseconds = 10_000_000
+
+        await store.restorePurchases()
+
+        XCTAssertEqual(store.state, .storeClientError, "unverified results are not usable, so the bounded sweep ends in the truthful client failure")
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/cloud/transactions" }, "unverified transactions are never delivered")
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.currentEntitlements]?.unverified, 2)
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.subscriptionStatus]?.unverified, 1)
+        XCTAssertEqual(store.recoveryEvidence.deliveryOutcome, .notAttempted)
+    }
+
+    func testDuplicateTransactionAcrossSurfacesAndScansDeliversOnce() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        let shared = transaction()
+        operations.entitlementOutcome = CloudStoreKitScanOutcome(verified: [shared])
+        operations.latestOutcome = CloudStoreKitScanOutcome(verified: [shared])
+        operations.historyOutcome = CloudStoreKitScanOutcome(verified: [shared])
+        operations.statusOutcome = CloudStoreKitScanOutcome(verified: [shared])
+        let store = makeStore(transport: transport, operations: operations)
+        store.delayedRescanDelayNanoseconds = 10_000_000
+
+        let recovered = await store.recoverCurrentEntitlements()
+        XCTAssertTrue(recovered)
+        await store.restorePurchases()
+
+        XCTAssertEqual(
+            transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count,
+            1,
+            "the same signed transaction sighted by several surfaces and sweeps is delivered exactly once"
+        )
+        XCTAssertEqual(store.state, .verifiedPaid)
+        XCTAssertEqual(operations.syncCallCount, 1)
+    }
+
+    // MARK: - Bounded delayed rescan
+
+    func testDelayedRescanFindsLateTransaction() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations)
+        store.delayedRescanDelayNanoseconds = 500_000_000
+
+        let restore = Task { await store.restorePurchases() }
+        await waitUntil("the immediate sweep finishes") {
+            operations.currentEntitlementsCallCount == 1 && operations.statusCallCount == 1
+        }
+        operations.latestOutcome = CloudStoreKitScanOutcome(verified: [transaction()])
+        await restore.value
+
+        XCTAssertEqual(store.state, .verifiedPaid, "the bounded delayed rescan delivered the late transaction")
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+        XCTAssertEqual(operations.currentEntitlementsCallCount, 2, "exactly one delayed rescan, then stop")
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.latestTransaction]?.phase, .delayed)
+        XCTAssertEqual(store.recoveryEvidence.deliveryOutcome, .active)
+        guard case .active = store.lastVerifiedContext?.entitlementState else {
+            return XCTFail("the backend context is adopted, never re-derived locally")
+        }
+    }
+
+    func testRestoreEmptyDelayedRescanDoesNotClobberConcurrentUpdateDelivery() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations, observeTransactions: true)
+        store.delayedRescanDelayNanoseconds = 500_000_000
+
+        await waitUntil("the updates listener subscribes") {
+            operations.updateEventsCallCount == 1
+        }
+        let restore = Task { await store.restorePurchases() }
+        await waitUntil("the immediate restore sweep finishes") {
+            operations.currentEntitlementsCallCount >= 2 && operations.statusCallCount >= 2
+        }
+        operations.yieldUpdate(.verified(transaction()))
+        await waitUntil("the update transaction activates Cloud") {
+            store.state == .verifiedPaid
+        }
+        await restore.value
+
+        XCTAssertEqual(store.state, .verifiedPaid)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+        XCTAssertEqual(operations.currentEntitlementsCallCount, 3, "passive, immediate, and exactly one delayed sweep")
+    }
+
+    func testRestoreEmptyDelayedRescanDoesNotClobberPreexistingUpdateDelivery() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.suspend("POST", "/v1/cloud/transactions")
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations, observeTransactions: true)
+        store.delayedRescanDelayNanoseconds = 500_000_000
+
+        await waitUntil("the updates listener subscribes") {
+            operations.updateEventsCallCount == 1
+        }
+        operations.yieldUpdate(.verified(transaction()))
+        await transport.waitUntilSuspended()
+
+        var restoreFinished = false
+        let restore = Task {
+            await store.restorePurchases()
+            restoreFinished = true
+        }
+        await waitUntil("the immediate restore sweep finishes") {
+            operations.syncCallCount == 1 && operations.currentEntitlementsCallCount >= 2 && operations.statusCallCount >= 2
+        }
+        await waitUntil("the delayed restore sweep finishes") {
+            operations.currentEntitlementsCallCount >= 3 && operations.statusCallCount >= 3
+        }
+        await Task.yield()
+        XCTAssertFalse(restoreFinished, "Restore waits for the pre-existing delivery to settle")
+
+        transport.resumeSuspendedRequest()
+        await restore.value
+
+        XCTAssertTrue(restoreFinished)
+        XCTAssertEqual(store.state, .verifiedPaid)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+        XCTAssertEqual(operations.currentEntitlementsCallCount, 3, "passive, immediate, and exactly one delayed sweep")
+    }
+
+    func testRestoreCancelledDuringDelayedRescanStopsCleanly() async {
+        let transport = RoutingTransport()
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations)
+        store.delayedRescanDelayNanoseconds = 30_000_000_000
+
+        let restore = Task { await store.restorePurchases() }
+        await waitUntil("the immediate sweep finishes") {
+            operations.currentEntitlementsCallCount == 1 && operations.statusCallCount == 1
+        }
+        restore.cancel()
+        await restore.value
+
+        XCTAssertEqual(store.state, .idle, "a cancelled restore claims nothing either way")
+        XCTAssertEqual(operations.currentEntitlementsCallCount, 1, "the delayed rescan never ran")
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/cloud/transactions" })
+        XCTAssertEqual(store.recoveryEvidence.lastSyncOutcome, .returned)
+    }
+
+    // MARK: - Independent transaction updates
+
+    func testTransactionUpdatesSubscribeIndependentlyWhileUnfinishedStaysOpen() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations, observeTransactions: true)
+
+        await waitUntil("both listeners subscribe") {
+            operations.unfinishedEventsCallCount == 1 && operations.updateEventsCallCount == 1
+        }
+        XCTAssertEqual(operations.updateEventsCallCount, 1, "updates subscribe even though the unfinished sequence never terminates")
+
+        // A repeated start must not add listeners.
+        store.startObservingIfAuthenticated()
+        XCTAssertEqual(operations.unfinishedEventsCallCount, 1)
+        XCTAssertEqual(operations.updateEventsCallCount, 1)
+
+        // An unverified sighting is counted and never delivered.
+        operations.yieldUpdate(.unverified)
+        await waitUntil("the unverified sighting is counted") {
+            store.recoveryEvidence.surfaces[.transactionUpdates]?.unverified == 1
+        }
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/cloud/transactions" })
+
+        // A verified update still delivers through the existing route while
+        // the unfinished sequence remains open.
+        operations.yieldUpdate(.verified(transaction()))
+        await waitUntil("the update is delivered") {
+            store.state == .verifiedPaid
+        }
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+        XCTAssertEqual(store.recoveryEvidence.surfaces[.transactionUpdates]?.verifiedCloud, 1)
+    }
+
+    // MARK: - Truthful non-active entitlement rendering
+
+    func testDeliveredNonActiveEntitlementRendersItsRealState() async {
+        let cases: [(String, CloudEntitlementState)] = [
+            ("expired", .expired),
+            ("refunded", .refunded),
+            ("revoked", .revoked),
+            ("billing_retry", .billingRetry),
+        ]
+        for (wireState, expected) in cases {
+            let transport = RoutingTransport()
+            transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextWithEntitlement(wireState))
+            let operations = StubCloudStoreKitOperations()
+            let finishRecorder = FinishRecorder()
+            operations.purchaseResult = .success(.success(transaction(finish: { finishRecorder.finish() })))
+            let store = makeStore(transport: transport, operations: operations)
+
+            await store.purchase(productID: CloudProductID.monthly, accountToken: accountToken)
+
+            XCTAssertEqual(store.state, .entitlementNotActive(expected), "\(wireState) renders its real state, not a generic server rejection")
+            XCTAssertEqual(store.recoveryEvidence.deliveryOutcome, .inactive)
+            XCTAssertEqual(finishRecorder.finishedCount, 0, "a non-granting projection never finishes the transaction")
+        }
+    }
+
+    func testDeliveredActiveEntitlementFinishesTheTransaction() async {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        let finishRecorder = FinishRecorder()
+        operations.purchaseResult = .success(.success(transaction(finish: { finishRecorder.finish() })))
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.purchase(productID: CloudProductID.monthly, accountToken: accountToken)
+
+        XCTAssertEqual(store.state, .verifiedPaid)
+        XCTAssertEqual(finishRecorder.finishedCount, 1, "finishing stays tied to a granting backend projection")
+        XCTAssertEqual(store.recoveryEvidence.deliveryOutcome, .active)
+    }
+
+    private func transaction(
+        productID: String = CloudProductID.monthly,
+        jwsRepresentation: String = "synthetic.signed.transaction",
+        purchaseDate: Date = .distantPast,
+        finish: @escaping () async -> Void = {}
+    ) -> CloudStoreKitTransaction {
+        CloudStoreKitTransaction(
+            productID: productID,
+            jwsRepresentation: jwsRepresentation,
+            purchaseDate: purchaseDate,
+            finish: finish
+        )
+    }
+
+    private func nonCloudTransaction() -> CloudStoreKitTransaction {
+        CloudStoreKitTransaction(productID: "com.example.unrelated", jwsRepresentation: "synthetic.signed.unrelated")
+    }
+
+    private func waitUntil(_ description: String, condition: @escaping @MainActor () -> Bool) async {
+        let deadline = Date().addingTimeInterval(2)
+        while !condition() {
+            if Date() > deadline {
+                XCTFail("timed out waiting for \(description)")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    private func makeStore(
+        transport: RoutingTransport,
+        operations: StubCloudStoreKitOperations,
+        observeTransactions: Bool = false
+    ) -> CloudSubscriptionStore {
         let client = CloudAPIClient(
             baseURL: URL(string: "https://api.example.test")!,
             sessionStore: InMemorySessionStore(session: session),
             transport: transport
         )
-        return CloudSubscriptionStore(client: client, storeKit: operations, observeTransactions: false)
+        return CloudSubscriptionStore(client: client, storeKit: operations, observeTransactions: observeTransactions)
     }
+}
+
+/// The local evidence surface can only ever carry aggregate counts, outcome
+/// classes, the scan phase, and the build context. These
+/// tests prove that shape for both the serialization and the Release-visible
+/// readout content.
+final class CloudRecoveryEvidenceTests: XCTestCase {
+    func testSerializationContainsOnlyAggregateCountsClassesAndBuildContext() throws {
+        var evidence = CloudRecoveryEvidence(buildContext: "0.1.7 (9)")
+        evidence.recordScan(surface: .currentEntitlements, phase: .immediate, verifiedCloud: 1, unverified: 2)
+        evidence.recordScan(surface: .subscriptionStatus, phase: .delayed, verifiedCloud: 0, unverified: 0)
+        evidence.recordStreamSighting(surface: .transactionUpdates, verified: true)
+        evidence.recordStreamSighting(surface: .unfinished, verified: false)
+        evidence.recordSync(.returned)
+        evidence.recordDelivery(.network)
+
+        let data = try JSONEncoder().encode(evidence)
+        let json = String(decoding: data, as: UTF8.self)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var leaves: [String] = []
+        flattenJSON(object, into: &leaves)
+        XCTAssertFalse(leaves.isEmpty)
+
+        // Every leaf must be a count, one of
+        // the fixed structural or class words, or the build context.
+        var vocabulary: Set<String> = [
+            "surfaces", "lastSyncOutcome", "deliveryOutcome", "buildContext",
+            "verifiedCloud", "unverified", "phase",
+            "0.1.7 (9)",
+        ]
+        vocabulary.formUnion(CloudRecoveryEvidence.Surface.allCases.map(\.rawValue))
+        vocabulary.formUnion(["passive", "immediate", "delayed", "returned", "threw",
+                              "notAttempted", "active", "inactive", "pending", "rejected", "network"])
+        for leaf in leaves where !vocabulary.contains(leaf) && Double(leaf) == nil {
+            XCTFail("the evidence serialization may only carry counts, class words, and the build context; found '\(leaf)'")
+        }
+
+        // Belt and braces: nothing shaped like a signed payload, identifier,
+        // or account value can appear, because the model has no field that
+        // could hold one.
+        for forbidden in ["eyJ", "signedTransaction", "jws", "transactionId", "originalTransactionId",
+                          "appAccountToken", "receipt", "correlationId", "session"] {
+            XCTAssertFalse(json.contains(forbidden), "evidence must never contain \(forbidden)")
+        }
+    }
+
+    /// The readout the Release build renders is derived entirely from the
+    /// model above, so its rows carry the same safe shape.
+    func testDisplayRowsRenderOnlySafeAggregateContent() {
+        var evidence = CloudRecoveryEvidence(buildContext: "0.1.7 (9)")
+        evidence.recordScan(surface: .currentEntitlements, phase: .immediate, verifiedCloud: 0, unverified: 0)
+        evidence.recordScan(surface: .latestTransaction, phase: .delayed, verifiedCloud: 1, unverified: 0)
+        evidence.recordSync(.threw)
+        evidence.recordDelivery(.inactive)
+
+        let rows = evidence.displayRows
+        XCTAssertEqual(
+            rows.map(\.id),
+            ["build", "sync", "currentEntitlements", "latestTransaction", "transactionHistory",
+             "subscriptionStatus", "unfinished", "transactionUpdates", "delivery"]
+        )
+        XCTAssertEqual(rows.first { $0.id == "build" }?.value, "0.1.7 (9)")
+        XCTAssertEqual(rows.first { $0.id == "sync" }?.value, "threw")
+        XCTAssertEqual(rows.first { $0.id == "currentEntitlements" }?.value, "empty")
+        XCTAssertEqual(rows.first { $0.id == "currentEntitlements" }?.detail, "just after Restore")
+        XCTAssertEqual(rows.first { $0.id == "latestTransaction" }?.value, "1 verified")
+        XCTAssertEqual(rows.first { $0.id == "latestTransaction" }?.detail, "delayed rescan")
+        XCTAssertEqual(rows.first { $0.id == "transactionHistory" }?.value, "not scanned")
+        XCTAssertEqual(rows.first { $0.id == "unfinished" }?.value, "not scanned")
+        XCTAssertEqual(rows.first { $0.id == "delivery" }?.value, "plan not active")
+
+        // No rendered row may contain anything shaped like a signed payload,
+        // an identifier, an account value, or an error message.
+        let rowText = rows.flatMap { [$0.title, $0.value, $0.detail ?? ""] }.joined(separator: "\n")
+        for forbidden in ["eyJ", "signedTransaction", "jws", "transactionId", "appAccountToken",
+                          "receipt", "correlationId", "Error"] {
+            XCTAssertFalse(rowText.contains(forbidden), "the readout must never render \(forbidden)")
+        }
+    }
+
+    private func flattenJSON(_ value: Any, into leaves: inout [String]) {
+        switch value {
+        case let dictionary as [String: Any]:
+            for (key, child) in dictionary {
+                leaves.append(key)
+                flattenJSON(child, into: &leaves)
+            }
+        case let array as [Any]:
+            for child in array { flattenJSON(child, into: &leaves) }
+        case let string as String:
+            leaves.append(string)
+        case let number as NSNumber:
+            leaves.append(number.stringValue)
+        default:
+            break
+        }
+    }
+}
+
+@MainActor
+private final class FinishRecorder {
+    private(set) var finishedCount = 0
+    func finish() { finishedCount += 1 }
 }
 
 @MainActor
 private final class StubCloudStoreKitOperations: CloudStoreKitOperations {
     var purchaseResult: Result<CloudStoreKitPurchaseResult, Error> = .failure(StubCloudStoreKitError.purchaseFailed)
-    var entitlements: [CloudStoreKitTransaction] = []
+    var entitlementOutcome = CloudStoreKitScanOutcome()
+    var latestOutcome = CloudStoreKitScanOutcome()
+    var historyOutcome = CloudStoreKitScanOutcome()
+    var statusOutcome = CloudStoreKitScanOutcome()
     var syncError: Error?
     private(set) var purchaseCallCount = 0
     private(set) var currentEntitlementsCallCount = 0
+    private(set) var latestCallCount = 0
+    private(set) var historyCallCount = 0
+    private(set) var statusCallCount = 0
     private(set) var syncCallCount = 0
+    private(set) var unfinishedEventsCallCount = 0
+    private(set) var updateEventsCallCount = 0
+    /// Never yields and never terminates: the unfinished sequence can stay
+    /// open forever, which is exactly what the updates-independence tests need.
+    private let unfinishedStream: AsyncStream<CloudStoreKitStreamEvent>
+    private let updatesStream: AsyncStream<CloudStoreKitStreamEvent>
+    private var updatesContinuation: AsyncStream<CloudStoreKitStreamEvent>.Continuation?
+
+    init() {
+        unfinishedStream = AsyncStream { _ in }
+        var continuation: AsyncStream<CloudStoreKitStreamEvent>.Continuation?
+        updatesStream = AsyncStream { continuation = $0 }
+        updatesContinuation = continuation
+    }
 
     func purchase(productID _: String, product _: Product?, accountToken _: UUID) async throws -> CloudStoreKitPurchaseResult {
         purchaseCallCount += 1
         return try purchaseResult.get()
     }
 
-    func currentEntitlements() async -> [CloudStoreKitTransaction] {
+    func currentEntitlements() async -> CloudStoreKitScanOutcome {
         currentEntitlementsCallCount += 1
-        return entitlements
+        return entitlementOutcome
+    }
+
+    func latestTransactions() async -> CloudStoreKitScanOutcome {
+        latestCallCount += 1
+        return latestOutcome
+    }
+
+    func transactionHistory() async -> CloudStoreKitScanOutcome {
+        historyCallCount += 1
+        return historyOutcome
+    }
+
+    func subscriptionStatusTransactions() async -> CloudStoreKitScanOutcome {
+        statusCallCount += 1
+        return statusOutcome
+    }
+
+    func unfinishedEvents() -> AsyncStream<CloudStoreKitStreamEvent> {
+        unfinishedEventsCallCount += 1
+        return unfinishedStream
+    }
+
+    func updateEvents() -> AsyncStream<CloudStoreKitStreamEvent> {
+        updateEventsCallCount += 1
+        return updatesStream
     }
 
     func sync() async throws {
         syncCallCount += 1
         if let syncError { throw syncError }
+    }
+
+    func yieldUpdate(_ event: CloudStoreKitStreamEvent) {
+        updatesContinuation?.yield(event)
     }
 }
 
@@ -1735,6 +2389,14 @@ enum CloudSliceFixtures {
     static let contextNoEntitlement = Data("""
     {"storeAccountToken":"11111111-1111-4111-8111-111111111111","entitlement":null,"household":null}
     """.utf8)
+
+    /// A verified delivery whose backend projection does not grant Cloud.
+    static func contextWithEntitlement(_ state: String) -> Data {
+        Data("""
+        {"storeAccountToken":"11111111-1111-4111-8111-111111111111",
+         "entitlement":{"state":"\(state)","accessUntil":"2026-01-01T00:00:00.000Z","active":false},"household":null}
+        """.utf8)
+    }
     static let contextActiveNoHousehold = Data("""
     {"storeAccountToken":"11111111-1111-4111-8111-111111111111",
      "entitlement":{"state":"active","accessUntil":"2027-01-01T00:00:00.000Z","active":true},"household":null}

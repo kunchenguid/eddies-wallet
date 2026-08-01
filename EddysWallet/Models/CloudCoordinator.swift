@@ -29,10 +29,14 @@ public final class CloudCoordinator: ObservableObject {
     private let client: CloudAPIClient
     private let subscriptions: CloudSubscriptionStore
     private var storeAccountToken: UUID?
+    var onTransactionUpdate: (() async -> Void)?
 
     public init(client: CloudAPIClient, subscriptions: CloudSubscriptionStore? = nil) {
         self.client = client
         self.subscriptions = subscriptions ?? CloudSubscriptionStore(client: client)
+        self.subscriptions.onTransactionUpdateDelivery = { [weak self] in
+            await self?.adoptTransactionUpdate()
+        }
     }
 
     /// Purchase and restore controls may only appear when this is true.
@@ -40,6 +44,8 @@ public final class CloudCoordinator: ObservableObject {
     public var isCloudActive: Bool { entitlement.grantsCloud }
     public var hasSession: Bool { client.hasSession }
     public var permitsLocalContinuation: Bool { entitlement.permitsLocalContinuation }
+    /// Owns StoreKit recovery and its local, privacy-safe evidence surface.
+    public var subscriptionStore: CloudSubscriptionStore { subscriptions }
 
     public func authenticateCloud(identity: AppleIdentity) async throws {
         _ = try await client.authenticateApple(
@@ -103,7 +109,7 @@ public final class CloudCoordinator: ObservableObject {
     }
 
     /// Launch and device-replacement recovery: no purchase prompt, only the
-    /// current entitlements plus the server's projection.
+    /// bounded passive StoreKit discovery surfaces plus the server projection.
     public func recoverEntitlements() async {
         guard client.hasSession else { purchaseAttempt = .serverRejected(correlationID: nil); return }
         await subscriptions.recoverCurrentEntitlements()
@@ -203,5 +209,11 @@ public final class CloudCoordinator: ObservableObject {
         entitlement = context.entitlementState
         // A malformed or non-Cloud household never becomes Cloud authority.
         household = context.household?.isCloudAuthoritative == true ? context.household : nil
+    }
+
+    private func adoptTransactionUpdate() async {
+        purchaseAttempt = subscriptions.state
+        if let context = subscriptions.lastVerifiedContext { apply(context) }
+        await onTransactionUpdate?()
     }
 }
