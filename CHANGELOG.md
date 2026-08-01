@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.5...eddies-wallet-v0.1.6) (2026-07-31)
+
+
+### Bug Fixes
+
+* **EddysWallet:** recover StoreKit false-negative purchases ([#37](https://github.com/kunchenguid/eddies-wallet/issues/37)) ([287d1bc](https://github.com/kunchenguid/eddies-wallet/commit/287d1bccdcc74641c763e7f502d0def360d1128f))
+
 ## [0.1.5](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.4...eddies-wallet-v0.1.5) (2026-07-31)
 
 
