@@ -109,7 +109,7 @@ public final class CloudCoordinator: ObservableObject {
     }
 
     /// Launch and device-replacement recovery: no purchase prompt, only the
-    /// current entitlements plus the server's projection.
+    /// bounded passive StoreKit discovery surfaces plus the server projection.
     public func recoverEntitlements() async {
         guard client.hasSession else { purchaseAttempt = .serverRejected(correlationID: nil); return }
         await subscriptions.recoverCurrentEntitlements()
