@@ -1930,16 +1930,24 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         operations.yieldUpdate(.verified(transaction()))
         await transport.waitUntilSuspended()
 
-        let restore = Task { await store.restorePurchases() }
+        var restoreFinished = false
+        let restore = Task {
+            await store.restorePurchases()
+            restoreFinished = true
+        }
         await waitUntil("the immediate restore sweep finishes") {
             operations.syncCallCount == 1 && operations.currentEntitlementsCallCount >= 2 && operations.statusCallCount >= 2
         }
-        transport.resumeSuspendedRequest()
-        await waitUntil("the pre-existing update delivery activates Cloud") {
-            store.state == .verifiedPaid
+        await waitUntil("the delayed restore sweep finishes") {
+            operations.currentEntitlementsCallCount >= 3 && operations.statusCallCount >= 3
         }
+        await Task.yield()
+        XCTAssertFalse(restoreFinished, "Restore waits for the pre-existing delivery to settle")
+
+        transport.resumeSuspendedRequest()
         await restore.value
 
+        XCTAssertTrue(restoreFinished)
         XCTAssertEqual(store.state, .verifiedPaid)
         XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
         XCTAssertEqual(operations.currentEntitlementsCallCount, 3, "passive, immediate, and exactly one delayed sweep")

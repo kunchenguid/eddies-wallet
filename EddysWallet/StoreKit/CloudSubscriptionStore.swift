@@ -217,6 +217,7 @@ public final class CloudSubscriptionStore: ObservableObject {
     private var updatesTask: Task<Void, Never>?
     private var deliveriesInFlight: Set<String> = []
     private var deliveryWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var deliverySettlementWaiters: [CheckedContinuation<Void, Never>] = []
     private var completedDeliveries: Set<String> = []
     private var deliveryGeneration = 0
 
@@ -326,7 +327,10 @@ public final class CloudSubscriptionStore: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         if await recoverWithDiscovery(phase: .delayed) { return }
-        guard deliveryGeneration == startingDeliveryGeneration, deliveriesInFlight.isEmpty else { return }
+        guard deliveryGeneration == startingDeliveryGeneration, deliveriesInFlight.isEmpty else {
+            await waitForDeliverySettlement()
+            return
+        }
         state = .storeClientError
     }
 
@@ -477,6 +481,20 @@ public final class CloudSubscriptionStore: ObservableObject {
         let waiters = deliveryWaiters.removeValue(forKey: jws) ?? []
         for waiter in waiters {
             waiter.resume()
+        }
+        if deliveriesInFlight.isEmpty {
+            let settlementWaiters = deliverySettlementWaiters
+            deliverySettlementWaiters.removeAll()
+            for waiter in settlementWaiters {
+                waiter.resume()
+            }
+        }
+    }
+
+    private func waitForDeliverySettlement() async {
+        guard !deliveriesInFlight.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            deliverySettlementWaiters.append(continuation)
         }
     }
 }
