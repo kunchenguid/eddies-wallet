@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.6...eddies-wallet-v0.1.7) (2026-08-01)
+
+
+### Bug Fixes
+
+* **EddysWallet:** make Cloud restore recovery truthful ([#39](https://github.com/kunchenguid/eddies-wallet/issues/39)) ([ea8ed33](https://github.com/kunchenguid/eddies-wallet/commit/ea8ed3337afda666867c48c9aaed0ec57f4bdd04))
+
 ## [0.1.6](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.5...eddies-wallet-v0.1.6) (2026-07-31)
 
 
