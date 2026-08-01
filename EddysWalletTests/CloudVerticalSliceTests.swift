@@ -1561,6 +1561,50 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
     }
 
+    func testConcurrentParentAdoptionsCoalesceCloudActivation() async throws {
+        let local = try await localWalletWithHistory()
+        let lineage = try XCTUnwrap(local.lineageID)
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.stub("POST", "/v1/cloud/household/import", CloudSliceFixtures.importAccepted(lineage: lineage), status: 201)
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.suspend("POST", "/v1/cloud/household/import")
+        let apiClient = client(transport)
+        let coordinator = CloudCoordinator(client: apiClient, subscriptions: silentSubscriptionStore(transport))
+        _ = await coordinator.refreshContext()
+        let store = elevatedStore(repository: local, coordinator: coordinator)
+
+        var firstFinished = false
+        let first = Task {
+            await coordinator.onTransactionUpdate?()
+            firstFinished = true
+        }
+        await transport.waitUntilSuspended()
+
+        var secondFinished = false
+        let second = Task {
+            await coordinator.onTransactionUpdate?()
+            secondFinished = true
+        }
+        await Task.yield()
+
+        XCTAssertFalse(firstFinished)
+        XCTAssertFalse(secondFinished)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/household/import" }.count, 1)
+
+        transport.resumeSuspendedRequest()
+        await first.value
+        await second.value
+
+        XCTAssertTrue(firstFinished)
+        XCTAssertTrue(secondFinished)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/household/import" }.count, 1)
+        guard case .cloud(let authorityLineage, _) = store.authorityState else {
+            return XCTFail("the coalesced activation becomes Cloud authority")
+        }
+        XCTAssertEqual(authorityLineage, lineage)
+    }
+
     // MARK: - Optional real loopback boundary
 
     /// Opt-in proof using the production Cloud client and repository against a

@@ -137,6 +137,7 @@ public final class WalletStore: ObservableObject {
     private let appleSignInProvider: (any AppleSignInProviding)?
     private let cloudCoordinator: CloudCoordinator?
     private var cloudObservation: Task<Void, Never>?
+    private var cloudActivationTask: Task<Void, Never>?
     private let pinStore: any ParentPINStore
     private let identityStore: any ParentIdentityStore
     private var failedPINAttempts = 0
@@ -1007,6 +1008,20 @@ public final class WalletStore: ObservableObject {
         guard let cloudCoordinator else { return }
         guard let local = repository as? LocalWalletRepository else { return }
         guard cloudCoordinator.isCloudActive || cloudCoordinator.household != nil else { return }
+        if let cloudActivationTask {
+            await cloudActivationTask.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performCloudActivation(using: local, coordinator: cloudCoordinator)
+        }
+        cloudActivationTask = task
+        await task.value
+        cloudActivationTask = nil
+    }
+
+    private func performCloudActivation(using local: LocalWalletRepository, coordinator cloudCoordinator: CloudCoordinator) async {
         let previousAuthority = authorityState
         authorityState = .transitioningToCloud
         do {
