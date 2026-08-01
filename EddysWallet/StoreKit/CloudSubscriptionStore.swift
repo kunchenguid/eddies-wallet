@@ -25,11 +25,13 @@ enum CloudStoreKitPurchaseResult {
 struct CloudStoreKitTransaction {
     let productID: String
     let jwsRepresentation: String
+    let purchaseDate: Date
     private let finish: () async -> Void
 
-    init(productID: String, jwsRepresentation: String, finish: @escaping () async -> Void = {}) {
+    init(productID: String, jwsRepresentation: String, purchaseDate: Date = .distantPast, finish: @escaping () async -> Void = {}) {
         self.productID = productID
         self.jwsRepresentation = jwsRepresentation
+        self.purchaseDate = purchaseDate
         self.finish = finish
     }
 
@@ -57,6 +59,7 @@ struct CloudStoreKitScanOutcome {
             verified.append(CloudStoreKitTransaction(
                 productID: transaction.productID,
                 jwsRepresentation: result.jwsRepresentation,
+                purchaseDate: transaction.purchaseDate,
                 finish: { await transaction.finish() }
             ))
         case .unverified:
@@ -88,6 +91,7 @@ private struct SystemCloudStoreKitOperations: CloudStoreKitOperations {
             return .success(CloudStoreKitTransaction(
                 productID: transaction.productID,
                 jwsRepresentation: verification.jwsRepresentation,
+                purchaseDate: transaction.purchaseDate,
                 finish: { await transaction.finish() }
             ))
         case .pending:
@@ -175,6 +179,7 @@ private struct SystemCloudStoreKitOperations: CloudStoreKitOperations {
             return .verified(CloudStoreKitTransaction(
                 productID: transaction.productID,
                 jwsRepresentation: result.jwsRepresentation,
+                purchaseDate: transaction.purchaseDate,
                 finish: { await transaction.finish() }
             ))
         case .unverified:
@@ -220,6 +225,7 @@ public final class CloudSubscriptionStore: ObservableObject {
     private var deliverySettlementWaiters: [CheckedContinuation<Void, Never>] = []
     private var completedDeliveries: Set<String> = []
     private var deliveryGeneration = 0
+    var onTransactionUpdateDelivery: (() async -> Void)?
 
     /// The one bounded wait between an empty post-sync sweep and its single
     /// delayed rescan. Injectable so tests stay deterministic.
@@ -344,7 +350,7 @@ public final class CloudSubscriptionStore: ObservableObject {
 
     /// One bounded passive sweep in documented fallback order: current
     /// entitlements, latest transaction per Cloud product, Cloud-filtered
-    /// history, then subscription-status transactions. The first verified
+    /// history, then subscription-status transactions. The newest verified
     /// Cloud transaction found is delivered through the existing backend route
     /// and ends the sweep, so one sweep issues at most one delivery. Repeated
     /// sightings of that same signed transaction across surfaces and sweeps
@@ -370,7 +376,7 @@ public final class CloudSubscriptionStore: ObservableObject {
                 verifiedCloud: cloudTransactions.count,
                 unverified: outcome.unverifiedCount
             )
-            if let transaction = cloudTransactions.first {
+            if let transaction = newestTransaction(in: cloudTransactions) {
                 await deliver(transaction)
                 return true
             }
@@ -411,9 +417,18 @@ public final class CloudSubscriptionStore: ObservableObject {
                 guard CloudProductID.all.contains(transaction.productID) else { continue }
                 recoveryEvidence.recordStreamSighting(surface: .transactionUpdates, verified: true)
                 await deliver(transaction)
+                await onTransactionUpdateDelivery?()
             case .unverified:
                 recoveryEvidence.recordStreamSighting(surface: .transactionUpdates, verified: false)
             }
+        }
+    }
+
+    private func newestTransaction(in transactions: [CloudStoreKitTransaction]) -> CloudStoreKitTransaction? {
+        transactions.max { lhs, rhs in
+            if lhs.purchaseDate != rhs.purchaseDate { return lhs.purchaseDate < rhs.purchaseDate }
+            if lhs.productID != rhs.productID { return lhs.productID < rhs.productID }
+            return lhs.jwsRepresentation < rhs.jwsRepresentation
         }
     }
 

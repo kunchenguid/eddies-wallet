@@ -1535,6 +1535,32 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(store.cloudSubscriptionStore?.recoveryEvidence.surfaces[.latestTransaction]?.phase, .delayed)
     }
 
+    func testIndependentTransactionUpdatePropagatesInactiveStateToParent() async throws {
+        let local = try await localWalletWithHistory()
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextWithEntitlement("revoked"))
+        let apiClient = client(transport)
+        let operations = StubCloudStoreKitOperations()
+        let subscriptions = CloudSubscriptionStore(client: apiClient, storeKit: operations, observeTransactions: true)
+        let coordinator = CloudCoordinator(client: apiClient, subscriptions: subscriptions)
+        let store = elevatedStore(repository: local, coordinator: coordinator)
+
+        await waitUntil("the transaction updates listener subscribes") {
+            operations.updateEventsCallCount == 1
+        }
+        operations.yieldUpdate(.verified(CloudStoreKitTransaction(
+            productID: CloudProductID.monthly,
+            jwsRepresentation: "synthetic.signed.revoked",
+            purchaseDate: Date(timeIntervalSince1970: 200)
+        )))
+        await waitUntil("the parent adopts the transaction update") {
+            store.purchaseAttempt == .entitlementNotActive(.revoked)
+        }
+
+        XCTAssertEqual(store.cloudEntitlement, .revoked)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }.count, 1)
+    }
+
     // MARK: - Optional real loopback boundary
 
     /// Opt-in proof using the production Cloud client and repository against a
@@ -1625,6 +1651,17 @@ final class CloudVerticalSliceTests: XCTestCase {
         store.openParentGate()
         for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
         return store
+    }
+
+    private func waitUntil(_ description: String, condition: @escaping @MainActor () -> Bool) async {
+        let deadline = Date().addingTimeInterval(2)
+        while !condition() {
+            if Date() > deadline {
+                XCTFail("timed out waiting for \(description)")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
     }
 }
 
@@ -1787,6 +1824,32 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         guard case .active = store.lastVerifiedContext?.entitlementState else {
             return XCTFail("the backend context is adopted, never re-derived locally")
         }
+    }
+
+    func testRecoveryDeliversNewestVerifiedCloudCandidate() async throws {
+        let transport = RoutingTransport()
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        let operations = StubCloudStoreKitOperations()
+        operations.latestOutcome = CloudStoreKitScanOutcome(verified: [
+            transaction(
+                productID: CloudProductID.monthly,
+                jwsRepresentation: "synthetic.signed.older",
+                purchaseDate: Date(timeIntervalSince1970: 100)
+            ),
+            transaction(
+                productID: CloudProductID.annual,
+                jwsRepresentation: "synthetic.signed.newer",
+                purchaseDate: Date(timeIntervalSince1970: 200)
+            ),
+        ])
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.restorePurchases()
+
+        let posts = transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }
+        XCTAssertEqual(posts.count, 1)
+        let body = try XCTUnwrap(posts.first?.httpBody).jsonObject()
+        XCTAssertEqual(body["signedTransaction"] as? String, "synthetic.signed.newer")
     }
 
     func testRestoreFindsCloudTransactionThroughHistoryAndFiltersNonCloud() async throws {
@@ -2047,8 +2110,18 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         XCTAssertEqual(store.recoveryEvidence.deliveryOutcome, .active)
     }
 
-    private func transaction(finish: @escaping () async -> Void = {}) -> CloudStoreKitTransaction {
-        CloudStoreKitTransaction(productID: CloudProductID.monthly, jwsRepresentation: "synthetic.signed.transaction", finish: finish)
+    private func transaction(
+        productID: String = CloudProductID.monthly,
+        jwsRepresentation: String = "synthetic.signed.transaction",
+        purchaseDate: Date = .distantPast,
+        finish: @escaping () async -> Void = {}
+    ) -> CloudStoreKitTransaction {
+        CloudStoreKitTransaction(
+            productID: productID,
+            jwsRepresentation: jwsRepresentation,
+            purchaseDate: purchaseDate,
+            finish: finish
+        )
     }
 
     private func nonCloudTransaction() -> CloudStoreKitTransaction {
@@ -2081,16 +2154,16 @@ final class CloudSubscriptionStoreTests: XCTestCase {
 }
 
 /// The local evidence surface can only ever carry aggregate counts, outcome
-/// classes, the scan phase, a coarse timestamp, and the build context. These
+/// classes, the scan phase, and the build context. These
 /// tests prove that shape for both the serialization and the Release-visible
 /// readout content.
 final class CloudRecoveryEvidenceTests: XCTestCase {
-    func testSerializationContainsOnlyAggregateCountsClassesAndCoarseContext() throws {
+    func testSerializationContainsOnlyAggregateCountsClassesAndBuildContext() throws {
         var evidence = CloudRecoveryEvidence(buildContext: "0.1.7 (9)")
-        evidence.recordScan(surface: .currentEntitlements, phase: .immediate, verifiedCloud: 1, unverified: 2, at: Date(timeIntervalSince1970: 1_700_000_000))
-        evidence.recordScan(surface: .subscriptionStatus, phase: .delayed, verifiedCloud: 0, unverified: 0, at: Date(timeIntervalSince1970: 1_700_000_030))
-        evidence.recordStreamSighting(surface: .transactionUpdates, verified: true, at: Date(timeIntervalSince1970: 1_700_000_045))
-        evidence.recordStreamSighting(surface: .unfinished, verified: false, at: Date(timeIntervalSince1970: 1_700_000_050))
+        evidence.recordScan(surface: .currentEntitlements, phase: .immediate, verifiedCloud: 1, unverified: 2)
+        evidence.recordScan(surface: .subscriptionStatus, phase: .delayed, verifiedCloud: 0, unverified: 0)
+        evidence.recordStreamSighting(surface: .transactionUpdates, verified: true)
+        evidence.recordStreamSighting(surface: .unfinished, verified: false)
         evidence.recordSync(.returned)
         evidence.recordDelivery(.network)
 
@@ -2101,11 +2174,11 @@ final class CloudRecoveryEvidenceTests: XCTestCase {
         flattenJSON(object, into: &leaves)
         XCTAssertFalse(leaves.isEmpty)
 
-        // Every leaf must be a number (counts and coarse timestamps), one of
+        // Every leaf must be a count, one of
         // the fixed structural or class words, or the build context.
         var vocabulary: Set<String> = [
             "surfaces", "lastSyncOutcome", "deliveryOutcome", "buildContext",
-            "verifiedCloud", "unverified", "phase", "at",
+            "verifiedCloud", "unverified", "phase",
             "0.1.7 (9)",
         ]
         vocabulary.formUnion(CloudRecoveryEvidence.Surface.allCases.map(\.rawValue))
@@ -2128,8 +2201,8 @@ final class CloudRecoveryEvidenceTests: XCTestCase {
     /// model above, so its rows carry the same safe shape.
     func testDisplayRowsRenderOnlySafeAggregateContent() {
         var evidence = CloudRecoveryEvidence(buildContext: "0.1.7 (9)")
-        evidence.recordScan(surface: .currentEntitlements, phase: .immediate, verifiedCloud: 0, unverified: 0, at: Date(timeIntervalSince1970: 1_700_000_000))
-        evidence.recordScan(surface: .latestTransaction, phase: .delayed, verifiedCloud: 1, unverified: 0, at: Date(timeIntervalSince1970: 1_700_000_030))
+        evidence.recordScan(surface: .currentEntitlements, phase: .immediate, verifiedCloud: 0, unverified: 0)
+        evidence.recordScan(surface: .latestTransaction, phase: .delayed, verifiedCloud: 1, unverified: 0)
         evidence.recordSync(.threw)
         evidence.recordDelivery(.inactive)
 
@@ -2142,7 +2215,9 @@ final class CloudRecoveryEvidenceTests: XCTestCase {
         XCTAssertEqual(rows.first { $0.id == "build" }?.value, "0.1.7 (9)")
         XCTAssertEqual(rows.first { $0.id == "sync" }?.value, "threw")
         XCTAssertEqual(rows.first { $0.id == "currentEntitlements" }?.value, "empty")
+        XCTAssertEqual(rows.first { $0.id == "currentEntitlements" }?.detail, "just after Restore")
         XCTAssertEqual(rows.first { $0.id == "latestTransaction" }?.value, "1 verified")
+        XCTAssertEqual(rows.first { $0.id == "latestTransaction" }?.detail, "delayed rescan")
         XCTAssertEqual(rows.first { $0.id == "transactionHistory" }?.value, "not scanned")
         XCTAssertEqual(rows.first { $0.id == "unfinished" }?.value, "not scanned")
         XCTAssertEqual(rows.first { $0.id == "delivery" }?.value, "plan not active")

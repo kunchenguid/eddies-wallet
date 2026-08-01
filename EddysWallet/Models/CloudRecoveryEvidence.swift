@@ -56,13 +56,11 @@ public struct CloudRecoveryEvidence: Codable, Equatable, Sendable {
         public var verifiedCloud: Int
         public var unverified: Int
         public var phase: ScanPhase
-        public var at: Date
 
-        public init(verifiedCloud: Int, unverified: Int, phase: ScanPhase, at: Date) {
+        public init(verifiedCloud: Int, unverified: Int, phase: ScanPhase) {
             self.verifiedCloud = verifiedCloud
             self.unverified = unverified
             self.phase = phase
-            self.at = at
         }
     }
 
@@ -87,20 +85,19 @@ public struct CloudRecoveryEvidence: Codable, Equatable, Sendable {
         return "\(version) (\(build))"
     }
 
-    mutating func recordScan(surface: Surface, phase: ScanPhase, verifiedCloud: Int, unverified: Int, at: Date = .now) {
-        surfaces[surface] = SurfaceReadout(verifiedCloud: verifiedCloud, unverified: unverified, phase: phase, at: at)
+    mutating func recordScan(surface: Surface, phase: ScanPhase, verifiedCloud: Int, unverified: Int) {
+        surfaces[surface] = SurfaceReadout(verifiedCloud: verifiedCloud, unverified: unverified, phase: phase)
     }
 
     /// Long-lived streams have no scan boundary, so their sightings aggregate
     /// as running totals since launch.
-    mutating func recordStreamSighting(surface: Surface, verified: Bool, at: Date = .now) {
-        var readout = surfaces[surface] ?? SurfaceReadout(verifiedCloud: 0, unverified: 0, phase: .passive, at: at)
+    mutating func recordStreamSighting(surface: Surface, verified: Bool) {
+        var readout = surfaces[surface] ?? SurfaceReadout(verifiedCloud: 0, unverified: 0, phase: .passive)
         if verified {
             readout.verifiedCloud += 1
         } else {
             readout.unverified += 1
         }
-        readout.at = at
         surfaces[surface] = readout
     }
 
@@ -114,7 +111,7 @@ public struct CloudRecoveryEvidence: Codable, Equatable, Sendable {
 }
 
 /// One display row of the local evidence readout: a fixed title plus a value
-/// assembled only from counts, class words, the scan phase, and a coarse time.
+/// assembled only from counts, class words, and the scan phase.
 public struct CloudRecoveryEvidenceRow: Equatable, Identifiable, Sendable {
     public let id: String
     public let title: String
@@ -165,7 +162,7 @@ extension CloudRecoveryEvidence {
             id: surface.rawValue,
             title: surface.displayName,
             value: summary,
-            detail: "\(readout.phase.displayName) · \(readout.at.formatted(date: .omitted, time: .standard))"
+            detail: readout.phase.displayName
         )
     }
 }

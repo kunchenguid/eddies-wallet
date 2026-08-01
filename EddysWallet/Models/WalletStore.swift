@@ -192,6 +192,10 @@ public final class WalletStore: ObservableObject {
             self.appleSignInProvider = AppleSignInCoordinator()
         }
 
+        cloudCoordinator?.onTransactionUpdate = { [weak self] in
+            await self?.adoptCoordinatorState()
+        }
+
         if self.isSignedIn, !isMockRepository, self.recoveryState == nil {
             Task { [weak self] in await self?.refresh() }
         }

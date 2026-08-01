@@ -29,10 +29,14 @@ public final class CloudCoordinator: ObservableObject {
     private let client: CloudAPIClient
     private let subscriptions: CloudSubscriptionStore
     private var storeAccountToken: UUID?
+    var onTransactionUpdate: (() async -> Void)?
 
     public init(client: CloudAPIClient, subscriptions: CloudSubscriptionStore? = nil) {
         self.client = client
         self.subscriptions = subscriptions ?? CloudSubscriptionStore(client: client)
+        self.subscriptions.onTransactionUpdateDelivery = { [weak self] in
+            await self?.adoptTransactionUpdate()
+        }
     }
 
     /// Purchase and restore controls may only appear when this is true.
@@ -205,5 +209,11 @@ public final class CloudCoordinator: ObservableObject {
         entitlement = context.entitlementState
         // A malformed or non-Cloud household never becomes Cloud authority.
         household = context.household?.isCloudAuthoritative == true ? context.household : nil
+    }
+
+    private func adoptTransactionUpdate() async {
+        purchaseAttempt = subscriptions.state
+        if let context = subscriptions.lastVerifiedContext { apply(context) }
+        await onTransactionUpdate?()
     }
 }
