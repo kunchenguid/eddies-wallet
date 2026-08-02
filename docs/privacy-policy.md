@@ -73,10 +73,6 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 
 The app is designed so that the child's side needs no account, no sign-in, and no personal details beyond a nickname the parent chooses. All setup, money actions, and settings sit behind the parent PIN.
 
-## Changes
-
-If this policy changes, the updated version will be published at the same address with a new review date.
-
 ## Contact
 
 _To be filled in by the captain before publication (see open questions)._
@@ -96,3 +92,4 @@ These cannot be answered from this repository's code and must not be guessed:
 7. **Email scope.** The app requests Apple's email scope but never uses it. Confirm whether to drop the scope request (which would make the "we never see your email" story cleaner) or to keep and document it.
 8. **Organization and service-side data use.** Confirm before publication whether the organization and service sell, rent, or share information with third parties. This frontend repository cannot establish that commitment.
 9. **Service-side transaction validation.** Confirm how the service validates Apple's signed transaction before projecting an entitlement back to the app.
+10. **Publication and updates.** Confirm the publication address and how future revisions will be updated and dated. Neither practice exists yet.
