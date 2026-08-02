@@ -179,6 +179,27 @@ enum DebugLaunchScenario {
                 entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
                 hasValidCloudReplica: false
             )
+        case "reconnecting":
+            // Reproduces the reported field defect's timing with synthetic
+            // fixture data. `EW_UITEST_STALLED_FIRST_READ_SECONDS` holds the
+            // launch read open so its failure lands after a later read already
+            // succeeded; `EW_UITEST_OFFLINE_WINDOW_SECONDS` fails every read
+            // started inside that window so the kid home starts genuinely
+            // offline and only pull-to-refresh can recover it.
+            let cached = snapshot(.fixture(), environment: environment)
+            var reconnected = cached
+            reconnected.acceptedBalanceCents = 3_675
+            reconnected.pendingEvents = []
+            reconnected.lastUpdated = .now
+            reconnected.isStale = false
+            return store(
+                repository: ReconnectingWalletRepository(
+                    cached: cached,
+                    reconnected: reconnected,
+                    stalledFirstReadSeconds: seconds(environment["EW_UITEST_STALLED_FIRST_READ_SECONDS"]),
+                    offlineWindowSeconds: seconds(environment["EW_UITEST_OFFLINE_WINDOW_SECONDS"])
+                )
+            )
         case "legacy":
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .legacyService)
         default:
@@ -195,6 +216,11 @@ enum DebugLaunchScenario {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         copy.childNickname = trimmed.isEmpty ? nil : trimmed
         return copy
+    }
+
+    private static func seconds(_ raw: String?) -> TimeInterval {
+        guard let raw, let value = TimeInterval(raw), value > 0 else { return 0 }
+        return value
     }
 
     private static func emptySnapshot(environment: [String: String] = [:]) -> WalletSnapshot {
@@ -248,6 +274,69 @@ final class ScriptedAppleSignInProvider: AppleSignInProviding {
             session: AuthSession(token: "uitest-session", expiresAt: .distantFuture),
             appleUserID: appleUserID
         )
+    }
+}
+
+/// A wallet whose authority is briefly unreachable, used to review and test the
+/// child home's refresh honestly. Every read is the ordinary read - only their
+/// timing differs, which is exactly what the reported defect turned on: the
+/// read issued at launch can be held open so that its failure arrives after a
+/// read issued later has already succeeded.
+@MainActor
+final class ReconnectingWalletRepository: WalletRepository {
+    private let inner: MockWalletRepository
+    private let reconnected: WalletSnapshot
+    private let stalledFirstReadSeconds: TimeInterval
+    private let offlineWindowSeconds: TimeInterval
+    private let launchedAt = Date()
+    private var reads = 0
+    private var published: WalletSnapshot
+
+    init(
+        cached: WalletSnapshot,
+        reconnected: WalletSnapshot,
+        stalledFirstReadSeconds: TimeInterval,
+        offlineWindowSeconds: TimeInterval
+    ) {
+        self.inner = MockWalletRepository(snapshot: reconnected)
+        self.published = cached
+        self.reconnected = reconnected
+        self.stalledFirstReadSeconds = stalledFirstReadSeconds
+        self.offlineWindowSeconds = offlineWindowSeconds
+    }
+
+    var isAuthenticated: Bool { true }
+    var hasConfiguredKid: Bool { true }
+    func snapshot() -> WalletSnapshot { published }
+    func childSnapshot() -> WalletSnapshot { published }
+
+    func refresh(for _: UserRole) async throws -> WalletSnapshot {
+        reads += 1
+        let isFirstRead = reads == 1
+        let startedWithinOfflineWindow = Date().timeIntervalSince(launchedAt) < offlineWindowSeconds
+        if isFirstRead, stalledFirstReadSeconds > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(stalledFirstReadSeconds * 1_000_000_000))
+            throw unreachable()
+        }
+        if startedWithinOfflineWindow {
+            throw unreachable()
+        }
+        published = reconnected
+        return reconnected
+    }
+
+    func activity(limit: Int) async throws -> [WalletEvent] { try await inner.activity(limit: limit) }
+    func activityDetail(remoteID: String) async throws -> WalletEvent { try await inner.activityDetail(remoteID: remoteID) }
+    func loanDetail(remoteID: String) async throws -> LoanDetail { try await inner.loanDetail(remoteID: remoteID) }
+    func submit(_ command: WalletCommand) async throws -> CommandResult { try await inner.submit(command) }
+    func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot { try await inner.setAllowance(command) }
+    func setup(_ setup: ParentSetup) async throws -> WalletSnapshot { try await inner.setup(setup) }
+    func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot { try await inner.updateChildProfile(update) }
+    func clearAuthentication() { inner.clearAuthentication() }
+    func clearSession() throws { try inner.clearSession() }
+
+    private func unreachable() -> WalletAPIError {
+        .network("The network is unavailable. The accepted balance was not changed.")
     }
 }
 

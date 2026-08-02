@@ -573,6 +573,63 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Legacy cached explanation with virtual dollars."].exists)
     }
 
+    // The reported field defect, end to end: the read the app issues at launch
+    // stalls and fails after a later read has already published the current
+    // wallet. The kid home must end on what it actually fetched - an online,
+    // authenticated session is never relabelled offline by a stale read.
+    func testStalledLaunchReadNeverRelabelsTheKidHomeOffline() throws {
+        let app = launch("reconnecting", environment: ["EW_UITEST_STALLED_FIRST_READ_SECONDS": "3"])
+
+        let fetchedBalance = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "US$36.75")
+        ).firstMatch
+        XCTAssertTrue(fetchedBalance.waitForExistence(timeout: 15), "the successful read must reach the kid home")
+
+        let banner = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "You're offline")).firstMatch
+        XCTAssertFalse(
+            banner.waitForExistence(timeout: 8),
+            "the stalled launch read failing late must not relabel a freshly fetched wallet as offline"
+        )
+        XCTAssertTrue(fetchedBalance.exists, "the fetched wallet must stay on screen")
+    }
+
+    // Pull-to-refresh on the kid home performs the authoritative read, applies
+    // what comes back, and clears the offline banner. Nothing before the pull
+    // may invent freshness the app never fetched.
+    func testKidHomePullToRefreshFetchesAndClearsTheOfflineBanner() throws {
+        let app = launch("reconnecting", environment: ["EW_UITEST_OFFLINE_WINDOW_SECONDS": "4"])
+
+        let banner = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "You're offline")).firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 15), "an unreachable authority is reported honestly")
+        let cachedBalance = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "US$24.00")).firstMatch
+        XCTAssertTrue(cachedBalance.exists, "the last accepted wallet stays on screen while offline")
+
+        let fetchedBalance = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "US$36.75")
+        ).firstMatch
+        XCTAssertFalse(
+            fetchedBalance.waitForExistence(timeout: 6),
+            "the kid home must not recover on its own; only a real read may change what it shows"
+        )
+        XCTAssertTrue(banner.exists)
+
+        let scrollView = app.scrollViews.firstMatch
+        scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+            .press(
+                forDuration: 0.05,
+                thenDragTo: scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0.6
+            )
+
+        XCTAssertTrue(fetchedBalance.waitForExistence(timeout: 15), "pull-to-refresh must fetch and apply the latest wallet")
+        XCTAssertFalse(banner.exists, "a successful pull-to-refresh clears the offline banner")
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Last updated")).firstMatch.exists,
+            "the freshness label must state when the wallet was last updated"
+        )
+    }
+
     // Report 8.5: an expired session keeps the cached kid view with a quiet
     // note; the door renews the session, then asks for the PIN as usual.
     func testExpiredSessionKeepsKidHomeAndDoorRenewsSession() throws {

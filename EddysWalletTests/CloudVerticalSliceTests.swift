@@ -1136,6 +1136,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         let store = elevatedStore(repository: cloud, coordinator: nil)
         transport.failEverything = true
         await store.refresh()
+        await waitUntil("the newest overlapping Cloud read reports the outage") { store.isOffline }
 
         XCTAssertTrue(store.isOffline)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
@@ -1306,6 +1307,7 @@ final class CloudVerticalSliceTests: XCTestCase {
 
         let store = elevatedStore(repository: cloud, coordinator: coordinator)
         await store.refresh()
+        await waitUntil("the newest overlapping Cloud read reports the outage") { store.isOffline }
         XCTAssertTrue(store.isOffline)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "the last accepted Cloud state stays readable offline")
         if case .cloudOffline = store.authorityState {} else {
