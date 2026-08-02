@@ -17,7 +17,6 @@ The child never signs in and never has an account. Only a parent signs in.
 - No behavioral analytics, tracking, or third-party analytics SDKs. The app bundles no third-party SDKs at all.
 - No access to contacts, location, camera roll, microphone, or health data.
 - No chat, public profiles, or sharing between families.
-- No selling or renting of anyone's information.
 
 ## What the app handles
 
@@ -27,7 +26,7 @@ A parent signs in with Apple. Apple gives the app an opaque Apple user identifie
 
 - The opaque Apple user identifier is stored on the device in the iOS keychain. It contains no name, email address, or password. It exists so that "Forgot PIN?" recovery and any later session renewal can check that the same Apple account is signing in again. A different Apple account is refused.
 - The identity token is short-lived proof. It is kept in memory only for the duration of that one sign-in and is never written to the device.
-- On the first sign-in, the app sends the identity token and the sign-in nonce once to the app's service at `eddieswallet.kunchenguid.com`, to check whether that Apple account already has a wallet to recover. If it does not, or if the check fails or the device is offline, the app continues with an ordinary on-device wallet.
+- Whenever a service session is needed, the app sends the short-lived identity token and sign-in nonce to the app's service at `eddieswallet.kunchenguid.com`. This happens during first-run existing-wallet discovery and any later Cloud sign-in or session renewal. If first-run discovery finds no wallet, fails, or the device is offline, the app continues with an ordinary on-device wallet.
 - The sign-in request asks Apple for the email scope. The app's own code never reads, displays, or stores an email address. The token the app forwards to the service is issued and signed by Apple and may carry the account's email claim (a private relay address if the parent chose to hide their email).
 
 ### 2. Parent identity and parent PIN
@@ -61,14 +60,14 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 
 - The app never sees or handles card numbers, billing addresses, or any payment credential.
 - Prices and product names shown in the app come from Apple's App Store at runtime.
-- When a purchase or restore produces a transaction, the app sends Apple's signed transaction (the JWS that Apple issues) to the app's service, which checks it with Apple and decides whether the subscription is active. The app itself never decides entitlement, and never sends a transaction that Apple did not verify.
+- When a purchase or restore produces a transaction, the app sends Apple's signed transaction (the JWS that Apple issues) to the app's service and acts on the entitlement the service projects back. The app itself never grants entitlement, and never sends a transaction that Apple did not verify.
 - Each purchase is tagged with an opaque account token that the service supplies. It is not derived from the parent's name, email, or Apple identifier by anything in this app.
 - The Parent area has a "Cloud recovery details" readout that helps diagnose subscription problems. It shows only counts and outcome categories - never identifiers, signed transactions, account values, wallet data, or raw error text. It stays on the device, is not persisted, and is never transmitted.
 
 ## Deleting your data
 
-- **On-device wallet:** signing out from the Parent area erases that device's wallet database, the parent PIN, the stored Apple user identifier, and any cached wallet snapshot. This is permanent and there is no other copy.
-- **Cloud wallet:** signing out of Cloud on a device revokes that device's session and hands the mirrored copy back to that device as an ordinary on-device wallet. The app has no in-app control that deletes a wallet already held by the service (see open questions).
+- **Wallet never uploaded to the service:** signing out from the Parent area erases that device's wallet database, the parent PIN, the stored Apple user identifier, and any cached wallet snapshot. This is permanent, and there is no other copy.
+- **Cloud wallet:** signing out of Cloud asks the service to revoke that device's session, always removes the local session token, and hands the mirrored wallet back to that device as an ordinary on-device wallet. If the request fails or the device is offline, the server-side token may remain valid until it expires. The service-held household still exists, so later erasing the ordinary on-device wallet removes only the device copy. The app has no in-app control that deletes a wallet already held by the service (see open questions).
 
 ## Children
 
@@ -95,3 +94,5 @@ These cannot be answered from this repository's code and must not be guessed:
 5. **Contact address** for privacy questions and deletion requests.
 6. **Legal footing statements** (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis). This draft deliberately makes none; a legal review should decide whether any are required for the App Store listing and the markets targeted.
 7. **Email scope.** The app requests Apple's email scope but never uses it. Confirm whether to drop the scope request (which would make the "we never see your email" story cleaner) or to keep and document it.
+8. **Organization and service-side data use.** Confirm before publication whether the organization and service sell, rent, or share information with third parties. This frontend repository cannot establish that commitment.
+9. **Service-side transaction validation.** Confirm how the service validates Apple's signed transaction before projecting an entitlement back to the app.
