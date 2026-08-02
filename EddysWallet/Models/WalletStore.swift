@@ -1080,9 +1080,10 @@ public final class WalletStore: ObservableObject {
     /// cached snapshot from this device. Reachable only from the Parent area
     /// or the pre-family setup escape.
     public func signOut() {
-        let isPreFamilySetup = isSignedIn && needsSetup && !repository.hasConfiguredKid
+        let isPreFamilySetup = isSignedIn && needsSetup
         guard elevation == .active || isPreFamilySetup else { return }
         refreshGeneration += 1
+        firstRunDecisionGeneration += 1
         do {
             try repository.clearSession()
         } catch {
@@ -1090,7 +1091,6 @@ public final class WalletStore: ObservableObject {
             return
         }
         cloudCoordinator?.clearLocalSession()
-        firstRunDecisionGeneration += 1
         authorityState = .unconfigured
         purchaseAttempt = .idle
         cloudEntitlement = .none

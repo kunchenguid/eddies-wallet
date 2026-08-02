@@ -339,6 +339,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     public func clearAuthentication() {}
     public func clearSession() throws {
         try persistence.erase()
+        cloudHandoffGeneration += 1
         aggregate = nil
         legacySnapshot = nil
         legacyMarkerPresent = false

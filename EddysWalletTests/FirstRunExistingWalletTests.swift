@@ -433,6 +433,58 @@ final class FirstRunExistingWalletTests: XCTestCase {
         XCTAssertEqual(store.rootRoute, .welcome)
     }
 
+    func testSignOutInvalidatesCloudAdoptionSuspendedOnContext() async throws {
+        let transport = discoveringTransport()
+        transport.stub("GET", "/v1/cloud/legacy-context", FirstRunFixtures.noHouseholdContext)
+        let store = try makeStore(transport: transport)
+        await store.signInWithApple()
+
+        transport.stub("GET", "/v1/cloud/legacy-context", FirstRunFixtures.cloudContext(lineage: lineage, revision: 4))
+        transport.stub("GET", "/v1/cloud/context", FirstRunFixtures.context(lineage: lineage, revision: 4))
+        transport.stub("GET", "/v1/cloud/bootstrap", FirstRunFixtures.completeWallet(lineage: lineage, revision: 4))
+        transport.suspend("GET", "/v1/cloud/context")
+        let check = Task { await store.checkForExistingWallet() }
+        await transport.waitUntilSuspended()
+
+        store.signOut()
+        transport.resumeSuspendedRequest()
+        await check.value
+
+        let persisted = try LocalWalletRepository(directory: directory)
+        XCTAssertEqual(store.rootRoute, .welcome)
+        XCTAssertTrue(store.needsCloudSignIn)
+        XCTAssertFalse(persisted.hasConfiguredKid)
+        XCTAssertFalse(persisted.isCloudAuthority)
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/cloud/bootstrap" })
+    }
+
+    func testSignOutInvalidatesCloudAdoptionSuspendedOnBootstrap() async throws {
+        let transport = discoveringTransport()
+        transport.stub("GET", "/v1/cloud/legacy-context", FirstRunFixtures.noHouseholdContext)
+        let store = try makeStore(transport: transport)
+        await store.signInWithApple()
+
+        transport.stub("GET", "/v1/cloud/legacy-context", FirstRunFixtures.cloudContext(lineage: lineage, revision: 4))
+        transport.stub("GET", "/v1/cloud/context", FirstRunFixtures.context(lineage: lineage, revision: 4))
+        transport.stub("GET", "/v1/cloud/bootstrap", FirstRunFixtures.completeWallet(lineage: lineage, revision: 4))
+        transport.suspend("GET", "/v1/cloud/bootstrap")
+        let check = Task { await store.checkForExistingWallet() }
+        await transport.waitUntilSuspended()
+
+        store.signOut()
+        transport.resumeSuspendedRequest()
+        await check.value
+
+        let persisted = try LocalWalletRepository(directory: directory)
+        XCTAssertEqual(store.rootRoute, .welcome)
+        XCTAssertTrue(store.needsCloudSignIn)
+        XCTAssertFalse(persisted.hasConfiguredKid)
+        XCTAssertFalse(persisted.isCloudAuthority)
+        XCTAssertEqual(persisted.snapshot().acceptedBalanceCents, 0)
+        XCTAssertNil(persisted.snapshot().configuredChildNickname)
+        XCTAssertTrue(persisted.snapshot().activities.isEmpty)
+    }
+
     /// The offer is only ever made for the exact signed-in Apple account, so a
     /// re-check by a different account is refused before anything is read.
     func testACheckByADifferentAppleAccountIsRefusedBeforeAnyServiceRead() async throws {

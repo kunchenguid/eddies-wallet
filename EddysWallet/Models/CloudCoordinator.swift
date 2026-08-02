@@ -29,6 +29,7 @@ public final class CloudCoordinator: ObservableObject {
     private let client: CloudAPIClient
     private let subscriptions: CloudSubscriptionStore
     private var storeAccountToken: UUID?
+    private var sessionGeneration = 0
     var onTransactionUpdate: (() async -> Void)?
 
     public init(client: CloudAPIClient, subscriptions: CloudSubscriptionStore? = nil) {
@@ -120,8 +121,10 @@ public final class CloudCoordinator: ObservableObject {
     @discardableResult
     public func refreshContext() async -> CloudContext? {
         guard client.hasSession else { return nil }
+        let generation = sessionGeneration
         do {
             let context = try await client.context()
+            guard generation == sessionGeneration, client.hasSession else { return nil }
             apply(context)
             return context
         } catch {
@@ -209,7 +212,7 @@ public final class CloudCoordinator: ObservableObject {
     public func adoptExistingCloudHousehold(into local: LocalWalletRepository) async throws -> CloudWalletRepository? {
         guard client.hasSession else { throw WalletAPIError.noSession }
         _ = await refreshContext()
-        guard let household else { return nil }
+        guard client.hasSession, let household else { return nil }
         return await adoptCloudHousehold(household, into: local)
     }
 
@@ -259,6 +262,7 @@ public final class CloudCoordinator: ObservableObject {
     }
 
     public func clearLocalSession() {
+        sessionGeneration += 1
         client.clearLocalSession()
         household = nil
         purchaseAttempt = .idle

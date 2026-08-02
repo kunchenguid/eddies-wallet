@@ -80,6 +80,7 @@ struct SetupView: View {
 
                     Button("Sign out") { isConfirmingSignOut = true }
                         .buttonStyle(SecondaryButtonStyle(compact: true))
+                        .disabled(store.isSigningIn)
                         .confirmationDialog(
                             "Sign out before setup?",
                             isPresented: $isConfirmingSignOut,
