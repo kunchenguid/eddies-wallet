@@ -260,8 +260,8 @@ public final class WalletStore: ObservableObject {
         } else if let authenticator = resolvedRepository as? any ParentAuthenticator {
             self.appleSignInProvider = AppleSignInCoordinator(authenticator: authenticator)
         } else {
-            // Free local setup uses native Apple identity only. Backend sessions
-            // are only exchanged by explicit Cloud flows.
+            // Local setup starts with native Apple identity. First-run routing
+            // may exchange its transient proof for account-bound discovery.
             self.appleSignInProvider = AppleSignInCoordinator()
         }
 

@@ -193,7 +193,7 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 
 ### Journey E: offline and session recovery
 
-1. The free one-device wallet remains fully usable without network access. Reads and parent actions use protected local authority, accepted actions are **Recorded**, and no service session or **Waiting to sync** state is introduced.
+1. The free one-device wallet remains fully usable without network access. Reads and parent actions use protected local authority, never use a service session, and show accepted actions as **Recorded** without introducing a **Waiting to sync** state.
 2. A service-authoritative wallet shown offline keeps its last accepted snapshot with a **Last updated** time, but that snapshot is read-only.
 3. A service-authoritative wallet starts no money, allowance, or profile mutation while known offline or until a successful server read has confirmed the persisted replica revision. If connectivity is lost after an exact request has been protected and transport has started, the action is clearly marked **Waiting to sync** without changing the accepted balance.
 4. On reconnect, the client reconciles only that protected request with the same body, expected revision, and idempotency key. The service either accepts it once or explicitly rejects it with a plain-language reason. A rejected command never changes the accepted balance.
