@@ -1,0 +1,582 @@
+Parsed workflow job: xcode
+Inherited workflow environment: PROJECT_PATH=EddysWallet.xcodeproj, SCHEME=EddysWallet, DERIVED_DATA_PATH=.build/DerivedData
+Executing parsed step: Build Release configuration (compile-only regression)
+xcodebuild build \
+  -project "$PROJECT_PATH" \
+  -scheme "$SCHEME" \
+  -configuration Release \
+  -destination "generic/platform=iOS" \
+  -derivedDataPath "$DERIVED_DATA_PATH" \
+  CODE_SIGNING_ALLOWED=NO \
+  CODE_SIGNING_REQUIRED=NO
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild build -project EddysWallet.xcodeproj -scheme EddysWallet -configuration Release -destination generic/platform=iOS -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+Build settings from command line:
+    CODE_SIGNING_ALLOWED = NO
+    CODE_SIGNING_REQUIRED = NO
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (1 target)
+    Target 'EddysWallet' in project 'EddysWallet' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/momc --dry-run --action generate --swift-version 5.0 --sdkroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk --iphoneos-deployment-target 17.0 --module EddysWallet /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Persistence/WalletModel.xcdatamodeld /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/CoreDataGenerated/WalletModel
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --print-asset-tag-combinations --output-format xml1 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Assets.xcassets
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: 65b67e85f1510740e621c754d992adf6
+Build description path: /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/XCBuildData/65b67e85f1510740e621c754d992adf6.xcbuilddata
+ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/SDKStatCaches.noindex/iphoneos26.4-23E237-68a138bb55de9ba35ce6c8c40d12849e.sdkstatcache
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet.xcodeproj
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk -o /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/SDKStatCaches.noindex/iphoneos26.4-23E237-68a138bb55de9ba35ce6c8c40d12849e.sdkstatcache
+
+CreateBuildDirectory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet.xcodeproj
+    builtin-create-build-directory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products
+
+CreateBuildDirectory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet.xcodeproj
+    builtin-create-build-directory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex
+
+CreateBuildDirectory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet.xcodeproj
+    builtin-create-build-directory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/ExplicitPrecompiledModules
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet.xcodeproj
+    builtin-create-build-directory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/ExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet.xcodeproj
+    builtin-create-build-directory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos
+
+CreateBuildDirectory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet.xcodeproj
+    builtin-create-build-directory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet-8328b9c9450a229cad97c48770b39c62-VFS-iphoneos/all-product-headers.yaml
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet.xcodeproj
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet-8328b9c9450a229cad97c48770b39c62-VFS-iphoneos/all-product-headers.yaml
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-project-headers.hmap (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-project-headers.hmap
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/empty-EddysWallet.plist (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/empty-EddysWallet.plist
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet_const_extract_protocols.json (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet_const_extract_protocols.json
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet.hmap (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet.hmap
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet.DependencyStaticMetadataFileList (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet.DependencyMetadataFileList (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet.DependencyMetadataFileList
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-own-target-headers.hmap (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-own-target-headers.hmap
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-generated-files.hmap (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-generated-files.hmap
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-all-target-headers.hmap (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-all-target-headers.hmap
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-OutputFileMap.json (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-OutputFileMap.json
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.LinkFileList (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.LinkFileList
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.SwiftFileList (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.SwiftFileList
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.SwiftConstValuesFileList (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-all-non-framework-target-headers.hmap (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    write-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-all-non-framework-target-headers.hmap
+
+MkDir /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /bin/mkdir -p /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app
+
+DataModelCompile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/ /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Persistence/WalletModel.xcdatamodeld (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /Applications/Xcode.app/Contents/Developer/usr/bin/momc --sdkroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk --iphoneos-deployment-target 17.0 --module EddysWallet /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Persistence/WalletModel.xcdatamodeld /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/
+WalletModelV1.xcdatamodel: note: Model WalletModelV1 version checksum: TvD3sDV8y0SL8aUlm1YS1/cnNq41DHM1A7/m6l1J/+k=
+
+MkDir /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_output/thinned (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /bin/mkdir -p /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_output/thinned
+
+MkDir /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_output/unthinned (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /bin/mkdir -p /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_output/unthinned
+
+GenerateAssetSymbols /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Assets.xcassets (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /Applications/Xcode.app/Contents/Developer/usr/bin/actool /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Assets.xcassets --compile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app --output-format human-readable-text --notices --warnings --export-dependency-info /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_dependencies --output-partial-info-plist /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_generated_info.plist --app-icon AppIcon --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --target-device ipad --minimum-deployment-target 17.0 --platform iphoneos --bundle-identifier com.kunchenguid.eddieswallet --generate-swift-asset-symbol-extensions NO --generate-swift-asset-symbols /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/GeneratedAssetSymbols.swift --generate-objc-asset-symbols /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/GeneratedAssetSymbols.h --generate-asset-symbol-index /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/* com.apple.actool.compilation-results */
+/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/GeneratedAssetSymbols.h
+/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/GeneratedAssetSymbols.swift
+
+
+DataModelCodegen /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Persistence/WalletModel.xcdatamodeld (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /Applications/Xcode.app/Contents/Developer/usr/bin/momc --action generate --swift-version 5.0 --sdkroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk --iphoneos-deployment-target 17.0 --module EddysWallet /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Persistence/WalletModel.xcdatamodeld /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/CoreDataGenerated/WalletModel
+
+CompileAssetCatalogVariant thinned /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Assets.xcassets (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /Applications/Xcode.app/Contents/Developer/usr/bin/actool /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Assets.xcassets --compile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_output/thinned --output-format human-readable-text --notices --warnings --export-dependency-info /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_dependencies_thinned --output-partial-info-plist /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_generated_info.plist_thinned --app-icon AppIcon --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --target-device ipad --minimum-deployment-target 17.0 --platform iphoneos
+/* com.apple.actool.compilation-results */
+/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_generated_info.plist_thinned
+/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_output/thinned/AppIcon60x60@2x.png
+/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_output/thinned/AppIcon76x76@2x~ipad.png
+/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_output/thinned/Assets.car
+
+
+SwiftDriver EddysWallet normal arm64 com.apple.xcode.tools.swift.compiler (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name EddysWallet -O @/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk -target arm64-apple-ios17.0 -g -module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos -F /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos -emit-localized-strings -emit-localized-strings-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64 -c -j14 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/SDKStatCaches.noindex/iphoneos26.4-23E237-68a138bb55de9ba35ce6c8c40d12849e.sdkstatcache -output-file-map /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet_const_extract_protocols.json -Xcc -iquote -Xcc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-generated-files.hmap -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-own-target-headers.hmap -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-all-target-headers.hmap -Xcc -iquote -Xcc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-project-headers.hmap -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/include -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources-normal/arm64 -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/arm64 -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-Swift.h -working-directory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH -experimental-emit-module-separately -disable-cmo
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/ptrcheck-CQLJ0P2WXGUXALJLK56VLMS9G.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_SwiftConcurrencyShims-D2OACWMS8DUT9QK7ZT4ZDC3P2.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_Builtin_stddef-5C55VERC4SYS0LAOY5TQPTETC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_Builtin_stdarg-A4VJQGH409TO5OI07ID60O79W.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/DeveloperToolsSupport-6LGJFQI65G710YMP52R29NIOF.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_AvailabilityInternal-DA3YIUZZ5YY8AQ7MI387EII1D.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_Builtin_stdbool-2N45R115GEVU6SVJVTGIAUNPF.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_Builtin_float-CCL6YYU0GR9HPP65ZWKEG1P4I.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/ptrauth-E62Q40XZMBUMMVJ3BMM4HN8QZ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/SwiftShims-YI2SVTMJC617JXUQ4HKKI0G.pcm
+
+LinkAssetCatalog /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Assets.xcassets (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-linkAssetCatalog --thinned /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_output/thinned --thinned-dependencies /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_dependencies_thinned --thinned-info-plist-content /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_generated_info.plist_thinned --unthinned /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_output/unthinned --unthinned-dependencies /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_dependencies_unthinned --unthinned-info-plist-content /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_generated_info.plist_unthinned --output /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app --plist-output /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_generated_info.plist
+note: Emplaced /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/AppIcon76x76@2x~ipad.png (in target 'EddysWallet' from project 'EddysWallet')
+note: Emplaced /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/AppIcon60x60@2x.png (in target 'EddysWallet' from project 'EddysWallet')
+note: Emplaced /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/Assets.car (in target 'EddysWallet' from project 'EddysWallet')
+
+ProcessInfoPlistFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/Info.plist /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/empty-EddysWallet.plist (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-infoPlistUtility /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/empty-EddysWallet.plist -producttype com.apple.product-type.application -genpkginfo /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/PkgInfo -expandbuildsettings -format binary -platform iphoneos -additionalcontentfile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/assetcatalog_generated_info.plist -requiredArchitecture arm64 -o /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/Info.plist
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_DarwinFoundation1-4ZH3TBEX1GYFEDTN23SYUFV2G.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_DarwinFoundation2-BI0F5GGLJMHY957MT80AGBM5M.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/ExtensionFoundation-4BLVECU7UL21HI2EN5RCSOVGP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_Builtin_limits-7G2SVER58EQ9T6OV6EICCAA74.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/sys_types-6KHFEGNF2YEVEQFFOV1YPODU0.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_Builtin_tgmath-5A9MHYHH0R253XWMDCRW20U7L.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_Builtin_stdint-75BWNUT603IQXXS6O3XBT6EKP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_Builtin_stdatomic-DI01FKLJLHOKDBBPZRTX2MNFX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_Builtin_intrinsics-RAQN8LHOSJWQ2Y29DFKREDUU.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_DarwinFoundation3-97G21YBLPMJ5PS7NS7FPL3T6N.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/_Builtin_inttypes-AT5B6564V0D3SFB0UY59MMC3U.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Darwin-89I83AT5AKMLJGNS93TZ4RR4Y.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/simd-EBC3MLZG5AQ6ZL0H2PHJI5H0W.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/MachO-4MZ9UKDK2MT98WB1E1O9JT9KB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/ObjectiveC-AZQ16K60XKN8FE47ZHWD5DJBR.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/os_object-1G6F6J6FYEVMB6YZ37RK627I5.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/os_workgroup-4RRTTYQYZ67NPU94VJPOH5ZQB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Spatial-17FPB7VD0P55SEMCXN7S8SII8.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Dispatch-41Z81ECQPKT61BXXGRTLNKQWP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/dnssd-B93KM7K48KM6V7BW1XRSLDZ5P.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/XPC-DC7H3NGR12BHESO0DMCINP2IG.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/CoreFoundation-7WKZ3BA93SI0QT4L0MHHNL5IW.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/os-8E41SOOB6R355W02U6M0OE06W.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/CoreGraphics-3EQGGXQ4P25K55OILW5ESNKIE.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/CFNetwork-KSE3Q0E9U349PBYFVG59K1RE.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Security-P82X5S65KBII5D81XD8B914E.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Foundation-6ST4J11COLCOQFON2CUSQHC39.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/ImageIO-FUWAAA38LKC2303SNL8V4147.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/CoreText-8LIHMRZTF6RLHVT4CV4VIOCWB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/UniformTypeIdentifiers-A120O9H9SH71CXTEYVU7XK076.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/IOSurface-AYTE2S7THGACKKJAU8DQHJ0B9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/BackgroundAssets-9P104YZBF7WFSCQ1WQZN7UK67.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/OSLog-A7J8E9TVEU7WMKPR1F95XDOB2.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/DataDetection-28MZ0IRB2A8Y3UTGVOOKON0MC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/UIUtilities-25CNCRTY63M1HKUL9NFQYR4LZ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/UserNotifications-3HH6UFR2DB4UVLAQXH8KDERD9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/LocalAuthentication-ANBJZYHCM02UX1AY740YE95SY.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/CoreTransferable-7NETPV8XFM7FN2RIAV1V65YFA.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/FileProvider-BJ6IA1PQI4TAZ2TAB5QHDFX83.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/CoreData-A4VQOAJSVLD2XMZ0VZ9WOASQC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Symbols-9U5NLCAQ8QNO3SOGX1M65AU0U.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Accessibility-E3VTS3CDMVVNWQYTX69010VCT.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Network-55IOM2ICBFSV0FVGJXZTDFELN.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Metal-609FXCNFCGX7V3AD7FCTO4F3I.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/OpenGLES-7TWWV5KHT0WAH3UHQX9MOCE6M.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/CoreVideo-FF5RXS7SJYRJDG76BAI2DNJS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/CoreImage-DTLSCQ9ZPZTJYOFJW8QL8ZXSU.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/QuartzCore-50P2B0N2YLCR3K9T090MEGKQV.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/SwiftUICore-5Y5L5390HKR6C91Z3KGJ8POGC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/UIKit-1511ZA3L7GV0HPX36CFDG2REA.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/StoreKit-E1OQMP3MGP91ATBUGYRKO0FWS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/SwiftUI-84LI2R8D0B6Y34V32RKMTN0TS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/AuthenticationServices-5WRHJ2POXUZB6JI44ZDN4WE7P.pcm
+
+SwiftCompile normal arm64 Compiling\ CloudSubscriptionStore.swift,\ CloudStatusView.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/StoreKit/CloudSubscriptionStore.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/CloudStatusView.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/StoreKit/CloudSubscriptionStore.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/CloudStatusView.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ EddysWallet (in target 'EddysWallet' from project 'EddysWallet')
+
+EmitSwiftModule normal arm64 (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ WalletRecord+CoreDataClass.swift,\ WalletRecord+CoreDataProperties.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/CoreDataGenerated/WalletModel/WalletRecord+CoreDataClass.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/CoreDataGenerated/WalletModel/WalletRecord+CoreDataProperties.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/CoreDataGenerated/WalletModel/WalletRecord+CoreDataClass.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/CoreDataGenerated/WalletModel/WalletRecord+CoreDataProperties.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ ExistingWalletView.swift,\ CloudAPIClient.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/ExistingWalletView.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudAPIClient.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/ExistingWalletView.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudAPIClient.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ LocalWalletPersistence.swift,\ LocalWalletRepository.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Persistence/LocalWalletPersistence.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Persistence/LocalWalletRepository.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Persistence/LocalWalletPersistence.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Persistence/LocalWalletRepository.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ CloudRecoveryEvidence.swift,\ CloudRecoveryEvidenceView.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudRecoveryEvidence.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/CloudRecoveryEvidenceView.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudRecoveryEvidence.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/CloudRecoveryEvidenceView.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ CloudReplicaMapping.swift,\ CloudDiagnosticsView.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudReplicaMapping.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/CloudDiagnosticsView.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudReplicaMapping.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/CloudDiagnosticsView.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ CloudWalletRepository.swift,\ CloudImportEncoding.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudWalletRepository.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudImportEncoding.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudWalletRepository.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudImportEncoding.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ ParentGateView.swift,\ WalletComponents.swift,\ DebugScenarios.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/ParentGateView.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/WalletComponents.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/DebugScenarios.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/ParentGateView.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/WalletComponents.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/DebugScenarios.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ WalletModel+CoreDataModel.swift,\ GeneratedAssetSymbols.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/CoreDataGenerated/WalletModel/WalletModel+CoreDataModel.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/CoreDataGenerated/WalletModel/WalletModel+CoreDataModel.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ WalletStore.swift,\ DetailViews.swift,\ FlowViews.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/WalletStore.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/DetailViews.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/FlowViews.swift (in target 'EddysWallet' from project 'EddysWallet')
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/WalletStore.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/DetailViews.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/FlowViews.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ EddysWalletApp.swift,\ NativeDesignSystem.swift,\ WalletModels.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/EddysWalletApp.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/DesignSystem/NativeDesignSystem.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/WalletModels.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/EddysWalletApp.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/DesignSystem/NativeDesignSystem.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/WalletModels.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ CloudModels.swift,\ CloudCoordinator.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudModels.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudCoordinator.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudModels.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/CloudCoordinator.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ SetupView.swift,\ KidHomeView.swift,\ ParentAreaView.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/SetupView.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/KidHomeView.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/ParentAreaView.swift (in target 'EddysWallet' from project 'EddysWallet')
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/SetupView.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/KidHomeView.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/ParentAreaView.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 Compiling\ WelcomeView.swift,\ WalletAPI.swift,\ AppleSignIn.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/WelcomeView.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/WalletAPI.swift /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/AppleSignIn.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Views/WelcomeView.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/WalletAPI.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftCompile normal arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/EddysWallet/Models/AppleSignIn.swift (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling WalletModel+CoreDataModel.swift, GeneratedAssetSymbols.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling WalletRecord+CoreDataClass.swift, WalletRecord+CoreDataProperties.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for EddysWallet (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriver\ Compilation\ Requirements EddysWallet normal arm64 com.apple.xcode.tools.swift.compiler (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name EddysWallet -O @/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk -target arm64-apple-ios17.0 -g -module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos -F /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos -emit-localized-strings -emit-localized-strings-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64 -c -j14 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/SDKStatCaches.noindex/iphoneos26.4-23E237-68a138bb55de9ba35ce6c8c40d12849e.sdkstatcache -output-file-map /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet_const_extract_protocols.json -Xcc -iquote -Xcc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-generated-files.hmap -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-own-target-headers.hmap -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-all-target-headers.hmap -Xcc -iquote -Xcc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-project-headers.hmap -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/include -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources-normal/arm64 -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/arm64 -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-Swift.h -working-directory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH -experimental-emit-module-separately -disable-cmo
+
+SwiftMergeGeneratedHeaders /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/EddysWallet-Swift.h /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-Swift.h (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-swiftHeaderTool -arch arm64 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-Swift.h -o /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/EddysWallet-Swift.h
+
+Copy /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.swiftmodule/arm64-apple-ios.swiftmodule /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.swiftmodule (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -strip-unsigned-binaries -strip-deterministic -strip-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -resolve-src-symlinks -rename /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.swiftmodule /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.swiftmodule/arm64-apple-ios.swiftmodule
+
+Copy /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.swiftmodule/arm64-apple-ios.swiftdoc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.swiftdoc (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -strip-unsigned-binaries -strip-deterministic -strip-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -resolve-src-symlinks -rename /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.swiftdoc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.swiftmodule/arm64-apple-ios.swiftdoc
+
+Copy /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.swiftmodule/arm64-apple-ios.abi.json /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.abi.json (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -strip-unsigned-binaries -strip-deterministic -strip-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -resolve-src-symlinks -rename /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.abi.json /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.swiftmodule/arm64-apple-ios.abi.json
+
+SwiftDriverJobDiscovery normal arm64 Compiling CloudRecoveryEvidence.swift, CloudRecoveryEvidenceView.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+Copy /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.swiftmodule/Project/arm64-apple-ios.swiftsourceinfo /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.swiftsourceinfo (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -strip-unsigned-binaries -strip-deterministic -strip-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -resolve-src-symlinks -rename /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.swiftsourceinfo /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.swiftmodule/Project/arm64-apple-ios.swiftsourceinfo
+
+SwiftDriverJobDiscovery normal arm64 Compiling LocalWalletPersistence.swift, LocalWalletRepository.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling CloudReplicaMapping.swift, CloudDiagnosticsView.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ParentGateView.swift, WalletComponents.swift, DebugScenarios.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling CloudWalletRepository.swift, CloudImportEncoding.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ExistingWalletView.swift, CloudAPIClient.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling CloudSubscriptionStore.swift, CloudStatusView.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling CloudModels.swift, CloudCoordinator.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling EddysWalletApp.swift, NativeDesignSystem.swift, WalletModels.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling WalletStore.swift, DetailViews.swift, FlowViews.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling WelcomeView.swift, WalletAPI.swift, AppleSignIn.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SetupView.swift, KidHomeView.swift, ParentAreaView.swift (in target 'EddysWallet' from project 'EddysWallet')
+
+SwiftDriver\ Compilation EddysWallet normal arm64 com.apple.xcode.tools.swift.compiler (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name EddysWallet -O @/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk -target arm64-apple-ios17.0 -g -module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos -F /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos -emit-localized-strings -emit-localized-strings-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64 -c -j14 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/SDKStatCaches.noindex/iphoneos26.4-23E237-68a138bb55de9ba35ce6c8c40d12849e.sdkstatcache -output-file-map /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet_const_extract_protocols.json -Xcc -iquote -Xcc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-generated-files.hmap -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-own-target-headers.hmap -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-all-target-headers.hmap -Xcc -iquote -Xcc /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet-project-headers.hmap -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/include -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources-normal/arm64 -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources/arm64 -Xcc -I/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-Swift.h -working-directory /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH -experimental-emit-module-separately -disable-cmo
+
+Ld /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/EddysWallet normal (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk -Os -L/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos -L/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos -F/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos -F/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos -filelist /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet_lto.o -Xlinker -dependency_info -Xlinker /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.swiftmodule @/Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet-linker-args.resp -o /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/EddysWallet
+
+CopySwiftLibs /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/EddysWallet --scan-folder /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/Frameworks --scan-folder /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/PlugIns --scan-folder /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/SystemExtensions --scan-folder /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/Extensions --platform iphoneos --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name EddysWallet --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk --xcode-version 17E192 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.kunchenguid.eddieswallet --output /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app --target-triple arm64-apple-ios17.0 --binary-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/EddysWallet --dependency-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet_dependency_info.dat --stringsdata-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.SwiftFileList --metadata-file-list /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet.DependencyMetadataFileList --static-metadata-file-list /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet.DependencyStaticMetadataFileList --swift-const-vals-list /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/Objects-normal/arm64/EddysWallet.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-08-01 23:53:43.991 appintentsmetadataprocessor[53013:477205365] Starting appintentsmetadataprocessor export
+2026-08-01 23:53:43.992 appintentsmetadataprocessor[53013:477205365] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+GenerateDSYMFile /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app.dSYM /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/EddysWallet (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/EddysWallet -o /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app.dSYM
+
+AppIntentsSSUTraining (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/Info.plist --temp-dir-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/ssu --bundle-id com.kunchenguid.eddieswallet --product-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app --extracted-metadata-path /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/Metadata.appintents --metadata-file-list /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Intermediates.noindex/EddysWallet.build/Release-iphoneos/EddysWallet.build/EddysWallet.DependencyMetadataFileList --source-file /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app/Info.plist --archive-ssu-assets
+2026-08-01 23:53:44.013 appintentsnltrainingprocessor[53026:477205385] Parsing options for appintentsnltrainingprocessor
+2026-08-01 23:53:44.013 appintentsnltrainingprocessor[53026:477205385] Starting AppIntents SSU YAML Generation
+2026-08-01 23:53:44.013 appintentsnltrainingprocessor[53026:477205385] No AppShortcuts found - Skipping.
+
+RegisterExecutionPolicyException /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-RegisterExecutionPolicyException /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app
+
+Validate /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    builtin-validationUtility /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app -shallow-bundle -infoplist-subpath Info.plist
+
+Touch /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH
+    /usr/bin/touch -c /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01KZ0KS1S4XXSH47HG72R29XRH/.build/DerivedData/Build/Products/Release-iphoneos/EddysWallet.app
+
+** BUILD SUCCEEDED **
+

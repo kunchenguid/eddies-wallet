@@ -57,7 +57,7 @@ Do not claim TestFlight success from a green upload step alone: success means Ap
 
 ## Security and trust boundaries
 
-- Ordinary pull requests (including forks) validate through `.github/workflows/ci.yml`, which references no secrets and runs with `contents: read`. No `pull_request_target` trigger exists in this repository.
+- Ordinary pull requests (including forks) validate through `.github/workflows/ci.yml`, which references no secrets and runs with `contents: read`. Its `xcode` job builds and tests the Debug configuration, then compiles the Release configuration for generic iOS with signing disabled so Debug-only source cannot wait until a tag-scoped archive to fail. No `pull_request_target` trigger exists in this repository.
 - The release/upload App Store Connect credentials are reachable only from `eddies-wallet-v*` tag pushes, published releases, and explicit tag dispatches of `release.yml`/`asc-build-status.yml`. Tags and dispatches require repository write access. The separate least-privilege review-monitor credential has the narrower triggers and access described in [App Store review-status monitor](app-store-review-monitor.md).
 - The release/upload App Store Connect private key exists on the runner only as a short-lived file under the runner's home (`chmod 600`), written from the secret for `xcodebuild`/`altool` authentication, and the runner is destroyed after the job. Never persist that key material anywhere else.
 - All actions are pinned to full commit SHAs.

@@ -152,6 +152,7 @@ struct ExistingWalletView: View {
     private var isRefused: Bool { store.existingWalletRecovery?.refusalMessage != nil }
 }
 
+#if DEBUG
 #Preview("Existing wallet offered") {
     let store = WalletStore.preview()
     store.applyDebugExistingWalletRecovery(.offered(CloudExistingWalletOffer(
@@ -161,3 +162,4 @@ struct ExistingWalletView: View {
     )))
     return ExistingWalletView().environmentObject(store)
 }
+#endif
