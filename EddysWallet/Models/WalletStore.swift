@@ -212,6 +212,16 @@ public final class WalletStore: ObservableObject {
     private var cooldownUntil: Date?
     private var cooldownTask: Task<Void, Never>?
     private var refreshGeneration = 0
+    /// Refreshes overlap by design: this store's own launch read, the kid
+    /// home's `.task`, returning from the Parent area, coming back to the
+    /// foreground, and every pull-to-refresh can all be in flight together.
+    /// Each read is stamped in the order it started so a slow one can never
+    /// land last and overwrite what a newer read already published.
+    private var refreshAttempts = 0
+    private var latestPublishedRefreshAttempt = 0
+    /// Set while the scene is out of the foreground, so the return can re-read
+    /// the wallet that `handleAppBackgrounded()` retired.
+    private var didLeaveForeground = false
     private var firstRunDecisionGeneration = 0
     private var isCommittingFirstRunCloudAdoption = false
     #if DEBUG
@@ -702,12 +712,24 @@ public final class WalletStore: ObservableObject {
     /// Called when the scene leaves the foreground. Any parent elevation and
     /// in-progress parent flow drops immediately; kid data may stay visible.
     public func handleAppBackgrounded() {
+        didLeaveForeground = true
         if elevation == .none {
             refreshGeneration += 1
             isLoading = false
             return
         }
         deElevate()
+    }
+
+    /// Called when the scene comes back to the foreground. Backgrounding
+    /// retires every read that was in flight, so without this the kid home
+    /// would keep showing - and keep labelling as offline - whatever the last
+    /// retired attempt left behind until somebody pulled to refresh.
+    public func handleAppForegrounded() {
+        guard didLeaveForeground else { return }
+        didLeaveForeground = false
+        guard isSignedIn, !needsSetup, recoveryState == nil, existingWalletRecovery == nil else { return }
+        Task { [weak self] in await self?.refresh() }
     }
 
     public func dismissFirstActionsHandoff() {
@@ -745,10 +767,17 @@ public final class WalletStore: ObservableObject {
         }
         let requestedRole = viewRole
         let generation = refreshGeneration
+        refreshAttempts += 1
+        let attempt = refreshAttempts
         isLoading = true
+        defer {
+            // Only the newest attempt owns the spinner: an older read finishing
+            // underneath it must not report the wallet as settled.
+            if generation == refreshGeneration, attempt == refreshAttempts { isLoading = false }
+        }
         do {
             let refreshed = try await repository.refresh(for: requestedRole)
-            guard generation == refreshGeneration, requestedRole == viewRole else { return }
+            guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
             snapshot = refreshed
             needsSetup = false
             if let cloud = repository as? CloudWalletRepository {
@@ -763,10 +792,11 @@ public final class WalletStore: ObservableObject {
         } catch let error as WalletAPIError {
             switch error {
             case .familyNotSetup:
-                guard generation == refreshGeneration, requestedRole == viewRole else { return }
+                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 needsSetup = true
                 errorMessage = nil
             case .unauthorized, .noSession:
+                guard isNewestRefresh(attempt) else { return }
                 if repository.hasConfiguredKid {
                     sessionExpired = true
                     errorMessage = "Your parent session expired. Sign in with Apple again."
@@ -781,7 +811,7 @@ public final class WalletStore: ObservableObject {
                     if elevation != .none { deElevate() }
                 }
             case .network:
-                guard generation == refreshGeneration, requestedRole == viewRole else { return }
+                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 isOffline = true
                 if let cloud = repository as? CloudWalletRepository {
                     authorityState = .cloudOffline(lineageID: cloud.lineageID, revision: cloud.revision)
@@ -789,12 +819,12 @@ public final class WalletStore: ObservableObject {
                 errorMessage = userMessage(for: error)
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .revisionConflict, .revisionRequired:
-                guard generation == refreshGeneration, requestedRole == viewRole else { return }
+                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 needsCloudReview = true
                 errorMessage = userMessage(for: error)
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudAcceptedAwaitingReplica:
-                guard generation == refreshGeneration, requestedRole == viewRole else { return }
+                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 isOffline = false
                 if let cloud = repository as? CloudWalletRepository {
                     authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
@@ -802,7 +832,7 @@ public final class WalletStore: ObservableObject {
                 errorMessage = nil
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudMutationAwaitingReconciliation:
-                guard generation == refreshGeneration, requestedRole == viewRole else { return }
+                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 isOffline = false
                 if let cloud = repository as? CloudWalletRepository {
                     authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
@@ -820,18 +850,31 @@ public final class WalletStore: ObservableObject {
                 // above all no emptied balance over the parent's wallet.
                 break
             default:
-                guard generation == refreshGeneration, requestedRole == viewRole else { return }
+                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 errorMessage = userMessage(for: error)
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             }
         } catch {
-            guard generation == refreshGeneration, requestedRole == viewRole else { return }
+            guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
             errorMessage = "The wallet could not be updated. Your last accepted balance is still shown."
             snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
         }
-        if generation == refreshGeneration {
-            isLoading = false
-        }
+    }
+
+    /// Whether this read may still write what it saw into published state.
+    /// A read is superseded when parent elevation moved underneath it, or when
+    /// a read that started later already published: the wallet on screen must
+    /// always be the newest observation, never whichever request happened to
+    /// finish last.
+    private func canPublish(_ attempt: Int, generation: Int, role: UserRole) -> Bool {
+        guard generation == refreshGeneration, role == viewRole else { return false }
+        return isNewestRefresh(attempt)
+    }
+
+    private func isNewestRefresh(_ attempt: Int) -> Bool {
+        guard attempt > latestPublishedRefreshAttempt else { return false }
+        latestPublishedRefreshAttempt = attempt
+        return true
     }
 
     public func setupParent(_ setup: ParentSetup, pin: String, confirmation: String) async -> Bool {

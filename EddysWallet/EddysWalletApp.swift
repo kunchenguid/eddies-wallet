@@ -37,9 +37,12 @@ struct EddysWalletApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     // Leaving the foreground always drops parent elevation and
                     // any in-progress parent flow. The kid home is the only
-                    // state the app ever rests in.
+                    // state the app ever rests in. Coming back re-reads the
+                    // wallet, because leaving retired whatever was in flight.
                     if phase == .background {
                         store.handleAppBackgrounded()
+                    } else if phase == .active {
+                        store.handleAppForegrounded()
                     }
                 }
         }
