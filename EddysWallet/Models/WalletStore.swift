@@ -6,8 +6,64 @@ import Foundation
 public enum WalletRootRoute: Equatable, Sendable {
     case welcome
     case setup
+    case existingWallet
     case kidHome
     case recovery
+}
+
+/// The deliberate first-run choice shown when the signed-in parent's account
+/// already holds a wallet. Nothing here has changed anything on the service:
+/// only an explicit acceptance sends the transition.
+public enum ExistingWalletRecoveryState: Equatable, Sendable {
+    case offered(CloudExistingWalletOffer)
+    case recovering(CloudExistingWalletOffer)
+    /// The accepted transition was refused. The wallet is untouched and the
+    /// local-first path is still open.
+    case refused(CloudExistingWalletOffer, CloudLegacyActivationRefusal)
+
+    public var offer: CloudExistingWalletOffer {
+        switch self {
+        case .offered(let offer), .recovering(let offer), .refused(let offer, _): offer
+        }
+    }
+
+    public var isWorking: Bool {
+        if case .recovering = self { return true }
+        return false
+    }
+
+    public var refusalMessage: String? {
+        guard case .refused(_, let refusal) = self else { return nil }
+        return refusal.parentMessage
+    }
+
+    /// Whether the parent may ask for this wallet again. A refusal that will
+    /// not clear offers no retry, so nothing loops.
+    public var canRetry: Bool {
+        guard case .refused(_, let refusal) = self else { return false }
+        return refusal.permitsSameActionRetry || refusal.requiresFreshDiscovery
+    }
+}
+
+/// Why the local-first setup screen is also telling the parent something about
+/// a wallet that may exist on their account.
+public enum ExistingWalletNotice: Equatable, Sendable {
+    /// The check could not be completed - offline, timed out, or the service
+    /// was unavailable. Nothing is claimed either way.
+    case checkUnavailable
+    /// A wallet exists on the account, but moving it needs Cloud and the
+    /// subscription is not active.
+    case foundButCloudInactive
+
+    @MainActor
+    public var message: String {
+        switch self {
+        case .checkUnavailable:
+            "This \(DeviceCopy.deviceNoun) could not check whether your Apple account already has a wallet. You can set one up here and check again later."
+        case .foundButCloudInactive:
+            "Your Apple account already has a wallet. Moving it to this \(DeviceCopy.deviceNoun) needs Cloud, which is not active right now."
+        }
+    }
 }
 
 public struct ParentGatePolicy: Sendable {
@@ -131,6 +187,12 @@ public final class WalletStore: ObservableObject {
     /// Last result for profile and allowance mutations, which do not create a
     /// ledger event but still need truthful accepted/waiting/rejected copy.
     @Published public private(set) var latestParentMutationOutcome: ParentMutationOutcome?
+    /// The first-run existing-wallet choice, when this parent's account already
+    /// holds a wallet this device can recover. Non-nil only before setup.
+    @Published public private(set) var existingWalletRecovery: ExistingWalletRecoveryState?
+    /// What the local-first setup screen has to say about a wallet that may
+    /// exist on the account but is not being offered.
+    @Published public private(set) var existingWalletNotice: ExistingWalletNotice?
 
     public private(set) var repository: any WalletRepository
     public let gatePolicy: ParentGatePolicy
@@ -140,6 +202,12 @@ public final class WalletStore: ObservableObject {
     private var cloudActivationTask: Task<Void, Never>?
     private let pinStore: any ParentPINStore
     private let identityStore: any ParentIdentityStore
+    /// Opens the protected local store that a service-held wallet is mirrored
+    /// into. Used only when a legacy device converges onto Cloud authority.
+    private let localReplicaProvider: () throws -> LocalWalletRepository
+    /// The idempotency key of the one accepted recovery in flight. Minted once
+    /// per acceptance and reused only for retries of that same action.
+    private var acceptedRecoveryKey: String?
     private var failedPINAttempts = 0
     private var cooldownUntil: Date?
     private var cooldownTask: Task<Void, Never>?
@@ -155,11 +223,13 @@ public final class WalletStore: ObservableObject {
         pinStore: (any ParentPINStore)? = nil,
         identityStore: (any ParentIdentityStore)? = nil,
         gatePolicy: ParentGatePolicy = .standard,
-        cloudCoordinator: CloudCoordinator? = nil
+        cloudCoordinator: CloudCoordinator? = nil,
+        localReplicaProvider: (() throws -> LocalWalletRepository)? = nil
     ) {
         let resolvedRepository = repository ?? WalletRepositoryFactory.makeDefault()
         self.repository = resolvedRepository
         self.cloudCoordinator = cloudCoordinator
+        self.localReplicaProvider = localReplicaProvider ?? { try LocalWalletRepository() }
         self.snapshot = resolvedRepository.childSnapshot()
         let configured = resolvedRepository.hasConfiguredKid
         self.isSignedIn = initiallySignedIn ?? configured
@@ -217,6 +287,9 @@ public final class WalletStore: ObservableObject {
     /// Root navigation is authority-driven. The compatibility booleans remain
     /// for existing parent-gate tests, not as the app's source of truth.
     public var rootRoute: WalletRootRoute {
+        // The first-run existing-wallet choice sits between sign-in and setup:
+        // no authority has changed yet, so it cannot be an authority state.
+        if existingWalletRecovery != nil { return .existingWallet }
         switch authorityState {
         case .unconfigured, .authenticatingParent: return .welcome
         case .localSetup: return .setup
@@ -263,8 +336,7 @@ public final class WalletStore: ObservableObject {
             if repository.hasConfiguredKid {
                 await refresh()
             } else {
-                authorityState = .localSetup
-                needsSetup = true
+                await routeFirstRun(identity: outcome.identity)
             }
         } catch {
             if case WalletAPIError.cancelled = error {
@@ -274,6 +346,210 @@ public final class WalletStore: ObservableObject {
             }
         }
         isSigningIn = false
+    }
+
+    // MARK: - First-run existing-wallet discovery
+
+    /// Decides, once per first-run sign-in, between recovering the wallet this
+    /// parent's account already holds and ordinary local-first setup. Every
+    /// path here is a read: nothing transitions before an explicit acceptance,
+    /// and any failure still lands on the free local wallet.
+    private func routeFirstRun(identity: AppleIdentity?) async {
+        guard let cloudCoordinator,
+              let local = repository as? LocalWalletRepository,
+              let identity else {
+            beginLocalSetup()
+            return
+        }
+        do {
+            try await cloudCoordinator.authenticateCloud(identity: identity)
+        } catch {
+            beginLocalSetup(notice: .checkUnavailable)
+            return
+        }
+        await applyExistingWalletDiscovery(coordinator: cloudCoordinator, local: local)
+    }
+
+    /// Re-runs the account check: the retry affordance on the setup screen, and
+    /// the re-confirmation a stale-revision refusal needs before the parent may
+    /// accept the wallet again.
+    public func checkForExistingWallet() async {
+        guard isSignedIn, !isSigningIn, !repository.hasConfiguredKid, existingWalletRecovery?.isWorking != true else { return }
+        guard let cloudCoordinator, let local = repository as? LocalWalletRepository else { return }
+        isSigningIn = true
+        defer { isSigningIn = false }
+        guard await ensureCloudSession() else {
+            beginLocalSetup(notice: .checkUnavailable)
+            return
+        }
+        await applyExistingWalletDiscovery(coordinator: cloudCoordinator, local: local)
+    }
+
+    private func applyExistingWalletDiscovery(coordinator: CloudCoordinator, local: LocalWalletRepository) async {
+        let discovery: CloudExistingWalletDiscovery
+        do {
+            discovery = try await coordinator.discoverExistingWallet()
+        } catch {
+            beginLocalSetup(notice: .checkUnavailable)
+            return
+        }
+        switch discovery {
+        case .noHousehold, .detachedHousehold, .unusable:
+            // No server wallet, a wallet deliberately detached to another
+            // device, or an answer this client cannot read: all keep the
+            // ordinary local-first path and offer no server recovery.
+            beginLocalSetup()
+        case .cloudHousehold:
+            await adoptDiscoveredCloudHousehold(coordinator: coordinator, local: local)
+        case .legacyHousehold:
+            guard let offer = discovery.offer else {
+                beginLocalSetup()
+                return
+            }
+            guard offer.entitlementActive else {
+                beginLocalSetup(notice: .foundButCloudInactive)
+                return
+            }
+            existingWalletNotice = nil
+            needsSetup = false
+            authorityState = .unconfigured
+            existingWalletRecovery = .offered(offer)
+        }
+    }
+
+    /// An already-Cloud household needs no transition and no consent to move
+    /// anything: this device simply joins the wallet the service already owns.
+    private func adoptDiscoveredCloudHousehold(coordinator: CloudCoordinator, local: LocalWalletRepository) async {
+        do {
+            guard let cloud = try await coordinator.adoptExistingCloudHousehold(into: local) else {
+                beginLocalSetup(notice: .checkUnavailable)
+                return
+            }
+            enterRecoveredWallet(cloud)
+        } catch {
+            beginLocalSetup(notice: .checkUnavailable)
+        }
+    }
+
+    /// The parent explicitly accepted the offered wallet. This is the only call
+    /// site of the transition, it sends exactly one request per attempt, and it
+    /// reuses this acceptance's idempotency key for every retry of it.
+    public func acceptExistingWallet() async {
+        guard let state = existingWalletRecovery, !state.isWorking else { return }
+        guard let cloudCoordinator, let local = repository as? LocalWalletRepository else { return }
+        let offer = state.offer
+        let idempotencyKey = acceptedRecoveryKey ?? UUID().uuidString
+        acceptedRecoveryKey = idempotencyKey
+        existingWalletRecovery = .recovering(offer)
+        do {
+            let cloud = try await cloudCoordinator.recoverLegacyHousehold(
+                offer,
+                idempotencyKey: idempotencyKey,
+                into: local
+            )
+            acceptedRecoveryKey = nil
+            enterRecoveredWallet(cloud)
+        } catch let refusal as CloudLegacyActivationError {
+            applyRecoveryRefusal(refusal.refusal, to: offer)
+        } catch {
+            applyRecoveryRefusal(.unreachable, to: offer)
+        }
+    }
+
+    /// Retries the one accepted recovery. A blocker that may clear replays the
+    /// exact same protected action; a stale or unusable acceptance goes back
+    /// through discovery so the parent chooses again with a fresh key.
+    public func retryExistingWalletRecovery() async {
+        guard let state = existingWalletRecovery, state.canRetry,
+              case .refused(_, let refusal) = state else { return }
+        if refusal.requiresFreshDiscovery {
+            await checkForExistingWallet()
+        } else {
+            await acceptExistingWallet()
+        }
+    }
+
+    /// The parent chose the free local wallet instead. Nothing is sent: the
+    /// server-held wallet stays exactly as it is.
+    public func declineExistingWallet() {
+        guard existingWalletRecovery?.isWorking != true else { return }
+        acceptedRecoveryKey = nil
+        beginLocalSetup()
+    }
+
+    private func applyRecoveryRefusal(_ refusal: CloudLegacyActivationRefusal, to offer: CloudExistingWalletOffer) {
+        if refusal.requiresFreshDiscovery {
+            // A new acceptance must never reuse this key.
+            acceptedRecoveryKey = nil
+        }
+        // The service has just answered about the entitlement, so the offer
+        // stops claiming an active subscription it does not have.
+        let current = refusal == .entitlementRequired
+            ? CloudExistingWalletOffer(lineageID: offer.lineageID, revision: offer.revision, entitlementActive: false)
+            : offer
+        existingWalletRecovery = .refused(current, refusal)
+    }
+
+    private func beginLocalSetup(notice: ExistingWalletNotice? = nil) {
+        acceptedRecoveryKey = nil
+        existingWalletRecovery = nil
+        existingWalletNotice = notice
+        authorityState = .localSetup
+        needsSetup = true
+    }
+
+    /// Enters the recovered wallet directly. There is no re-setup: the child,
+    /// ledger, loans, repayments, and allowance come from the Cloud replica the
+    /// bootstrap just mirrored. The parent PIN is chosen at the Parent door.
+    private func enterRecoveredWallet(_ cloud: CloudWalletRepository) {
+        repository = cloud
+        acceptedRecoveryKey = nil
+        existingWalletRecovery = nil
+        existingWalletNotice = nil
+        needsSetup = false
+        isSignedIn = true
+        isOffline = false
+        sessionExpired = false
+        errorMessage = nil
+        authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+        snapshot = cloud.childSnapshot()
+        if let cloudCoordinator {
+            cloudEntitlement = cloudCoordinator.entitlement
+            cloudMessage = cloudCoordinator.message
+        }
+    }
+
+    /// A device still reading the legacy service switches to Cloud as soon as
+    /// its own wallet snapshot reports that Cloud took over the household. It
+    /// converges through the same context and bootstrap path a second device
+    /// uses - no dual write, no second state owner - and never while a legacy
+    /// write of its own is still unresolved.
+    private func convergeLegacyDeviceOntoCloud(generation: Int) async {
+        guard let cloudCoordinator,
+              let legacy = repository as? APIWalletRepository,
+              legacy.reportsCloudAuthority,
+              !legacy.hasUnsettledParentActions,
+              let local = try? localReplicaProvider() else { return }
+        let adopted: CloudWalletRepository?
+        do {
+            adopted = try await cloudCoordinator.adoptExistingCloudHousehold(into: local)
+        } catch {
+            return
+        }
+        guard let cloud = adopted, generation == refreshGeneration, repository === legacy else { return }
+        // A legacy write the service just refused is still news for the parent,
+        // so it is carried across the switch instead of disappearing with the
+        // repository that reported it. Nothing was recorded by either side.
+        let refusedLegacyActions = snapshot.pendingEvents.filter { $0.syncState == .rejected }
+        repository = cloud
+        authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+        var converged = viewRole == .child ? cloud.childSnapshot() : cloud.snapshot()
+        converged.pendingEvents += refusedLegacyActions
+        snapshot = converged
+        isOffline = false
+        needsCloudReview = false
+        cloudEntitlement = cloudCoordinator.entitlement
+        cloudMessage = cloudCoordinator.message
     }
 
     // MARK: - Parent gate
@@ -465,6 +741,7 @@ public final class WalletStore: ObservableObject {
             errorMessage = nil
             isOffline = false
             sessionExpired = false
+            await convergeLegacyDeviceOntoCloud(generation: generation)
         } catch let error as WalletAPIError {
             switch error {
             case .familyNotSetup:
@@ -795,6 +1072,9 @@ public final class WalletStore: ObservableObject {
         authorityState = .unconfigured
         purchaseAttempt = .idle
         cloudEntitlement = .none
+        acceptedRecoveryKey = nil
+        existingWalletRecovery = nil
+        existingWalletNotice = nil
         isSignedIn = false
         needsSetup = false
         pinStore.clear()
@@ -1068,6 +1348,17 @@ public final class WalletStore: ObservableObject {
         purchaseAttempt = purchase
         cloudEntitlement = entitlement
         debugHasValidCloudReplica = hasValidReplica
+    }
+
+    /// Debug-only seam for reviewing the first-run existing-wallet screen
+    /// without a service. It only sets presentation state; no discovery,
+    /// transition, or authority change happens here.
+    func applyDebugExistingWalletRecovery(_ state: ExistingWalletRecoveryState?) {
+        existingWalletRecovery = state
+    }
+
+    func applyDebugExistingWalletNotice(_ notice: ExistingWalletNotice?) {
+        existingWalletNotice = notice
     }
     #endif
 

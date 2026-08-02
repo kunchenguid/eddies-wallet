@@ -184,6 +184,124 @@ public struct CloudHousehold: Codable, Equatable, Sendable {
     public var isCloudAuthoritative: Bool { authority == .cloud && lineageID != nil }
 }
 
+/// What first-run discovery found for the exact signed-in parent. Anything the
+/// client cannot read as one of the three known authorities is `unusable`, so a
+/// malformed answer never offers or adopts a wallet.
+public enum CloudExistingWalletDiscovery: Equatable, Sendable {
+    /// This parent has no server-held household; ordinary local-first setup.
+    case noHousehold
+    /// A pre-Cloud service household that a consented transition can recover.
+    case legacyHousehold(lineageID: UUID, revision: Int64, entitlementActive: Bool)
+    /// Already Cloud-authoritative: adopt through context and bootstrap, never
+    /// through the legacy transition.
+    case cloudHousehold(lineageID: UUID, revision: Int64)
+    /// Deliberately moved to a device's local authority. Server recovery is
+    /// not offered.
+    case detachedHousehold
+    /// A household this client cannot read: an unknown authority or a missing
+    /// lineage. It is never offered and never adopted.
+    case unusable
+
+    /// Only a legacy household under an active entitlement may be offered.
+    public var offer: CloudExistingWalletOffer? {
+        guard case .legacyHousehold(let lineageID, let revision, let entitlementActive) = self else { return nil }
+        return CloudExistingWalletOffer(
+            lineageID: lineageID,
+            revision: revision,
+            entitlementActive: entitlementActive
+        )
+    }
+}
+
+/// The exact server-held wallet a parent may accept on this device, pinned to
+/// the revision discovery reported so the transition guards on it.
+public struct CloudExistingWalletOffer: Equatable, Sendable {
+    public let lineageID: UUID
+    public let revision: Int64
+    public let entitlementActive: Bool
+
+    public init(lineageID: UUID, revision: Int64, entitlementActive: Bool) {
+        self.lineageID = lineageID
+        self.revision = revision
+        self.entitlementActive = entitlementActive
+    }
+}
+
+/// Typed outcomes of the settled legacy-to-Cloud transition. Each one is a
+/// definite server answer, so the client never loops or invents success.
+public enum CloudLegacyActivationRefusal: Equatable, Sendable {
+    /// No active entitlement. Purchase or restore, then retry the same action.
+    case entitlementRequired
+    /// Activation policy or StoreKit readiness is closed for this parent.
+    case activationUnavailable
+    /// Emergency write stop. The same action may be retried later.
+    case serviceReadOnly
+    /// Discovery was stale: this parent has no household after all.
+    case householdMissing
+    /// The household moved on while still legacy. Discovery must run again
+    /// before a new acceptance.
+    case revisionChanged(currentRevision: Int64)
+    /// The household is detached; server recovery is unavailable.
+    case householdDetached
+    /// The key was already used for a different request; a new acceptance
+    /// needs a new key.
+    case idempotencyKeyReused
+    /// The same command is still running. Retrying the same key is safe.
+    case commandInProgress
+    /// `If-Match` was missing, which this client always sends.
+    case revisionRequired
+    /// The service session is not usable; discovery must be repeated.
+    case authenticationRequired
+    /// The service could not be reached or answered unreadably. The accepted
+    /// action may be retried with the same key.
+    case unreachable
+
+    /// Whether the exact same accepted action may be sent again unchanged.
+    /// Refusals roll back completely, so key reuse is safe for these.
+    public var permitsSameActionRetry: Bool {
+        switch self {
+        case .entitlementRequired, .serviceReadOnly, .commandInProgress, .revisionRequired, .unreachable: true
+        case .activationUnavailable, .householdMissing, .revisionChanged, .householdDetached,
+             .idempotencyKeyReused, .authenticationRequired: false
+        }
+    }
+
+    /// Whether a retry has to start from a fresh discovery and a fresh key.
+    public var requiresFreshDiscovery: Bool {
+        switch self {
+        case .revisionChanged, .idempotencyKeyReused, .authenticationRequired: true
+        default: false
+        }
+    }
+
+    /// Parent-facing explanation. Truthful about what did and did not happen:
+    /// a refused transition changes nothing on the server.
+    public var parentMessage: String {
+        switch self {
+        case .entitlementRequired:
+            "Your Cloud subscription is not active right now, so this wallet was not moved. Nothing changed."
+        case .activationUnavailable:
+            "Cloud cannot take on this wallet yet. Nothing changed, and your wallet is still saved to your account."
+        case .serviceReadOnly:
+            "Cloud is not accepting changes right now. Nothing changed - try again in a little while."
+        case .householdMissing:
+            "There is no longer a wallet saved to this Apple account."
+        case .revisionChanged:
+            "This wallet changed somewhere else. Check for it again before moving it."
+        case .householdDetached:
+            "This wallet was moved to another device and can only be used there."
+        case .idempotencyKeyReused, .authenticationRequired:
+            "This device could not confirm the move. Check for your wallet again."
+        case .commandInProgress:
+            "This wallet is still being moved. Try again in a moment."
+        case .revisionRequired:
+            "Cloud needs the latest version of this wallet. Nothing changed - try again."
+        case .unreachable:
+            "Cloud could not be reached, so this wallet was not moved. Nothing changed."
+        }
+    }
+}
+
 public struct CloudCapabilityFlags: Codable, Equatable, Sendable {
     public let newActivationsEnabled: Bool?
     public let serviceMode: String?
@@ -228,13 +346,28 @@ public struct CloudEntitlementStateDTO: Codable, Equatable, Sendable {
     public let accessUntil: Date?
     public let graceExpiresAt: Date?
     public let autoRenewEnabled: Bool?
+    /// The service's own answer to "does this parent have Cloud access right
+    /// now". Absent on older responses, where the mapped state stands in.
+    public let active: Bool?
 
-    public init(state: String, accessUntil: Date? = nil, graceExpiresAt: Date? = nil, autoRenewEnabled: Bool? = nil) {
+    public init(
+        state: String,
+        accessUntil: Date? = nil,
+        graceExpiresAt: Date? = nil,
+        autoRenewEnabled: Bool? = nil,
+        active: Bool? = nil
+    ) {
         self.state = state
         self.accessUntil = accessUntil
         self.graceExpiresAt = graceExpiresAt
         self.autoRenewEnabled = autoRenewEnabled
+        self.active = active
     }
+
+    /// Whether a paid transition may be offered. The service's `active` flag
+    /// wins; without it the client falls back to the mapped state and never
+    /// invents access.
+    public var grantsCloud: Bool { active ?? clientState.grantsCloud }
 
     public var clientState: CloudEntitlementState {
         switch state {

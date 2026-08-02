@@ -2301,7 +2301,7 @@ private final class FinishRecorder {
 }
 
 @MainActor
-private final class StubCloudStoreKitOperations: CloudStoreKitOperations {
+final class StubCloudStoreKitOperations: CloudStoreKitOperations {
     var purchaseResult: Result<CloudStoreKitPurchaseResult, Error> = .failure(StubCloudStoreKitError.purchaseFailed)
     var entitlementOutcome = CloudStoreKitScanOutcome()
     var latestOutcome = CloudStoreKitScanOutcome()
@@ -2374,7 +2374,7 @@ private final class StubCloudStoreKitOperations: CloudStoreKitOperations {
     }
 }
 
-private enum StubCloudStoreKitError: Error {
+enum StubCloudStoreKitError: Error {
     case purchaseFailed
     case syncFailed
 }

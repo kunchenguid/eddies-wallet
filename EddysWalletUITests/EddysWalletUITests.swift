@@ -627,6 +627,38 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Your wallet is ready!"].exists)
     }
+
+    /// A wallet already on the signed-in Apple account is a deliberate choice
+    /// before setup, and choosing the free local wallet still reaches setup.
+    func testExistingWalletChoiceIsOfferedBeforeSetupAndCanBeDeclined() throws {
+        let app = launch("first-run-existing-wallet")
+
+        let title = app.staticTexts["existing-wallet-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["existing-wallet-accept-button"].exists)
+        XCTAssertTrue(app.staticTexts["Nothing is lost"].exists)
+        XCTAssertFalse(app.staticTexts["Set up your child's wallet"].exists, "setup must not sit behind the offer")
+
+        app.buttons["existing-wallet-decline-button"].tap()
+
+        XCTAssertTrue(app.staticTexts["Set up your child's wallet"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["existing-wallet-title"].exists)
+    }
+
+    /// A check that could not complete never strands onboarding: setup is
+    /// available and the account can be checked again.
+    func testUncheckableAccountStillReachesLocalFirstSetupWithARetry() throws {
+        let app = launch("first-run-check-unavailable")
+
+        XCTAssertTrue(app.staticTexts["Set up your child's wallet"].waitForExistence(timeout: 10))
+        let checkAgain = app.buttons["existing-wallet-check-again-button"]
+        XCTAssertTrue(checkAgain.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "could not check whether")).count > 0,
+            "the setup screen states plainly that the account could not be checked"
+        )
+        XCTAssertTrue(app.textFields["Child's nickname"].exists, "the free local wallet stays available")
+    }
 }
 
 extension XCTestCase {

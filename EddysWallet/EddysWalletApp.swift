@@ -56,6 +56,8 @@ struct RootView: View {
                 WelcomeView()
             case .setup:
                 SetupView()
+            case .existingWallet:
+                ExistingWalletView()
             case .kidHome:
                 KidHomeView()
             case .recovery:
