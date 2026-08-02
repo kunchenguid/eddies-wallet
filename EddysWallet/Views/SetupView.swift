@@ -23,6 +23,10 @@ struct SetupView: View {
                             .foregroundStyle(EW.Color.textSecondary)
                     }
 
+                    if let notice = store.existingWalletNotice {
+                        existingWalletNotice(notice)
+                    }
+
                     VStack(alignment: .leading, spacing: EW.Space.four) {
                         field(title: "Child nickname", text: $nickname, placeholder: "Child's nickname")
                         VStack(alignment: .leading, spacing: EW.Space.two) {
@@ -71,11 +75,12 @@ struct SetupView: View {
                         }
                     }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(store.isLoading || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pin.count != 4 || pin != confirmationPIN)
-                    .opacity(store.isLoading || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pin.count != 4 || pin != confirmationPIN ? 0.45 : 1)
+                    .disabled(store.isLoading || store.isSigningIn || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pin.count != 4 || pin != confirmationPIN)
+                    .opacity(store.isLoading || store.isSigningIn || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pin.count != 4 || pin != confirmationPIN ? 0.45 : 1)
 
                     Button("Sign out") { isConfirmingSignOut = true }
                         .buttonStyle(SecondaryButtonStyle(compact: true))
+                        .disabled(store.isSigningIn)
                         .confirmationDialog(
                             "Sign out before setup?",
                             isPresented: $isConfirmingSignOut,
@@ -92,6 +97,45 @@ struct SetupView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
             }
         }
+    }
+
+    /// Truthful account-check status: this device either could not check for a
+    /// wallet already on the account, or found one it cannot move yet. Neither
+    /// blocks the free local wallet, and both can be checked again.
+    private func existingWalletNotice(_ notice: ExistingWalletNotice) -> some View {
+        VStack(alignment: .leading, spacing: EW.Space.three) {
+            HStack(alignment: .top, spacing: EW.Space.three) {
+                Image(systemName: "icloud.slash")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(EW.Color.gold700)
+                    .accessibilityHidden(true)
+                Text(notice.message)
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textPrimary)
+            }
+            .accessibilityElement(children: .combine)
+            if store.isSigningIn {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            } else {
+                // A filled secondary button here would sit cream-on-cream in
+                // this card, so the inline action uses the same text treatment
+                // as the other Cloud inline actions, at a full touch target.
+                Button("Check again") {
+                    Task { await store.checkForExistingWallet() }
+                }
+                .buttonStyle(.plain)
+                .font(EW.Font.bodyBold)
+                .foregroundStyle(EW.Color.primaryActive)
+                .frame(minHeight: 44, alignment: .leading)
+                .accessibilityIdentifier("existing-wallet-check-again-button")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .ewCard(variant: .alt)
+        // A container identifier here would override the Check again button's
+        // own identifier, so the card stays a plain container.
+        .accessibilityElement(children: .contain)
     }
 
     private func field(title: String, text: Binding<String>, placeholder: String) -> some View {

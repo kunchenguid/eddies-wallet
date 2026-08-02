@@ -61,10 +61,15 @@ public struct AppleIdentity: Sendable {
 public struct AppleSignInOutcome: Sendable {
     public let session: AuthSession?
     public let appleUserID: String
+    /// The same short-lived Apple proof, kept only for the remainder of this
+    /// one user action so first-run discovery can exchange a service session
+    /// without a second Apple prompt. Never persisted, cached, or logged.
+    public let identity: AppleIdentity?
 
-    public init(session: AuthSession? = nil, appleUserID: String) {
+    public init(session: AuthSession? = nil, appleUserID: String, identity: AppleIdentity? = nil) {
         self.session = session
         self.appleUserID = appleUserID
+        self.identity = identity
     }
 }
 
@@ -126,7 +131,7 @@ public final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDe
     public func signIn(requiredAppleUserID: String? = nil) async throws -> AppleSignInOutcome {
         let identity = try await authorizeAppleIdentity(requiredAppleUserID: requiredAppleUserID)
         let session = try await authenticateCloudIfConfigured(identity: identity)
-        return AppleSignInOutcome(session: session, appleUserID: identity.appleUserID)
+        return AppleSignInOutcome(session: session, appleUserID: identity.appleUserID, identity: identity)
     }
 
     public func authorizeAppleIdentity(requiredAppleUserID: String? = nil) async throws -> AppleIdentity {

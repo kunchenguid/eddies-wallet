@@ -206,6 +206,102 @@ final class CloudContractTests: XCTestCase {
         }
     }
 
+    // MARK: - First-run discovery and the settled transition (contract v2)
+
+    func testLegacyContextDecodesEveryPinnedAuthorityIntoOneFirstRunDecision() async throws {
+        let none = try await legacyContext(CloudContractFixtures.legacyContextNoHousehold)
+        XCTAssertNil(none.household)
+        XCTAssertNil(none.entitlement)
+        XCTAssertEqual(none.exportAvailable, false)
+        XCTAssertEqual(none.discovery, .noHousehold, "no household means ordinary local-first setup")
+
+        let legacy = try await legacyContext(CloudContractFixtures.legacyContextLegacyHousehold)
+        XCTAssertEqual(legacy.household?.authority, .legacyService)
+        XCTAssertEqual(legacy.household?.revision, 0)
+        XCTAssertEqual(legacy.entitlement?.state, "active")
+        XCTAssertEqual(legacy.entitlement?.active, true)
+        XCTAssertEqual(legacy.exportAvailable, true)
+        XCTAssertEqual(
+            legacy.discovery,
+            .legacyHousehold(lineageID: Self.contractLineage, revision: 0, entitlementActive: true)
+        )
+        XCTAssertEqual(legacy.discovery.offer?.revision, 0, "the offer carries the revision the transition must guard on")
+
+        let cloud = try await legacyContext(CloudContractFixtures.legacyContextCloudHousehold)
+        XCTAssertEqual(cloud.discovery, .cloudHousehold(lineageID: Self.contractLineage, revision: 6))
+        XCTAssertNil(cloud.discovery.offer, "an already-Cloud household is adopted, never transitioned")
+
+        let detached = try await legacyContext(CloudContractFixtures.legacyContextDetachedHousehold)
+        XCTAssertEqual(detached.discovery, .detachedHousehold)
+        XCTAssertNil(detached.discovery.offer)
+
+        let unknown = try await legacyContext(CloudContractFixtures.legacyContextUnknownAuthority)
+        XCTAssertEqual(unknown.discovery, .unusable, "an unreadable authority never offers or adopts a wallet")
+    }
+
+    /// An expired entitlement is reported as `active: false`, which is what
+    /// gates the paid transition - not the client's own reading of the state.
+    func testLegacyContextEntitlementFlagGatesThePaidTransition() async throws {
+        let inactive = try await legacyContext(CloudContractFixtures.legacyContextWithoutActiveEntitlement)
+        XCTAssertEqual(inactive.entitlement?.active, false)
+        XCTAssertFalse(inactive.entitlement?.grantsCloud == true)
+        XCTAssertEqual(inactive.discovery.offer?.entitlementActive, false)
+    }
+
+    func testLegacyActivateSendsTheGuardedActionAndDecodesTheTransitionedHousehold() async throws {
+        let transport = StubTransport(responses: [
+            .init(statusCode: 200, body: CloudContractFixtures.legacyActivated, headers: ["ETag": "\"rev-1\""])
+        ])
+        let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: InMemorySessionStore(session: session), transport: transport)
+
+        let household = try await client.activateLegacyHousehold(revision: 0, idempotencyKey: "synthetic-acceptance-key")
+
+        XCTAssertEqual(household.lineageID, Self.contractLineage)
+        XCTAssertEqual(household.authority, .cloud)
+        XCTAssertEqual(household.revision, 1, "the response revision is what the next Cloud read and write use")
+        XCTAssertTrue(household.isCloudAuthoritative)
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.url?.path, "/v1/cloud/legacy-activate")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "If-Match"), "\"rev-0\"")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Idempotency-Key"), "synthetic-acceptance-key")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(session.token)")
+        XCTAssertNil(request.httpBody, "the service accepts no identity from the body")
+    }
+
+    func testEveryPinnedTransitionErrorCodeMapsToItsTypedRefusal() async throws {
+        let cases: [(Int, String, CloudLegacyActivationRefusal)] = [
+            (401, "UNAUTHENTICATED", .authenticationRequired),
+            (403, "CLOUD_ENTITLEMENT_REQUIRED", .entitlementRequired),
+            (403, "CLOUD_ACTIVATION_DISABLED", .activationUnavailable),
+            (503, "CLOUD_SERVICE_READ_ONLY", .serviceReadOnly),
+            (409, "FAMILY_NOT_SETUP", .householdMissing),
+            (409, "CLOUD_HOUSEHOLD_CONFLICT", .householdDetached),
+            (409, "IDEMPOTENCY_KEY_REUSED", .idempotencyKeyReused),
+            (409, "COMMAND_IN_PROGRESS", .commandInProgress),
+            (428, "REVISION_REQUIRED", .revisionRequired),
+        ]
+        for (status, code, expected) in cases {
+            let client = self.client(CloudContractFixtures.error(code), status: status)
+            do {
+                _ = try await client.activateLegacyHousehold(revision: 0, idempotencyKey: "synthetic-acceptance-key")
+                XCTFail("\(code) must not be read as a completed transition")
+            } catch let refusal as CloudLegacyActivationError {
+                XCTAssertEqual(refusal.refusal, expected, code)
+            }
+        }
+
+        let conflict = client(CloudContractFixtures.revisionConflictError, status: 409)
+        do {
+            _ = try await conflict.activateLegacyHousehold(revision: 0, idempotencyKey: "synthetic-acceptance-key")
+            XCTFail("a stale revision must not be read as a completed transition")
+        } catch let refusal as CloudLegacyActivationError {
+            XCTAssertEqual(refusal.refusal, .revisionChanged(currentRevision: 7))
+            XCTAssertTrue(refusal.refusal.requiresFreshDiscovery)
+            XCTAssertFalse(refusal.refusal.permitsSameActionRetry)
+        }
+    }
+
     // MARK: - Replica
 
     func testBootstrapDecodesAndMapsIntoTheOneChildSnapshot() async throws {
@@ -361,7 +457,7 @@ final class CloudContractTests: XCTestCase {
     func testShippedClientMatchesTheSharedPublicContractFixture() throws {
         let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "v1", withExtension: "json", subdirectory: "Fixtures/cloud-api-contract"))
         let contract = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        XCTAssertEqual(contract["version"] as? Int, 1, "a wire-contract version bump must be reconciled in both repositories")
+        XCTAssertEqual(contract["version"] as? Int, 2, "a wire-contract version bump must be reconciled in both repositories")
         let endpoints = try XCTUnwrap(contract["endpoints"] as? [String: Any])
 
         func endpoint(_ name: String) throws -> [String: Any] {
@@ -402,6 +498,38 @@ final class CloudContractTests: XCTestCase {
         XCTAssertTrue(verified.entitlementState.grantsCloud)
         XCTAssertEqual(verified.revision, 4, "the revision the next Cloud write must send is readable")
 
+        // Version 2 is strictly additive: first-run discovery and the settled
+        // transition, with every earlier shape unchanged.
+        let legacyContextFields = try fields("cloudLegacyContext")
+        XCTAssertEqual(Set(legacyContextFields.keys), ["household", "entitlement", "exportAvailable"])
+        XCTAssertEqual(try endpoint("cloudLegacyContext")["path"] as? String, "/v1/cloud/legacy-context")
+        XCTAssertEqual(
+            (legacyContextFields["household"] as? [String: Any])?["type"] as? String,
+            "object|null",
+            "a parent with no server wallet must decode"
+        )
+        let discoveredHousehold = try XCTUnwrap((legacyContextFields["household"] as? [String: Any])?["fields"] as? [String: Any])
+        XCTAssertEqual(Set(discoveredHousehold.keys), ["lineageId", "authority", "revision"])
+        XCTAssertNoThrow(try JSONDecoder.cloud.decode(CloudLegacyContext.self, from: CloudContractFixtures.legacyContextNoHousehold))
+        XCTAssertNoThrow(try JSONDecoder.cloud.decode(CloudLegacyContext.self, from: CloudContractFixtures.legacyContextLegacyHousehold))
+
+        let activateFields = try fields("cloudLegacyActivate")
+        XCTAssertEqual(Set(activateFields.keys), ["household"])
+        XCTAssertEqual(try endpoint("cloudLegacyActivate")["path"] as? String, "/v1/cloud/legacy-activate")
+        XCTAssertEqual(try endpoint("cloudLegacyActivate")["method"] as? String, "POST")
+        XCTAssertEqual(try endpoint("cloudLegacyActivate")["status"] as? Int, 200)
+        XCTAssertEqual(
+            (try XCTUnwrap(try endpoint("cloudLegacyActivate")["headers"] as? [String: Any]))["etag"] as? String,
+            "^\"rev-[0-9]+\"$",
+            "the transition answers with the revision the next Cloud read and write use"
+        )
+        let transitionedHousehold = try XCTUnwrap((activateFields["household"] as? [String: Any])?["fields"] as? [String: Any])
+        XCTAssertEqual(Set(transitionedHousehold.keys), ["lineageId", "authority", "revision"])
+        XCTAssertEqual((transitionedHousehold["authority"] as? [String: Any])?["const"] as? String, "cloud")
+        let activated = try JSONDecoder.cloud.decode(HouseholdContractEnvelope.self, from: CloudContractFixtures.legacyActivated)
+        XCTAssertTrue(activated.household.isCloudAuthoritative)
+        XCTAssertEqual(activated.household.revision, 1)
+
         // Bootstrap and household mutations.
         XCTAssertEqual(
             Set(try fields("cloudBootstrap").keys),
@@ -426,6 +554,11 @@ final class CloudContractTests: XCTestCase {
     // MARK: - Helpers
 
     private static let baseURL = URL(string: "https://api.example.test")!
+    private static let contractLineage = UUID(uuidString: "c715311d-e4c5-4878-99b7-f42adb8ff90e")!
+
+    private func legacyContext(_ body: Data) async throws -> CloudLegacyContext {
+        try await client(body).legacyContext()
+    }
 
     private func client(_ body: Data, status: Int = 200) -> CloudAPIClient {
         CloudAPIClient(
@@ -442,6 +575,11 @@ final class CloudContractTests: XCTestCase {
     private func context(_ body: Data) async throws -> CloudContext {
         try await client(body).context()
     }
+}
+
+/// The `{ "household": … }` envelope the transition and import share.
+struct HouseholdContractEnvelope: Decodable {
+    let household: CloudHousehold
 }
 
 /// Exact bodies observed from the private backend's Cloud endpoints.
@@ -573,6 +711,45 @@ enum CloudContractFixtures {
     {"error":{"code":"STORE_TRANSACTION_UNVERIFIED","message":"StoreKit signed data could not be verified."}}
     """)
 
+    // Contract v2: first-run discovery and the settled legacy-to-Cloud
+    // transition. `household` is null for a parent with no server wallet.
+    static let legacyContextNoHousehold = json("""
+    {"household":null,"entitlement":null,"exportAvailable":false}
+    """)
+    static let legacyContextLegacyHousehold = json("""
+    {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"legacy_service","revision":0},
+     "entitlement":{"state":"active","accessUntil":"2026-08-28T21:03:47.170Z","graceExpiresAt":null,
+                    "lastReconciledAt":"2026-08-01T21:33:48.047Z","active":true},
+     "exportAvailable":true}
+    """)
+    static let legacyContextWithoutActiveEntitlement = json("""
+    {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"legacy_service","revision":0},
+     "entitlement":{"state":"expired","accessUntil":"2026-07-01T21:03:47.170Z","graceExpiresAt":null,
+                    "lastReconciledAt":"2026-08-01T21:33:48.047Z","active":false},
+     "exportAvailable":true}
+    """)
+    static let legacyContextCloudHousehold = json("""
+    {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":6},
+     "entitlement":{"state":"active","accessUntil":"2026-08-28T21:03:47.170Z","graceExpiresAt":null,
+                    "lastReconciledAt":"2026-08-01T21:33:48.047Z","active":true},
+     "exportAvailable":false}
+    """)
+    static let legacyContextDetachedHousehold = json("""
+    {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"local_detached","revision":2},
+     "entitlement":null,"exportAvailable":true}
+    """)
+    static let legacyContextUnknownAuthority = json("""
+    {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"future_mode","revision":9},
+     "entitlement":null,"exportAvailable":false}
+    """)
+    static let legacyActivated = json("""
+    {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":1}}
+    """)
+
+    static func error(_ code: String) -> Data {
+        json("{\"error\":{\"code\":\"\(code)\",\"message\":\"The Cloud service refused this request.\"}}")
+    }
+
     static let expectedAggregateJSON = "{\"lineageId\":\"55555555-5555-4555-8555-555555555555\",\"familyName\":\"Test Kid\u{2019}s family\",\"nickname\":\"Test Kid\",\"avatarUrl\":null,\"loans\":[{\"id\":\"11111111-1111-4111-8111-111111111111\",\"principalCents\":300,\"outstandingCents\":200,\"purpose\":\"scooter \\\"fast\\\"\",\"dueDate\":\"2026-09-01\",\"status\":\"open\",\"createdAt\":\"2026-07-25T10:00:00.000Z\",\"paidAt\":null}],\"entries\":[{\"operationId\":\"22222222-2222-4222-8222-222222222222\",\"type\":\"deposit\",\"direction\":\"credit\",\"amountCents\":500,\"balanceBeforeCents\":0,\"balanceAfterCents\":500,\"reason\":\"chores\\nweek 1\",\"loanId\":null,\"recordedAt\":\"2026-07-24T10:00:00.000Z\"},{\"operationId\":\"33333333-3333-4333-8333-333333333333\",\"type\":\"loan\",\"direction\":\"credit\",\"amountCents\":300,\"balanceBeforeCents\":500,\"balanceAfterCents\":800,\"reason\":\"scooter \\\"fast\\\"\",\"loanId\":\"11111111-1111-4111-8111-111111111111\",\"recordedAt\":\"2026-07-25T10:00:00.000Z\"},{\"operationId\":\"44444444-4444-4444-8444-444444444444\",\"type\":\"repayment\",\"direction\":\"debit\",\"amountCents\":100,\"balanceBeforeCents\":800,\"balanceAfterCents\":700,\"reason\":null,\"loanId\":\"11111111-1111-4111-8111-111111111111\",\"recordedAt\":\"2026-07-26T10:00:00.000Z\"}]}"
     static let expectedAggregateDigest = "1e0ead09e9b8d84572c313e0041cf86659b74798e9c4a3c497d2c8d2cb3fa8bd"
 
@@ -580,25 +757,53 @@ enum CloudContractFixtures {
 }
 
 /// Minimal transport stub for contract tests.
+///
+/// `HTTPTransport.data(for:)` is nonisolated, so every double has to be safe
+/// under the same concurrency `URLSessionTransport` faces: unsynchronised
+/// stored properties corrupt their own buffers and kill the test host with
+/// SIGSEGV instead of failing an assertion. All state lives behind one lock.
 final class StubTransport: HTTPTransport, @unchecked Sendable {
     struct Response {
         let statusCode: Int
         let body: Data
+        let headers: [String: String]
+
+        init(statusCode: Int, body: Data, headers: [String: String] = [:]) {
+            self.statusCode = statusCode
+            self.body = body
+            self.headers = headers
+        }
     }
 
-    private(set) var requests: [URLRequest] = []
+    private let lock = NSLock()
+    private var recordedRequests: [URLRequest] = []
     private var responses: [Response]
 
     init(responses: [Response]) {
         self.responses = responses
     }
 
+    var requests: [URLRequest] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRequests
+    }
+
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        requests.append(request)
-        let response = responses.isEmpty ? Response(statusCode: 500, body: Data()) : responses.removeFirst()
+        let response: Response = {
+            lock.lock()
+            defer { lock.unlock() }
+            recordedRequests.append(request)
+            return responses.isEmpty ? Response(statusCode: 500, body: Data()) : responses.removeFirst()
+        }()
         return (
             response.body,
-            HTTPURLResponse(url: request.url!, statusCode: response.statusCode, httpVersion: nil, headerFields: nil)!
+            HTTPURLResponse(
+                url: request.url!,
+                statusCode: response.statusCode,
+                httpVersion: nil,
+                headerFields: response.headers
+            )!
         )
     }
 }

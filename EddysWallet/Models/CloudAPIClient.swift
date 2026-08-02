@@ -140,6 +140,60 @@ public final class CloudAPIClient: ParentAuthenticator {
         try await send(path: "/v1/cloud/legacy-context", method: "GET", body: nil, session: .required).decoded(CloudLegacyContext.self)
     }
 
+    /// The settled legacy-to-Cloud transition, sent only for an explicitly
+    /// accepted recovery. It carries no body at all: the service derives the
+    /// parent and household from the session, guards on the revision discovery
+    /// reported, and keys the whole action on one idempotency key so a retry of
+    /// that same acceptance can only converge on the one household.
+    public func activateLegacyHousehold(
+        revision: Int64,
+        idempotencyKey: String
+    ) async throws -> CloudHousehold {
+        do {
+            let response = try await sendResponse(
+                path: "/v1/cloud/legacy-activate",
+                method: "POST",
+                body: nil,
+                session: .required,
+                idempotencyKey: idempotencyKey,
+                expectedRevision: revision
+            )
+            return try response.data.decoded(HouseholdEnvelope.self).household
+        } catch let error as WalletAPIError {
+            throw CloudLegacyActivationError(refusal: Self.refusal(for: error), underlying: error)
+        }
+    }
+
+    private static func refusal(for error: WalletAPIError) -> CloudLegacyActivationRefusal {
+        switch error {
+        case .unauthorized, .noSession:
+            return .authenticationRequired
+        case .cloudEntitlementRequired:
+            return .entitlementRequired
+        case .revisionRequired:
+            return .revisionRequired
+        case .revisionConflict(let currentRevision):
+            return .revisionChanged(currentRevision: currentRevision)
+        case .server(let statusCode, let code, _):
+            switch code {
+            case "CLOUD_ACTIVATION_DISABLED": return .activationUnavailable
+            case "CLOUD_SERVICE_READ_ONLY": return .serviceReadOnly
+            case "FAMILY_NOT_SETUP": return .householdMissing
+            case "CLOUD_HOUSEHOLD_CONFLICT": return .householdDetached
+            case "IDEMPOTENCY_KEY_REUSED": return .idempotencyKeyReused
+            case "COMMAND_IN_PROGRESS": return .commandInProgress
+            case "CLOUD_ENTITLEMENT_REQUIRED": return .entitlementRequired
+            case "REVISION_REQUIRED": return .revisionRequired
+            default:
+                // An unrecognised refusal is never treated as a policy the
+                // client understands. 5xx may clear; 4xx will not.
+                return (500..<600).contains(statusCode) ? .serviceReadOnly : .activationUnavailable
+            }
+        default:
+            return .unreachable
+        }
+    }
+
     public func revokeCurrentSession() async throws {
         _ = try await send(path: "/v1/session/current", method: "DELETE", body: nil, session: .required)
         sessionStore.clear()
@@ -265,6 +319,44 @@ public struct CloudLegacyContext: Codable, Equatable, Sendable {
     public let household: CloudHousehold?
     public let entitlement: CloudEntitlementStateDTO?
     public let exportAvailable: Bool?
+
+    public init(household: CloudHousehold?, entitlement: CloudEntitlementStateDTO?, exportAvailable: Bool?) {
+        self.household = household
+        self.entitlement = entitlement
+        self.exportAvailable = exportAvailable
+    }
+
+    /// The one classification every first-run decision is taken from.
+    public var discovery: CloudExistingWalletDiscovery {
+        guard let household else { return .noHousehold }
+        guard let lineageID = household.lineageID else { return .unusable }
+        switch household.authority {
+        case .legacyService:
+            return .legacyHousehold(
+                lineageID: lineageID,
+                revision: household.revision,
+                entitlementActive: entitlement?.grantsCloud == true
+            )
+        case .cloud:
+            return .cloudHousehold(lineageID: lineageID, revision: household.revision)
+        case .localDetached:
+            return .detachedHousehold
+        case .unknown:
+            return .unusable
+        }
+    }
+}
+
+/// A refused legacy-to-Cloud transition, carrying the typed contract outcome
+/// alongside the transport error it came from.
+public struct CloudLegacyActivationError: Error, Equatable, Sendable {
+    public let refusal: CloudLegacyActivationRefusal
+    public let underlying: WalletAPIError
+
+    public init(refusal: CloudLegacyActivationRefusal, underlying: WalletAPIError) {
+        self.refusal = refusal
+        self.underlying = underlying
+    }
 }
 
 private struct HouseholdEnvelope: Decodable {

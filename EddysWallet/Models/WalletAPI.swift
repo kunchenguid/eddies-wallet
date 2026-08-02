@@ -548,7 +548,14 @@ private struct ChildDTO: Decodable {
     let nickname: String?
 }
 
+/// The service reports which authority owns this household on every wallet
+/// snapshot. It is absent on pre-transition responses, which stay legacy.
+private struct FamilyDTO: Decodable {
+    let authority: String?
+}
+
 private struct SnapshotDTO: Decodable {
+    let family: FamilyDTO?
     let child: ChildDTO?
     let wallet: WalletDTO
     let allowanceRule: AllowanceDTO?
@@ -591,6 +598,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
     private var currentChild: WalletSnapshot
     private var pendingCommands: [String: WalletCommand]
     private var rejectedEvents: [WalletEvent] = []
+    private var reportedFamilyAuthority: String?
     private var lifecycleGeneration = 0
 
     public init(
@@ -615,6 +623,13 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
 
     public var isAuthenticated: Bool { sessionStore.session?.isExpired == false }
     public var hasConfiguredKid: Bool { configuredKidStore.isConfigured }
+    /// The household authority the last wallet snapshot reported. This is the
+    /// only convergence signal a legacy device gets when the same household is
+    /// transitioned to Cloud from another device.
+    public var reportsCloudAuthority: Bool { reportedFamilyAuthority == "cloud" }
+    /// Whether a parent action of this device's is still unresolved here. No
+    /// authority change may happen across one, or it could fork or vanish.
+    public var hasUnsettledParentActions: Bool { !pendingCommands.isEmpty }
 
     public func snapshot() -> WalletSnapshot {
         snapshotWithPending()
@@ -664,6 +679,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
             }
             try requireCurrentLifecycle(requestedGeneration)
             let response = try decode(SnapshotDTO.self, from: data)
+            reportedFamilyAuthority = response.family?.authority
             if role == .child && response.readOnly != true {
                 throw WalletAPIError.invalidResponse("The child wallet response was not marked read-only.")
             }

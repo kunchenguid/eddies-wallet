@@ -84,6 +84,34 @@ enum DebugLaunchScenario {
         case "first-run":
             guard let repository = try? LocalWalletRepository(inMemory: true) else { return nil }
             return store(repository: repository, signedIn: false, pin: nil, knownOwner: false)
+        case "first-run-existing-wallet",
+             "first-run-existing-wallet-refused",
+             "first-run-check-unavailable",
+             "first-run-cloud-inactive":
+            guard let repository = try? LocalWalletRepository(inMemory: true) else { return nil }
+            let result = store(
+                repository: repository,
+                signedIn: true,
+                pin: nil,
+                knownOwner: true,
+                authority: .localSetup
+            )
+            let offer = CloudExistingWalletOffer(
+                lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!,
+                revision: 0,
+                entitlementActive: true
+            )
+            switch scenario {
+            case "first-run-existing-wallet":
+                result.applyDebugExistingWalletRecovery(.offered(offer))
+            case "first-run-existing-wallet-refused":
+                result.applyDebugExistingWalletRecovery(.refused(offer, .serviceReadOnly))
+            case "first-run-check-unavailable":
+                result.applyDebugExistingWalletNotice(.checkUnavailable)
+            default:
+                result.applyDebugExistingWalletNotice(.foundButCloudInactive)
+            }
+            return result
         case "cloud-pending":
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7), purchase: .pending, entitlement: .verificationPending)
         case "cloud-expired":

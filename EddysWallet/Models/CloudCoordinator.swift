@@ -29,6 +29,7 @@ public final class CloudCoordinator: ObservableObject {
     private let client: CloudAPIClient
     private let subscriptions: CloudSubscriptionStore
     private var storeAccountToken: UUID?
+    private var sessionGeneration = 0
     var onTransactionUpdate: (() async -> Void)?
 
     public init(client: CloudAPIClient, subscriptions: CloudSubscriptionStore? = nil) {
@@ -55,6 +56,52 @@ public final class CloudCoordinator: ObservableObject {
         subscriptions.startObservingIfAuthenticated()
     }
 
+    // MARK: - First-run discovery
+
+    /// Asks, for the exact signed-in parent only, whether a server-held wallet
+    /// already exists. This reads; it never transitions, adopts, or mutates
+    /// anything, and an unreadable answer is an error rather than a guess.
+    public func discoverExistingWallet() async throws -> CloudExistingWalletDiscovery {
+        guard client.hasSession else { throw WalletAPIError.noSession }
+        let context = try await client.legacyContext()
+        return context.discovery
+    }
+
+    /// The accepted transition, as one logical user action. The revision comes
+    /// from discovery and the key from that single acceptance, so a retry of
+    /// the same acceptance converges on the one household instead of forking.
+    public func recoverLegacyHousehold(
+        _ offer: CloudExistingWalletOffer,
+        idempotencyKey: String,
+        into local: LocalWalletRepository
+    ) async throws -> CloudWalletRepository {
+        guard client.hasSession else { throw WalletAPIError.noSession }
+        let transitioned = try await client.activateLegacyHousehold(
+            revision: offer.revision,
+            idempotencyKey: idempotencyKey
+        )
+        guard transitioned.isCloudAuthoritative else {
+            throw CloudLegacyActivationError(
+                refusal: .unreachable,
+                underlying: .invalidResponse("Cloud did not confirm this wallet. Nothing was changed.")
+            )
+        }
+        guard transitioned.lineageID == offer.lineageID else {
+            throw CloudLegacyActivationError(
+                refusal: .revisionChanged(currentRevision: transitioned.revision),
+                underlying: .invalidResponse("Cloud confirmed a different wallet history. Nothing was changed.")
+            )
+        }
+        household = transitioned
+        guard let adopted = await adoptCloudHousehold(transitioned, into: local) else {
+            throw CloudLegacyActivationError(
+                refusal: .unreachable,
+                underlying: .invalidResponse("Cloud did not confirm this wallet. Nothing was changed.")
+            )
+        }
+        return adopted
+    }
+
     // MARK: - Capability and plans
 
     public func refreshAvailability() async {
@@ -74,8 +121,10 @@ public final class CloudCoordinator: ObservableObject {
     @discardableResult
     public func refreshContext() async -> CloudContext? {
         guard client.hasSession else { return nil }
+        let generation = sessionGeneration
         do {
             let context = try await client.context()
+            guard generation == sessionGeneration, client.hasSession else { return nil }
             apply(context)
             return context
         } catch {
@@ -163,8 +212,20 @@ public final class CloudCoordinator: ObservableObject {
     public func adoptExistingCloudHousehold(into local: LocalWalletRepository) async throws -> CloudWalletRepository? {
         guard client.hasSession else { throw WalletAPIError.noSession }
         _ = await refreshContext()
-        guard let household, household.isCloudAuthoritative,
-              let lineageID = household.lineageID else { return nil }
+        guard client.hasSession, let household else { return nil }
+        return await adoptCloudHousehold(household, into: local)
+    }
+
+    /// The one place a confirmed Cloud household becomes this device's
+    /// authority: mark the replica, then bootstrap the complete wallet. A
+    /// failed bootstrap keeps Cloud authority - the server already owns the
+    /// household - and says so instead of showing a wallet this device has not
+    /// read yet.
+    private func adoptCloudHousehold(
+        _ household: CloudHousehold,
+        into local: LocalWalletRepository
+    ) async -> CloudWalletRepository? {
+        guard household.isCloudAuthoritative, let lineageID = household.lineageID else { return nil }
         let repository = CloudWalletRepository(
             client: client,
             replica: local,
@@ -197,6 +258,11 @@ public final class CloudCoordinator: ObservableObject {
 
     public func signOutOfCloud() async {
         try? await client.revokeCurrentSession()
+        clearLocalSession()
+    }
+
+    public func clearLocalSession() {
+        sessionGeneration += 1
         client.clearLocalSession()
         household = nil
         purchaseAttempt = .idle

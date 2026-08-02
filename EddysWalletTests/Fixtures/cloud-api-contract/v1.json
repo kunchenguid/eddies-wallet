@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "description": "Field-level public wire contract for the Cloud surface of the Eddie's Wallet backend. Backend tests assert every live response against this file (tests/api-contract.test.ts); the iOS client asserts its DTOs against the mirrored copy at EddysWalletTests/Fixtures/cloud-api-contract/v1.json. Field names and nullability here are the agreement between the two repositories: a mismatch is what let a fully ready backend look dark to the app and a granted purchase look rejected. Bump `version` and update both repositories together when the wire shape changes; the pinned version in each repository's test makes an unannounced change fail CI.",
   "typeLanguage": {
     "scalars": ["string", "number", "boolean", "string|null", "number|null", "boolean|null", "string[]"],
@@ -150,6 +150,48 @@
         "type": "object",
         "fields": {
           "status": { "type": "string", "const": "CLOUD_VERIFICATION_PENDING" }
+        }
+      }
+    },
+    "cloudLegacyContext": {
+      "method": "GET",
+      "path": "/v1/cloud/legacy-context",
+      "status": 200,
+      "note": "First-run discovery for a fresh device: whether this exact authenticated parent already has a server-held household, and the entitlement that would pay for its Cloud authority. `household` is null when the parent has none; `authority` is `legacy_service` before a transition, `cloud` after one, or `local_detached` after a detach. `exportAvailable` is true only for the two legacy authorities. The client must offer the consented transition only when `authority` is `legacy_service`; an already-`cloud` household is adopted through context/bootstrap instead.",
+      "body": {
+        "type": "object",
+        "fields": {
+          "household": {
+            "type": "object|null",
+            "fields": { "lineageId": "string", "authority": "string", "revision": "number" }
+          },
+          "entitlement": {
+            "type": "object|null",
+            "fields": {
+              "state": "string",
+              "accessUntil": "string|null",
+              "graceExpiresAt": "string|null",
+              "lastReconciledAt": "string|null",
+              "active": "boolean"
+            }
+          },
+          "exportAvailable": "boolean"
+        }
+      }
+    },
+    "cloudLegacyActivate": {
+      "method": "POST",
+      "path": "/v1/cloud/legacy-activate",
+      "status": 200,
+      "note": "The deliberate, user-accepted legacy-to-Cloud transition. Requires Authorization, Idempotency-Key, and If-Match with the revision discovery reported. The server derives parent and household from the session and accepts no identity from the body. The household transitions in place - same lineageId, every wallet fact preserved - and the response revision is the one the client's next Cloud read/write uses. Repeating the action against an already-transitioned household answers 200 with the current Cloud household (deterministic convergence for simultaneous devices), while a detached household stays a 409 CLOUD_HOUSEHOLD_CONFLICT.",
+      "headers": { "etag": "^\"rev-[0-9]+\"$" },
+      "body": {
+        "type": "object",
+        "fields": {
+          "household": {
+            "type": "object",
+            "fields": { "lineageId": "string", "authority": { "type": "string", "const": "cloud" }, "revision": "number" }
+          }
         }
       }
     },

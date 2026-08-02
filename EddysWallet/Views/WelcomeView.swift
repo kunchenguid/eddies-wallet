@@ -65,6 +65,12 @@ struct WelcomeView: View {
                             .font(EW.Font.caption)
                             .foregroundStyle(EW.Color.textTertiary)
                             .multilineTextAlignment(.center)
+
+                        Text("Signing in also checks whether your Apple account already has a wallet, so you can bring it here instead of starting over.")
+                            .font(EW.Font.caption)
+                            .foregroundStyle(EW.Color.textTertiary)
+                            .multilineTextAlignment(.center)
+                            .accessibilityIdentifier("welcome-existing-wallet-note")
                     }
                     .frame(maxWidth: 440)
                     Spacer(minLength: EW.Space.seven)

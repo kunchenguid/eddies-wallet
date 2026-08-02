@@ -154,11 +154,12 @@ The UI may use the familiar words deposit, withdrawal, loan, and repayment, but 
 
 ### Journey A: parent setup
 
-1. The parent opens the app and sees the virtual/nonredeemable explanation.
-2. The parent signs in with Apple.
-3. The parent creates the free one-device wallet and child profile with a nickname and optional avatar. No child email or exact birth date is required.
-4. The parent sets a PIN. The app confirms that it protects the Parent area on this iPad and is not a device-wide parental control.
-5. The parent lands in the Parent area with a clear next action: set an allowance or add a first deposit, plus a prominent handoff that shows the child's wallet. Every later configured launch opens directly to the child's wallet.
+1. The parent opens the app and sees the virtual/nonredeemable explanation, including that signing in also checks their Apple account for a wallet they already have.
+2. The parent signs in with Apple. On a device with no wallet, the app then checks that exact account for a wallet the parent already set up elsewhere.
+3. If a recoverable wallet exists, the parent is offered a deliberate choice to bring it to this device before any setup form appears. Accepting recovers the complete existing wallet without re-setup; declining sends nothing and continues to fresh setup. If the check cannot be completed, setup stays available with a truthful note and a way to check again, and no wallet is ever moved without that explicit acceptance.
+4. The parent creates the free one-device wallet and child profile with a nickname and optional avatar. No child email or exact birth date is required.
+5. The parent sets a PIN. The app confirms that it protects the Parent area on this iPad and is not a device-wide parental control. A parent who recovered an existing wallet instead sets that PIN at the Parent door on first use.
+6. The parent lands in the Parent area with a clear next action: set an allowance or add a first deposit, plus a prominent handoff that shows the child's wallet. Every later configured launch opens directly to the child's wallet.
 
 Free setup commits directly to protected local authority and does not require the service. If setup is interrupted before that local save succeeds, the app must not imply that the wallet or child profile was saved. Optional Cloud activation is a separate parent flow and must never change authority until StoreKit verification and the service both accept it.
 
@@ -192,7 +193,7 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 
 ### Journey E: offline and session recovery
 
-1. The free one-device wallet remains fully usable without network access. Reads and parent actions use protected local authority, accepted actions are **Recorded**, and no service session or **Waiting to sync** state is introduced.
+1. The free one-device wallet remains fully usable without network access. Reads and parent actions use protected local authority, never use a service session, and show accepted actions as **Recorded** without introducing a **Waiting to sync** state.
 2. A service-authoritative wallet shown offline keeps its last accepted snapshot with a **Last updated** time, but that snapshot is read-only.
 3. A service-authoritative wallet starts no money, allowance, or profile mutation while known offline or until a successful server read has confirmed the persisted replica revision. If connectivity is lost after an exact request has been protected and transport has started, the action is clearly marked **Waiting to sync** without changing the accepted balance.
 4. On reconnect, the client reconciles only that protected request with the same body, expected revision, and idempotency key. The service either accepts it once or explicitly rejects it with a plain-language reason. A rejected command never changes the accepted balance.
@@ -204,9 +205,10 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 ### 8.1 Welcome and sign-in
 
 - Explain virtual, pretend, and nonredeemable dollars before asking for family data.
-- Provide the parent Apple Sign In path.
+- Provide the parent Apple Sign In path, and say plainly that signing in also checks the parent's Apple account for a wallet they already have.
 - Do not show Google Sign In in the MVP.
 - A signed-out or failed first-run state contains no family balance or child data.
+- The existing-wallet check is scoped to the exact signed-in parent, reads only, and never moves a wallet on its own. Recovery is a separate, clearly worded acceptance; declining, an unavailable service, and an account with no wallet all continue to ordinary free local setup.
 
 ### 8.2 Parent setup and child profile
 
