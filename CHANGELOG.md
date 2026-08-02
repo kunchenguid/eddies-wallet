@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.8...eddies-wallet-v0.1.9) (2026-08-02)
+
+
+### Bug Fixes
+
+* prevent debug preview from breaking Release builds ([#43](https://github.com/kunchenguid/eddies-wallet/issues/43)) ([ced4521](https://github.com/kunchenguid/eddies-wallet/commit/ced4521635e3cde706bc77bb71349a93a65d1527))
+
 ## [0.1.8](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.7...eddies-wallet-v0.1.8) (2026-08-02)
 
 
