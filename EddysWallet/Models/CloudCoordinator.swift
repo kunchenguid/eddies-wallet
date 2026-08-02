@@ -255,6 +255,10 @@ public final class CloudCoordinator: ObservableObject {
 
     public func signOutOfCloud() async {
         try? await client.revokeCurrentSession()
+        clearLocalSession()
+    }
+
+    public func clearLocalSession() {
         client.clearLocalSession()
         household = nil
         purchaseAttempt = .idle

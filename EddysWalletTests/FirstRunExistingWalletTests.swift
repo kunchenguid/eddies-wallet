@@ -392,6 +392,47 @@ final class FirstRunExistingWalletTests: XCTestCase {
         XCTAssertEqual(store.existingWalletNotice, .checkUnavailable)
     }
 
+    func testSetupInvalidatesAnExistingWalletCheckThatFinishesLater() async throws {
+        let transport = discoveringTransport()
+        transport.stub("GET", "/v1/cloud/legacy-context", FirstRunFixtures.noHouseholdContext)
+        let store = try makeStore(transport: transport)
+        await store.signInWithApple()
+
+        transport.stub("GET", "/v1/cloud/legacy-context", FirstRunFixtures.legacyContext(lineage: lineage, revision: 3))
+        transport.suspend("GET", "/v1/cloud/legacy-context")
+        let check = Task { await store.checkForExistingWallet() }
+        await transport.waitUntilSuspended()
+
+        let created = await store.setupParent(
+            ParentSetup(nickname: "Local Kid"),
+            pin: "1357",
+            confirmation: "1357"
+        )
+        transport.resumeSuspendedRequest()
+        await check.value
+
+        XCTAssertTrue(created)
+        XCTAssertEqual(store.rootRoute, .kidHome)
+        XCTAssertEqual(store.snapshot.configuredChildNickname, "Local Kid")
+        XCTAssertNil(store.existingWalletRecovery)
+        XCTAssertTrue(store.authorityState.isLocalAuthority)
+    }
+
+    func testSignOutFromLocalSetupClearsTheFirstRunCloudSession() async throws {
+        let transport = discoveringTransport()
+        transport.stub("GET", "/v1/cloud/legacy-context", FirstRunFixtures.noHouseholdContext)
+        let store = try makeStore(transport: transport)
+
+        await store.signInWithApple()
+        XCTAssertFalse(store.needsCloudSignIn)
+
+        store.signOut()
+
+        XCTAssertTrue(store.needsCloudSignIn)
+        XCTAssertFalse(store.isSignedIn)
+        XCTAssertEqual(store.rootRoute, .welcome)
+    }
+
     /// The offer is only ever made for the exact signed-in Apple account, so a
     /// re-check by a different account is refused before anything is read.
     func testACheckByADifferentAppleAccountIsRefusedBeforeAnyServiceRead() async throws {

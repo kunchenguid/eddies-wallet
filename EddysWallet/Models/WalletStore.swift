@@ -212,6 +212,8 @@ public final class WalletStore: ObservableObject {
     private var cooldownUntil: Date?
     private var cooldownTask: Task<Void, Never>?
     private var refreshGeneration = 0
+    private var firstRunDecisionGeneration = 0
+    private var isCommittingFirstRunCloudAdoption = false
     #if DEBUG
     private var debugHasValidCloudReplica: Bool?
     #endif
@@ -355,19 +357,21 @@ public final class WalletStore: ObservableObject {
     /// path here is a read: nothing transitions before an explicit acceptance,
     /// and any failure still lands on the free local wallet.
     private func routeFirstRun(identity: AppleIdentity?) async {
+        let generation = firstRunDecisionGeneration
         guard let cloudCoordinator,
               let local = repository as? LocalWalletRepository,
               let identity else {
-            beginLocalSetup()
+            if generation == firstRunDecisionGeneration { beginLocalSetup() }
             return
         }
         do {
             try await cloudCoordinator.authenticateCloud(identity: identity)
         } catch {
-            beginLocalSetup(notice: .checkUnavailable)
+            if generation == firstRunDecisionGeneration { beginLocalSetup(notice: .checkUnavailable) }
             return
         }
-        await applyExistingWalletDiscovery(coordinator: cloudCoordinator, local: local)
+        guard generation == firstRunDecisionGeneration, !repository.hasConfiguredKid else { return }
+        await applyExistingWalletDiscovery(coordinator: cloudCoordinator, local: local, generation: generation)
     }
 
     /// Re-runs the account check: the retry affordance on the setup screen, and
@@ -376,23 +380,30 @@ public final class WalletStore: ObservableObject {
     public func checkForExistingWallet() async {
         guard isSignedIn, !isSigningIn, !repository.hasConfiguredKid, existingWalletRecovery?.isWorking != true else { return }
         guard let cloudCoordinator, let local = repository as? LocalWalletRepository else { return }
+        let generation = firstRunDecisionGeneration
         isSigningIn = true
         defer { isSigningIn = false }
         guard await ensureCloudSession() else {
-            beginLocalSetup(notice: .checkUnavailable)
+            if generation == firstRunDecisionGeneration { beginLocalSetup(notice: .checkUnavailable) }
             return
         }
-        await applyExistingWalletDiscovery(coordinator: cloudCoordinator, local: local)
+        guard generation == firstRunDecisionGeneration, !repository.hasConfiguredKid else { return }
+        await applyExistingWalletDiscovery(coordinator: cloudCoordinator, local: local, generation: generation)
     }
 
-    private func applyExistingWalletDiscovery(coordinator: CloudCoordinator, local: LocalWalletRepository) async {
+    private func applyExistingWalletDiscovery(
+        coordinator: CloudCoordinator,
+        local: LocalWalletRepository,
+        generation: Int
+    ) async {
         let discovery: CloudExistingWalletDiscovery
         do {
             discovery = try await coordinator.discoverExistingWallet()
         } catch {
-            beginLocalSetup(notice: .checkUnavailable)
+            if generation == firstRunDecisionGeneration { beginLocalSetup(notice: .checkUnavailable) }
             return
         }
+        guard generation == firstRunDecisionGeneration, !repository.hasConfiguredKid else { return }
         switch discovery {
         case .noHousehold, .detachedHousehold, .unusable:
             // No server wallet, a wallet deliberately detached to another
@@ -400,7 +411,9 @@ public final class WalletStore: ObservableObject {
             // ordinary local-first path and offer no server recovery.
             beginLocalSetup()
         case .cloudHousehold:
-            await adoptDiscoveredCloudHousehold(coordinator: coordinator, local: local)
+            isCommittingFirstRunCloudAdoption = true
+            defer { isCommittingFirstRunCloudAdoption = false }
+            await adoptDiscoveredCloudHousehold(coordinator: coordinator, local: local, generation: generation)
         case .legacyHousehold:
             guard let offer = discovery.offer else {
                 beginLocalSetup()
@@ -419,15 +432,20 @@ public final class WalletStore: ObservableObject {
 
     /// An already-Cloud household needs no transition and no consent to move
     /// anything: this device simply joins the wallet the service already owns.
-    private func adoptDiscoveredCloudHousehold(coordinator: CloudCoordinator, local: LocalWalletRepository) async {
+    private func adoptDiscoveredCloudHousehold(
+        coordinator: CloudCoordinator,
+        local: LocalWalletRepository,
+        generation: Int
+    ) async {
         do {
             guard let cloud = try await coordinator.adoptExistingCloudHousehold(into: local) else {
-                beginLocalSetup(notice: .checkUnavailable)
+                if generation == firstRunDecisionGeneration { beginLocalSetup(notice: .checkUnavailable) }
                 return
             }
+            guard generation == firstRunDecisionGeneration else { return }
             enterRecoveredWallet(cloud)
         } catch {
-            beginLocalSetup(notice: .checkUnavailable)
+            if generation == firstRunDecisionGeneration { beginLocalSetup(notice: .checkUnavailable) }
         }
     }
 
@@ -821,6 +839,8 @@ public final class WalletStore: ObservableObject {
             errorMessage = "Choose and confirm a four-digit parent PIN."
             return false
         }
+        guard !isCommittingFirstRunCloudAdoption else { return false }
+        firstRunDecisionGeneration += 1
         let generation = refreshGeneration
         isLoading = true
         errorMessage = nil
@@ -1069,6 +1089,8 @@ public final class WalletStore: ObservableObject {
             errorMessage = "This wallet could not be erased. Nothing else was removed."
             return
         }
+        cloudCoordinator?.clearLocalSession()
+        firstRunDecisionGeneration += 1
         authorityState = .unconfigured
         purchaseAttempt = .idle
         cloudEntitlement = .none

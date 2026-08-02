@@ -75,8 +75,8 @@ struct SetupView: View {
                         }
                     }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(store.isLoading || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pin.count != 4 || pin != confirmationPIN)
-                    .opacity(store.isLoading || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pin.count != 4 || pin != confirmationPIN ? 0.45 : 1)
+                    .disabled(store.isLoading || store.isSigningIn || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pin.count != 4 || pin != confirmationPIN)
+                    .opacity(store.isLoading || store.isSigningIn || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pin.count != 4 || pin != confirmationPIN ? 0.45 : 1)
 
                     Button("Sign out") { isConfirmingSignOut = true }
                         .buttonStyle(SecondaryButtonStyle(compact: true))
