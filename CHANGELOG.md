@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.7...eddies-wallet-v0.1.8) (2026-08-02)
+
+
+### Bug Fixes
+
+* **EddysWallet:** discover and recover existing wallets on fresh devices ([#41](https://github.com/kunchenguid/eddies-wallet/issues/41)) ([d787df8](https://github.com/kunchenguid/eddies-wallet/commit/d787df87b9ade8685379339bf374ec714b0e9938))
+
 ## [0.1.7](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.6...eddies-wallet-v0.1.7) (2026-08-01)
 
 
