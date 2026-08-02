@@ -41,6 +41,26 @@ final class ChildHomeRefreshTests: XCTestCase {
         XCTAssertFalse(store.snapshot.isStale)
     }
 
+    func testOlderFailureCannotPublishWhileNewerReadIsInFlight() async {
+        let repository = OrderedReadRepository(published: cachedSnapshot())
+        let store = makeStore(repository)
+
+        await expect("the store reads the wallet at launch") { repository.startedReads == 1 }
+        let pull = Task { await store.refresh() }
+        await expect("pull-to-refresh issues its own read") { repository.startedReads == 2 }
+
+        repository.fail(read: 1, with: .network("The network is unavailable. The accepted balance was not changed."))
+
+        let relabelled = await waitUntil(timeout: 0.5) { store.isOffline || store.errorMessage != nil }
+        XCTAssertFalse(relabelled, "an older failure must not publish while a newer read is still in flight")
+        XCTAssertTrue(store.isLoading)
+
+        repository.finish(read: 2, with: freshSnapshot())
+        await pull.value
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, freshBalanceCents)
+        XCTAssertFalse(store.isOffline)
+    }
+
     /// The reverse case, so the rule above cannot be satisfied by simply
     /// ignoring failures: when the *newest* read is the one that fails, the kid
     /// home is genuinely out of touch with its authority and must say so.
@@ -53,13 +73,42 @@ final class ChildHomeRefreshTests: XCTestCase {
         await expect("a second read is issued while the first is still in flight") { repository.startedReads == 2 }
 
         repository.finish(read: 1, with: freshSnapshot())
-        await expect("the successful read reaches published state") { store.snapshot.acceptedBalanceCents == self.freshBalanceCents }
+        let publishedOlderRead = await waitUntil(timeout: 0.5) {
+            store.snapshot.acceptedBalanceCents == self.freshBalanceCents
+        }
+        XCTAssertFalse(publishedOlderRead, "an older success must not publish while the newest read is in flight")
 
         repository.fail(read: 2, with: .network("The network is unavailable. The accepted balance was not changed."))
         await pull.value
 
         XCTAssertTrue(store.isOffline, "the newest read could not reach its authority, so the kid home is offline")
         XCTAssertNotNil(store.errorMessage)
+    }
+
+    func testRetiredChildUnauthorizedReadCannotDeElevateParentArea() async {
+        let repository = OrderedReadRepository(published: cachedSnapshot())
+        let store = makeStore(repository)
+
+        await expect("the store reads the child wallet at launch") { repository.startedReads == 1 }
+        store.openParentGate()
+        for digit in "1234" {
+            store.appendPINDigit(String(digit))
+        }
+        XCTAssertEqual(store.elevation, .active)
+        await expect("entering the Parent area starts its own read") { repository.startedReads == 2 }
+        XCTAssertEqual(repository.readRoles, [.child, .parent])
+
+        repository.fail(read: 1, with: .unauthorized)
+
+        let deElevated = await waitUntil(timeout: 0.5) { store.elevation != .active }
+        XCTAssertFalse(deElevated, "a retired child result must not close the Parent area")
+        XCTAssertFalse(store.sessionExpired)
+
+        repository.finish(read: 2, with: freshSnapshot())
+        await expect("the Parent read publishes normally") {
+            store.snapshot.acceptedBalanceCents == self.freshBalanceCents
+        }
+        XCTAssertEqual(store.elevation, .active)
     }
 
     // MARK: - Pull-to-refresh

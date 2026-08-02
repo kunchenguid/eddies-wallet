@@ -218,7 +218,6 @@ public final class WalletStore: ObservableObject {
     /// Each read is stamped in the order it started so a slow one can never
     /// land last and overwrite what a newer read already published.
     private var refreshAttempts = 0
-    private var latestPublishedRefreshAttempt = 0
     /// Set while the scene is out of the foreground, so the return can re-read
     /// the wallet that `handleAppBackgrounded()` retired.
     private var didLeaveForeground = false
@@ -796,7 +795,7 @@ public final class WalletStore: ObservableObject {
                 needsSetup = true
                 errorMessage = nil
             case .unauthorized, .noSession:
-                guard isNewestRefresh(attempt) else { return }
+                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 if repository.hasConfiguredKid {
                     sessionExpired = true
                     errorMessage = "Your parent session expired. Sign in with Apple again."
@@ -863,18 +862,11 @@ public final class WalletStore: ObservableObject {
 
     /// Whether this read may still write what it saw into published state.
     /// A read is superseded when parent elevation moved underneath it, or when
-    /// a read that started later already published: the wallet on screen must
-    /// always be the newest observation, never whichever request happened to
-    /// finish last.
+    /// another read started later: the wallet on screen must always be the
+    /// newest observation, never whichever request happened to finish last.
     private func canPublish(_ attempt: Int, generation: Int, role: UserRole) -> Bool {
         guard generation == refreshGeneration, role == viewRole else { return false }
-        return isNewestRefresh(attempt)
-    }
-
-    private func isNewestRefresh(_ attempt: Int) -> Bool {
-        guard attempt > latestPublishedRefreshAttempt else { return false }
-        latestPublishedRefreshAttempt = attempt
-        return true
+        return attempt == refreshAttempts
     }
 
     public func setupParent(_ setup: ParentSetup, pin: String, confirmation: String) async -> Bool {
