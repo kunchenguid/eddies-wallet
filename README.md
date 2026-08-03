@@ -69,7 +69,7 @@ This repository contains only the client. A complete free wallet is stored local
 - Pull requests run a credential-free build-and-test workflow on GitHub Actions; everything else about verification remains local evidence.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.
 - The `.agents/skills/eddies-wallet-design/` prototype is unmaintained reference material and may not run as-is.
-- The [privacy policy](docs/privacy-policy.md) is an unpublished captain-review draft. Its remaining privacy commitments and publication choices are still open, and the [product requirements](docs/product-requirements.md) still require parent-controlled export and service-held wallet deletion before public launch.
+- The [privacy policy](docs/privacy-policy.md) is an unpublished captain-review draft. A preliminary legal review is pending, and its planned in-app control for deleting a service-held wallet does not exist yet. Once approved, the policy will be published as one small static page at the stable public HTTPS address given to the App Store.
 
 ## Support and security
 
@@ -83,7 +83,7 @@ This repository contains only the client. A complete free wallet is stored local
 - [Client README](EddysWallet/README.md): API configuration, keychain behavior, signing prerequisites, and the manual test sequence.
 - [Release pipeline](docs/release.md): the release-please and TestFlight automation, its approval boundary, and its one-time setup.
 - [App Store Connect configuration](docs/app-store-configuration.md): the optional Cloud products and policies configured in the live store, plus the work that remains unproven.
-- [Privacy policy draft](docs/privacy-policy.md): verified current data handling and the captain decisions still required before publication.
+- [Privacy policy draft](docs/privacy-policy.md): verified current data handling and the remaining review and implementation dependencies before publication.
 
 ## License
 

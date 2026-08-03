@@ -21,12 +21,12 @@ The child never signs in and never has an account. Only a parent signs in.
 
 ## Who else is involved
 
-Nobody receives this data for their own purposes. Two parties are unavoidably involved in running the app:
+The following parties are involved in providing the app's features:
 
 - **Apple**, because the app uses Sign in with Apple and Apple's subscription system. Apple issues the sign-in proof and processes any subscription payment under Apple's own privacy policy.
 - **The service**, for parents who turn on the optional Cloud wallet, together with the infrastructure provider that hosts it. It stores the uploaded wallet so it can sync between devices.
 
-Both are there to make the app work, not to receive data for marketing.
+The app does not share personal data with them for their own marketing.
 
 ## What the app handles
 
