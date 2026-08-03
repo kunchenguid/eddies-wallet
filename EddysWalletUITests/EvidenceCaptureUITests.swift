@@ -404,6 +404,83 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
     }
 
+    /// Reviewer-visible proof for the four captain-reported UX fixes. The
+    /// behavioral UI tests own the individual regressions; this tour keeps the
+    /// affected TestFlight surfaces together as synthetic screenshot evidence.
+    func testCaptainUXFixesTour() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+
+        app.buttons[doorLabel].tap()
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
+        let one = app.buttons["PIN digit 1"]
+        let zero = app.buttons["PIN digit 0"]
+        XCTAssertTrue(one.waitForExistence(timeout: 5))
+        let restingOne = one.frame
+        let restingZero = zero.frame
+        capture("captain-pin-gate-static")
+
+        app.swipeUp()
+        XCTAssertEqual(one.frame, restingOne)
+        XCTAssertEqual(zero.frame, restingZero)
+        app.swipeDown()
+        XCTAssertEqual(one.frame, restingOne)
+        XCTAssertEqual(zero.frame, restingZero)
+
+        enterPIN("1111", in: app)
+        XCTAssertTrue(app.staticTexts["Incorrect PIN. Try again."].waitForExistence(timeout: 5))
+        XCTAssertEqual(one.frame, restingOne)
+        XCTAssertEqual(zero.frame, restingZero)
+        capture("captain-pin-gate-reserved-error")
+
+        enterPIN("1234", in: app)
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+
+        let cloudCard = app.descendants(matching: .any)["cloud-backup-sync-card"]
+        for _ in 0..<6 where !cloudCard.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(cloudCard.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["cloud-benefits"].exists)
+        XCTAssertTrue(app.staticTexts["cloud-plans-unavailable-note"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["cloud-storekit-diagnostics-link"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["cloud-recovery-details-link"].exists)
+        // Capture the viewport rather than the taller-than-SE card element.
+        // XCUI element screenshots pad the offscreen portion with black, which
+        // is misleading reviewer evidence even though the parent area scrolls.
+        capture("captain-cloud-consumer-feature")
+
+        let deposit = app.buttons["Add deposit"]
+        for _ in 0..<6 where !deposit.isHittable {
+            app.swipeDown()
+        }
+        XCTAssertTrue(deposit.waitForExistence(timeout: 5))
+        deposit.tap()
+
+        let amount = app.textFields["Amount in virtual dollars"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5))
+        XCTAssertEqual(amount.value(forKey: "hasKeyboardFocus") as? Bool, true)
+        XCTAssertFalse(app.staticTexts["Enter an amount greater than US$0.00."].exists)
+        capture("captain-deposit-autofocused")
+
+        app.typeText("5.00")
+        app.buttons["Review"].tap()
+        XCTAssertTrue(app.staticTexts["Review before recording"].waitForExistence(timeout: 5))
+
+        let confirm = app.buttons["Confirm add deposit"]
+        let back = app.buttons["Back"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        let window = app.windows.firstMatch.frame
+        XCTAssertTrue(window.contains(confirm.frame))
+        XCTAssertLessThanOrEqual(confirm.frame.maxY, window.maxY - 8)
+        XCTAssertTrue(confirm.isHittable)
+        XCTAssertTrue(window.contains(back.frame))
+        XCTAssertLessThanOrEqual(back.frame.maxY, window.maxY - 8)
+        XCTAssertTrue(back.isHittable)
+        capture("captain-deposit-review-fully-visible")
+    }
+
     func testCloudWriteStateTour() throws {
         func openDepositResult(
             _ scenario: String,
