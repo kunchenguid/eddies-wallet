@@ -59,7 +59,7 @@ This repository contains only the client. A complete free wallet is stored local
 | `EddysWalletTests/` | Unit and transport-contract tests |
 | `EddysWalletUITests/` | Native UI tests and the synthetic screenshot tour |
 | `EddysWallet.xcodeproj` | Xcode project with the shared `EddysWallet` scheme |
-| `docs/` | Product requirements, release guidance, the live App Store Connect configuration record, presentation claims, and screenshots |
+| `docs/` | Product requirements, the privacy policy draft, release guidance, the live App Store Connect configuration record, presentation claims, and screenshots |
 | `.agents/skills/eddies-wallet-design/` | Copied web design system and prototype, packaged as an agent skill and kept as visual reference; `.claude/skills` is a symlink to `.agents/skills` so Claude Code discovers the same directory |
 
 ## Known limitations
@@ -69,7 +69,7 @@ This repository contains only the client. A complete free wallet is stored local
 - Pull requests run a credential-free build-and-test workflow on GitHub Actions; everything else about verification remains local evidence.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.
 - The `.agents/skills/eddies-wallet-design/` prototype is unmaintained reference material and may not run as-is.
-- Privacy, retention, export, and deletion decisions required for a public launch remain open in the [product requirements](docs/product-requirements.md).
+- The [privacy policy](docs/privacy-policy.md) is an unpublished captain-review draft. Its remaining privacy commitments and publication choices are still open, and the [product requirements](docs/product-requirements.md) still require parent-controlled export and service-held wallet deletion before public launch.
 
 ## Support and security
 
@@ -83,6 +83,7 @@ This repository contains only the client. A complete free wallet is stored local
 - [Client README](EddysWallet/README.md): API configuration, keychain behavior, signing prerequisites, and the manual test sequence.
 - [Release pipeline](docs/release.md): the release-please and TestFlight automation, its approval boundary, and its one-time setup.
 - [App Store Connect configuration](docs/app-store-configuration.md): the optional Cloud products and policies configured in the live store, plus the work that remains unproven.
+- [Privacy policy draft](docs/privacy-policy.md): verified current data handling and the captain decisions still required before publication.
 
 ## License
 

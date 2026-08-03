@@ -36,7 +36,7 @@ The uploaded builds are TestFlight artifacts, not App Store candidates: a build 
 
 Three review-preparation items cannot be completed truthfully from this repository:
 
-- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. This repository publishes no privacy policy today, so the field cannot be filled truthfully from anything committed here. Publishing one is a captain decision about real data-handling commitments, not a metadata edit.
+- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. The repository's [`privacy policy draft`](privacy-policy.md) is unpublished and still has captain decisions to resolve, so it is not a URL that can truthfully fill this field. Publishing it remains a captain decision, not a metadata edit.
 
 - **App Privacy (data collection) answers** have no public API surface; they are entered in the App Store Connect console.
 - **App Review contact details** (name, email, phone) are the captain's real contact information. They must never be invented, and no synthetic value belongs in that field.
