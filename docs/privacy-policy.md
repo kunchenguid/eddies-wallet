@@ -1,7 +1,7 @@
 # Eddie's Wallet privacy policy
 
 **Status: DRAFT for captain review. Not published, not linked from the app, and not submitted to App Review.**
-It describes the app as the code in this repository behaves today. Open questions that the code cannot answer are listed at the end and must be resolved before publication.
+It describes what the app and its service actually do today, checked against the code of both. The remaining open questions at the end are decisions rather than facts, and must be resolved before publication.
 
 Last reviewed against the code: 2026-08-02.
 
@@ -27,7 +27,9 @@ A parent signs in with Apple. Apple gives the app an opaque Apple user identifie
 - The opaque Apple user identifier is stored on the device in the iOS keychain. It contains no name, email address, or password. It exists so that "Forgot PIN?" recovery and any later session renewal can check that the same Apple account is signing in again. A different Apple account is refused.
 - The identity token is short-lived proof. It is kept in memory only for the duration of that one sign-in and is never written to the device.
 - Whenever a service session is needed, the app sends the short-lived identity token and sign-in nonce to the app's service at `eddieswallet.kunchenguid.com`. This happens during first-run existing-wallet discovery and any later Cloud sign-in or session renewal. If first-run discovery finds no wallet, fails, or the device is offline, the app continues with an ordinary on-device wallet.
-- The sign-in request asks Apple for the email scope. The app's own code never reads, displays, or stores an email address. The token the app forwards to the service is issued and signed by Apple and may carry the account's email claim (a private relay address if the parent chose to hide their email).
+- The sign-in request asks Apple for the email scope. The app's own code never reads, displays, or stores an email address. The token the app forwards is issued and signed by Apple and may carry the account's email address, which is a private relay address if the parent chose to hide their email.
+- The service checks that token's signature with Apple and then keeps two things about the parent: the opaque Apple user identifier, and the email address when Apple includes one. Nothing else about the Apple account is kept - no name, no password, no Apple credential. The app itself never receives or displays that email address.
+- When the service issues a session, it stores only a hashed form of the session token, never the token itself. Sessions expire on their own after a limited period, and signing out marks the session revoked so it stops working.
 
 ### 2. Parent identity and parent PIN
 
@@ -60,14 +62,23 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 
 - The app never sees or handles card numbers, billing addresses, or any payment credential.
 - Prices and product names shown in the app come from Apple's App Store at runtime.
-- When a purchase or restore produces a transaction, the app sends Apple's signed transaction (the JWS that Apple issues) to the app's service and acts on the entitlement the service projects back. The app itself never grants entitlement, and never sends a transaction that Apple did not verify.
+- When a purchase or restore produces a transaction, the app sends Apple's signed transaction to the app's service and acts on the subscription state the service reports back. The app itself never grants access, and never sends a transaction that Apple did not verify.
+- The service independently checks that the transaction really is signed by Apple, and that it is for this app and one of its subscription products, before it grants anything. From that verified transaction it keeps subscription bookkeeping only: which product, the purchase and expiry dates, whether it was refunded or revoked, and the identifiers Apple issues for the transaction and the subscription. None of that is payment information, and none of it is wallet or child data.
 - Each purchase is tagged with an opaque account token that the service supplies. It is not derived from the parent's name, email, or Apple identifier by anything in this app.
 - The Parent area has a "Cloud recovery details" readout that helps diagnose subscription problems. It shows only counts and outcome categories - never identifiers, signed transactions, account values, wallet data, or raw error text. It stays on the device, is not persisted, and is never transmitted.
+
+## How long data is kept
+
+- **On your device:** for as long as the wallet exists there. Erasing it from the Parent area removes it immediately.
+- **On the service:** a wallet that has been uploaded is kept indefinitely. Nothing on the service deletes households, ledger entries, or parent identities automatically - there is no expiry job and no scheduled clean-up. Letting the Cloud subscription lapse stops the paid features; it does not erase the wallet the service already holds.
+- **Sessions:** these do expire. A session stops working once it passes its expiry or is revoked by signing out. The revoked record itself is kept rather than removed.
+- **Backups:** the service's host is backed up daily by its hosting provider, so a recent copy of the service's data exists in those backups. An additional encrypted off-site backup is being set up and is not yet in operation.
 
 ## Deleting your data
 
 - **Wallet never uploaded to the service:** signing out from the Parent area erases that device's wallet database, the parent PIN, the stored Apple user identifier, and any cached wallet snapshot. This is permanent, and there is no other copy.
-- **Cloud wallet:** signing out of Cloud asks the service to revoke that device's session, always removes the local session token, and hands the mirrored wallet back to that device as an ordinary on-device wallet. If the request fails or the device is offline, the server-side token may remain valid until it expires. The service-held household still exists, so later erasing the ordinary on-device wallet removes only the device copy. The app has no in-app control that deletes a wallet already held by the service (see open questions).
+- **Cloud wallet:** signing out of Cloud asks the service to revoke that device's session, always removes the local session token, and hands the mirrored wallet back to that device as an ordinary on-device wallet. If the request fails or the device is offline, the server-side session may remain usable until it expires. The service-held wallet still exists, so later erasing the ordinary on-device wallet removes only the device copy.
+- **There is no self-service deletion of a service-held wallet today.** The service offers no delete-my-data request of any kind: the only thing the app can ask it to remove is the current session. Deleting an uploaded wallet requires a manual request to the people who run the service, and the route for making that request has not been established yet (see open questions).
 
 ## Children
 
@@ -81,17 +92,15 @@ _To be filled in by the captain before publication (see open questions)._
 
 ## Open questions for the captain (remove before publication)
 
-These cannot be answered from this repository's code and must not be guessed:
+Everything the code determines has been written into the policy above. What remains here are decisions, not facts - each one needs a choice from the captain, and none may be answered with plausible-sounding text instead:
 
-1. **Service-side retention.** How long the service keeps an uploaded Cloud household, its ledger entries, and revoked sessions, and what happens to it after a subscription lapses.
-2. **Service-side handling of the Apple identity token.** The app forwards Apple's signed identity token during first-run discovery and Cloud sign-in. Whether the service stores the Apple user identifier, and whether it stores or discards the email claim that Apple may include in that token, is a service-side fact.
-3. **Deletion route for Cloud wallets.** The app has no in-app delete-my-data control for a wallet the service holds. Apple requires an account-deletion path for apps that create accounts. Either a route must be built or a documented request channel must be named here.
-4. **Backups and exports of the service data**, including whether nightly encrypted exports exist and where they are held - the product requirements make this a precondition for offering paid Cloud.
-5. **Contact address** for privacy questions and deletion requests.
-6. **Legal footing statements** (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis). This draft deliberately makes none; a legal review should decide whether any are required for the App Store listing and the markets targeted.
-7. **Email scope.** The app requests Apple's email scope but never uses it. Confirm whether to drop the scope request (which would make the "we never see your email" story cleaner) or to keep and document it.
-8. **Selling, renting, or sharing data with third parties.** This draft deliberately makes no such commitment, because it is an organization and service-side data-use practice that this frontend repository cannot establish. Confirm the commitment the published policy should make.
-9. **How the service validates the signed StoreKit transaction.** The app can only show that it sends Apple's signed transaction and acts on the entitlement the service projects back. How the service checks that transaction with Apple is a service-side fact.
-10. **Publication address and revision practice.** No address is published and no update process exists yet. Confirm where the policy will live and how future revisions will be dated and announced, so the published version can describe it truthfully.
+1. **Selling, renting, or sharing data with third parties.** The policy above makes no such commitment, because this is a promise about how the product is run rather than something code can establish. Decide what the published policy should commit to.
+2. **Contact address** for privacy questions and deletion requests.
+3. **Deletion route for a service-held wallet.** The policy now states the current reality truthfully: no self-service deletion exists, and no request channel has been established. Apple requires an account-deletion path for apps that create accounts, so decide whether to build one in the app or to name a request channel here - and then this text must be updated to match.
+4. **Legal footing statements** (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis). This draft deliberately makes none; a legal review should decide whether any are required for the App Store listing and the markets targeted.
+5. **Email scope - a small product choice.** The behavior is now described accurately above: the app asks Apple for the email scope, never uses the address itself, and the service keeps it when Apple provides one. Decide whether to keep that or drop the scope request, which would let the policy say the email address is never collected at all.
+6. **Publication address and revision practice.** No address is published and no update process exists yet. Confirm where the policy will live and how future revisions will be dated and announced, so the published version can describe it truthfully.
 
-This list is not a fixed set. Every genuine unverifiable or service-side claim belongs here as an open question; none of these entries may be deleted to reach a particular count, and none may be answered with plausible text instead of a captain decision.
+This list is not a fixed set. Every genuine decision or unverifiable claim belongs here as an open question; none of these entries may be deleted to reach a particular count, and none may be answered with invented text instead of a captain decision. Equally, nothing that the app or service code actually determines belongs here - that gets investigated and written as plain policy text.
+
+Once the encrypted off-site backup described above is actually in operation, the backup wording needs a factual update.
