@@ -310,6 +310,28 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["cloud-plans-unavailable-note"].exists, "and still says plainly that it is not available yet")
     }
 
+    func testCloudAuthorityHeaderShowsPlanStateInsteadOfPitch() throws {
+        let app = launch("cloud-pending")
+        XCTAssertTrue(app.descendants(matching: .any)["kid-cloud-replica-unavailable"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let card = app.otherElements["cloud-backup-sync-card"]
+        for _ in 0..<10 where !card.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS %@", "Confirming this family's Cloud plan"))
+                .firstMatch.exists
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS %@", "An optional extra"))
+                .firstMatch.exists
+        )
+    }
+
     // Tapping a money action must land on a field that is ready to type into:
     // focused, with the keyboard already up, and with no error shown for an
     // amount the parent has not entered yet.

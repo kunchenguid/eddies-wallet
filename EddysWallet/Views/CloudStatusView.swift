@@ -12,6 +12,29 @@ struct CloudStatusView: View {
 
     private var isCloudOn: Bool { store.cloudEntitlement.grantsCloud }
 
+    private var hasCloudWalletOnDevice: Bool {
+        store.authorityState.isCloudAuthority || store.hasValidCloudReplica
+    }
+
+    private var headerPresentation: (subtitle: String, symbol: String) {
+        if isCloudOn {
+            return ("On for this family", "checkmark.icloud.fill")
+        }
+        if hasCloudWalletOnDevice {
+            switch store.cloudEntitlement {
+            case .verificationPending:
+                return ("Confirming this family's Cloud plan", "exclamationmark.icloud.fill")
+            case .none:
+                return ("Cloud plan status unavailable", "exclamationmark.icloud.fill")
+            case .billingRetry, .expired, .refunded, .revoked:
+                return ("Paused - Cloud plan not active", "exclamationmark.icloud.fill")
+            case .active, .billingGrace:
+                break
+            }
+        }
+        return ("An optional extra", "icloud.fill")
+    }
+
     /// Only a family that has no Cloud at all is told what Cloud would add. A
     /// device that already keeps a Cloud wallet needs its state, not a pitch.
     private var showsCloudBenefits: Bool {
@@ -97,7 +120,7 @@ struct CloudStatusView: View {
     private var header: some View {
         HStack(spacing: EW.Space.three) {
             IconBadge(
-                isCloudOn ? "checkmark.icloud.fill" : "icloud.fill",
+                headerPresentation.symbol,
                 foreground: EW.Color.green700,
                 background: EW.Color.green100,
                 size: 44
@@ -106,7 +129,7 @@ struct CloudStatusView: View {
                 Text("Cloud backup & sync")
                     .font(EW.Font.headingSmall)
                     .foregroundStyle(EW.Color.textPrimary)
-                Text(isCloudOn ? "On for this family" : "An optional extra")
+                Text(headerPresentation.subtitle)
                     .font(EW.Font.caption)
                     .foregroundStyle(EW.Color.textTertiary)
             }
