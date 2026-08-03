@@ -97,20 +97,23 @@ The app is designed so that the child's side needs no account, no sign-in, and n
 
 ## Contact
 
-Email **kun@kunchenguid.com** for any privacy question, or to ask for an uploaded wallet to be deleted. Email is the only contact route; there is no postal address and requests are not handled by mail.
+Email **eddies-wallet@kunchenguid.com** for any privacy question, or to ask for an uploaded wallet to be deleted. Email is the only contact route in this policy: there is no postal address here, and requests are not handled by mail.
+
+Eddie's Wallet is distributed worldwide through the App Store. Where a trader address and phone number must be shown, Apple displays them on the App Store product page, so this policy does not repeat them.
 
 ## Where this policy lives
 
-Once approved, this policy will be published as a single small static page at one stable public HTTPS address, which is the address given to the App Store. It is not published yet.
+Once approved, this policy will be published as a single static page on **eddies-wallet.kunchenguid.com**, at a stable privacy path on that domain fixed at publish time. That address is the one given to the App Store. It is not published yet.
 
 ---
 
 ## Open questions for the captain (remove before publication)
 
-Everything the code determines is written into the policy above, and the captain's decisions of 2026-08-02 are applied: no sale, rental, or marketing sharing of personal data; email-only contact; the email scope stays as it is; and the policy will be published as a single small static page at one stable public HTTPS address. Two items remain, and neither may be answered with plausible-sounding text instead:
+Everything the code determines is written into the policy above, and the captain's decisions of 2026-08-02 are applied: no sale, rental, or marketing sharing of personal data; email-only contact at eddies-wallet@kunchenguid.com; the email scope stays as it is; and the policy will be published as a single static page on eddies-wallet.kunchenguid.com. The trader address and phone required for a global launch are shown through Apple's App Store trader display, which is already set up and verified, so this policy stays email-only and carries no street address - that settles what would otherwise be an open question about the address this policy has to print.
 
-1. **Legal footing statements** (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis, and whether the hosting provider must be named). This draft deliberately makes none. A preliminary legal review is being commissioned to give a bare-minimum recommendation; nothing legal may be asserted here before it lands.
-2. **The in-app deletion control does not exist yet.** The "Planned" wording under *Deleting your data* is intent, not fact. It may only become a present-tense promise once a parent can actually delete a service-held wallet from parent settings in a shipped build. Until then this policy must keep saying deletion happens by email.
+One item remains, and it may not be answered with plausible-sounding text instead:
+
+1. **The in-app deletion control does not exist yet.** The "Planned" wording under *Deleting your data* is intent, not fact. It may only become a present-tense promise once a parent can actually delete a service-held wallet from parent settings in a shipped build. Until then this policy must keep saying deletion happens by email.
 
 This list is not a fixed set. Every genuine decision or unverifiable claim belongs here as an open question; none of these entries may be deleted to reach a particular count, and none may be answered with invented text instead of a captain decision. Equally, nothing that the app or service code actually determines belongs here - that gets investigated and written as plain policy text.
 
