@@ -90,6 +90,3 @@ These cannot be answered from this repository's code and must not be guessed:
 5. **Contact address** for privacy questions and deletion requests.
 6. **Legal footing statements** (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis). This draft deliberately makes none; a legal review should decide whether any are required for the App Store listing and the markets targeted.
 7. **Email scope.** The app requests Apple's email scope but never uses it. Confirm whether to drop the scope request (which would make the "we never see your email" story cleaner) or to keep and document it.
-8. **Organization and service-side data use.** Confirm before publication whether the organization and service sell, rent, or share information with third parties. This frontend repository cannot establish that commitment.
-9. **Service-side transaction validation.** Confirm how the service validates Apple's signed transaction before projecting an entitlement back to the app.
-10. **Publication and updates.** Confirm the publication address and how future revisions will be updated and dated. Neither practice exists yet.

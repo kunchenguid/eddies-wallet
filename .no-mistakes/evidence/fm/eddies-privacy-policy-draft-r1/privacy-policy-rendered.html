@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eddie's Wallet privacy policy - draft</title>
+<style>
+@font-face { font-family: "Nunito Sans"; src: url("../../../../.agents/skills/eddies-wallet-design/assets/fonts/NunitoSans-400.woff2"); }
+@font-face { font-family: "Nunito Sans"; src: url("../../../../.agents/skills/eddies-wallet-design/assets/fonts/NunitoSans-700.woff2"); font-weight: 700; }
+@font-face { font-family: "Fredoka"; src: url("../../../../.agents/skills/eddies-wallet-design/assets/fonts/Fredoka-600.woff2"); font-weight: 600; }
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+html { background: #f7f3ee; }
+body { margin: 0; color: #27231f; font-family: "Nunito Sans", ui-rounded, system-ui, sans-serif !important; font-size: 17px; line-height: 1.62; }
+.shell { width: min(920px, calc(100% - 48px)); margin: 44px auto 80px; }
+.masthead { display: flex; align-items: center; gap: 18px; margin-bottom: 24px; }
+.masthead img { width: 68px; height: 68px; border-radius: 16px; box-shadow: 0 10px 28px rgba(80, 49, 31, .16); }
+.brand { color: #96522f; font: 600 20px/1.15 "Fredoka", ui-rounded, system-ui, sans-serif; }
+.eyebrow { color: #6e6259; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-top: 5px; }
+.paper { background: #fffdf9; border: 1px solid #eadfd4; border-radius: 28px; padding: 54px 62px 64px; box-shadow: 0 18px 54px rgba(85, 54, 33, .09); overflow-wrap: anywhere; }
+.draft { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 28px; padding: 9px 14px; color: #7f361c; background: #fff0e4; border: 1px solid #f2c9ad; border-radius: 999px; font-weight: 700; font-size: 14px; }
+.draft::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #d76e40; }
+.content, .content * { font-family: "Nunito Sans", ui-rounded, system-ui, sans-serif !important; color: inherit !important; }
+.content { font-size: 17px !important; line-height: 1.62 !important; }
+.content p { margin: 0 0 18px !important; font-size: 17px !important; line-height: 1.62 !important; }
+.content h1 { margin: 0 0 16px; color: #3a2a21 !important; font: 600 44px/1.1 "Fredoka", ui-rounded, system-ui, sans-serif !important; letter-spacing: -.02em; }
+.content h2 { margin: 40px 0 15px; color: #3a2a21 !important; font: 600 29px/1.2 "Fredoka", ui-rounded, system-ui, sans-serif !important; }
+.content h3 { margin: 32px 0 12px; color: #96522f !important; font: 600 22px/1.25 "Fredoka", ui-rounded, system-ui, sans-serif !important; }
+.content ul, .content ol { margin: 0 0 22px; padding-left: 28px; }
+.content b { font-weight: 700 !important; }
+.content a { color: #96522f !important; }
+.content code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important; font-size: .9em !important; padding: 2px 5px; background: #f1ebe4; border-radius: 6px; }
+.content hr { border: 0; border-top: 1px solid #eadfd4; margin: 36px 0; }
+.content li { margin-bottom: 9px; }
+@media (max-width: 680px) { .shell { width: min(100% - 24px, 920px); margin-top: 24px; } .paper { padding: 32px 24px 44px; border-radius: 22px; } }
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="masthead">
+    <img src="../../../../.agents/skills/eddies-wallet-design/assets/app-icon/icon-120.png" alt="Eddie's Wallet app icon">
+    <div><div class="brand">Eddie's Wallet</div><div class="eyebrow">Captain review copy</div></div>
+  </header>
+  <article class="paper">
+    <div class="draft">Draft only - not published</div>
+    <div class="content"><h1>Eddie's Wallet privacy policy</h1>
+<p><strong>Status: DRAFT for captain review. Not published, not linked from the app, and not submitted to App Review.</strong> It describes the app as the code in this repository behaves today. Open questions that the code cannot answer are listed at the end and must be resolved before publication.</p>
+<p>Last reviewed against the code: 2026-08-02.</p>
+<h2>What this app is</h2>
+<p>Eddie's Wallet is an iOS app for families. A parent records virtual allowance, deposits, withdrawals, loans, and repayments for one child, and the child sees a read-only wallet. The money in the app is pretend: it cannot be redeemed and never moves real money.</p>
+<p>The child never signs in and never has an account. Only a parent signs in.</p>
+<h2>What we do not do</h2>
+<ul>
+<li>No advertising, ad networks, or ad identifiers.</li>
+<li>No behavioral analytics, tracking, or third-party analytics SDKs. The app bundles no third-party SDKs at all.</li>
+<li>No access to contacts, location, camera roll, microphone, or health data.</li>
+<li>No chat, public profiles, or sharing between families.</li>
+</ul>
+<h2>What the app handles</h2>
+<h3>1. Sign in with Apple</h3>
+<p>A parent signs in with Apple. Apple gives the app an opaque Apple user identifier for that parent, plus a short-lived identity token proving the sign-in.</p>
+<ul>
+<li>The opaque Apple user identifier is stored on the device in the iOS keychain. It contains no name, email address, or password. It exists so that "Forgot PIN?" recovery and any later session renewal can check that the same Apple account is signing in again. A different Apple account is refused.</li>
+<li>The identity token is short-lived proof. It is kept in memory only for the duration of that one sign-in and is never written to the device.</li>
+<li>Whenever a service session is needed, the app sends the short-lived identity token and sign-in nonce to the app's service at <code>eddieswallet.kunchenguid.com</code>. This happens during first-run existing-wallet discovery and any later Cloud sign-in or session renewal. If first-run discovery finds no wallet, fails, or the device is offline, the app continues with an ordinary on-device wallet.</li>
+<li>The sign-in request asks Apple for the email scope. The app's own code never reads, displays, or stores an email address. The token the app forwards to the service is issued and signed by Apple and may carry the account's email claim (a private relay address if the parent chose to hide their email).</li>
+</ul>
+<h3>2. Parent identity and parent PIN</h3>
+<ul>
+<li>A four-digit parent PIN gates the Parent area. It is stored in the iOS keychain on that device only, is never sent anywhere, and is never included in any request. It protects a shared family device from casual switching; it is not device-wide parental control.</li>
+<li>If the app has a service session, that session is an opaque token stored in the iOS keychain on that device only. Keychain items are marked accessible only after first unlock and only on that device.</li>
+<li>Parent identity is not shared with the child side of the app, and the Parent area is not reachable from the child's wallet without the PIN.</li>
+</ul>
+<h3>3. Child nickname</h3>
+<ul>
+<li>The only information the app asks for about the child is a nickname. Optionally the underlying wallet record can carry an avatar image URL, but no screen in the app collects one.</li>
+<li>The app never asks for the child's real name, email address, phone number, birth date, photo, contacts, or location.</li>
+<li>The nickname is stored with the wallet on the device. It leaves the device only if the wallet itself does (see below).</li>
+<li>The parent can change the nickname in the Parent area. The child's screens never expose profile editing.</li>
+</ul>
+<h3>4. Wallet ledger</h3>
+<p>The wallet ledger is the balance, the list of recorded entries (deposits, withdrawals, allowance, loans, repayments) with their amounts and timestamps, the allowance rule, and loan status. Each entry can carry a short free-text note that the parent types ("Reason" for money entries, "What is this for?" for loans), so it holds whatever the parent chooses to type there.</p>
+<p>Where it lives depends on how the app is used:</p>
+<ul>
+<li><strong>Free, on-device wallet (the default).</strong> The ledger is stored only on the device, in a Core Data database in the app's Application Support directory. The file is marked protected (readable only after first device unlock) and excluded from iCloud/iTunes backups. In this mode, reading and recording wallet actions does not contact any server, and works fully offline.</li>
+<li><strong>Optional Cloud wallet.</strong> If a parent activates the optional paid Cloud subscription, the app uploads the household once - the child nickname, a family name derived from that nickname (for example "Robin's family"), and every ledger entry and loan including the parent's free-text notes - to the app's service, which then becomes the authority for that wallet. Afterwards, wallet changes are sent to the service and read back from it, and a protected copy stays on the device for offline reading.</li>
+<li><strong>Existing service wallets.</strong> A device that was already set up against the service before the on-device mode existed continues to read and write its ledger through the service, and keeps a cached copy on the device for offline display.</li>
+</ul>
+<p>Wallet data is never included in analytics, notifications, or crash reports, because the app sends none.</p>
+<h3>5. Purchases (StoreKit)</h3>
+<p>The optional Cloud subscription is an Apple auto-renewable subscription. Apple, not this app, processes the payment.</p>
+<ul>
+<li>The app never sees or handles card numbers, billing addresses, or any payment credential.</li>
+<li>Prices and product names shown in the app come from Apple's App Store at runtime.</li>
+<li>When a purchase or restore produces a transaction, the app sends Apple's signed transaction (the JWS that Apple issues) to the app's service and acts on the entitlement the service projects back. The app itself never grants entitlement, and never sends a transaction that Apple did not verify.</li>
+<li>Each purchase is tagged with an opaque account token that the service supplies. It is not derived from the parent's name, email, or Apple identifier by anything in this app.</li>
+<li>The Parent area has a "Cloud recovery details" readout that helps diagnose subscription problems. It shows only counts and outcome categories - never identifiers, signed transactions, account values, wallet data, or raw error text. It stays on the device, is not persisted, and is never transmitted.</li>
+</ul>
+<h2>Deleting your data</h2>
+<ul>
+<li><strong>Wallet never uploaded to the service:</strong> signing out from the Parent area erases that device's wallet database, the parent PIN, the stored Apple user identifier, and any cached wallet snapshot. This is permanent, and there is no other copy.</li>
+<li><strong>Cloud wallet:</strong> signing out of Cloud asks the service to revoke that device's session, always removes the local session token, and hands the mirrored wallet back to that device as an ordinary on-device wallet. If the request fails or the device is offline, the server-side token may remain valid until it expires. The service-held household still exists, so later erasing the ordinary on-device wallet removes only the device copy. The app has no in-app control that deletes a wallet already held by the service (see open questions).</li>
+</ul>
+<h2>Children</h2>
+<p>The app is designed so that the child's side needs no account, no sign-in, and no personal details beyond a nickname the parent chooses. All setup, money actions, and settings sit behind the parent PIN.</p>
+<h2>Contact</h2>
+<p><em>To be filled in by the captain before publication (see open questions).</em></p>
+<hr>
+<h2>Open questions for the captain (remove before publication)</h2>
+<p>These cannot be answered from this repository's code and must not be guessed:</p>
+<ol>
+<li><strong>Service-side retention.</strong> How long the service keeps an uploaded Cloud household, its ledger entries, and revoked sessions, and what happens to it after a subscription lapses.</li>
+<li><strong>Service-side handling of the Apple identity token.</strong> The app forwards Apple's signed identity token during first-run discovery and Cloud sign-in. Whether the service stores the Apple user identifier, and whether it stores or discards the email claim that Apple may include in that token, is a service-side fact.</li>
+<li><strong>Deletion route for Cloud wallets.</strong> The app has no in-app delete-my-data control for a wallet the service holds. Apple requires an account-deletion path for apps that create accounts. Either a route must be built or a documented request channel must be named here.</li>
+<li><strong>Backups and exports of the service data</strong>, including whether nightly encrypted exports exist and where they are held - the product requirements make this a precondition for offering paid Cloud.</li>
+<li><strong>Contact address</strong> for privacy questions and deletion requests.</li>
+<li><strong>Legal footing statements</strong> (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis). This draft deliberately makes none; a legal review should decide whether any are required for the App Store listing and the markets targeted.</li>
+<li><strong>Email scope.</strong> The app requests Apple's email scope but never uses it. Confirm whether to drop the scope request (which would make the "we never see your email" story cleaner) or to keep and document it.</li>
+<li><strong>Organization and service-side data use.</strong> Confirm before publication whether the organization and service sell, rent, or share information with third parties. This frontend repository cannot establish that commitment.</li>
+<li><strong>Service-side transaction validation.</strong> Confirm how the service validates Apple's signed transaction before projecting an entitlement back to the app.</li>
+<li><strong>Publication and updates.</strong> Confirm the publication address and how future revisions will be updated and dated. Neither practice exists yet.</li>
+</ol></div>
+  </article>
+</main>
+</body>
+</html>
