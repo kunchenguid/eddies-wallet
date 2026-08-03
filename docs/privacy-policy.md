@@ -90,3 +90,8 @@ These cannot be answered from this repository's code and must not be guessed:
 5. **Contact address** for privacy questions and deletion requests.
 6. **Legal footing statements** (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis). This draft deliberately makes none; a legal review should decide whether any are required for the App Store listing and the markets targeted.
 7. **Email scope.** The app requests Apple's email scope but never uses it. Confirm whether to drop the scope request (which would make the "we never see your email" story cleaner) or to keep and document it.
+8. **Selling, renting, or sharing data with third parties.** This draft deliberately makes no such commitment, because it is an organization and service-side data-use practice that this frontend repository cannot establish. Confirm the commitment the published policy should make.
+9. **How the service validates the signed StoreKit transaction.** The app can only show that it sends Apple's signed transaction and acts on the entitlement the service projects back. How the service checks that transaction with Apple is a service-side fact.
+10. **Publication address and revision practice.** No address is published and no update process exists yet. Confirm where the policy will live and how future revisions will be dated and announced, so the published version can describe it truthfully.
+
+This list is not a fixed set. Every genuine unverifiable or service-side claim belongs here as an open question; none of these entries may be deleted to reach a particular count, and none may be answered with plausible text instead of a captain decision.
