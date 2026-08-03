@@ -60,7 +60,7 @@ The wallet ledger is the balance, the list of recorded entries (deposits, withdr
 
 Where it lives depends on how the app is used:
 
-- **Free, on-device wallet (the default).** The ledger is stored only on the device, in a Core Data database in the app's Application Support directory. The file is marked protected (readable only after first device unlock) and excluded from iCloud/iTunes backups. In this mode, reading and recording wallet actions does not contact any server, and works fully offline.
+- **Free, on-device wallet (the default).** The ledger is stored only on the device and protected so it can be read only after the device is unlocked. It is excluded from device backups. In this mode, reading and recording wallet actions does not contact any server and works fully offline.
 - **Optional Cloud wallet.** If a parent activates the optional paid Cloud subscription, the app uploads the household once - the child nickname, a family name derived from that nickname (for example "Robin's family"), and every ledger entry and loan including the parent's free-text notes - to the app's service, which then becomes the authority for that wallet. Afterwards, wallet changes are sent to the service and read back from it, and a protected copy stays on the device for offline reading.
 - **Existing service wallets.** A device that was already set up against the service before the on-device mode existed continues to read and write its ledger through the service, and keeps a cached copy on the device for offline display.
 

@@ -36,12 +36,12 @@ The uploaded builds are TestFlight artifacts, not App Store candidates: a build 
 
 Three review-preparation items cannot be completed truthfully from this repository:
 
-- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. The repository's [`privacy policy draft`](privacy-policy.md) is unpublished and still has captain decisions to resolve, so it is not a URL that can truthfully fill this field. Publishing it remains a captain decision, not a metadata edit.
+- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. The repository's [`privacy policy draft`](privacy-policy.md) is unpublished while its commissioned preliminary legal review and planned in-app parent-settings deletion control remain outstanding, so it is not a URL that can truthfully fill this field. Publishing it remains the captain's call, not a metadata edit.
 
 - **App Privacy (data collection) answers** have no public API surface; they are entered in the App Store Connect console.
 - **App Review contact details** (name, email, phone) are the captain's real contact information. They must never be invented, and no synthetic value belongs in that field.
 
-Guideline 3.1.2 also requires the in-app purchase surface itself to show subscription title, length, and price alongside links to the privacy policy and the terms of use. `CloudStatusView` shows title, price, and period today; the two links remain blocked on the captain's decisions about those published destinations.
+Guideline 3.1.2 also requires the in-app purchase surface itself to show subscription title, length, and price alongside links to the privacy policy and the terms of use. `CloudStatusView` shows title, price, and period today; the privacy-policy link remains blocked by the commissioned preliminary legal review and the missing in-app parent-settings deletion control, and publication remains the captain's call. The terms-of-use destination is also unresolved.
 
 The notification URL points at the private backend route `POST /v1/app-store/notifications`. A live Sandbox notification has reached that route, passed the backend's App Store verification, and been persisted.
 
