@@ -5,28 +5,40 @@ import UIKit
 /// - PIN entry (with bounded retries and a cooldown after repeated misses)
 /// - owning-parent re-authentication (expired session, forgotten/missing PIN)
 /// - choosing a new parent PIN after successful re-authentication
+///
+/// PIN entry is deliberately **not** scrollable: a keypad that drifts or
+/// bounces under the thumb makes people miss digits. It sizes itself to the
+/// screen instead (see `PINKeypad`), and its surrounding words stop growing at
+/// `xxxLarge` so an accessibility text size can never push a key off screen -
+/// the digits themselves keep scaling. The two recovery routes keep a scroll
+/// view because they carry text fields the software keyboard can cover.
 struct ParentGateView: View {
     @EnvironmentObject private var store: WalletStore
 
     var body: some View {
         ZStack {
             EW.Color.appBackground.ignoresSafeArea()
-            ScrollView {
-                Group {
-                    switch store.gateRoute {
-                    case .pinEntry:
-                        PINEntryGate()
-                    case .reauth(let reason):
-                        ReauthGate(reason: reason)
-                    case .setPIN:
-                        SetNewPINGate()
-                    }
-                }
+            switch store.gateRoute {
+            case .pinEntry:
+                PINEntryGate()
+                    .padding(EW.Space.screenMargin)
+                    .frame(maxWidth: 460)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            case .reauth(let reason):
+                scrollingRoute { ReauthGate(reason: reason) }
+            case .setPIN:
+                scrollingRoute { SetNewPINGate() }
+            }
+        }
+    }
+
+    private func scrollingRoute<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ScrollView {
+            content()
                 .padding(EW.Space.screenMargin)
                 .frame(maxWidth: 460)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.top, EW.Space.seven)
-            }
         }
     }
 }
@@ -42,10 +54,12 @@ private struct GateHeader: View {
                 .font(EW.Font.display)
                 .foregroundStyle(EW.Color.textPrimary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             Text(subtitle)
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textTertiary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
     }
@@ -68,11 +82,11 @@ private struct GateCancelButton: View {
 private struct PINEntryGate: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var shakeTrigger = 0
-    @State private var availableWidth: CGFloat = 320
 
     var body: some View {
-        VStack(spacing: EW.Space.five) {
+        VStack(spacing: EW.Space.four) {
             GateHeader(
                 title: "Parent only",
                 subtitle: "Enter the parent PIN for this \(DeviceCopy.deviceNoun)."
@@ -97,12 +111,7 @@ private struct PINEntryGate: View {
                     )
                 }
 
-            PINKeypad(
-                availableWidth: availableWidth,
-                isDisabled: store.isCoolingDown,
-                onDigit: { store.appendPINDigit($0) },
-                onDelete: { store.deletePINDigit() }
-            )
+            keypad
 
             Button("Forgot PIN?") {
                 store.requestPINRecovery()
@@ -114,27 +123,53 @@ private struct PINEntryGate: View {
 
             GateCancelButton()
         }
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(key: PINKeypadWidthPreferenceKey.self, value: proxy.size.width)
-            }
-        )
-        .onPreferenceChange(PINKeypadWidthPreferenceKey.self) { availableWidth = $0 }
+        // The words around the keypad stop growing at `xxxLarge`: an
+        // accessibility text size would otherwise eat the height the keys need,
+        // and a key pushed off a screen that cannot scroll is worse for
+        // everyone than a heading that stops getting larger. The keys
+        // themselves keep the reader's chosen size, restored just below.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
-    @ViewBuilder
-    private var statusLine: some View {
-        if store.isCoolingDown {
-            Text("Too many tries. Wait \(store.cooldownSecondsRemaining)s, then try again.")
-                .font(EW.Font.bodyBold)
-                .foregroundStyle(EW.Color.red600)
-                .multilineTextAlignment(.center)
-        } else if store.pinError {
-            Text("Incorrect PIN. Try again.")
-                .font(EW.Font.bodyBold)
-                .foregroundStyle(EW.Color.red600)
-                .multilineTextAlignment(.center)
+    /// The keypad takes whatever height is left and sizes its keys to it, so
+    /// the gate always fits the screen exactly once.
+    private var keypad: some View {
+        GeometryReader { proxy in
+            PINKeypad(
+                availableWidth: proxy.size.width,
+                availableHeight: proxy.size.height,
+                isDisabled: store.isCoolingDown,
+                onDigit: { store.appendPINDigit($0) },
+                onDelete: { store.deletePINDigit() }
+            )
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
+        .frame(maxHeight: .infinity)
+        .dynamicTypeSize(dynamicTypeSize)
+    }
+
+    private var statusMessage: String? {
+        if store.isCoolingDown {
+            return "Too many tries. Wait \(store.cooldownSecondsRemaining)s, then try again."
+        }
+        if store.pinError {
+            return "Incorrect PIN. Try again."
+        }
+        return nil
+    }
+
+    /// Always reserves its two lines. An error that appeared or cleared must
+    /// never move the keys under a thumb that is already on its way down.
+    private var statusLine: some View {
+        // A blank space, not an empty string: an empty `Text` reserves nothing
+        // and the keypad would resize the moment a message appeared.
+        Text(statusMessage ?? " ")
+            .font(EW.Font.bodyBold)
+            .foregroundStyle(EW.Color.red600)
+            .multilineTextAlignment(.center)
+            .lineLimit(2, reservesSpace: true)
+            .frame(maxWidth: .infinity)
+            .accessibilityHidden(statusMessage == nil)
     }
 
     private var pinDots: some View {
@@ -151,32 +186,48 @@ private struct PINEntryGate: View {
     }
 }
 
-private struct PINKeypadWidthPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 320
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 /// Balanced three-column numeric grid modeled on the familiar Apple
 /// lock-screen keypad: generous circular hit targets sized from the actual
-/// measured column width (device size, safe area) within a comfortable
-/// range, so nothing clips on any supported iPhone or iPad and the keypad
-/// never depends on one fixed screen size.
+/// measured space (device size, safe area) within a comfortable range, so
+/// nothing clips on any supported iPhone or iPad and the keypad never
+/// depends on one fixed screen size.
+///
+/// It fits *height* as well as width, because the gate that hosts it does not
+/// scroll: on a short screen the keys and their gaps tighten together rather
+/// than pushing the keypad under the fold. `availableHeight <= 0` means the
+/// caller is not constraining height (previews), so only width is fitted.
 struct PINKeypad: View {
     let availableWidth: CGFloat
+    var availableHeight: CGFloat = 0
     let isDisabled: Bool
     let onDigit: (String) -> Void
     let onDelete: () -> Void
 
-    private let spacing: CGFloat = EW.Space.six
-    private let minDiameter: CGFloat = 64
+    /// Never below the 44pt minimum hit target, even on the smallest screen.
+    private let minDiameter: CGFloat = 48
+    private let comfortableDiameter: CGFloat = 64
     private let maxDiameter: CGFloat = 88
+    /// Gaps are given up before key size is: a smaller gap between big keys
+    /// beats a roomy grid of small ones.
+    private let tightestSpacing: CGFloat = EW.Space.three
+    private var candidateSpacings: [CGFloat] { [EW.Space.six, EW.Space.four, tightestSpacing] }
 
-    private var diameter: CGFloat {
-        let capped = min(availableWidth, 320)
-        let fitted = (capped - spacing * 2) / 3
-        return min(max(fitted, minDiameter), maxDiameter)
+    private var metrics: (spacing: CGFloat, diameter: CGFloat) {
+        for spacing in candidateSpacings where diameter(spacing: spacing) >= comfortableDiameter {
+            return (spacing, diameter(spacing: spacing))
+        }
+        return (tightestSpacing, diameter(spacing: tightestSpacing))
+    }
+
+    private var spacing: CGFloat { metrics.spacing }
+    private var diameter: CGFloat { metrics.diameter }
+
+    private func diameter(spacing: CGFloat) -> CGFloat {
+        let widthFitted = (min(availableWidth, 320) - spacing * 2) / 3
+        let heightFitted = availableHeight > 0
+            ? (availableHeight - spacing * 3) / 4
+            : .greatestFiniteMagnitude
+        return min(max(min(widthFitted, heightFitted), minDiameter), maxDiameter)
     }
 
     var body: some View {

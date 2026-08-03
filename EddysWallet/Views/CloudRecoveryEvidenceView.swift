@@ -1,11 +1,18 @@
+#if DEBUG
 import SwiftUI
 
-/// Local, privacy-safe Cloud recovery readout, visible in every build
-/// including Release. It renders only aggregate scan counts and outcome
-/// classes from `CloudRecoveryEvidence` - never a signed payload, identifier,
-/// account value, session value, or error detail - and nothing here persists
-/// or leaves the device. It answers "did this device's StoreKit store surface
-/// the Cloud transaction at all" without exposing anything about the account.
+/// Local, privacy-safe Cloud recovery readout for internal builds. It renders
+/// only aggregate scan counts and outcome classes from `CloudRecoveryEvidence`
+/// - never a signed payload, identifier, account value, session value, or
+/// error detail - and nothing here persists or leaves the device. It answers
+/// "did this device's StoreKit store surface the Cloud transaction at all"
+/// without exposing anything about the account.
+///
+/// Cloud/client sync diagnosis is finished, so this is no longer a shipped
+/// surface: it is compiled only into Debug builds and reached only through the
+/// `EW_UITEST_DIAGNOSTICS` seam in `DebugScenarios.swift`. `CloudRecoveryEvidence`
+/// itself stays in every build - the evidence is still collected locally - and
+/// `CloudRecoveryEvidenceTests` keeps pinning its safe shape.
 struct CloudRecoveryEvidenceView: View {
     let subscriptions: CloudSubscriptionStore?
 
@@ -56,3 +63,4 @@ private struct CloudRecoveryEvidenceRows: View {
         }
     }
 }
+#endif

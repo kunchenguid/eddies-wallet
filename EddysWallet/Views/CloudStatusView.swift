@@ -1,21 +1,33 @@
 import SwiftUI
 
-/// Parent-only Cloud surface. Prices and purchase controls appear only when the
-/// backend reports Cloud is available and StoreKit returns exactly the two real
+/// Parent-only Cloud surface, written for a parent rather than an operator: it
+/// says what Cloud does for the family, what is true on this device right now,
+/// and nothing else. Internal diagnostics are not reachable from here in a
+/// shipped build. Prices and purchase controls appear only when the backend
+/// reports Cloud is available and StoreKit returns exactly the two real
 /// products; there is no hard-coded price and no scripted success path.
 struct CloudStatusView: View {
     @EnvironmentObject private var store: WalletStore
     @State private var isWorking = false
 
+    private var isCloudOn: Bool { store.cloudEntitlement.grantsCloud }
+
+    /// Only a family that has no Cloud at all is told what Cloud would add. A
+    /// device that already keeps a Cloud wallet needs its state, not a pitch.
+    private var showsCloudBenefits: Bool {
+        !isCloudOn && !store.authorityState.isCloudAuthority
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: EW.Space.three) {
-            Label("Cloud backup & sync", systemImage: "icloud")
-                .font(EW.Font.headingSmall)
-                .foregroundStyle(EW.Color.textPrimary)
+        VStack(alignment: .leading, spacing: EW.Space.four) {
+            header
             statusCopy
             purchaseStateCopy
+            if showsCloudBenefits {
+                whatCloudAdds
+            }
             if store.needsCloudSignIn {
-                Button("Sign in to check Cloud plans") {
+                Button("Sign in to see Cloud plans") {
                     guard !isWorking else { return }
                     isWorking = true
                     Task {
@@ -23,54 +35,55 @@ struct CloudStatusView: View {
                         isWorking = false
                     }
                 }
-                .buttonStyle(.plain)
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.primaryActive)
+                .buttonStyle(SecondaryButtonStyle(compact: true))
                 .disabled(isWorking)
                 .accessibilityIdentifier("cloud-sign-in-button")
             }
-            if store.canOfferCloudPlans, !store.cloudEntitlement.grantsCloud {
+            if store.canOfferCloudPlans, !isCloudOn {
                 plans
             }
             if store.needsCloudReview {
                 reviewNotice
             }
-            if store.cloudEntitlement.grantsCloud, store.authorityState.isCloudAuthority, store.hasValidCloudReplica {
-                Text("This \(DeviceCopy.deviceNoun) is syncing with Cloud.")
+            if isCloudOn, store.authorityState.isCloudAuthority, store.hasValidCloudReplica {
+                Label("This \(DeviceCopy.deviceNoun) is syncing with Cloud.", systemImage: "checkmark.circle.fill")
                     .font(EW.Font.caption)
-                    .foregroundStyle(EW.Color.textTertiary)
+                    .foregroundStyle(EW.Color.green700)
                     .accessibilityIdentifier("cloud-syncing-note")
             }
             if store.canContinueLocallyAfterCloud {
                 Button("Keep using this \(DeviceCopy.deviceNoun)") {
                     Task { await store.continueLocallyAfterCloud() }
                 }
-                    .buttonStyle(.plain)
-                    .font(EW.Font.body)
-                    .foregroundStyle(EW.Color.primaryActive)
+                    .buttonStyle(SecondaryButtonStyle(compact: true))
                     .accessibilityIdentifier("cloud-continue-local-button")
             }
             if let message = store.cloudMessage {
                 Text(message)
                     .font(EW.Font.caption)
                     .foregroundStyle(EW.Color.gold700)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("cloud-message")
             }
             Text(optionalCloudCopy)
                 .font(EW.Font.caption)
                 .foregroundStyle(EW.Color.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
             #if DEBUG
-            NavigationLink("StoreKit diagnostics") { CloudDiagnosticsView() }
-                .font(EW.Font.caption)
-                .accessibilityIdentifier("cloud-storekit-diagnostics-link")
-            #endif
-            // Local-only aggregate recovery outcomes, safe to show in every
-            // build including Release. Nothing sensitive can appear on it.
-            NavigationLink("Cloud recovery details") {
-                CloudRecoveryEvidenceView(subscriptions: store.cloudSubscriptionStore)
+            // Internal-only surfaces. A shipped build compiles neither this
+            // seam nor the screens behind it, so no one outside a Debug run
+            // launched with `EW_UITEST_DIAGNOSTICS=1` can reach diagnostics.
+            if DebugLaunchScenario.showsDiagnosticsEntryPoints() {
+                NavigationLink("StoreKit diagnostics") { CloudDiagnosticsView() }
+                    .font(EW.Font.caption)
+                    .accessibilityIdentifier("cloud-storekit-diagnostics-link")
+                NavigationLink("Cloud recovery details") {
+                    CloudRecoveryEvidenceView(subscriptions: store.cloudSubscriptionStore)
+                }
+                    .font(EW.Font.caption)
+                    .accessibilityIdentifier("cloud-recovery-details-link")
             }
-                .font(EW.Font.caption)
-                .accessibilityIdentifier("cloud-recovery-details-link")
+            #endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .ewCard(variant: .alt)
@@ -81,41 +94,91 @@ struct CloudStatusView: View {
         .task { await store.loadCloudPlans() }
     }
 
-    @ViewBuilder private var statusCopy: some View {
-        if store.authorityState.isCloudAuthority, !store.hasValidCloudReplica {
-            Text(Self.cloudReplicaUnavailableStatusCopy(deviceNoun: DeviceCopy.deviceNoun))
+    private var header: some View {
+        HStack(spacing: EW.Space.three) {
+            IconBadge(
+                isCloudOn ? "checkmark.icloud.fill" : "icloud.fill",
+                foreground: EW.Color.green700,
+                background: EW.Color.green100,
+                size: 44
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Cloud backup & sync")
+                    .font(EW.Font.headingSmall)
+                    .foregroundStyle(EW.Color.textPrimary)
+                Text(isCloudOn ? "On for this family" : "An optional extra")
+                    .font(EW.Font.caption)
+                    .foregroundStyle(EW.Color.textTertiary)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Plain-language benefits, phrased as what Cloud would add rather than as
+    /// anything this device already has.
+    private var whatCloudAdds: some View {
+        VStack(alignment: .leading, spacing: EW.Space.three) {
+            benefit("lock.icloud.fill", "A safe copy of the wallet, so a lost \(DeviceCopy.deviceNoun) doesn't lose the savings history")
+            benefit("ipad.and.iphone", "The same wallet on your family's other devices, signed in with your parent Apple account")
+            benefit("arrow.triangle.2.circlepath", "New \(DeviceCopy.deviceNoun)? Pick up exactly where you left off")
+        }
+        .padding(EW.Space.four)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(EW.Color.cream50, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+        .accessibilityIdentifier("cloud-benefits")
+    }
+
+    private func benefit(_ symbol: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: EW.Space.three) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(EW.Color.green600)
+                .frame(width: 22, alignment: .center)
+                .accessibilityHidden(true)
+            Text(text)
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private var statusCopy: some View {
+        if store.authorityState.isCloudAuthority, !store.hasValidCloudReplica {
+            statusText(Self.cloudReplicaUnavailableStatusCopy(deviceNoun: DeviceCopy.deviceNoun))
         } else {
             switch store.cloudEntitlement {
             case .active(let accessUntil, _):
-                Text("Cloud is on through \(accessUntil.formatted(date: .abbreviated, time: .omitted)). Backed up and synced across devices using the same parent Apple account.")
-                    .font(EW.Font.body)
-                    .foregroundStyle(EW.Color.textSecondary)
+                statusText("Cloud is on through \(accessUntil.formatted(date: .abbreviated, time: .omitted)). Backed up and synced across devices using the same parent Apple account.")
             case .billingGrace:
-                Text("Cloud is still on while the App Store retries billing.")
-                    .font(EW.Font.body)
-                    .foregroundStyle(EW.Color.textSecondary)
+                statusText("Cloud is still on while the App Store retries billing.")
             case .expired, .refunded, .revoked, .billingRetry:
-                Text("Cloud ended. You can keep using the wallet on this device. Nothing was deleted.")
-                    .font(EW.Font.body)
-                    .foregroundStyle(EW.Color.textSecondary)
+                statusText("Cloud ended. You can keep using the wallet on this device. Nothing was deleted.")
             case .verificationPending:
-                Text("Your Cloud plan is being confirmed. Nothing changed on this \(DeviceCopy.deviceNoun) yet.")
-                    .font(EW.Font.body)
-                    .foregroundStyle(EW.Color.textSecondary)
+                statusText("Your Cloud plan is being confirmed. Nothing changed on this \(DeviceCopy.deviceNoun) yet.")
             case .none:
-                Text(Self.noEntitlementStatusCopy(authority: store.authorityState, deviceNoun: DeviceCopy.deviceNoun))
-                    .font(EW.Font.body)
-                    .foregroundStyle(EW.Color.textSecondary)
+                statusText(Self.noEntitlementStatusCopy(authority: store.authorityState, deviceNoun: DeviceCopy.deviceNoun))
                 if !store.canOfferCloudPlans, !store.needsCloudSignIn {
-                    Text("Cloud plans are unavailable right now. Your wallet still works on this device.")
+                    Label(
+                        "Cloud isn't available yet. Everything in the wallet keeps working on this \(DeviceCopy.deviceNoun).",
+                        systemImage: "clock"
+                    )
                         .font(EW.Font.caption)
                         .foregroundStyle(EW.Color.gold700)
+                        .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("cloud-plans-unavailable-note")
                 }
             }
         }
+    }
+
+    private func statusText(_ text: String) -> some View {
+        Text(text)
+            .font(EW.Font.body)
+            .foregroundStyle(EW.Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var optionalCloudCopy: String {
@@ -133,7 +196,7 @@ struct CloudStatusView: View {
         if authority.isCloudAuthority {
             return "This \(deviceNoun) is showing the last synced Cloud wallet. Reconnect to check its current status."
         }
-        return "This wallet is saved only on this \(deviceNoun). Cloud adds backup and sync on devices using the same parent Apple account."
+        return "Right now this wallet is saved only on this \(deviceNoun)."
     }
 
     /// The backend verified the delivered transaction and projected its real
@@ -188,24 +251,33 @@ struct CloudStatusView: View {
                         isWorking = false
                     }
                 } label: {
-                    HStack {
+                    HStack(spacing: EW.Space.three) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(plan.displayName)
-                                .font(EW.Font.body)
+                                .font(EW.Font.bodyBold)
                                 .foregroundStyle(EW.Color.textPrimary)
                             Text("\(plan.displayPrice) \(plan.periodDescription)")
                                 .font(EW.Font.caption)
                                 .foregroundStyle(EW.Color.textSecondary)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(EW.Color.textTertiary)
+                        Spacer(minLength: EW.Space.three)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(EW.Color.textTertiary)
+                    }
+                    .padding(.horizontal, EW.Space.four)
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                    .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous)
+                            .stroke(EW.Color.border, lineWidth: 1)
                     }
                 }
                 .buttonStyle(.plain)
                 .disabled(isWorking)
                 .accessibilityIdentifier("cloud-plan-\(plan.id)")
             }
-            Button("Restore purchase") {
+            Button("Already subscribed? Restore purchase") {
                 guard !isWorking else { return }
                 isWorking = true
                 Task {
@@ -216,6 +288,7 @@ struct CloudStatusView: View {
             .buttonStyle(.plain)
             .font(EW.Font.caption)
             .foregroundStyle(EW.Color.primaryActive)
+            .frame(minHeight: 44)
             .disabled(isWorking)
             .accessibilityIdentifier("cloud-restore-button")
         }

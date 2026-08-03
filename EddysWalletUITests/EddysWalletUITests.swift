@@ -78,6 +78,15 @@ final class EddysWalletUITests: XCTestCase {
         return header
     }
 
+    private func openDeposit(in app: XCUIApplication) {
+        let deposit = app.buttons["Add deposit"]
+        for _ in 0..<6 where !deposit.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(deposit.waitForExistence(timeout: 5))
+        deposit.tap()
+    }
+
     // Report criterion 1 (P1, P2): a configured signed-in launch rests on the
     // kid home with zero parent controls in the accessibility tree.
     func testColdLaunchRestsOnKidHomeWithoutParentControls() throws {
@@ -231,6 +240,138 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Add deposit"].exists)
     }
 
+    // A PIN pad is a fixed target. It must never scroll, bounce, or shift under
+    // a thumb that is already on its way down, and every control on the gate has
+    // to be reachable without moving the screen at all.
+    func testParentPINGateIsFixedAndCannotScroll() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+
+        app.buttons[doorLabel].tap()
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 10))
+
+        let one = app.buttons["PIN digit 1"]
+        let zero = app.buttons["PIN digit 0"]
+        XCTAssertTrue(one.waitForExistence(timeout: 5))
+        let restingOne = one.frame
+        let restingZero = zero.frame
+
+        let window = app.windows.firstMatch.frame
+        XCTAssertTrue(window.contains(restingOne), "the keypad must fit the screen without scrolling")
+        XCTAssertTrue(window.contains(restingZero))
+        XCTAssertGreaterThanOrEqual(restingOne.height, 44, "PIN keys must keep a 44pt hit target on every phone size")
+        XCTAssertTrue(app.buttons["Forgot PIN?"].isHittable)
+        XCTAssertTrue(app.buttons["Cancel"].isHittable)
+
+        app.swipeUp()
+        XCTAssertEqual(one.frame, restingOne, "the PIN pad must not scroll or bounce upward")
+        XCTAssertEqual(zero.frame, restingZero)
+
+        app.swipeDown()
+        XCTAssertEqual(one.frame, restingOne, "the PIN pad must not scroll or bounce downward")
+        XCTAssertEqual(zero.frame, restingZero)
+
+        // The error message appears in space the gate already reserved, so the
+        // keys stay exactly where the last tap left them.
+        enterPIN("1111", in: app)
+        XCTAssertTrue(app.staticTexts["Incorrect PIN. Try again."].waitForExistence(timeout: 5))
+        XCTAssertEqual(one.frame, restingOne, "showing the incorrect-PIN message must not move the keypad")
+        XCTAssertEqual(zero.frame, restingZero)
+    }
+
+    // Cloud/client sync diagnosis is finished: a shipped build offers no route
+    // into the internal diagnostics surfaces. This launch omits the Debug
+    // diagnostics seam, so it sees exactly what a person on TestFlight sees.
+    func testParentCloudSectionOffersNoPathIntoDiagnostics() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let card = app.otherElements["cloud-backup-sync-card"]
+        for _ in 0..<10 where !card.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+
+        XCTAssertFalse(app.descendants(matching: .any)["cloud-storekit-diagnostics-link"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["cloud-recovery-details-link"].exists)
+        XCTAssertEqual(
+            app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "diagnostic")).count,
+            0,
+            "no parent-facing control may lead into a diagnostics screen"
+        )
+        XCTAssertEqual(
+            app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "storekit")).count,
+            0
+        )
+
+        // What replaces it reads as a product feature a parent can decide about.
+        XCTAssertTrue(app.descendants(matching: .any)["cloud-benefits"].exists, "the Cloud section explains what Cloud does for the family")
+        XCTAssertTrue(app.staticTexts["cloud-plans-unavailable-note"].exists, "and still says plainly that it is not available yet")
+    }
+
+    // Tapping a money action must land on a field that is ready to type into:
+    // focused, with the keyboard already up, and with no error shown for an
+    // amount the parent has not entered yet.
+    func testAddDepositOpensFocusedWithTheKeyboardUp() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        openDeposit(in: app)
+        let amount = app.textFields["Amount in virtual dollars"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "the amount keyboard must already be up")
+        XCTAssertEqual(amount.value(forKey: "hasKeyboardFocus") as? Bool, true, "the amount field must already hold focus")
+        XCTAssertFalse(
+            app.staticTexts["Enter an amount greater than US$0.00."].exists,
+            "an untouched amount is not an error"
+        )
+
+        // Typing with no extra tap proves the focus is real, not decorative.
+        app.typeText("7.50")
+        XCTAssertEqual(amount.value as? String, "7.50")
+        XCTAssertFalse(app.staticTexts["Enter an amount greater than US$0.00."].exists)
+    }
+
+    // The review step's decision controls stay fully on screen: a confirm
+    // affordance clipped at the fold is how a parent records nothing, or the
+    // wrong thing.
+    func testAddDepositReviewKeepsConfirmAndBackFullyOnScreen() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        openDeposit(in: app)
+        let amount = app.textFields["Amount in virtual dollars"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 5))
+        // Tapped explicitly: this test is about the review step's layout, so it
+        // must not depend on the amount step already holding focus.
+        amount.tap()
+        amount.typeText("5.00")
+        app.buttons["Review"].tap()
+
+        let confirm = app.buttons["Confirm add deposit"]
+        let back = app.buttons["Back"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        let window = app.windows.firstMatch.frame
+        // Not flush against the screen edge either: a control rendered right on
+        // the fold is what the clipped confirm looked like.
+        let minimumClearance: CGFloat = 8
+
+        XCTAssertTrue(window.contains(confirm.frame), "the confirm control must be fully on screen")
+        XCTAssertLessThanOrEqual(confirm.frame.maxY, window.maxY - minimumClearance, "the confirm control must not sit on the fold")
+        XCTAssertGreaterThanOrEqual(confirm.frame.height, 44, "the confirm control must keep its full hit target, not a clipped one")
+        XCTAssertTrue(confirm.isHittable)
+        XCTAssertTrue(window.contains(back.frame), "the way back must be on screen too, not below the fold")
+        XCTAssertLessThanOrEqual(back.frame.maxY, window.maxY - minimumClearance)
+        XCTAssertTrue(back.isHittable)
+
+        // The pinned controls are the real ones, so the flow still completes.
+        confirm.tap()
+        XCTAssertTrue(app.otherElements["money-flow-result"].waitForExistence(timeout: 10))
+    }
+
     func testParentCanEditChildNicknameAndKidHomeShowsIt() throws {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
@@ -350,7 +491,7 @@ final class EddysWalletUITests: XCTestCase {
     // proves the shipping products and prices, and `CloudStoreConfigurationTests`
     // separately pins the checked-in configuration to the same values.
     func testDebugStoreKitDiagnosticsProvesTheExactCloudProductsAndPrices() throws {
-        let app = launch("configured")
+        let app = launch("configured", environment: ["EW_UITEST_DIAGNOSTICS": "1"])
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 

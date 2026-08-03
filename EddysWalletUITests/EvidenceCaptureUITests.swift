@@ -121,7 +121,7 @@ final class EvidenceCaptureUITests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(cloudCard.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Cloud plans are unavailable right now. Your wallet still works on this device."].exists)
+        XCTAssertTrue(app.staticTexts["Cloud isn't available yet. Everything in the wallet keeps working on this iPhone."].exists)
         XCTAssertTrue(app.staticTexts["Cloud is optional. Your wallet keeps working on this device without it."].exists)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "subscribe")).firstMatch.exists)
         capture("cloud-guarded-unavailable")
@@ -164,8 +164,10 @@ final class EvidenceCaptureUITests: XCTestCase {
         capture("cloud-purchase-server-rejected", element: app.descendants(matching: .any)["cloud-backup-sync-card"])
     }
 
+    // Internal-only surface: it has no public entry point, so this tour must
+    // open the Debug diagnostics seam explicitly to reach it at all.
     func testCloudRecoveryDetailsTour() throws {
-        let app = launch("configured")
+        let app = launch("configured", environment: ["EW_UITEST_DIAGNOSTICS": "1"])
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
 
@@ -173,7 +175,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         for _ in 0..<10 where !link.isHittable {
             app.swipeUp()
         }
-        XCTAssertTrue(link.waitForExistence(timeout: 5), "the local recovery readout is reachable from Parent > Cloud in every build")
+        XCTAssertTrue(link.waitForExistence(timeout: 5), "the local recovery readout is reachable behind the Debug diagnostics seam")
         link.tap()
 
         XCTAssertTrue(app.staticTexts["Cloud recovery details"].waitForExistence(timeout: 5))
@@ -187,7 +189,7 @@ final class EvidenceCaptureUITests: XCTestCase {
     }
 
     func testStoreKitDiagnosticsTour() throws {
-        let app = launch("configured")
+        let app = launch("configured", environment: ["EW_UITEST_DIAGNOSTICS": "1"])
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
 
