@@ -36,7 +36,7 @@ A parent signs in with Apple. Apple gives the app an opaque Apple user identifie
 
 - The opaque Apple user identifier is stored on the device in the iOS keychain. It contains no name, email address, or password. It exists so that "Forgot PIN?" recovery and any later session renewal can check that the same Apple account is signing in again. A different Apple account is refused.
 - The identity token is short-lived proof. It is kept in memory only for the duration of that one sign-in and is never written to the device.
-- Whenever a service session is needed, the app sends the short-lived identity token and sign-in nonce to the app's service at `eddieswallet.kunchenguid.com`. This happens during first-run existing-wallet discovery and any later Cloud sign-in or session renewal. If first-run discovery finds no wallet, fails, or the device is offline, the app continues with an ordinary on-device wallet.
+- Whenever a service session is needed, the app sends the short-lived identity token and sign-in nonce to the app's service. This happens during first-run existing-wallet discovery and any later Cloud sign-in or session renewal. If first-run discovery finds no wallet, fails, or the device is offline, the app continues with an ordinary on-device wallet.
 - The sign-in request asks Apple for the email scope. The app's own code never reads, displays, or stores an email address. The token the app forwards is issued and signed by Apple and may carry the account's email address, which is a private relay address if the parent chose to hide their email.
 - The service checks that token's signature with Apple and then keeps two things about the parent: the opaque Apple user identifier, and the email address when Apple includes one. Nothing else about the Apple account is kept - no name, no password, no Apple credential. The app itself never reads, displays, or stores that email address.
 - When the service issues a session, it stores only a hashed form of the session token, never the token itself. Sessions expire on their own after a limited period. Signing out asks the service to mark the session revoked and always removes the local token; if that request fails or the device is offline, the service session may remain usable until it expires.
@@ -80,7 +80,7 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 ## How long data is kept
 
 - **On your device:** for as long as the wallet exists there. Erasing it from the Parent area removes it immediately.
-- **On the service:** a wallet that has been uploaded is kept indefinitely. Nothing on the service deletes households, ledger entries, or parent identities automatically - there is no expiry job and no scheduled clean-up. Letting the Cloud subscription lapse stops the paid features; it does not erase the wallet the service already holds.
+- **On the service:** a wallet that has been uploaded is kept indefinitely. Nothing on the service deletes households, ledger entries, or parent identities automatically. Letting the Cloud subscription lapse stops the paid features; it does not erase the wallet the service already holds.
 - **Sessions:** these do expire. A session stops working once it passes its expiry or is revoked by signing out. The revoked record itself is kept rather than removed.
 - **Backups:** the service's host is backed up daily by its hosting provider, so a recent copy of the service's data exists in those backups. An additional encrypted off-site backup is being set up and is not yet in operation.
 
@@ -88,7 +88,7 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 
 - **Wallet never uploaded to the service:** signing out from the Parent area erases that device's wallet database, the parent PIN, the stored Apple user identifier, and any cached wallet snapshot. This is permanent, and there is no other copy.
 - **Cloud wallet:** signing out of Cloud asks the service to revoke that device's session, always removes the local session token, and hands the mirrored wallet back to that device as an ordinary on-device wallet. If the request fails or the device is offline, the server-side session may remain usable until it expires. The service-held wallet still exists, so later erasing the ordinary on-device wallet removes only the device copy.
-- **There is no self-service deletion of a service-held wallet today.** The service offers no delete-my-data request of any kind: the only thing the app can ask it to remove is the current session. Until that changes, deleting an uploaded wallet means emailing the address below and having it done by hand.
+- **There is no self-service deletion of a service-held wallet today.** Until that changes, deleting an uploaded wallet means emailing the address below and having it done by hand.
 - **Planned:** a delete-my-wallet control inside the app, in the parent settings, so a parent can erase a service-held wallet themselves without asking anyone. This is intended, not built. This paragraph describes an intention and nothing more; it may only be rewritten as a present-tense promise once that control actually ships (see open questions).
 
 ## Children
@@ -101,13 +101,13 @@ Email **kun@kunchenguid.com** for any privacy question, or to ask for an uploade
 
 ## Where this policy lives
 
-Once approved, this policy will be published as a single static page at one stable public web address, which is the address given to the App Store. It is not published yet.
+Once approved, this policy will be published as a single small static page at one stable public HTTPS address, which is the address given to the App Store. It is not published yet.
 
 ---
 
 ## Open questions for the captain (remove before publication)
 
-Everything the code determines is written into the policy above, and the captain's decisions of 2026-08-02 are applied: no sale, rental, or marketing sharing of personal data; email-only contact; the email scope stays as it is; and the policy will be published as a single static page. Two items remain, and neither may be answered with plausible-sounding text instead:
+Everything the code determines is written into the policy above, and the captain's decisions of 2026-08-02 are applied: no sale, rental, or marketing sharing of personal data; email-only contact; the email scope stays as it is; and the policy will be published as a single small static page at one stable public HTTPS address. Two items remain, and neither may be answered with plausible-sounding text instead:
 
 1. **Legal footing statements** (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis, and whether the hosting provider must be named). This draft deliberately makes none. A preliminary legal review is being commissioned to give a bare-minimum recommendation; nothing legal may be asserted here before it lands.
 2. **The in-app deletion control does not exist yet.** The "Planned" wording under *Deleting your data* is intent, not fact. It may only become a present-tense promise once a parent can actually delete a service-held wallet from parent settings in a shipped build. Until then this policy must keep saying deletion happens by email.

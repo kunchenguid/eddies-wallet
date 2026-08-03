@@ -399,8 +399,7 @@ These questions do not block the product boundary above. Questions that affect t
 2. Should the allowance MVP remain parent-confirmed on or after the due date, or should a reliable server job automatically record it?
 3. What additional allowance cadences, if any, belong in the first release?
 4. Which service implementation and operations plan meet the cost and recovery requirements, and who owns service incidents and restores?
-5. What retention period and parent deletion behavior apply to family data and accepted ledger history?
-6. Is the one-parent MVP sufficient for the pilot, or is a second authenticated parent a launch requirement?
+5. Is the one-parent MVP sufficient for the pilot, or is a second authenticated parent a launch requirement?
 
 ## 15. MVP acceptance criteria
 
