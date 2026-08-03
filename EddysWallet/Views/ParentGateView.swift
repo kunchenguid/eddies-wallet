@@ -45,7 +45,7 @@ struct ParentGateView: View {
 
 private struct GateHeader: View {
     let title: String
-    let subtitle: String
+    let subtitle: String?
 
     var body: some View {
         VStack(spacing: EW.Space.three) {
@@ -55,11 +55,13 @@ private struct GateHeader: View {
                 .foregroundStyle(EW.Color.textPrimary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(subtitle)
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.textTertiary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            if let subtitle {
+                Text(subtitle)
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -86,30 +88,38 @@ private struct PINEntryGate: View {
     @State private var shakeTrigger = 0
 
     var body: some View {
-        VStack(spacing: EW.Space.four) {
+        ViewThatFits(in: .vertical) {
+            gateContent(showsSubtitle: true, spacing: EW.Space.four)
+            gateContent(showsSubtitle: false, spacing: EW.Space.three)
+        }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .onChange(of: store.pinError) { _, isError in
+            guard isError else { return }
+            if reduceMotion {
+                shakeTrigger = 0
+            } else {
+                withAnimation(.linear(duration: 0.3)) { shakeTrigger += 1 }
+            }
+            UIAccessibility.post(
+                notification: .announcement,
+                argument: store.isCoolingDown
+                    ? "Incorrect PIN. The keypad is paused for a moment."
+                    : "Incorrect PIN. \(store.attemptsRemaining) tries left before a short pause."
+            )
+        }
+    }
+
+    private func gateContent(showsSubtitle: Bool, spacing: CGFloat) -> some View {
+        VStack(spacing: spacing) {
             GateHeader(
                 title: "Parent only",
-                subtitle: "Enter the parent PIN for this \(DeviceCopy.deviceNoun)."
+                subtitle: showsSubtitle ? "Enter the parent PIN for this \(DeviceCopy.deviceNoun)." : nil
             )
 
             statusLine
 
             pinDots
                 .modifier(ShakeEffect(animatableData: CGFloat(shakeTrigger)))
-                .onChange(of: store.pinError) { _, isError in
-                    guard isError else { return }
-                    if reduceMotion {
-                        shakeTrigger = 0
-                    } else {
-                        withAnimation(.linear(duration: 0.3)) { shakeTrigger += 1 }
-                    }
-                    UIAccessibility.post(
-                        notification: .announcement,
-                        argument: store.isCoolingDown
-                            ? "Incorrect PIN. The keypad is paused for a moment."
-                            : "Incorrect PIN. \(store.attemptsRemaining) tries left before a short pause."
-                    )
-                }
 
             keypad
 
@@ -123,12 +133,6 @@ private struct PINEntryGate: View {
 
             GateCancelButton()
         }
-        // The words around the keypad stop growing at `xxxLarge`: an
-        // accessibility text size would otherwise eat the height the keys need,
-        // and a key pushed off a screen that cannot scroll is worse for
-        // everyone than a heading that stops getting larger. The keys
-        // themselves keep the reader's chosen size, restored just below.
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     /// The keypad takes whatever height is left and sizes its keys to it, so
@@ -144,7 +148,7 @@ private struct PINEntryGate: View {
             )
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .frame(maxHeight: .infinity)
+        .frame(minHeight: PINKeypad.minimumHeight, maxHeight: .infinity)
         .dynamicTypeSize(dynamicTypeSize)
     }
 
@@ -183,6 +187,7 @@ private struct PINEntryGate: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("PIN, \(store.pin.count) of 4 digits entered")
+        .accessibilityIdentifier("pin-entry-dots")
     }
 }
 
@@ -204,7 +209,8 @@ struct PINKeypad: View {
     let onDelete: () -> Void
 
     /// Never below the 44pt minimum hit target, even on the smallest screen.
-    private let minDiameter: CGFloat = 48
+    private static let minDiameter: CGFloat = 48
+    static let minimumHeight: CGFloat = minDiameter * 4 + EW.Space.three * 3
     private let comfortableDiameter: CGFloat = 64
     private let maxDiameter: CGFloat = 88
     /// Gaps are given up before key size is: a smaller gap between big keys
@@ -227,7 +233,7 @@ struct PINKeypad: View {
         let heightFitted = availableHeight > 0
             ? (availableHeight - spacing * 3) / 4
             : .greatestFiniteMagnitude
-        return min(max(min(widthFitted, heightFitted), minDiameter), maxDiameter)
+        return min(max(min(widthFitted, heightFitted), Self.minDiameter), maxDiameter)
     }
 
     var body: some View {

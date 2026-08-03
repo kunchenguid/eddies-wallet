@@ -282,12 +282,46 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
         capture("gate-ax-xxxl")
 
-        for digit in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"] {
-            let button = app.buttons["PIN digit \(digit)"]
+        let digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+        let digitButtons = digits.map { app.buttons["PIN digit \($0)"] }
+        let deleteButton = app.buttons["Delete last PIN digit"]
+        let keypadButtons = digitButtons + [deleteButton]
+        let window = app.windows.firstMatch.frame
+        let pinDots = app.descendants(matching: .any)["pin-entry-dots"]
+        let forgotPIN = app.buttons["Forgot PIN?"]
+        let cancel = app.buttons["Cancel"]
+
+        XCTAssertTrue(pinDots.exists)
+        XCTAssertTrue(forgotPIN.isHittable)
+        XCTAssertTrue(cancel.isHittable)
+        XCTAssertTrue(window.contains(pinDots.frame))
+        XCTAssertTrue(window.contains(forgotPIN.frame))
+        XCTAssertTrue(window.contains(cancel.frame))
+
+        for (digit, button) in zip(digits, digitButtons) {
             XCTAssertTrue(button.exists, "PIN digit \(digit) must stay reachable at the largest accessibility text size")
             XCTAssertTrue(button.isHittable, "PIN digit \(digit) must stay tappable at the largest accessibility text size")
         }
-        XCTAssertTrue(app.buttons["Delete last PIN digit"].isHittable)
+        XCTAssertTrue(deleteButton.isHittable)
+
+        for button in keypadButtons {
+            XCTAssertTrue(window.contains(button.frame), "Every PIN key must remain fully inside the window")
+            XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+            XCTAssertFalse(button.frame.intersects(pinDots.frame), "PIN keys must not overlap the PIN dots")
+            XCTAssertFalse(button.frame.intersects(forgotPIN.frame), "PIN keys must not overlap Forgot PIN")
+            XCTAssertFalse(button.frame.intersects(cancel.frame), "PIN keys must not overlap Cancel")
+        }
+
+        for firstIndex in keypadButtons.indices {
+            for secondIndex in keypadButtons.indices where secondIndex > firstIndex {
+                XCTAssertFalse(
+                    keypadButtons[firstIndex].frame.intersects(keypadButtons[secondIndex].frame),
+                    "PIN keys must not overlap each other"
+                )
+            }
+        }
+        XCTAssertFalse(forgotPIN.frame.intersects(cancel.frame))
 
         enterPIN("1234", in: app)
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
