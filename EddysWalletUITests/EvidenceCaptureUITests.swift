@@ -7,8 +7,11 @@ import XCTest
 /// hand-assembled captures.
 ///
 /// `TEST_RUNNER_`-prefixed variables only reach this process when exported
-/// in the calling shell before `xcodebuild test` runs, e.g.
-/// `export TEST_RUNNER_EW_EVIDENCE_DIR=/path && xcodebuild test ...`.
+/// in the calling shell before `xcodebuild test` runs. Run it through the
+/// simulator lifecycle wrapper so the capture device is always torn down:
+/// `export TEST_RUNNER_EW_EVIDENCE_DIR=/path`, then
+/// `./test/sim.sh -- xcodebuild test -project EddysWallet.xcodeproj`
+/// `-scheme EddysWallet -destination 'platform=iOS Simulator,id={{UDID}}'`.
 /// Passing `TEST_RUNNER_EW_EVIDENCE_DIR=/path` as a trailing xcodebuild
 /// argument is silently treated as a build-setting override instead and
 /// never reaches `ProcessInfo.processInfo.environment` here.

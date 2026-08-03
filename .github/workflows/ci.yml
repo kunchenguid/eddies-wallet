@@ -60,6 +60,13 @@ jobs:
       - name: Release pipeline regression checks
         run: ./test/release-checks.sh
 
+      # Boot-free: proves the simulator lifecycle's reaping/teardown decisions and
+      # that no tracked script or workflow drives a simulator outside test/sim.sh.
+      - name: Simulator lifecycle checks
+        run: |
+          ./test/check-sim-usage.sh
+          ./test/sim-lib-test.sh
+
       - name: Select Xcode 26
         run: |
           XCODE_APP=$(python3 <<'PY'
@@ -83,88 +90,33 @@ jobs:
           echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
           echo "iPhoneSimulator SDK: $(xcrun --sdk iphonesimulator --show-sdk-version)"
 
-      - name: Select iOS Simulator
-        run: |
-          python3 <<'PY'
-          import json
-          import os
-          import re
-          import subprocess
-
-          devices_by_runtime = json.loads(
-              subprocess.check_output([
-                  "xcrun",
-                  "simctl",
-                  "list",
-                  "devices",
-                  "available",
-                  "-j",
-              ])
-          )["devices"]
-
-          def runtime_version(runtime):
-              match = re.search(r"iOS-(\d+)-(\d+)", runtime)
-              if not match:
-                  return (0, 0)
-              return tuple(int(part) for part in match.groups())
-
-          # Deterministic device policy: prefer the same device family the
-          # local gate and README verify on (iPhone 17 Pro) so CI cannot
-          # silently diverge from local dev. Runtime stays the newest the
-          # runner provisions.
-          PREFERRED_NAMES = ["iPhone 17 Pro", "iPhone 17"]
-
-          candidates = []
-          fallback = []
-          for runtime, devices in devices_by_runtime.items():
-              if "iOS" not in runtime:
-                  continue
-              for device in devices:
-                  if not device.get("isAvailable"):
-                      continue
-                  entry = (runtime_version(runtime), runtime, device["name"], device["udid"])
-                  fallback.append(entry)
-                  if device["name"].startswith("iPhone"):
-                      candidates.append(entry)
-
-          selected = None
-          for preferred in PREFERRED_NAMES:
-              exact = [entry for entry in candidates if entry[2] == preferred]
-              if exact:
-                  selected = sorted(exact)[-1]
-                  break
-          if selected is None:
-              selected = sorted(candidates or fallback)[-1]
-              print(
-                  "::warning::No preferred simulator "
-                  f"({', '.join(PREFERRED_NAMES)}) available; falling back to "
-                  f"{selected[2]}. Update PREFERRED_NAMES in ci.yml so CI and "
-                  "local dev verify on the same device family."
-              )
-          _, runtime, name, udid = selected
-          print(f"Selected {name} ({runtime}) [{udid}]")
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-              env.write(f"SIMULATOR_UDID={udid}\n")
-          PY
-
+      # test/sim.sh owns the whole simulator lifecycle: it reaps orphans, creates
+      # exactly one run-scoped device, boots it headlessly, and deletes that device
+      # and its XCTest clone on every exit path. Never target a simulator directly
+      # here - a hand-made device outlives the job it was created for, and
+      # test/check-sim-usage.sh fails the build if one reappears. `--device` is an
+      # ordered preference so CI keeps verifying on the same device family the
+      # READMEs do; the runtime falls back to the newest the runner provisions.
       - name: Build
         run: |
-          xcodebuild build \
-            -project "$PROJECT_PATH" \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -destination "id=$SIMULATOR_UDID" \
-            -derivedDataPath "$DERIVED_DATA_PATH"
+          ./test/sim.sh --device "iPhone 17 Pro" --device "iPhone 17" -- \
+            xcodebuild build \
+              -project "$PROJECT_PATH" \
+              -scheme "$SCHEME" \
+              -configuration "$CONFIGURATION" \
+              -destination "platform=iOS Simulator,id={{UDID}}" \
+              -derivedDataPath "$DERIVED_DATA_PATH"
 
       - name: Tests
         run: |
-          xcodebuild test \
-            -project "$PROJECT_PATH" \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -destination "id=$SIMULATOR_UDID" \
-            -derivedDataPath "$DERIVED_DATA_PATH" \
-            -resultBundlePath TestResults.xcresult
+          ./test/sim.sh --device "iPhone 17 Pro" --device "iPhone 17" -- \
+            xcodebuild test \
+              -project "$PROJECT_PATH" \
+              -scheme "$SCHEME" \
+              -configuration "$CONFIGURATION" \
+              -destination "platform=iOS Simulator,id={{UDID}}" \
+              -derivedDataPath "$DERIVED_DATA_PATH" \
+              -resultBundlePath TestResults.xcresult
 
       - name: Upload test results on failure
         if: failure()

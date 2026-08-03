@@ -33,9 +33,21 @@ When first-run discovery, a legacy wallet, or a Cloud wallet needs a session, it
 
 ## Local development and tests
 
+Every simulator build and test - locally and in CI - goes through `test/sim.sh`, which owns
+the whole device lifecycle: it reaps devices orphaned by earlier dead runs, creates exactly
+one run-scoped device in the default CoreSimulator set, boots it headlessly, substitutes
+`{{UDID}}` into the command, and shuts down and deletes that device and its XCTest clone on
+success, failure, timeout, EXIT, INT, and TERM. Deleting the device takes the app container
+with it, so nothing accumulates between runs. The wrapper only ever touches devices carrying
+its own run-scoped name prefix, so simulators you opened yourself for the manual sequences
+below are never disturbed. `test/sim-lib-test.sh` proves those reaping and teardown decisions
+without booting anything, and `test/check-sim-usage.sh` fails the build if any tracked script
+or workflow drives a simulator outside the wrapper.
+
 ```sh
-xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4' test
+./test/sim.sh -- xcodebuild test \
+  -project EddysWallet.xcodeproj -scheme EddysWallet \
+  -destination 'platform=iOS Simulator,id={{UDID}}'
 ```
 
 Unit and contract-style transport tests cover Apple session exchange, bearer sessions, revision and idempotency headers, successful Cloud writes, response loss after acceptance, timeout, malformed response, exact retry, concurrent identical actions, 409 conflicts, entry-id and accepted-revision observation, failed rereads, non-money writes, relaunch, offline replicas, and authority handoffs. Native UI tests use the Debug-only `EW_UITEST_SCENARIO` launch seam in `DebugScenarios.swift` to exercise synthetic signed-in states and capture Recorded, accepted-waiting, unresolved-waiting, Not recorded, and reconnect surfaces; that seam is excluded from Release builds. Normal tests inject fakes and in-memory stores and never call production. `CloudVerticalSliceTests.testSyntheticAppClientToBackendToPostgreSQLWrite` is an opt-in external-boundary test that runs only when its four `EW_CLOUD_E2E_*` loopback variables are supplied and a separately maintained synthetic service and disposable database are already running.
@@ -48,10 +60,11 @@ After building, inspect the signed bundle rather than only the project settings:
 
 ```sh
 rm -rf .derived
-xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet \
+./test/sim.sh -- xcodebuild build \
+  -project EddysWallet.xcodeproj -scheme EddysWallet \
   -configuration Debug \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4' \
-  -derivedDataPath .derived build
+  -destination 'platform=iOS Simulator,id={{UDID}}' \
+  -derivedDataPath .derived
 codesign -d --entitlements :- \
   .derived/Build/Products/Debug-iphonesimulator/EddysWallet.app 2>&1
 ```
