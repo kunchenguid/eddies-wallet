@@ -29,7 +29,7 @@ A parent signs in with Apple. Apple gives the app an opaque Apple user identifie
 - Whenever a service session is needed, the app sends the short-lived identity token and sign-in nonce to the app's service at `eddieswallet.kunchenguid.com`. This happens during first-run existing-wallet discovery and any later Cloud sign-in or session renewal. If first-run discovery finds no wallet, fails, or the device is offline, the app continues with an ordinary on-device wallet.
 - The sign-in request asks Apple for the email scope. The app's own code never reads, displays, or stores an email address. The token the app forwards is issued and signed by Apple and may carry the account's email address, which is a private relay address if the parent chose to hide their email.
 - The service checks that token's signature with Apple and then keeps two things about the parent: the opaque Apple user identifier, and the email address when Apple includes one. Nothing else about the Apple account is kept - no name, no password, no Apple credential. The app itself never receives or displays that email address.
-- When the service issues a session, it stores only a hashed form of the session token, never the token itself. Sessions expire on their own after a limited period, and signing out marks the session revoked so it stops working.
+- When the service issues a session, it stores only a hashed form of the session token, never the token itself. Sessions expire on their own after a limited period. Signing out asks the service to mark the session revoked and always removes the local token; if that request fails or the device is offline, the service session may remain usable until it expires.
 
 ### 2. Parent identity and parent PIN
 
@@ -65,7 +65,7 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 - When a purchase or restore produces a transaction, the app sends Apple's signed transaction to the app's service and acts on the subscription state the service reports back. The app itself never grants access, and never sends a transaction that Apple did not verify.
 - The service independently checks that the transaction really is signed by Apple, and that it is for this app and one of its subscription products, before it grants anything. From that verified transaction it keeps subscription bookkeeping only: which product, the purchase and expiry dates, whether it was refunded or revoked, and the identifiers Apple issues for the transaction and the subscription. None of that is payment information, and none of it is wallet or child data.
 - Each purchase is tagged with an opaque account token that the service supplies. It is not derived from the parent's name, email, or Apple identifier by anything in this app.
-- The Parent area has a "Cloud recovery details" readout that helps diagnose subscription problems. It shows only counts and outcome categories - never identifiers, signed transactions, account values, wallet data, or raw error text. It stays on the device, is not persisted, and is never transmitted.
+- The app collects local "Cloud recovery details" to help diagnose subscription problems in every build. These details contain only counts and outcome categories - never identifiers, signed transactions, account values, wallet data, or raw error text. They stay on the device, are not persisted, and are never transmitted. A readout of these details is available only in an internal Debug build launched with diagnostics enabled; it is not part of the shipped app.
 
 ## How long data is kept
 
