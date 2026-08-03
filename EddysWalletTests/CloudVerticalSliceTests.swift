@@ -245,7 +245,15 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 875)
         XCTAssertFalse(relaunchedCloud.hasValidReplica)
         XCTAssertEqual(relaunchedCloud.snapshot().acceptedBalanceCents, 0)
-        let unavailableStore = elevatedStore(repository: relaunchedCloud, coordinator: nil)
+        // Keep this presentation-only store signed out so its initializer does
+        // not race the explicit bootstrap below with an unstructured refresh.
+        let unavailableStore = WalletStore(
+            repository: relaunchedCloud,
+            appleSignInProvider: SliceSignInProvider(),
+            initiallySignedIn: false,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent")
+        )
         XCTAssertFalse(unavailableStore.canShowWalletData)
         XCTAssertTrue(KidCopy.cloudReplicaUnavailableMessage(deviceNoun: "iPad").contains("reconnect"))
         XCTAssertTrue(ParentAreaView.cloudReplicaUnavailableMessage(deviceNoun: "iPad").contains("balance and activity"))
