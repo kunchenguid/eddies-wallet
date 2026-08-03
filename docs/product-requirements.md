@@ -363,7 +363,7 @@ Acceptance and rejection must use text and icons, not color alone. A stale child
 - Ship without ads, behavioral analytics, tracking, chat, public sharing, or payment integrations.
 - Explain that the PIN protects this shared iPad from casual switching. It is not device-wide parental control and is not a substitute for server-side authorization.
 - Keep child language calm and nonjudgmental. Do not call the child “in debt,” “bad with money,” or “behind.” Show repayment as a practice concept, not a punishment.
-- Provide parent-controlled data export and deletion behavior before public launch, subject to the final retention policy.
+- Provide parent-controlled data export before public launch. Deletion behavior and retention are owned by the [privacy policy](privacy-policy.md).
 - Before paid Cloud is offered, require the external service to meet the minimal recovery posture: daily backups and a nightly encrypted export, with a tested restore procedure. Do not add an enterprise audit console to the MVP.
 
 ## 12. External service boundary
@@ -430,4 +430,4 @@ Early MVP success is demonstrated by a small family pilot, not by transaction vo
 - Privacy review confirms that the child profile contains only the intended minimal data.
 - If paid Cloud is included in the pilot, the service owner can restore its minimal production data posture from the daily backup and nightly encrypted export.
 
-Public launch readiness still requires named owners and decisions for the open questions that affect data, scheduling, recovery, and launch compliance.
+Public launch readiness still requires named owners and decisions for the open questions about platform support, scheduling, service recovery, and parent scope.

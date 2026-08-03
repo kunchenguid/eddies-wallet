@@ -69,7 +69,7 @@ This repository contains only the client. A complete free wallet is stored local
 - Pull requests run a credential-free build-and-test workflow on GitHub Actions; everything else about verification remains local evidence.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.
 - The `.agents/skills/eddies-wallet-design/` prototype is unmaintained reference material and may not run as-is.
-- The [privacy policy](docs/privacy-policy.md) is an unpublished captain-review draft. Its planned in-app control for deleting a service-held wallet does not exist yet. Once approved, the policy will be published as one static page on `eddies-wallet.kunchenguid.com`, at a stable privacy path fixed at publish time.
+- The [privacy policy](docs/privacy-policy.md) is an unpublished captain-review draft; it owns the intended publication home and the remaining dependency before publication.
 
 ## Support and security
 
