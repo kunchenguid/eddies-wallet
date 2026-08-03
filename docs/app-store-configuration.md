@@ -102,7 +102,7 @@ The following remain deliberately unproven or undone:
 
 ### The guarded state is not a product-discovery failure
 
-The in-app note "Cloud plans are unavailable right now" is selected by the **backend** capability branch, not by StoreKit. `CloudSubscriptionStore.loadProducts()` reads `/v1/capabilities` first and returns before asking StoreKit for anything when activation is unavailable. A screenshot of that note therefore says nothing about whether Apple's catalog resolves the two products.
+The in-app note "Cloud isn't available yet" is selected by the **backend** capability branch, not by StoreKit. `CloudSubscriptionStore.loadProducts()` reads `/v1/capabilities` first and returns before asking StoreKit for anything when activation is unavailable. A screenshot of that note therefore says nothing about whether Apple's catalog resolves the two products.
 
 Product discovery is proven separately, and independently of the backend: `testDebugStoreKitDiagnosticsProvesTheExactCloudProductsAndPrices` drives the Debug-only diagnostics surface, which talks only to StoreKit. Under `xcodebuild` that resolves the **live App Store catalog** rather than the checked-in configuration file, and `ci.yml` runs it on every release tag, so each candidate tag carries its own live proof of both product identifiers, both localized prices, both periods, and Family Sharing being off.
 

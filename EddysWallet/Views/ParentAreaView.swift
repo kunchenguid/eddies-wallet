@@ -125,8 +125,11 @@ struct ParentAreaView: View {
             .presentationDetents([.medium, .large])
         }
         .sheet(item: $flow) { kind in
+            // Full height only: the money flow opens with the keyboard up and
+            // ends on a review step whose confirm control must stay on screen,
+            // neither of which fits a half-height sheet on a phone.
             MoneyFlowView(kind: kind)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
         }
         .sheet(isPresented: $isShowingAllowance) {
             AllowanceView()

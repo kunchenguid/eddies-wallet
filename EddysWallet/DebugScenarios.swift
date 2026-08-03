@@ -10,6 +10,16 @@ import Foundation
 enum DebugLaunchScenario {
     static let owningParentAppleUserID = "uitest-owning-parent"
 
+    /// Opt-in entry points to the internal diagnostics surfaces (StoreKit
+    /// resolution, Cloud recovery evidence). Absent - the default, and the only
+    /// possibility in Release - the app offers no path into them at all, so a
+    /// Debug run reproduces exactly what a person on TestFlight can reach.
+    static func showsDiagnosticsEntryPoints(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        environment["EW_UITEST_DIAGNOSTICS"] == "1"
+    }
+
     static func makeStore(environment: [String: String] = ProcessInfo.processInfo.environment) -> WalletStore? {
         guard let scenario = environment["EW_UITEST_SCENARIO"] else { return nil }
 

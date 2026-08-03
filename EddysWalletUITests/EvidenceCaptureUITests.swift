@@ -121,7 +121,7 @@ final class EvidenceCaptureUITests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(cloudCard.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Cloud plans are unavailable right now. Your wallet still works on this device."].exists)
+        XCTAssertTrue(app.staticTexts["Cloud isn't available yet. Everything in the wallet keeps working on this iPhone."].exists)
         XCTAssertTrue(app.staticTexts["Cloud is optional. Your wallet keeps working on this device without it."].exists)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "subscribe")).firstMatch.exists)
         capture("cloud-guarded-unavailable")
@@ -164,8 +164,10 @@ final class EvidenceCaptureUITests: XCTestCase {
         capture("cloud-purchase-server-rejected", element: app.descendants(matching: .any)["cloud-backup-sync-card"])
     }
 
+    // Internal-only surface: it has no public entry point, so this tour must
+    // open the Debug diagnostics seam explicitly to reach it at all.
     func testCloudRecoveryDetailsTour() throws {
-        let app = launch("configured")
+        let app = launch("configured", environment: ["EW_UITEST_DIAGNOSTICS": "1"])
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
 
@@ -173,7 +175,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         for _ in 0..<10 where !link.isHittable {
             app.swipeUp()
         }
-        XCTAssertTrue(link.waitForExistence(timeout: 5), "the local recovery readout is reachable from Parent > Cloud in every build")
+        XCTAssertTrue(link.waitForExistence(timeout: 5), "the local recovery readout is reachable behind the Debug diagnostics seam")
         link.tap()
 
         XCTAssertTrue(app.staticTexts["Cloud recovery details"].waitForExistence(timeout: 5))
@@ -187,7 +189,7 @@ final class EvidenceCaptureUITests: XCTestCase {
     }
 
     func testStoreKitDiagnosticsTour() throws {
-        let app = launch("configured")
+        let app = launch("configured", environment: ["EW_UITEST_DIAGNOSTICS": "1"])
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
 
@@ -280,12 +282,46 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
         capture("gate-ax-xxxl")
 
-        for digit in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"] {
-            let button = app.buttons["PIN digit \(digit)"]
+        let digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+        let digitButtons = digits.map { app.buttons["PIN digit \($0)"] }
+        let deleteButton = app.buttons["Delete last PIN digit"]
+        let keypadButtons = digitButtons + [deleteButton]
+        let window = app.windows.firstMatch.frame
+        let pinDots = app.descendants(matching: .any)["pin-entry-dots"]
+        let forgotPIN = app.buttons["Forgot PIN?"]
+        let cancel = app.buttons["Cancel"]
+
+        XCTAssertTrue(pinDots.exists)
+        XCTAssertTrue(forgotPIN.isHittable)
+        XCTAssertTrue(cancel.isHittable)
+        XCTAssertTrue(window.contains(pinDots.frame))
+        XCTAssertTrue(window.contains(forgotPIN.frame))
+        XCTAssertTrue(window.contains(cancel.frame))
+
+        for (digit, button) in zip(digits, digitButtons) {
             XCTAssertTrue(button.exists, "PIN digit \(digit) must stay reachable at the largest accessibility text size")
             XCTAssertTrue(button.isHittable, "PIN digit \(digit) must stay tappable at the largest accessibility text size")
         }
-        XCTAssertTrue(app.buttons["Delete last PIN digit"].isHittable)
+        XCTAssertTrue(deleteButton.isHittable)
+
+        for button in keypadButtons {
+            XCTAssertTrue(window.contains(button.frame), "Every PIN key must remain fully inside the window")
+            XCTAssertGreaterThanOrEqual(button.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+            XCTAssertFalse(button.frame.intersects(pinDots.frame), "PIN keys must not overlap the PIN dots")
+            XCTAssertFalse(button.frame.intersects(forgotPIN.frame), "PIN keys must not overlap Forgot PIN")
+            XCTAssertFalse(button.frame.intersects(cancel.frame), "PIN keys must not overlap Cancel")
+        }
+
+        for firstIndex in keypadButtons.indices {
+            for secondIndex in keypadButtons.indices where secondIndex > firstIndex {
+                XCTAssertFalse(
+                    keypadButtons[firstIndex].frame.intersects(keypadButtons[secondIndex].frame),
+                    "PIN keys must not overlap each other"
+                )
+            }
+        }
+        XCTAssertFalse(forgotPIN.frame.intersects(cancel.frame))
 
         enterPIN("1234", in: app)
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
@@ -366,6 +402,83 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         app.buttons["Done. Back to Eddie's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
+    }
+
+    /// Reviewer-visible proof for the four captain-reported UX fixes. The
+    /// behavioral UI tests own the individual regressions; this tour keeps the
+    /// affected TestFlight surfaces together as synthetic screenshot evidence.
+    func testCaptainUXFixesTour() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+
+        app.buttons[doorLabel].tap()
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 5))
+        let one = app.buttons["PIN digit 1"]
+        let zero = app.buttons["PIN digit 0"]
+        XCTAssertTrue(one.waitForExistence(timeout: 5))
+        let restingOne = one.frame
+        let restingZero = zero.frame
+        capture("captain-pin-gate-static")
+
+        app.swipeUp()
+        XCTAssertEqual(one.frame, restingOne)
+        XCTAssertEqual(zero.frame, restingZero)
+        app.swipeDown()
+        XCTAssertEqual(one.frame, restingOne)
+        XCTAssertEqual(zero.frame, restingZero)
+
+        enterPIN("1111", in: app)
+        XCTAssertTrue(app.staticTexts["Incorrect PIN. Try again."].waitForExistence(timeout: 5))
+        XCTAssertEqual(one.frame, restingOne)
+        XCTAssertEqual(zero.frame, restingZero)
+        capture("captain-pin-gate-reserved-error")
+
+        enterPIN("1234", in: app)
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+
+        let cloudCard = app.descendants(matching: .any)["cloud-backup-sync-card"]
+        for _ in 0..<6 where !cloudCard.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(cloudCard.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["cloud-benefits"].exists)
+        XCTAssertTrue(app.staticTexts["cloud-plans-unavailable-note"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["cloud-storekit-diagnostics-link"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["cloud-recovery-details-link"].exists)
+        // Capture the viewport rather than the taller-than-SE card element.
+        // XCUI element screenshots pad the offscreen portion with black, which
+        // is misleading reviewer evidence even though the parent area scrolls.
+        capture("captain-cloud-consumer-feature")
+
+        let deposit = app.buttons["Add deposit"]
+        for _ in 0..<6 where !deposit.isHittable {
+            app.swipeDown()
+        }
+        XCTAssertTrue(deposit.waitForExistence(timeout: 5))
+        deposit.tap()
+
+        let amount = app.textFields["Amount in virtual dollars"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5))
+        XCTAssertEqual(amount.value(forKey: "hasKeyboardFocus") as? Bool, true)
+        XCTAssertFalse(app.staticTexts["Enter an amount greater than US$0.00."].exists)
+        capture("captain-deposit-autofocused")
+
+        app.typeText("5.00")
+        app.buttons["Review"].tap()
+        XCTAssertTrue(app.staticTexts["Review before recording"].waitForExistence(timeout: 5))
+
+        let confirm = app.buttons["Confirm add deposit"]
+        let back = app.buttons["Back"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        let window = app.windows.firstMatch.frame
+        XCTAssertTrue(window.contains(confirm.frame))
+        XCTAssertLessThanOrEqual(confirm.frame.maxY, window.maxY - 8)
+        XCTAssertTrue(confirm.isHittable)
+        XCTAssertTrue(window.contains(back.frame))
+        XCTAssertLessThanOrEqual(back.frame.maxY, window.maxY - 8)
+        XCTAssertTrue(back.isHittable)
+        capture("captain-deposit-review-fully-visible")
     }
 
     func testCloudWriteStateTour() throws {

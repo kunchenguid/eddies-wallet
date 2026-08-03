@@ -41,10 +41,19 @@ struct MoneyFlowView: View {
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
     @State private var isSubmitting = false
+    @FocusState private var isAmountFocused: Bool
 
     private enum Step { case amount, review, result }
 
     private var parsedCents: Int? { Money.parse(amount)?.cents }
+
+    /// A parent who has not typed yet has done nothing wrong, so an untouched
+    /// amount field is never marked as an error.
+    private var showsValidation: Bool { !amount.isEmpty }
+
+    private var visibleValidationMessage: String? {
+        showsValidation ? validationMessage : nil
+    }
 
     private var validationMessage: String? {
         guard let cents = parsedCents else { return "Enter an amount greater than US$0.00." }
@@ -100,6 +109,7 @@ struct MoneyFlowView: View {
                 Text(formIntro)
                     .font(EW.Font.body)
                     .foregroundStyle(EW.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: EW.Space.three) {
                     Text("Amount")
                         .font(EW.Font.captionUpper)
@@ -112,6 +122,7 @@ struct MoneyFlowView: View {
                             .font(EW.Font.heading)
                             .keyboardType(.decimalPad)
                             .textFieldStyle(.plain)
+                            .focused($isAmountFocused)
                             .accessibilityLabel("Amount in virtual dollars")
                     }
                     .padding(.horizontal, EW.Space.four)
@@ -119,12 +130,13 @@ struct MoneyFlowView: View {
                     .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous)
-                            .stroke(validationMessage == nil ? EW.Color.border : EW.Color.red600, lineWidth: 1.5)
+                            .stroke(amountFieldStroke, lineWidth: isAmountFocused && visibleValidationMessage == nil ? 2 : 1.5)
                     }
-                    if let validationMessage {
-                        Text(validationMessage)
+                    if let visibleValidationMessage {
+                        Text(visibleValidationMessage)
                             .font(EW.Font.caption)
                             .foregroundStyle(EW.Color.red600)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
@@ -143,18 +155,48 @@ struct MoneyFlowView: View {
                         .font(EW.Font.body)
                         .tint(EW.Color.primaryActive)
                 }
-
-                Button("Review") {
-                    if validationMessage == nil { step = .review }
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(parsedCents == nil || validationMessage != nil)
-                .opacity(parsedCents == nil || validationMessage != nil ? 0.45 : 1)
             }
             .padding(EW.Space.screenMargin)
             .frame(maxWidth: 620)
             .frame(maxWidth: .infinity, alignment: .center)
         }
+        // The amount is the only thing this step is for, so it opens ready to
+        // type: focused, keyboard already up, no extra tap.
+        .onAppear { isAmountFocused = true }
+        // Pinned above the keyboard rather than pushed below the fold.
+        .safeAreaInset(edge: .bottom) {
+            stepFooter {
+                Button("Review") {
+                    if validationMessage == nil {
+                        isAmountFocused = false
+                        step = .review
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(parsedCents == nil || validationMessage != nil)
+                .opacity(parsedCents == nil || validationMessage != nil ? 0.45 : 1)
+            }
+        }
+    }
+
+    private var amountFieldStroke: Color {
+        if visibleValidationMessage != nil { return EW.Color.red600 }
+        return isAmountFocused ? EW.Color.primary : EW.Color.border
+    }
+
+    /// One shared bottom bar for the flow's primary action, so the control a
+    /// parent must reach is always on screen above the home indicator and
+    /// above the keyboard, on every phone size.
+    private func stepFooter<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: EW.Space.two) {
+            content()
+        }
+        .padding(.horizontal, EW.Space.screenMargin)
+        .padding(.top, EW.Space.three)
+        .padding(.bottom, EW.Space.three)
+        .frame(maxWidth: 620)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .background(EW.Color.appBackground)
     }
 
     private var review: some View {
@@ -180,9 +222,19 @@ struct MoneyFlowView: View {
                 Text("Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.")
                     .font(EW.Font.body)
                     .foregroundStyle(EW.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(EW.Space.four)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
-
+            }
+            .padding(EW.Space.screenMargin)
+            .frame(maxWidth: 620)
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+        // Confirm and Back are pinned, so neither the review card nor a long
+        // reason can push the decision a parent came here to make off screen.
+        .safeAreaInset(edge: .bottom) {
+            stepFooter {
                 Button("Confirm \(kind.title.lowercased())") {
                     Task { await confirm() }
                 }
@@ -192,9 +244,6 @@ struct MoneyFlowView: View {
                 Button("Back") { step = .amount }
                     .buttonStyle(SecondaryButtonStyle(compact: true))
             }
-            .padding(EW.Space.screenMargin)
-            .frame(maxWidth: 620)
-            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -222,11 +271,10 @@ struct MoneyFlowView: View {
         .defaultScrollAnchor(.top)
         .id("money-result-\(resultState?.rawValue ?? "none")")
         .safeAreaInset(edge: .bottom) {
-            Button("Done") { dismiss() }
-                .buttonStyle(PrimaryButtonStyle())
-                .padding(.horizontal, EW.Space.screenMargin)
-                .padding(.vertical, EW.Space.three)
-                .background(EW.Color.appBackground)
+            stepFooter {
+                Button("Done") { dismiss() }
+                    .buttonStyle(PrimaryButtonStyle())
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("money-flow-result")
