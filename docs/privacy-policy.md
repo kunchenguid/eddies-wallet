@@ -17,6 +17,16 @@ The child never signs in and never has an account. Only a parent signs in.
 - No behavioral analytics, tracking, or third-party analytics SDKs. The app bundles no third-party SDKs at all.
 - No access to contacts, location, camera roll, microphone, or health data.
 - No chat, public profiles, or sharing between families.
+- No selling or renting of personal data, and no sharing it with third parties for their own marketing.
+
+## Who else is involved
+
+Nobody receives this data for their own purposes. Two parties are unavoidably involved in running the app:
+
+- **Apple**, because the app uses Sign in with Apple and Apple's subscription system. Apple issues the sign-in proof and processes any subscription payment under Apple's own privacy policy.
+- **The service**, for parents who turn on the optional Cloud wallet, together with the infrastructure provider that hosts it. It stores the uploaded wallet so it can sync between devices.
+
+Both are there to make the app work, not to receive data for marketing.
 
 ## What the app handles
 
@@ -78,7 +88,8 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 
 - **Wallet never uploaded to the service:** signing out from the Parent area erases that device's wallet database, the parent PIN, the stored Apple user identifier, and any cached wallet snapshot. This is permanent, and there is no other copy.
 - **Cloud wallet:** signing out of Cloud asks the service to revoke that device's session, always removes the local session token, and hands the mirrored wallet back to that device as an ordinary on-device wallet. If the request fails or the device is offline, the server-side session may remain usable until it expires. The service-held wallet still exists, so later erasing the ordinary on-device wallet removes only the device copy.
-- **There is no self-service deletion of a service-held wallet today.** The service offers no delete-my-data request of any kind: the only thing the app can ask it to remove is the current session. Deleting an uploaded wallet requires a manual request to the people who run the service, and the route for making that request has not been established yet (see open questions).
+- **There is no self-service deletion of a service-held wallet today.** The service offers no delete-my-data request of any kind: the only thing the app can ask it to remove is the current session. Until that changes, deleting an uploaded wallet means emailing the address below and having it done by hand.
+- **Planned:** a delete-my-wallet control inside the app, in the parent settings, so a parent can erase a service-held wallet themselves without asking anyone. This is intended, not built. This paragraph describes an intention and nothing more; it may only be rewritten as a present-tense promise once that control actually ships (see open questions).
 
 ## Children
 
@@ -86,21 +97,21 @@ The app is designed so that the child's side needs no account, no sign-in, and n
 
 ## Contact
 
-_To be filled in by the captain before publication (see open questions)._
+Email **kun@kunchenguid.com** for any privacy question, or to ask for an uploaded wallet to be deleted. Email is the only contact route; there is no postal address and requests are not handled by mail.
+
+## Where this policy lives
+
+Once approved, this policy will be published as a single static page at one stable public web address, which is the address given to the App Store. It is not published yet.
 
 ---
 
 ## Open questions for the captain (remove before publication)
 
-Everything the code determines has been written into the policy above. What remains here are decisions, not facts - each one needs a choice from the captain, and none may be answered with plausible-sounding text instead:
+Everything the code determines is written into the policy above, and the captain's decisions of 2026-08-02 are applied: no sale, rental, or marketing sharing of personal data; email-only contact; the email scope stays as it is; and the policy will be published as a single static page. Two items remain, and neither may be answered with plausible-sounding text instead:
 
-1. **Selling, renting, or sharing data with third parties.** The policy above makes no such commitment, because this is a promise about how the product is run rather than something code can establish. Decide what the published policy should commit to.
-2. **Contact address** for privacy questions and deletion requests.
-3. **Deletion route for a service-held wallet.** The policy now states the current reality truthfully: no self-service deletion exists, and no request channel has been established. Apple requires an account-deletion path for apps that create accounts, so decide whether to build one in the app or to name a request channel here - and then this text must be updated to match.
-4. **Legal footing statements** (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis). This draft deliberately makes none; a legal review should decide whether any are required for the App Store listing and the markets targeted.
-5. **Email scope - a small product choice.** The behavior is now described accurately above: the app asks Apple for the email scope, never uses the address itself, and the service keeps it when Apple provides one. Decide whether to keep that or drop the scope request, which would let the policy say the email address is never collected at all.
-6. **Publication address and revision practice.** No address is published and no update process exists yet. Confirm where the policy will live and how future revisions will be dated and announced, so the published version can describe it truthfully.
+1. **Legal footing statements** (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis, and whether the hosting provider must be named). This draft deliberately makes none. A preliminary legal review is being commissioned to give a bare-minimum recommendation; nothing legal may be asserted here before it lands.
+2. **The in-app deletion control does not exist yet.** The "Planned" wording under *Deleting your data* is intent, not fact. It may only become a present-tense promise once a parent can actually delete a service-held wallet from parent settings in a shipped build. Until then this policy must keep saying deletion happens by email.
 
 This list is not a fixed set. Every genuine decision or unverifiable claim belongs here as an open question; none of these entries may be deleted to reach a particular count, and none may be answered with invented text instead of a captain decision. Equally, nothing that the app or service code actually determines belongs here - that gets investigated and written as plain policy text.
 
-Once the encrypted off-site backup described above is actually in operation, the backup wording needs a factual update.
+Two factual updates are already owed once reality changes: when the encrypted off-site backup is actually in operation, and when the in-app deletion control ships.
