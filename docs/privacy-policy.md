@@ -71,7 +71,7 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 
 ## Children
 
-The app is designed so that the child's side needs no account, no sign-in, and no personal details beyond a nickname the parent chooses. All setup, money actions, and settings sit behind the parent PIN.
+The app is designed so that the child's side needs no account, no sign-in, and no personal details beyond a nickname the parent chooses. First-run setup is gated by the parent's Sign in with Apple; after setup, money actions, the Parent area, and settings sit behind the parent PIN.
 
 ## Contact
 
