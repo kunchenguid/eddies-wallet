@@ -438,6 +438,65 @@ final class EddysWalletUITests: XCTestCase {
         assertActionIsReachable(app.buttons["Review"], "the loan review control after scrolling", in: app)
     }
 
+    func testLoanSheetFadeClearsAtContentEnd() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let loan = app.buttons["Create loan"]
+        for _ in 0..<6 where !loan.isHittable { app.swipeUp() }
+        loan.tap()
+
+        let review = app.buttons["Review"]
+        XCTAssertTrue(review.waitForExistence(timeout: 5))
+        let initialColors = try sheetFadeColors(in: app, above: review)
+        XCTAssertGreaterThan(
+            initialColors.fade.maximumChannelDistance(to: initialColors.background),
+            8,
+            "overflowing content must visibly fade into the pinned action bar"
+        )
+
+        let scrollStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.52))
+        let scrollEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.20))
+        for _ in 0..<3 {
+            scrollStart.press(forDuration: 0.05, thenDragTo: scrollEnd)
+        }
+
+        let finalColors = try sheetFadeColors(in: app, above: review)
+        XCTAssertLessThanOrEqual(
+            finalColors.fade.maximumChannelDistance(to: finalColors.background),
+            4,
+            "the strip above the action bar must return to the flat app background at the content end"
+        )
+        assertActionIsReachable(review, "the loan review control at the content end", in: app)
+    }
+
+    private func sheetFadeColors(
+        in app: XCUIApplication,
+        above action: XCUIElement
+    ) throws -> (fade: RenderedPixels.Color, background: RenderedPixels.Color) {
+        let screenshot = app.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "Sheet scroll fade"
+        add(attachment)
+
+        let image = try XCTUnwrap(UIImage(data: screenshot.pngRepresentation)?.cgImage)
+        let pixels = try XCTUnwrap(RenderedPixels(image: image))
+        let pointSize = app.windows.firstMatch.frame.size
+        let actionBarTop = action.frame.minY - 12
+        let fade = pixels.averageColor(
+            around: CGPoint(x: action.frame.midX, y: actionBarTop - 12),
+            radius: 3,
+            pointSize: pointSize
+        )
+        let background = pixels.averageColor(
+            around: CGPoint(x: action.frame.midX, y: actionBarTop + 5),
+            radius: 3,
+            pointSize: pointSize
+        )
+        return (fade, background)
+    }
+
     // Every remaining parent sheet owes the same contract. Before this was one
     // shared layout, half-height sheets left `Save new PIN` and the allowance
     // controls under the fold with nothing on screen saying so.

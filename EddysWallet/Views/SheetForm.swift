@@ -13,10 +13,10 @@ import SwiftUI
 /// - The scroll region scrolls only when the content genuinely does not fit
 ///   (`.scrollBounceBehavior(.basedOnSize)`), so a sheet whose content fits
 ///   never rubber-bands as though it were hiding something.
-/// - When the content does overflow, its last line fades out at the bar
-///   instead of ending at an invisible edge. The app draws that fade in no
-///   other state, so seeing it means exactly one thing: there is more to
-///   scroll.
+/// - While overflowing content still continues below the viewport, its last
+///   visible line fades out at the bar instead of ending at an invisible edge.
+///   The fade clears at the end of the content, so seeing it means exactly one
+///   thing: there is more to scroll.
 ///
 /// Sheets choose their height with `ewFormSheetPresentation()` or
 /// `ewDetailSheetPresentation()` rather than one-off detent lists.
@@ -31,6 +31,7 @@ struct SheetForm<Content: View, Actions: View>: View {
     private let content: Content
     private let actions: Actions
     @State private var contentHeight: CGFloat = 0
+    @State private var contentBottom: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
 
     init(@ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
@@ -44,6 +45,10 @@ struct SheetForm<Content: View, Actions: View>: View {
         viewportHeight > 0 && contentHeight > viewportHeight + 1
     }
 
+    private var hasMoreContentBelow: Bool {
+        contentOverflows && contentBottom > viewportHeight + 1
+    }
+
     private var hasActions: Bool { Actions.self != EmptyView.self }
 
     var body: some View {
@@ -53,9 +58,15 @@ struct SheetForm<Content: View, Actions: View>: View {
                     .padding(EW.Space.screenMargin)
                     .frame(maxWidth: Self.contentWidth)
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .background(HeightReader(height: $contentHeight))
+                    .background(
+                        ContentMetricsReader(
+                            height: $contentHeight,
+                            bottom: $contentBottom
+                        )
+                    )
             }
             .scrollBounceBehavior(.basedOnSize)
+            .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
             .background(HeightReader(height: $viewportHeight))
             .overlay(alignment: .bottom) { scrollFade }
 
@@ -70,7 +81,7 @@ struct SheetForm<Content: View, Actions: View>: View {
     /// action bar, so the signal cannot be mistaken for decoration.
     @ViewBuilder
     private var scrollFade: some View {
-        if contentOverflows {
+        if hasMoreContentBelow {
             LinearGradient(
                 colors: [EW.Color.appBackground.opacity(0), EW.Color.appBackground],
                 startPoint: .top,
@@ -98,6 +109,30 @@ struct SheetForm<Content: View, Actions: View>: View {
 extension SheetForm where Actions == EmptyView {
     init(@ViewBuilder content: () -> Content) {
         self.init(content: content, actions: { EmptyView() })
+    }
+}
+
+private enum SheetFormCoordinateSpace {
+    static let scroll = "sheet-form-scroll"
+}
+
+/// Reports the content's size and moving bottom edge in its scroll viewport.
+private struct ContentMetricsReader: View {
+    @Binding var height: CGFloat
+    @Binding var bottom: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            let contentBottom = proxy.frame(in: .named(SheetFormCoordinateSpace.scroll)).maxY
+
+            Color.clear
+                .onAppear {
+                    height = proxy.size.height
+                    bottom = contentBottom
+                }
+                .onChange(of: proxy.size.height) { _, newValue in height = newValue }
+                .onChange(of: contentBottom) { _, newValue in bottom = newValue }
+        }
     }
 }
 
