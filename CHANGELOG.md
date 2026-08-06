@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.10...eddies-wallet-v0.1.11) (2026-08-06)
+
+
+### Bug Fixes
+
+* clarify onboarding Apple sign-in copy ([#50](https://github.com/kunchenguid/eddies-wallet/issues/50)) ([9a4cebf](https://github.com/kunchenguid/eddies-wallet/commit/9a4cebf1777528282a7ad248bea7c63d84a9a7d8))
+
 ## [0.1.10](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.9...eddies-wallet-v0.1.10) (2026-08-06)
 
 
