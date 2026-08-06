@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.10](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.9...eddies-wallet-v0.1.10) (2026-08-06)
+
+
+### Bug Fixes
+
+* **EddysWallet:** keep sheet actions visible and reachable ([#49](https://github.com/kunchenguid/eddies-wallet/issues/49)) ([10ebfff](https://github.com/kunchenguid/eddies-wallet/commit/10ebfffa98b841a8627102e1a2f4cf02b97d8e4b))
+* **EddysWallet:** polish PIN, Cloud, and deposit flows ([#48](https://github.com/kunchenguid/eddies-wallet/issues/48)) ([e1d5c11](https://github.com/kunchenguid/eddies-wallet/commit/e1d5c1194223d8da1df2092b81cf3b9a00a1b585))
+* **EddysWallet:** prevent stale child refreshes from overwriting fresh data ([#45](https://github.com/kunchenguid/eddies-wallet/issues/45)) ([d9a83f3](https://github.com/kunchenguid/eddies-wallet/commit/d9a83f331ccaee199148b85e28cad8cbe8440cfa))
+
 ## [0.1.9](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.8...eddies-wallet-v0.1.9) (2026-08-02)
 
 
