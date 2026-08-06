@@ -14,12 +14,17 @@ final class EddysWalletUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private func launch(_ scenario: String, environment: [String: String] = [:]) -> XCUIApplication {
+    private func launch(
+        _ scenario: String,
+        environment: [String: String] = [:],
+        arguments: [String] = []
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["EW_UITEST_SCENARIO"] = scenario
         for (key, value) in environment {
             app.launchEnvironment[key] = value
         }
+        app.launchArguments += arguments
         app.launch()
         return app
     }
@@ -443,7 +448,10 @@ final class EddysWalletUITests: XCTestCase {
     }
 
     func testLoanSheetFadeClearsAtContentEnd() throws {
-        let app = launch("configured")
+        let phoneOverflowArguments = UIDevice.current.userInterfaceIdiom == .pad
+            ? []
+            : ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        let app = launch("configured", arguments: phoneOverflowArguments)
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 
@@ -454,9 +462,10 @@ final class EddysWalletUITests: XCTestCase {
         let review = app.buttons["Review"]
         XCTAssertTrue(review.waitForExistence(timeout: 5))
 
-        // A full-height iPad sheet has enough room for this form, so it must
-        // not imply that content is hidden. The small-phone run below owns
-        // the genuine-overflow fade and scrolling contract.
+        // A full-height iPad sheet at the default text size has enough room
+        // for this form, so it must not imply that content is hidden. The
+        // phone run uses accessibility XXXL text to guarantee genuine
+        // overflow independently of simulator keyboard settings.
         if UIDevice.current.userInterfaceIdiom == .pad {
             XCTAssertTrue(
                 app.scrollViews["sheet-form-scroll-fade-hidden"].waitForExistence(timeout: 5),
@@ -467,19 +476,19 @@ final class EddysWalletUITests: XCTestCase {
             return
         }
 
+        let visibleScroll = app.scrollViews["sheet-form-scroll-fade-visible"]
+        let hiddenScroll = app.scrollViews["sheet-form-scroll-fade-hidden"]
         XCTAssertTrue(
-            app.scrollViews["sheet-form-scroll-fade-visible"].waitForExistence(timeout: 5),
+            visibleScroll.waitForExistence(timeout: 5),
             "the fade must be visible while the loan form continues below the viewport"
         )
 
-        let scrollStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.52))
-        let scrollEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.20))
-        for _ in 0..<3 {
-            scrollStart.press(forDuration: 0.05, thenDragTo: scrollEnd)
+        for _ in 0..<8 where !hiddenScroll.exists {
+            visibleScroll.swipeUp()
         }
 
         XCTAssertTrue(
-            app.scrollViews["sheet-form-scroll-fade-hidden"].waitForExistence(timeout: 5),
+            hiddenScroll.waitForExistence(timeout: 5),
             "the fade must clear when the loan form reaches its content end"
         )
         XCTAssertFalse(app.scrollViews["sheet-form-scroll-fade-visible"].exists)
