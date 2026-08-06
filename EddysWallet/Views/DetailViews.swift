@@ -42,7 +42,7 @@ struct ActivityDetailView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
+            SheetForm {
                 VStack(alignment: .leading, spacing: EW.Space.five) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: EW.Space.one) {
@@ -95,11 +95,7 @@ struct ActivityDetailView: View {
                             .foregroundStyle(EW.Color.textTertiary)
                     }
                 }
-                .padding(EW.Space.screenMargin)
-                .frame(maxWidth: 620)
-                .frame(maxWidth: .infinity, alignment: .center)
             }
-            .background(EW.Color.appBackground)
             .navigationTitle("Activity detail")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -130,80 +126,94 @@ struct LoanDetailView: View {
     let onRepay: () -> Void
     @EnvironmentObject private var store: WalletStore
 
+    /// The parent's repayment control is the reason this sheet has a bottom
+    /// bar: it is an action, not a detail, so it never scrolls away with the
+    /// loan copy. The kid's read-only view has no bar at all.
+    private var showsRepayAction: Bool {
+        isParent && store.canModifyWallet && (store.snapshot.loan.map { !$0.isPaid } ?? false)
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: EW.Space.five) {
-                    if let loan = store.snapshot.loan {
-                        VStack(alignment: .leading, spacing: EW.Space.four) {
-                            HStack {
-                                IconBadge("hand.raised", foreground: EW.Color.peach700, background: EW.Color.peach100)
-                                Text("Loan details")
-                                    .font(EW.Font.heading)
-                                    .foregroundStyle(EW.Color.textPrimary)
-                            }
-                            HStack {
-                                Text(loan.isPaid ? "Paid" : "Left to repay")
-                                    .font(EW.Font.body)
-                                    .foregroundStyle(EW.Color.textSecondary)
-                                Spacer()
-                                MoneyAmount(
-                                    cents: loan.remainingCents,
-                                    font: EW.Font.display,
-                                    color: EW.Color.peach700,
-                                    announcesVirtualMoney: isParent
-                                )
-                            }
-                            if !loan.isPaid {
-                                ProgressView(value: loan.progress)
-                                    .tint(EW.Color.peach700)
-                                Text(loan.dueDate.map { "Due \($0.formatted(.dateTime.month(.abbreviated).day()))" } ?? "No due date set")
-                                    .font(EW.Font.caption)
-                                    .foregroundStyle(EW.Color.textSecondary)
-                            }
-                        }
-                        .ewCard(variant: .alt)
-
-                        VStack(alignment: .leading, spacing: EW.Space.three) {
-                            detailRow(label: "Original loan", value: Money(cents: loan.originalCents).display)
-                            if let purpose = loan.purpose, !purpose.isEmpty {
-                                detailRow(label: "Purpose", value: purpose)
-                            }
-                            Text(isParent
-                                 ? "This virtual loan adds pretend dollars to the accepted balance in \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)) and keeps an amount to give back over time."
-                                 : "Your parent gave you dollars to use now. You give them back a little at a time - that is a repayment.")
-                                .font(EW.Font.body)
-                                .foregroundStyle(EW.Color.textSecondary)
-                        }
-                        .ewCard()
-
-                        if isParent && !loan.isPaid && store.canModifyWallet {
-                            Button("Record repayment", action: onRepay)
-                                .buttonStyle(PrimaryButtonStyle())
-                                .disabled(!store.canStartParentMutation)
-                                .opacity(store.canStartParentMutation ? 1 : 0.5)
-                        }
-
-                        if isParent {
-                            Text("Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.")
-                                .font(EW.Font.caption)
-                                .foregroundStyle(EW.Color.textTertiary)
-                        }
-                    } else {
-                        Text("There is no open loan.")
-                            .font(EW.Font.body)
-                            .foregroundStyle(EW.Color.textSecondary)
-                    }
+            Group {
+                if showsRepayAction {
+                    SheetForm { detail } actions: { repayButton }
+                } else {
+                    SheetForm { detail }
                 }
-                .padding(EW.Space.screenMargin)
-                .frame(maxWidth: 620)
-                .frame(maxWidth: .infinity, alignment: .center)
             }
-            .background(EW.Color.appBackground)
             .navigationTitle("Loan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+
+    private var repayButton: some View {
+        Button("Record repayment", action: onRepay)
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(!store.canStartParentMutation)
+            .opacity(store.canStartParentMutation ? 1 : 0.5)
+            .accessibilityIdentifier("loan-record-repayment")
+    }
+
+    private var detail: some View {
+        VStack(alignment: .leading, spacing: EW.Space.five) {
+            if let loan = store.snapshot.loan {
+                VStack(alignment: .leading, spacing: EW.Space.four) {
+                    HStack {
+                        IconBadge("hand.raised", foreground: EW.Color.peach700, background: EW.Color.peach100)
+                        Text("Loan details")
+                            .font(EW.Font.heading)
+                            .foregroundStyle(EW.Color.textPrimary)
+                    }
+                    HStack {
+                        Text(loan.isPaid ? "Paid" : "Left to repay")
+                            .font(EW.Font.body)
+                            .foregroundStyle(EW.Color.textSecondary)
+                        Spacer()
+                        MoneyAmount(
+                            cents: loan.remainingCents,
+                            font: EW.Font.display,
+                            color: EW.Color.peach700,
+                            announcesVirtualMoney: isParent
+                        )
+                    }
+                    if !loan.isPaid {
+                        ProgressView(value: loan.progress)
+                            .tint(EW.Color.peach700)
+                        Text(loan.dueDate.map { "Due \($0.formatted(.dateTime.month(.abbreviated).day()))" } ?? "No due date set")
+                            .font(EW.Font.caption)
+                            .foregroundStyle(EW.Color.textSecondary)
+                    }
+                }
+                .ewCard(variant: .alt)
+
+                VStack(alignment: .leading, spacing: EW.Space.three) {
+                    detailRow(label: "Original loan", value: Money(cents: loan.originalCents).display)
+                    if let purpose = loan.purpose, !purpose.isEmpty {
+                        detailRow(label: "Purpose", value: purpose)
+                    }
+                    Text(isParent
+                         ? "This virtual loan adds pretend dollars to the accepted balance in \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)) and keeps an amount to give back over time."
+                         : "Your parent gave you dollars to use now. You give them back a little at a time - that is a repayment.")
+                        .font(EW.Font.body)
+                        .foregroundStyle(EW.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .ewCard()
+
+                if isParent {
+                    Text("Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.")
+                        .font(EW.Font.caption)
+                        .foregroundStyle(EW.Color.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Text("There is no open loan.")
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textSecondary)
             }
         }
     }

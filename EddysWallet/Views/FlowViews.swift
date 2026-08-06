@@ -30,6 +30,13 @@ public enum MoneyFlowKind: String, Identifiable, CaseIterable {
     }
 }
 
+/// The parent's one money-recording flow: amount, review, result.
+///
+/// Every step is a `SheetForm`, so the control that carries the step forward -
+/// Review, Confirm, Done - lives in the pinned bottom bar and never scrolls
+/// away, whatever the sheet height, text size, or keyboard state. Losing the
+/// confirm control under the fold is how a parent records nothing, or the
+/// wrong thing.
 struct MoneyFlowView: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.dismiss) private var dismiss
@@ -90,7 +97,6 @@ struct MoneyFlowView: View {
                 case .result: result
                 }
             }
-            .background(EW.Color.appBackground)
             .navigationTitle(kind.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -104,7 +110,7 @@ struct MoneyFlowView: View {
     }
 
     private var amountForm: some View {
-        ScrollView {
+        SheetForm {
             VStack(alignment: .leading, spacing: EW.Space.six) {
                 Text(formIntro)
                     .font(EW.Font.body)
@@ -156,27 +162,20 @@ struct MoneyFlowView: View {
                         .tint(EW.Color.primaryActive)
                 }
             }
-            .padding(EW.Space.screenMargin)
-            .frame(maxWidth: 620)
-            .frame(maxWidth: .infinity, alignment: .center)
+        } actions: {
+            Button("Review") {
+                if validationMessage == nil {
+                    isAmountFocused = false
+                    step = .review
+                }
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(parsedCents == nil || validationMessage != nil)
+            .opacity(parsedCents == nil || validationMessage != nil ? 0.45 : 1)
         }
         // The amount is the only thing this step is for, so it opens ready to
         // type: focused, keyboard already up, no extra tap.
         .onAppear { isAmountFocused = true }
-        // Pinned above the keyboard rather than pushed below the fold.
-        .safeAreaInset(edge: .bottom) {
-            stepFooter {
-                Button("Review") {
-                    if validationMessage == nil {
-                        isAmountFocused = false
-                        step = .review
-                    }
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(parsedCents == nil || validationMessage != nil)
-                .opacity(parsedCents == nil || validationMessage != nil ? 0.45 : 1)
-            }
-        }
     }
 
     private var amountFieldStroke: Color {
@@ -184,23 +183,8 @@ struct MoneyFlowView: View {
         return isAmountFocused ? EW.Color.primary : EW.Color.border
     }
 
-    /// One shared bottom bar for the flow's primary action, so the control a
-    /// parent must reach is always on screen above the home indicator and
-    /// above the keyboard, on every phone size.
-    private func stepFooter<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: EW.Space.two) {
-            content()
-        }
-        .padding(.horizontal, EW.Space.screenMargin)
-        .padding(.top, EW.Space.three)
-        .padding(.bottom, EW.Space.three)
-        .frame(maxWidth: 620)
-        .frame(maxWidth: .infinity, alignment: .center)
-        .background(EW.Color.appBackground)
-    }
-
     private var review: some View {
-        ScrollView {
+        SheetForm {
             VStack(alignment: .leading, spacing: EW.Space.five) {
                 VStack(alignment: .leading, spacing: EW.Space.three) {
                     Label("Review before recording", systemImage: "checkmark.circle")
@@ -227,28 +211,20 @@ struct MoneyFlowView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
             }
-            .padding(EW.Space.screenMargin)
-            .frame(maxWidth: 620)
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-        // Confirm and Back are pinned, so neither the review card nor a long
-        // reason can push the decision a parent came here to make off screen.
-        .safeAreaInset(edge: .bottom) {
-            stepFooter {
-                Button("Confirm \(kind.title.lowercased())") {
-                    Task { await confirm() }
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(isSubmitting)
-                .opacity(isSubmitting ? 0.45 : 1)
-                Button("Back") { step = .amount }
-                    .buttonStyle(SecondaryButtonStyle(compact: true))
+        } actions: {
+            Button("Confirm \(kind.title.lowercased())") {
+                Task { await confirm() }
             }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(isSubmitting)
+            .opacity(isSubmitting ? 0.45 : 1)
+            Button("Back") { step = .amount }
+                .buttonStyle(SecondaryButtonStyle(compact: true))
         }
     }
 
     private var result: some View {
-        ScrollView {
+        SheetForm {
             VStack(spacing: EW.Space.five) {
                 Image(systemName: resultIcon)
                     .font(.system(size: 58))
@@ -264,18 +240,13 @@ struct MoneyFlowView: View {
                     .frame(maxWidth: 420)
             }
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, EW.Space.screenMargin)
-            .padding(.top, EW.Space.seven)
-            .padding(.bottom, EW.Space.five)
+            .padding(.top, EW.Space.six)
+        } actions: {
+            Button("Done") { dismiss() }
+                .buttonStyle(PrimaryButtonStyle())
         }
         .defaultScrollAnchor(.top)
         .id("money-result-\(resultState?.rawValue ?? "none")")
-        .safeAreaInset(edge: .bottom) {
-            stepFooter {
-                Button("Done") { dismiss() }
-                    .buttonStyle(PrimaryButtonStyle())
-            }
-        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("money-flow-result")
     }
@@ -362,7 +333,7 @@ struct AllowanceView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
+            SheetForm {
                 VStack(alignment: .leading, spacing: EW.Space.five) {
                     Text("Set one simple weekly plan for \(ChildProfileCopy.childReference(nickname: store.snapshot.configuredChildNickname)). A plan is separate from an allowance event until it is recorded.")
                         .font(EW.Font.body)
@@ -401,19 +372,16 @@ struct AllowanceView: View {
                                 .foregroundStyle(EW.Color.textSecondary)
                         }
                     }
-
-                    Button("Review allowance") { showReview = true }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .disabled(Money.parse(amount) == nil)
-                        .opacity(Money.parse(amount) == nil ? 0.45 : 1)
-                    Button("Save as draft on this iPad") { showDraft = true }
-                        .buttonStyle(SecondaryButtonStyle(compact: true))
                 }
-                .padding(EW.Space.screenMargin)
-                .frame(maxWidth: 620)
-                .frame(maxWidth: .infinity, alignment: .center)
+            } actions: {
+                Button("Review allowance") { showReview = true }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(Money.parse(amount) == nil)
+                    .opacity(Money.parse(amount) == nil ? 0.45 : 1)
+                Button("Save as draft on this \(DeviceCopy.deviceNoun)") { showDraft = true }
+                    .buttonStyle(SecondaryButtonStyle(compact: true))
+                    .accessibilityIdentifier("allowance-save-draft")
             }
-            .background(EW.Color.appBackground)
             .navigationTitle("Set allowance")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -442,7 +410,7 @@ struct AllowanceView: View {
                     showReview = false
                     showDraft = false
                 }
-                .presentationDetents([.medium])
+                .ewDetailSheetPresentation()
             }
         }
     }
@@ -455,16 +423,22 @@ private struct AllowanceReviewView: View {
     let confirm: () async -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: EW.Space.five) {
-            Text("Review allowance")
-                .font(EW.Font.heading)
-                .foregroundStyle(EW.Color.textPrimary)
-            Text("Add \(Money(cents: amountCents).display) virtual dollars each week starting \(startDate.formatted(.dateTime.month(.abbreviated).day())).")
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.textSecondary)
-            Text("This creates a plan for future occurrences. The plan is not an allowance event until it is accepted.")
-                .font(EW.Font.caption)
-                .foregroundStyle(EW.Color.textTertiary)
+        SheetForm {
+            VStack(alignment: .leading, spacing: EW.Space.five) {
+                Text("Review allowance")
+                    .font(EW.Font.heading)
+                    .foregroundStyle(EW.Color.textPrimary)
+                Text("Add \(Money(cents: amountCents).display) virtual dollars each week starting \(startDate.formatted(.dateTime.month(.abbreviated).day())).")
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("This creates a plan for future occurrences. The plan is not an allowance event until it is accepted.")
+                    .font(EW.Font.caption)
+                    .foregroundStyle(EW.Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } actions: {
             Button("Confirm allowance") {
                 Task {
                     await confirm()
@@ -475,7 +449,6 @@ private struct AllowanceReviewView: View {
             Button("Back") { dismiss() }
                 .buttonStyle(SecondaryButtonStyle(compact: true))
         }
-        .padding(EW.Space.screenMargin)
     }
 }
 

@@ -356,6 +356,29 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Enter an amount greater than US$0.00."].exists)
     }
 
+    /// The contract every sheet in the app owes a parent: the control that
+    /// finishes the job is on screen and tappable as soon as the sheet is,
+    /// whatever the sheet's height, the device size, or the keyboard state.
+    /// `isHittable` is the honest check - it fails for a control clipped by its
+    /// sheet, scrolled past the fold, or covered by the keyboard.
+    private func assertActionIsReachable(
+        _ element: XCUIElement,
+        _ description: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(element.waitForExistence(timeout: 5), "\(description) must exist", file: file, line: line)
+        let window = app.windows.firstMatch.frame
+        // Not flush against the screen edge either: a control rendered right on
+        // the fold is what a clipped action looked like.
+        let minimumClearance: CGFloat = 8
+        XCTAssertTrue(window.contains(element.frame), "\(description) must be fully on screen, not below the fold", file: file, line: line)
+        XCTAssertLessThanOrEqual(element.frame.maxY, window.maxY - minimumClearance, "\(description) must not sit on the fold", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(element.frame.height, 44, "\(description) must keep its full hit target, not a clipped one", file: file, line: line)
+        XCTAssertTrue(element.isHittable, "\(description) must be tappable without hunting for it", file: file, line: line)
+    }
+
     // The review step's decision controls stay fully on screen: a confirm
     // affordance clipped at the fold is how a parent records nothing, or the
     // wrong thing.
@@ -374,24 +397,113 @@ final class EddysWalletUITests: XCTestCase {
         app.buttons["Review"].tap()
 
         let confirm = app.buttons["Confirm add deposit"]
-        let back = app.buttons["Back"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        let window = app.windows.firstMatch.frame
-        // Not flush against the screen edge either: a control rendered right on
-        // the fold is what the clipped confirm looked like.
-        let minimumClearance: CGFloat = 8
-
-        XCTAssertTrue(window.contains(confirm.frame), "the confirm control must be fully on screen")
-        XCTAssertLessThanOrEqual(confirm.frame.maxY, window.maxY - minimumClearance, "the confirm control must not sit on the fold")
-        XCTAssertGreaterThanOrEqual(confirm.frame.height, 44, "the confirm control must keep its full hit target, not a clipped one")
-        XCTAssertTrue(confirm.isHittable)
-        XCTAssertTrue(window.contains(back.frame), "the way back must be on screen too, not below the fold")
-        XCTAssertLessThanOrEqual(back.frame.maxY, window.maxY - minimumClearance)
-        XCTAssertTrue(back.isHittable)
+        assertActionIsReachable(confirm, "the confirm control", in: app)
+        assertActionIsReachable(app.buttons["Back"], "the way back", in: app)
 
         // The pinned controls are the real ones, so the flow still completes.
         confirm.tap()
         XCTAssertTrue(app.otherElements["money-flow-result"].waitForExistence(timeout: 10))
+    }
+
+    // The reported iPad failure, generalised: the amount step opens with the
+    // keyboard already up, so the control that carries the step forward has to
+    // survive both the shorter sheet and the keyboard. It also has to stay
+    // reachable for the longest money form, which adds a due-date row the
+    // shortest screens cannot show at once.
+    func testMoneyAmountStepKeepsItsPrimaryActionAboveTheKeyboard() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        openDeposit(in: app)
+        let amount = app.textFields["Amount in virtual dollars"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 5))
+        assertActionIsReachable(app.buttons["Review"], "the deposit review control", in: app)
+        amount.tap()
+        amount.typeText("5.00")
+        assertActionIsReachable(app.buttons["Review"], "the deposit review control with the keyboard up", in: app)
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+
+        let loan = app.buttons["Create loan"]
+        for _ in 0..<6 where !loan.isHittable { app.swipeUp() }
+        loan.tap()
+        XCTAssertTrue(app.textFields["Amount in virtual dollars"].waitForExistence(timeout: 5))
+        assertActionIsReachable(app.buttons["Review"], "the loan review control", in: app)
+        // The due-date row is content, so it may need a scroll on a short
+        // screen - but it must genuinely be scrollable to, never trapped.
+        let duePicker = app.datePickers.firstMatch
+        for _ in 0..<4 where !duePicker.isHittable { app.swipeUp() }
+        XCTAssertTrue(duePicker.isHittable, "the loan due date must be reachable by scrolling the sheet")
+        assertActionIsReachable(app.buttons["Review"], "the loan review control after scrolling", in: app)
+    }
+
+    // Every remaining parent sheet owes the same contract. Before this was one
+    // shared layout, half-height sheets left `Save new PIN` and the allowance
+    // controls under the fold with nothing on screen saying so.
+    func testEveryParentSettingsSheetKeepsItsPrimaryActionReachable() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let allowanceCard = app.buttons["parent-allowance-card"]
+        for _ in 0..<8 where !allowanceCard.isHittable { app.swipeDown() }
+        allowanceCard.tap()
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+        assertActionIsReachable(app.buttons["Review allowance"], "the allowance review control", in: app)
+        // Addressed by identifier: its label names the device it is running on.
+        assertActionIsReachable(app.buttons["allowance-save-draft"], "the allowance draft control", in: app)
+        XCTAssertEqual(
+            app.buttons["allowance-save-draft"].label,
+            "Save as draft on this \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone")",
+            "the draft control must name the device it is actually running on"
+        )
+        app.buttons["Review allowance"].tap()
+        assertActionIsReachable(app.buttons["Confirm allowance"], "the allowance confirm control", in: app)
+        app.buttons["Back"].tap()
+        app.buttons["Close"].tap()
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+
+        let changePIN = app.buttons["Change PIN"]
+        for _ in 0..<8 where !changePIN.isHittable { app.swipeUp() }
+        changePIN.tap()
+        XCTAssertTrue(app.staticTexts["Change PIN"].waitForExistence(timeout: 5))
+        assertActionIsReachable(app.buttons["Save new PIN"], "the change-PIN save control", in: app)
+        let currentPIN = app.secureTextFields["Current PIN"]
+        currentPIN.tap()
+        currentPIN.typeText("1234")
+        assertActionIsReachable(app.buttons["Save new PIN"], "the change-PIN save control with the keyboard up", in: app)
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+
+        let editProfile = app.buttons["edit-child-profile-settings"]
+        for _ in 0..<8 where !editProfile.isHittable { app.swipeUp() }
+        editProfile.tap()
+        XCTAssertTrue(app.staticTexts["Child profile"].waitForExistence(timeout: 5))
+        assertActionIsReachable(app.buttons["Save child profile"], "the child-profile save control", in: app)
+        app.textFields["child-nickname-field"].tap()
+        assertActionIsReachable(app.buttons["Save child profile"], "the child-profile save control with the keyboard up", in: app)
+    }
+
+    // The loan sheet's repayment control is an action, not detail copy, so it
+    // belongs in the bottom bar even at the half-height detent this sheet opens
+    // at. The kid's read-only loan sheet must not grow one.
+    func testLoanSheetPinsTheParentRepaymentActionAndTheKidSheetHasNone() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+
+        app.staticTexts["A little at a time is okay"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Loan details"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["loan-record-repayment"].exists, "the kid loan sheet offers no parent action")
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
+
+        openParentArea(in: app)
+        let loanCard = app.staticTexts["Secondary wallet card"].firstMatch
+        for _ in 0..<6 where !loanCard.isHittable { app.swipeUp() }
+        loanCard.tap()
+        XCTAssertTrue(app.staticTexts["Loan details"].waitForExistence(timeout: 5))
+        assertActionIsReachable(app.buttons["loan-record-repayment"], "the loan repayment control", in: app)
     }
 
     func testParentCanEditChildNicknameAndKidHomeShowsIt() throws {

@@ -115,33 +115,30 @@ struct ParentAreaView: View {
         }
         .sheet(item: $selectedEvent) { event in
             ActivityDetailView(event: event)
-                .presentationDetents([.medium, .large])
+                .ewDetailSheetPresentation()
         }
         .sheet(isPresented: $isShowingLoan) {
             LoanDetailView(isParent: true, onRepay: {
                 isShowingLoan = false
                 flow = .repayment
             })
-            .presentationDetents([.medium, .large])
+            .ewDetailSheetPresentation()
         }
         .sheet(item: $flow) { kind in
-            // Full height only: the money flow opens with the keyboard up and
-            // ends on a review step whose confirm control must stay on screen,
-            // neither of which fits a half-height sheet on a phone.
             MoneyFlowView(kind: kind)
-                .presentationDetents([.large])
+                .ewFormSheetPresentation()
         }
         .sheet(isPresented: $isShowingAllowance) {
             AllowanceView()
-                .presentationDetents([.medium, .large])
+                .ewFormSheetPresentation()
         }
         .sheet(isPresented: $isShowingChangePIN) {
             ChangePINView()
-                .presentationDetents([.medium, .large])
+                .ewFormSheetPresentation()
         }
         .sheet(isPresented: $isShowingEditProfile) {
             EditChildProfileView()
-                .presentationDetents([.medium, .large])
+                .ewFormSheetPresentation()
         }
     }
 
@@ -583,7 +580,7 @@ struct EditChildProfileView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
+            SheetForm {
                 VStack(alignment: .leading, spacing: EW.Space.five) {
                     Text("This nickname appears on the Parent area summary and on the child's wallet. It is not a login.")
                         .font(EW.Font.body)
@@ -631,36 +628,32 @@ struct EditChildProfileView: View {
                             .font(EW.Font.caption)
                             .foregroundStyle(EW.Color.red600)
                     }
-
-                    Button {
-                        Task {
-                            let ok = await store.updateChildProfile(nickname: nickname)
-                            mutationOutcome = store.latestParentMutationOutcome
-                            didSave = ok && mutationOutcome == .recorded
-                            if mutationOutcome == .waitingForCloud || mutationOutcome == .acceptedAwaitingReplica {
-                                localError = nil
-                            } else {
-                                localError = didSave ? nil : (store.errorMessage ?? "The child profile could not be saved.")
-                            }
-                        }
-                    } label: {
-                        if store.isLoading {
-                            ProgressView()
-                                .frame(maxWidth: .infinity, minHeight: 52)
+                }
+            } actions: {
+                Button {
+                    Task {
+                        let ok = await store.updateChildProfile(nickname: nickname)
+                        mutationOutcome = store.latestParentMutationOutcome
+                        didSave = ok && mutationOutcome == .recorded
+                        if mutationOutcome == .waitingForCloud || mutationOutcome == .acceptedAwaitingReplica {
+                            localError = nil
                         } else {
-                            Text("Save child profile")
-                                .frame(maxWidth: .infinity, minHeight: 52)
+                            localError = didSave ? nil : (store.errorMessage ?? "The child profile could not be saved.")
                         }
                     }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(store.isLoading || !isValid || !store.canStartParentMutation || mutationOutcome == .waitingForCloud || mutationOutcome == .acceptedAwaitingReplica)
-                    .opacity(store.isLoading || !isValid || !store.canStartParentMutation || mutationOutcome == .waitingForCloud || mutationOutcome == .acceptedAwaitingReplica ? 0.45 : 1)
+                } label: {
+                    if store.isLoading {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    } else {
+                        Text("Save child profile")
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    }
                 }
-                .padding(EW.Space.screenMargin)
-                .frame(maxWidth: 620)
-                .frame(maxWidth: .infinity, alignment: .center)
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(store.isLoading || !isValid || !store.canStartParentMutation || mutationOutcome == .waitingForCloud || mutationOutcome == .acceptedAwaitingReplica)
+                .opacity(store.isLoading || !isValid || !store.canStartParentMutation || mutationOutcome == .waitingForCloud || mutationOutcome == .acceptedAwaitingReplica ? 0.45 : 1)
             }
-            .background(EW.Color.appBackground)
             .navigationTitle("Child profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -691,7 +684,7 @@ struct ChangePINView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
+            SheetForm {
                 VStack(alignment: .leading, spacing: EW.Space.five) {
                     Text("The parent PIN protects parent controls on this \(DeviceCopy.deviceNoun). Changing it needs the current PIN.")
                         .font(EW.Font.body)
@@ -714,25 +707,21 @@ struct ChangePINView: View {
                             .font(EW.Font.caption)
                             .foregroundStyle(EW.Color.red600)
                     }
-
-                    Button("Save new PIN") {
-                        errorMessage = store.changeParentPIN(current: currentPIN, new: newPIN, confirmation: confirmation)
-                        didSave = errorMessage == nil
-                        if didSave {
-                            currentPIN = ""
-                            newPIN = ""
-                            confirmation = ""
-                        }
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(!isValid)
-                    .opacity(isValid ? 1 : 0.45)
                 }
-                .padding(EW.Space.screenMargin)
-                .frame(maxWidth: 620)
-                .frame(maxWidth: .infinity, alignment: .center)
+            } actions: {
+                Button("Save new PIN") {
+                    errorMessage = store.changeParentPIN(current: currentPIN, new: newPIN, confirmation: confirmation)
+                    didSave = errorMessage == nil
+                    if didSave {
+                        currentPIN = ""
+                        newPIN = ""
+                        confirmation = ""
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(!isValid)
+                .opacity(isValid ? 1 : 0.45)
             }
-            .background(EW.Color.appBackground)
             .navigationTitle("Change PIN")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

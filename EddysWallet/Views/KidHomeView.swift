@@ -56,11 +56,11 @@ struct KidHomeView: View {
         }
         .sheet(item: $selectedEvent) { event in
             ActivityDetailView(event: event, audience: .kid)
-                .presentationDetents([.medium, .large])
+                .ewDetailSheetPresentation()
         }
         .sheet(isPresented: $isShowingLoan) {
             LoanDetailView(isParent: false, onRepay: {})
-                .presentationDetents([.medium, .large])
+                .ewDetailSheetPresentation()
         }
     }
 
