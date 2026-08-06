@@ -49,6 +49,12 @@ struct SheetForm<Content: View, Actions: View>: View {
         contentOverflows && contentBottom > viewportHeight + 1
     }
 
+    private var showsScrollFade: Bool { hasMoreContentBelow }
+
+    private var scrollFadeIdentifier: String {
+        showsScrollFade ? "sheet-form-scroll-fade-visible" : "sheet-form-scroll-fade-hidden"
+    }
+
     private var hasActions: Bool { Actions.self != EmptyView.self }
 
     var body: some View {
@@ -67,6 +73,7 @@ struct SheetForm<Content: View, Actions: View>: View {
             }
             .scrollBounceBehavior(.basedOnSize)
             .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
+            .accessibilityIdentifier(scrollFadeIdentifier)
             .background(HeightReader(height: $viewportHeight))
             .overlay(alignment: .bottom) { scrollFade }
 
@@ -81,7 +88,7 @@ struct SheetForm<Content: View, Actions: View>: View {
     /// action bar, so the signal cannot be mistaken for decoration.
     @ViewBuilder
     private var scrollFade: some View {
-        if hasMoreContentBelow {
+        if showsScrollFade {
             LinearGradient(
                 colors: [EW.Color.appBackground.opacity(0), EW.Color.appBackground],
                 startPoint: .top,

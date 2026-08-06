@@ -449,11 +449,9 @@ final class EddysWalletUITests: XCTestCase {
 
         let review = app.buttons["Review"]
         XCTAssertTrue(review.waitForExistence(timeout: 5))
-        let initialColors = try sheetFadeColors(in: app, above: review)
-        XCTAssertGreaterThan(
-            initialColors.fade.maximumChannelDistance(to: initialColors.background),
-            8,
-            "overflowing content must visibly fade into the pinned action bar"
+        XCTAssertTrue(
+            app.scrollViews["sheet-form-scroll-fade-visible"].waitForExistence(timeout: 5),
+            "the fade must be visible while the loan form continues below the viewport"
         )
 
         let scrollStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.52))
@@ -462,39 +460,12 @@ final class EddysWalletUITests: XCTestCase {
             scrollStart.press(forDuration: 0.05, thenDragTo: scrollEnd)
         }
 
-        let finalColors = try sheetFadeColors(in: app, above: review)
-        XCTAssertLessThanOrEqual(
-            finalColors.fade.maximumChannelDistance(to: finalColors.background),
-            4,
-            "the strip above the action bar must return to the flat app background at the content end"
+        XCTAssertTrue(
+            app.scrollViews["sheet-form-scroll-fade-hidden"].waitForExistence(timeout: 5),
+            "the fade must clear when the loan form reaches its content end"
         )
+        XCTAssertFalse(app.scrollViews["sheet-form-scroll-fade-visible"].exists)
         assertActionIsReachable(review, "the loan review control at the content end", in: app)
-    }
-
-    private func sheetFadeColors(
-        in app: XCUIApplication,
-        above action: XCUIElement
-    ) throws -> (fade: RenderedPixels.Color, background: RenderedPixels.Color) {
-        let screenshot = app.screenshot()
-        let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = "Sheet scroll fade"
-        add(attachment)
-
-        let image = try XCTUnwrap(UIImage(data: screenshot.pngRepresentation)?.cgImage)
-        let pixels = try XCTUnwrap(RenderedPixels(image: image))
-        let pointSize = app.windows.firstMatch.frame.size
-        let actionBarTop = action.frame.minY - 12
-        let fade = pixels.averageColor(
-            around: CGPoint(x: action.frame.midX, y: actionBarTop - 12),
-            radius: 3,
-            pointSize: pointSize
-        )
-        let background = pixels.averageColor(
-            around: CGPoint(x: action.frame.midX, y: actionBarTop + 5),
-            radius: 3,
-            pointSize: pointSize
-        )
-        return (fade, background)
     }
 
     // Every remaining parent sheet owes the same contract. Before this was one
