@@ -47,7 +47,7 @@ struct WelcomeView: View {
                                     .tint(.white)
                                     .frame(maxWidth: .infinity, minHeight: 52)
                             } else {
-                                Label("Set up your child's wallet", systemImage: "apple.logo")
+                                Label("Sign in with Apple", systemImage: "apple.logo")
                             }
                         }
                         .buttonStyle(AppleSignInButtonStyle())

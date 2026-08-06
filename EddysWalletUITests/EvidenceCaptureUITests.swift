@@ -78,7 +78,7 @@ final class EvidenceCaptureUITests: XCTestCase {
     func testFirstRunSetupTour() throws {
         let app = launch("first-run")
 
-        let signIn = app.buttons["Set up your child's wallet"]
+        let signIn = app.buttons["Sign in with Apple"]
         XCTAssertTrue(signIn.waitForExistence(timeout: 10))
         signIn.tap()
 

@@ -823,7 +823,7 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Sign out must ask for confirmation")
         confirm.tap()
 
-        XCTAssertTrue(app.buttons["Set up your child's wallet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Sign in with Apple"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Hi, Eddie"].exists, "No usable family data after sign-out")
     }
 
@@ -991,7 +991,7 @@ final class EddysWalletUITests: XCTestCase {
     func testFirstRunSetupHandsOffToParentAreaThenKidHome() throws {
         let app = launch("first-run")
 
-        let signIn = app.buttons["Set up your child's wallet"]
+        let signIn = app.buttons["Sign in with Apple"]
         XCTAssertTrue(signIn.waitForExistence(timeout: 10))
         signIn.tap()
 
@@ -1015,6 +1015,20 @@ final class EddysWalletUITests: XCTestCase {
         app.buttons["Show Eddie's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Your wallet is ready!"].exists)
+    }
+
+    /// Regression guard: the first-run sign-in control must read as a plain
+    /// sign-in, never as child/wallet setup - a parent adding a second
+    /// device to an existing wallet is only signing in, not creating a
+    /// child. Real child setup still happens later, in `SetupView`.
+    func testWelcomeSignInButtonDoesNotImplyNewChildSetup() throws {
+        let app = launch("first-run")
+
+        XCTAssertTrue(app.buttons["Sign in with Apple"].waitForExistence(timeout: 10))
+        XCTAssertFalse(
+            app.buttons["Set up your child's wallet"].exists,
+            "the sign-in control must not read as child setup - a returning parent may just be adding a device"
+        )
     }
 
     /// A wallet already on the signed-in Apple account is a deliberate choice
