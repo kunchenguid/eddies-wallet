@@ -164,8 +164,8 @@ extension View {
         presentationDetents([.large])
     }
 
-    /// Read-only detail sheets carry no keyboard, so they keep the lighter
-    /// half-height opening and can still be dragged to full height.
+    /// Detail and confirmation sheets without keyboard-driven editing keep
+    /// the lighter half-height opening and can still be dragged to full height.
     func ewDetailSheetPresentation() -> some View {
         presentationDetents([.medium, .large])
     }

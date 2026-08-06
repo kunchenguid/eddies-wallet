@@ -433,7 +433,11 @@ final class EddysWalletUITests: XCTestCase {
         // The due-date row is content, so it may need a scroll on a short
         // screen - but it must genuinely be scrollable to, never trapped.
         let duePicker = app.datePickers.firstMatch
-        for _ in 0..<4 where !duePicker.isHittable { app.swipeUp() }
+        let sheetScroll = app.scrollViews.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "sheet-form-scroll-fade-")
+        ).firstMatch
+        XCTAssertTrue(sheetScroll.waitForExistence(timeout: 5))
+        for _ in 0..<4 where !duePicker.isHittable { sheetScroll.swipeUp() }
         XCTAssertTrue(duePicker.isHittable, "the loan due date must be reachable by scrolling the sheet")
         assertActionIsReachable(app.buttons["Review"], "the loan review control after scrolling", in: app)
     }
@@ -449,6 +453,20 @@ final class EddysWalletUITests: XCTestCase {
 
         let review = app.buttons["Review"]
         XCTAssertTrue(review.waitForExistence(timeout: 5))
+
+        // A full-height iPad sheet has enough room for this form, so it must
+        // not imply that content is hidden. The small-phone run below owns
+        // the genuine-overflow fade and scrolling contract.
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCTAssertTrue(
+                app.scrollViews["sheet-form-scroll-fade-hidden"].waitForExistence(timeout: 5),
+                "a loan form that fits on iPad must not show a false scroll affordance"
+            )
+            XCTAssertFalse(app.scrollViews["sheet-form-scroll-fade-visible"].exists)
+            assertActionIsReachable(review, "the iPad loan review control", in: app)
+            return
+        }
+
         XCTAssertTrue(
             app.scrollViews["sheet-form-scroll-fade-visible"].waitForExistence(timeout: 5),
             "the fade must be visible while the loan form continues below the viewport"
