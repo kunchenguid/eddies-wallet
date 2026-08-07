@@ -1059,7 +1059,7 @@ private final class FakeAppleSignInProvider: AppleSignInProviding {
 }
 
 @MainActor
-private final class FailingRefreshRepository: WalletRepository {
+private final class FailingRefreshRepository: WalletRepository, AccountDeletionLocalRetiring {
     private let inner: MockWalletRepository
     var error: WalletAPIError?
     private(set) var authenticated: Bool
@@ -1108,6 +1108,7 @@ private final class FailingRefreshRepository: WalletRepository {
         inner.clearAuthentication()
     }
     func clearSession() throws { try inner.clearSession() }
+    func retireLocalWalletForAccountDeletion() throws { try inner.retireLocalWalletForAccountDeletion() }
 }
 
 @MainActor
