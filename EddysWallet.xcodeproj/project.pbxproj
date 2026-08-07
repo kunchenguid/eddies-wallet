@@ -20,7 +20,7 @@
 		301000000000000000000016 /* ParentAreaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000003 /* ParentAreaView.swift */; };
 		301000000000000000000017 /* ParentGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000004 /* ParentGateView.swift */; };
 		301000000000000000000018 /* WalletComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000005 /* WalletComponents.swift */; };
-		3010000000000000000000A9 /* SheetForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F00000000000000000000A /* SheetForm.swift */; };
+		3010000000000000000000A9 /* SheetForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F00000000000000000000B /* SheetForm.swift */; };
 		301000000000000000000019 /* DebugScenarios.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000006 /* DebugScenarios.swift */; };
 		30100000000000000000001A /* EddysWalletUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000007 /* EddysWalletUITests.swift */; };
 		30100000000000000000001B /* EvidenceCaptureUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000008 /* EvidenceCaptureUITests.swift */; };
@@ -76,7 +76,7 @@
 		20F000000000000000000003 /* ParentAreaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParentAreaView.swift; sourceTree = "<group>"; };
 		20F000000000000000000004 /* ParentGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParentGateView.swift; sourceTree = "<group>"; };
 		20F000000000000000000005 /* WalletComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletComponents.swift; sourceTree = "<group>"; };
-		20F00000000000000000000A /* SheetForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SheetForm.swift; sourceTree = "<group>"; };
+		20F00000000000000000000B /* SheetForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SheetForm.swift; sourceTree = "<group>"; };
 		20F000000000000000000006 /* DebugScenarios.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugScenarios.swift; sourceTree = "<group>"; };
 		20F000000000000000000007 /* EddysWalletUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EddysWalletUITests.swift; sourceTree = "<group>"; };
 		20F000000000000000000008 /* EvidenceCaptureUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EvidenceCaptureUITests.swift; sourceTree = "<group>"; };
@@ -205,7 +205,7 @@
 				20F000000000000000000003 /* ParentAreaView.swift */,
 				20F000000000000000000004 /* ParentGateView.swift */,
 				20F000000000000000000005 /* WalletComponents.swift */,
-				20F00000000000000000000A /* SheetForm.swift */,
+				20F00000000000000000000B /* SheetForm.swift */,
 				209000000000000000000001 /* WelcomeView.swift */,
 				20F000000000000000000009 /* CloudStatusView.swift */,
 				2090000000000000000000A5 /* CloudDiagnosticsView.swift */,

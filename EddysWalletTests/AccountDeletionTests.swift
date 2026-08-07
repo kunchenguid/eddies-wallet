@@ -71,7 +71,7 @@ final class AccountDeletionTests: XCTestCase {
 
         XCTAssertEqual(outcome, .incomplete("This \(DeviceCopy.deviceNoun)'s copy of the wallet is removed. We could not confirm your account was removed from the service."))
         XCTAssertFalse(repository.hasConfiguredKid)
-        XCTAssertNil(pinStore.pin)
+        XCTAssertEqual(pinStore.pin, "1234", "the PIN is retained through DS-1 until a confirmed service deletion")
         XCTAssertEqual(identityStore.appleUserID, "synthetic-parent", "credentials remain for the retry")
         XCTAssertFalse(store.isSignedIn)
         XCTAssertFalse(store.hasDeletedAccount)
@@ -170,7 +170,7 @@ final class AccountDeletionTests: XCTestCase {
         XCTAssertFalse(repository.isAuthenticated, "the legacy credential is cleared only after DELETE returns")
     }
 
-    func testPINRemovalFailureRefusesWithoutErasingWalletOrSendingDelete() async {
+    func testPINRemovalFailureYieldsIncompleteAfterServerSuccess() async {
         let repository = MockWalletRepository(snapshot: .fixture())
         let service = AccountDeletionRecorder()
         let pending = InMemoryPendingCommandStore(commands: [
@@ -178,10 +178,11 @@ final class AccountDeletionTests: XCTestCase {
         ])
         let cache = TestSnapshotCache(snapshot: .fixture())
         let configured = InMemoryConfiguredKidStore(isConfigured: true)
+        let pinStore = FailingClearParentPINStore()
         let store = WalletStore(
             repository: repository,
             initiallySignedIn: true,
-            pinStore: FailingClearParentPINStore(),
+            pinStore: pinStore,
             identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
             accountDeletionService: service,
             accountDeletionPendingStore: pending,
@@ -192,12 +193,18 @@ final class AccountDeletionTests: XCTestCase {
 
         let outcome = await store.deleteAccount(idempotencyKey: "22222222-2222-4222-8222-222222222222")
 
-        guard case .refused = outcome else { return XCTFail("pre-erase cleanup failure must refuse deletion") }
-        XCTAssertTrue(repository.hasConfiguredKid)
+        guard case .incomplete(let message) = outcome else {
+            return XCTFail("a Phase 3 PIN-clear failure after a confirmed DELETE must be incomplete, not refused")
+        }
+        XCTAssertTrue(message.contains("credential cleanup"))
+        XCTAssertEqual(service.idempotencyKeys, ["22222222-2222-4222-8222-222222222222"], "the DELETE is sent before Phase 3 credential cleanup")
+        XCTAssertFalse(repository.hasConfiguredKid, "the wallet is erased first, before the PIN is ever touched")
         XCTAssertTrue(pending.load().isEmpty)
         XCTAssertNil(cache.load())
         XCTAssertFalse(configured.isConfigured)
-        XCTAssertTrue(service.idempotencyKeys.isEmpty)
+        XCTAssertEqual(pinStore.pin, "1234", "the PIN remains for the credential-cleanup retry")
+        XCTAssertFalse(store.hasDeletedAccount)
+        XCTAssertEqual(store.accountDeletionPresentation, .incomplete(idempotencyKey: "22222222-2222-4222-8222-222222222222"))
     }
 
     func testCoreDataEraseFailureRefusesAndSendsNoDelete() async throws {
@@ -228,14 +235,14 @@ final class AccountDeletionTests: XCTestCase {
         XCTAssertTrue(repository.hasConfiguredKid)
         XCTAssertEqual(store.rootRoute, .kidHome)
         XCTAssertEqual(store.snapshot, repository.childSnapshot())
-        XCTAssertTrue(pending.load().isEmpty)
-        XCTAssertNil(cache.load())
-        XCTAssertFalse(configured.isConfigured)
-        XCTAssertNil(pinStore.pin)
+        XCTAssertEqual(pending.load().count, 1, "the Core Data erase is the first step, so residual inputs are untouched on refusal")
+        XCTAssertNotNil(cache.load())
+        XCTAssertTrue(configured.isConfigured)
+        XCTAssertEqual(pinStore.pin, "1234")
         XCTAssertTrue(service.idempotencyKeys.isEmpty)
     }
 
-    func testCleanupFlushFailureKeepsAuthoritativeWalletAndDoesNotSendDelete() async throws {
+    func testUnconfirmedFlushIsIncompleteAfterLocalEraseWithoutSendingDelete() async throws {
         let persistence = TestLocalPersistence()
         let repository = try LocalWalletRepository(persistence: persistence)
         _ = try await repository.setup(ParentSetup(nickname: "Eddie"))
@@ -263,14 +270,18 @@ final class AccountDeletionTests: XCTestCase {
 
         let outcome = await store.deleteAccount(idempotencyKey: "22222222-2222-4222-8222-222222222222")
 
-        guard case .refused = outcome else { return XCTFail("unconfirmed cleanup must refuse before final erase") }
-        XCTAssertTrue(repository.hasConfiguredKid)
+        guard case .incomplete = outcome else {
+            return XCTFail("an unconfirmed flush is incomplete after the local erase, never refused")
+        }
+        XCTAssertFalse(repository.hasConfiguredKid, "the Core Data erase runs before the flush gate, so the wallet is already gone")
         XCTAssertTrue(pending.load().isEmpty)
         XCTAssertNil(cache.load())
         XCTAssertFalse(configured.isConfigured)
-        XCTAssertNil(pinStore.pin)
+        XCTAssertEqual(pinStore.pin, "1234", "the PIN is retained until a confirmed service deletion")
         XCTAssertEqual(flushCount, 1)
-        XCTAssertTrue(service.idempotencyKeys.isEmpty)
+        XCTAssertTrue(service.idempotencyKeys.isEmpty, "the flush is the DELETE gate, so no DELETE is sent")
+        XCTAssertFalse(store.isSignedIn)
+        XCTAssertFalse(store.hasDeletedAccount)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 0)
         XCTAssertNil(store.snapshot.childNickname)
         XCTAssertTrue(store.snapshot.activities.isEmpty)
@@ -413,17 +424,17 @@ final class AccountDeletionTests: XCTestCase {
         store.signOut()
 
         XCTAssertTrue(repository.hasConfiguredKid)
-        XCTAssertTrue(pending.load().isEmpty)
-        XCTAssertNil(cache.load())
-        XCTAssertFalse(configured.isConfigured)
-        XCTAssertNil(pinStore.pin)
+        XCTAssertEqual(pending.load().count, 1, "the erase aborts before residual inputs are cleared")
+        XCTAssertNotNil(cache.load())
+        XCTAssertTrue(configured.isConfigured)
+        XCTAssertEqual(pinStore.pin, "1234")
         XCTAssertTrue(store.isSignedIn)
         XCTAssertEqual(store.rootRoute, .kidHome)
         XCTAssertEqual(store.snapshot, repository.childSnapshot())
         XCTAssertNotNil(store.errorMessage)
     }
 
-    func testSignOutCleanupFailureStopsBeforeAuthoritativeWalletErase() async throws {
+    func testSignOutFlushFailureAfterEraseSurfacesErrorWithoutClearingCredentials() async throws {
         let persistence = TestLocalPersistence()
         let repository = try LocalWalletRepository(persistence: persistence)
         _ = try await repository.setup(ParentSetup(nickname: "Eddie"))
@@ -445,12 +456,12 @@ final class AccountDeletionTests: XCTestCase {
 
         store.signOut()
 
-        XCTAssertTrue(repository.hasConfiguredKid)
-        XCTAssertTrue(store.isSignedIn)
+        XCTAssertFalse(repository.hasConfiguredKid, "sign-out erases the wallet first, so a later flush failure still leaves it gone")
+        XCTAssertTrue(store.isSignedIn, "the aborted sign-out returns before clearing the session")
         XCTAssertTrue(pending.load().isEmpty)
         XCTAssertNil(cache.load())
         XCTAssertFalse(configured.isConfigured)
-        XCTAssertNil(pinStore.pin)
+        XCTAssertEqual(pinStore.pin, "1234", "the PIN clear runs only after a confirmed erase-and-flush")
         XCTAssertNotNil(store.errorMessage)
     }
 
@@ -608,32 +619,38 @@ final class AccountDeletionTests: XCTestCase {
         XCTAssertTrue(transport.requests.contains { $0.httpMethod == "POST" && $0.url?.path == "/v1/auth/apple" })
     }
 
-    func testSignOutClearsLegacySurfacesAndConfirmsFlushBeforeWalletErase() {
+    func testSignOutErasesWalletThenClearsResidualsBeforeConfirmingFlush() {
         let repository = MockWalletRepository(snapshot: .fixture())
         let pending = InMemoryPendingCommandStore(commands: [WalletCommand(kind: .deposit, amountCents: 100)])
         let cache = TestSnapshotCache(snapshot: .fixture())
         let configured = InMemoryConfiguredKidStore(isConfigured: true)
-        var flushedAfterCleanup = false
+        let pinStore = InMemoryParentPINStore(pin: "1234")
+        var flushSawErasedWalletAndClearedResiduals = false
         let store = WalletStore(
             repository: repository,
             initiallySignedIn: true,
-            pinStore: InMemoryParentPINStore(pin: "1234"),
+            pinStore: pinStore,
             identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
             accountDeletionPendingStore: pending,
             accountDeletionSnapshotCache: cache,
             accountDeletionConfiguredKidStore: configured,
             accountDeletionFlush: {
-                flushedAfterCleanup = pending.load().isEmpty && cache.load() == nil && !configured.isConfigured
-                XCTAssertTrue(repository.hasConfiguredKid, "shared cleanup must flush before the wallet erase")
-                return flushedAfterCleanup
+                flushSawErasedWalletAndClearedResiduals =
+                    !repository.hasConfiguredKid
+                    && pending.load().isEmpty
+                    && cache.load() == nil
+                    && !configured.isConfigured
+                return true
             }
         )
         enterParentArea(store)
 
         store.signOut()
 
-        XCTAssertTrue(flushedAfterCleanup)
+        XCTAssertTrue(flushSawErasedWalletAndClearedResiduals, "the flush gate runs after the wallet erase and residual cleanup")
         XCTAssertFalse(repository.hasConfiguredKid)
+        XCTAssertFalse(store.isSignedIn)
+        XCTAssertNil(pinStore.pin, "a confirmed sign-out clears the PIN with the other local credentials")
     }
 
     func testBillingNoticeAndConfirmationGateFollowRenewalState() {

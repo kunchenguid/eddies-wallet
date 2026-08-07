@@ -160,7 +160,7 @@ struct DeleteAccountView: View {
             deletionDetail("Your household, including your child's profile and nickname")
             deletionDetail("The whole wallet: balance, recorded deposits, withdrawals, allowances, loans, and repayments")
             deletionDetail("Your Cloud backup, if you have one")
-            deletionDetail("This \(DeviceCopy.deviceNoun)'s copy of the wallet and your parent PIN, before the service account")
+            deletionDetail("This \(DeviceCopy.deviceNoun)'s copy of the wallet, before the service account; your parent PIN afterward")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .ewCard()
