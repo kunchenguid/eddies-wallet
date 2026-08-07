@@ -199,10 +199,36 @@ public final class CloudAPIClient: ParentAuthenticator {
         sessionStore.clear()
     }
 
+    /// Deletes the authenticated parent account and its service-held household.
+    /// A transport or malformed-response failure is deliberately propagated as
+    /// an unknown outcome rather than guessed.
+    public func deleteAccount(idempotencyKey: String) async throws -> AccountDeletionResult {
+        guard UUID(uuidString: idempotencyKey) != nil else {
+            throw WalletAPIError.invalidResponse("The account deletion request needs a valid confirmation key.")
+        }
+        let response = try await send(
+            path: "/v1/account",
+            method: "DELETE",
+            body: nil,
+            session: .required,
+            idempotencyKey: idempotencyKey
+        ).decoded(AccountDeletionResponse.self)
+        switch response.status {
+        case "deleted": return .deleted
+        case "already-deleted": return .alreadyDeleted
+        default:
+            throw WalletAPIError.invalidResponse("The service did not confirm whether the account was deleted.")
+        }
+    }
+
     /// Clears only the local session copy, for an authority-aware sign-out that
     /// could not reach the server.
     public func clearLocalSession() {
         sessionStore.clear()
+    }
+
+    public func clearLocalSessionForAccountDeletion() throws {
+        try sessionStore.clearForAccountDeletion()
     }
 
     /// How a request presents the parent session.
@@ -313,6 +339,10 @@ public final class CloudAPIClient: ParentAuthenticator {
 private struct CloudHTTPResponse {
     let data: Data
     let http: HTTPURLResponse
+}
+
+private struct AccountDeletionResponse: Decodable {
+    let status: String
 }
 
 public struct CloudLegacyContext: Codable, Equatable, Sendable {

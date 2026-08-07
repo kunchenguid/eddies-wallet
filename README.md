@@ -9,7 +9,7 @@ Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and i
 ## What exists today
 
 - A native SwiftUI iOS/iPadOS app (`EddysWallet.xcodeproj`) targeting iOS 17.0+, iPhone and iPad, with no third-party dependencies.
-- A kid-first navigation model: a configured device rests on the child's read-only wallet, and all parent money flows, child nickname editing, the allowance rule, PIN change, and sign-out live in a temporary full-screen Parent area behind a quiet Parent door and the parent-set PIN. Parent access is never persisted; backgrounding or relaunching always returns to the kid home. A forgotten PIN is recovered with a fresh Sign in with Apple by the owning parent.
+- A kid-first navigation model: a configured device rests on the child's read-only wallet, and all parent money flows, child nickname editing, the allowance rule, PIN change, in-app account deletion, and sign-out live in a temporary full-screen Parent area behind a quiet Parent door and the parent-set PIN. Parent access is never persisted; backgrounding or relaunching always returns to the kid home. A forgotten PIN is recovered with a fresh Sign in with Apple by the owning parent.
 - Money-event flows with review steps and honest offline/pending/rejected states, implemented against the [product requirements](docs/product-requirements.md). Cloud-authoritative writes retain one exact revision-guarded, idempotent request through response loss and relaunch, and report service acceptance separately from local replica observation.
 - Unit, contract-style transport, and native UI tests in the shared scheme that default to injected fakes and never call production, including deterministic Cloud write settlement and parent-visible evidence states. One opt-in test can exercise the production client against a separately started synthetic loopback service and disposable database.
 - A copied web design system and click-through prototype, packaged as the `eddies-wallet-design` agent skill under `.agents/skills/eddies-wallet-design/`, kept as visual reference material; the native app is the maintained implementation.
@@ -64,12 +64,12 @@ This repository contains only the client. A complete free wallet is stored local
 
 ## Known limitations
 
-- This is an unfinished MVP. Live Apple sign-in, first-run free-wallet setup with a real parent identity, the legacy service-wallet flow, and optional Cloud have **not** been verified end to end; verification so far covers local builds, the test suite, and synthetic UI scenarios.
+- This is an unfinished MVP. Live Apple sign-in, first-run free-wallet setup with a real parent identity, the legacy service-wallet flow, optional Cloud, and in-app account deletion have **not** been verified end to end; verification so far covers local builds, the test suite, and synthetic UI scenarios. Account deletion's server side (`DELETE /v1/account`) is a coordinated separate backend ship not present in this repository.
 - The `0.1.0` source release exists, but there is no public download or App Store-ready build. The [App Store Connect configuration record](docs/app-store-configuration.md) owns the exact live StoreKit, TestFlight, and backend evidence boundary and distinguishes that narrow proof from complete Cloud activation.
 - Pull requests run a credential-free build-and-test workflow on GitHub Actions; everything else about verification remains local evidence.
 - The declared iOS 17.0 minimum has not been exercised on an iOS 17 simulator runtime recently.
 - The `.agents/skills/eddies-wallet-design/` prototype is unmaintained reference material and may not run as-is.
-- Privacy, retention, export, and deletion decisions required for a public launch remain open in the [product requirements](docs/product-requirements.md).
+- A draft [privacy policy](docs/privacy-policy.md) records the app's privacy, retention, and deletion behavior for captain review; it is not yet published or linked from the app. Parent-controlled data export and the remaining privacy and retention decisions required for a public launch are still open in the [product requirements](docs/product-requirements.md).
 
 ## Support and security
 

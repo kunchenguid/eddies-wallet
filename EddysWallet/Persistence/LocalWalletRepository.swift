@@ -27,7 +27,7 @@ private struct LocalWalletAggregate: Codable, Sendable {
 /// backend. Every parent mutation validates and persists accepted state in a
 /// single Core Data save, then returns Recorded.
 @MainActor
-public final class LocalWalletRepository: WalletRepository, WalletRecoveryProviding {
+public final class LocalWalletRepository: WalletRepository, WalletRecoveryProviding, AccountDeletionLocalRetiring {
     private let persistence: any LocalWalletPersisting
     private var aggregate: LocalWalletAggregate?
     private var readOnlyReason: String?
@@ -346,6 +346,8 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         readOnlyReason = nil
         recoveryState = nil
     }
+
+    public func retireLocalWalletForAccountDeletion() throws { try clearSession() }
 
     private func persist(_ candidate: LocalWalletAggregate) throws {
         try Self.validate(candidate.snapshot)

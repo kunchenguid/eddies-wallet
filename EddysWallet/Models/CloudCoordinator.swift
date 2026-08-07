@@ -8,7 +8,7 @@ import StoreKit
 /// local household, while a verified Cloud household may be adopted on another
 /// device. The free local wallet keeps working whenever either path fails.
 @MainActor
-public final class CloudCoordinator: ObservableObject {
+public final class CloudCoordinator: ObservableObject, AccountDeletionPerforming {
     public enum Availability: Equatable, Sendable {
         /// Not asked yet, or the answer could not be read.
         case unknown
@@ -54,6 +54,46 @@ public final class CloudCoordinator: ObservableObject {
             nonce: identity.signedNonce
         )
         subscriptions.startObservingIfAuthenticated()
+    }
+
+    /// Reconciles an existing StoreKit entitlement immediately after a fresh
+    /// Apple sign-in, before first-run household discovery. This is how a
+    /// returning parent who deleted their account while an Apple subscription
+    /// remained active re-binds that signed transaction to the new account
+    /// without attempting a second purchase.
+    public func reconcileExistingEntitlementsForFreshSignIn() async {
+        await recoverEntitlements()
+    }
+
+    public func deleteAccount(idempotencyKey: String) async throws -> AccountDeletionResult {
+        try await client.deleteAccount(idempotencyKey: idempotencyKey)
+    }
+
+    public func preflightAccountDeletion() async throws {
+        let context = try await client.context()
+        apply(context)
+    }
+
+    public func clearAuthenticationForAccountDeletion() throws {
+        sessionGeneration += 1
+        try client.clearLocalSessionForAccountDeletion()
+    }
+
+    /// Drops every in-memory StoreKit/session projection that can describe the
+    /// deleted account. The device-local wallet replica is erased separately by
+    /// `WalletStore` before the service deletion request.
+    public func resetAfterAccountDeletion() {
+        sessionGeneration += 1
+        client.clearLocalSession()
+        storeAccountToken = nil
+        plans = []
+        availability = .unknown
+        purchaseAttempt = .idle
+        entitlement = .none
+        household = nil
+        activationConflict = false
+        message = nil
+        subscriptions.resetAfterAccountDeletion()
     }
 
     // MARK: - First-run discovery

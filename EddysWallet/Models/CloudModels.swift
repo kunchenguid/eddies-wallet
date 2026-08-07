@@ -95,6 +95,15 @@ public enum CloudEntitlementState: Equatable, Sendable {
         }
     }
 
+    public var requiresAccountDeletionBillingAcknowledgement: Bool {
+        switch self {
+        case .active(_, autoRenewEnabled: false), .none, .expired, .refunded, .revoked:
+            false
+        case .active(_, autoRenewEnabled: true), .billingGrace, .billingRetry, .verificationPending:
+            true
+        }
+    }
+
     public var permitsLocalContinuation: Bool {
         switch self {
         case .billingRetry, .expired, .refunded, .revoked: true

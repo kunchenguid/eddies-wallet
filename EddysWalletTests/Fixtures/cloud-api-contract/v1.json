@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "description": "Field-level public wire contract for the Cloud surface of the Eddie's Wallet backend. Backend tests assert every live response against this file (tests/api-contract.test.ts); the iOS client asserts its DTOs against the mirrored copy at EddysWalletTests/Fixtures/cloud-api-contract/v1.json. Field names and nullability here are the agreement between the two repositories: a mismatch is what let a fully ready backend look dark to the app and a granted purchase look rejected. Bump `version` and update both repositories together when the wire shape changes; the pinned version in each repository's test makes an unannounced change fail CI.",
   "typeLanguage": {
     "scalars": ["string", "number", "boolean", "string|null", "number|null", "boolean|null", "string[]"],
@@ -27,6 +27,18 @@
               "email": "string|null"
             }
           }
+        }
+      }
+    },
+    "accountDeletion": {
+      "method": "DELETE",
+      "path": "/v1/account",
+      "status": 200,
+      "note": "Requires Authorization and one UUID Idempotency-Key. A terminal success returns status `deleted` or `already-deleted`; no partial or queued status permits the client to erase local data.",
+      "body": {
+        "type": "object",
+        "fields": {
+          "status": "string"
         }
       }
     },

@@ -91,6 +91,9 @@ struct ParentAreaView: View {
 
                     SectionHeader("Settings")
                     settingsCard
+
+                    SectionHeader("Account")
+                    accountCard
                 }
                 .padding(.horizontal, EW.Space.screenMargin)
                 .padding(.top, EW.Space.five)
@@ -102,8 +105,10 @@ struct ParentAreaView: View {
             .navigationTitle("Parent area")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    doneButton
+                if !store.isDeletingAccount && !store.hasDeletedAccount {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        doneButton
+                    }
                 }
             }
             .toolbarBackground(EW.Color.green900, for: .navigationBar)
@@ -494,6 +499,21 @@ struct ParentAreaView: View {
         }
     }
 
+    private var accountCard: some View {
+        NavigationLink {
+            DeleteAccountView()
+        } label: {
+            settingsRowLabel(title: "Delete account and wallet", icon: "trash", role: .destructive)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, EW.Space.five)
+        .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.large, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: EW.Radius.large, style: .continuous).stroke(EW.Color.border, lineWidth: 1)
+        }
+        .accessibilityIdentifier("delete-account-settings")
+    }
+
     private var signOutTitle: String {
         switch store.cloudSignOutMode {
         case .cloudDevice: "Sign out of Cloud on this \(DeviceCopy.deviceNoun)?"
@@ -519,26 +539,30 @@ struct ParentAreaView: View {
 
     private func settingsRow(title: String, icon: String, role: ButtonRole? = nil, isEnabled: Bool = true, accessibilityIdentifier: String? = nil, action: @escaping () -> Void) -> some View {
         Button(role: role, action: action) {
-            HStack(spacing: EW.Space.three) {
-                Image(systemName: icon)
-                    .foregroundStyle(role == .destructive ? EW.Color.red600 : EW.Color.textSecondary)
-                    .frame(width: 24)
-                Text(title)
-                    .font(EW.Font.bodyBold)
-                    .foregroundStyle(role == .destructive ? EW.Color.red600 : EW.Color.textPrimary)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(EW.Color.textTertiary)
-            }
-            .padding(.vertical, EW.Space.three)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+            settingsRowLabel(title: title, icon: icon, role: role)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.5)
         .accessibilityIdentifier(accessibilityIdentifier ?? title)
+    }
+
+    private func settingsRowLabel(title: String, icon: String, role: ButtonRole? = nil) -> some View {
+        HStack(spacing: EW.Space.three) {
+            Image(systemName: icon)
+                .foregroundStyle(role == .destructive ? EW.Color.red600 : EW.Color.textSecondary)
+                .frame(width: 24)
+            Text(title)
+                .font(EW.Font.bodyBold)
+                .foregroundStyle(role == .destructive ? EW.Color.red600 : EW.Color.textPrimary)
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(EW.Color.textTertiary)
+        }
+        .padding(.vertical, EW.Space.three)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
     }
 
     private func stateColor(_ state: SyncState) -> Color {
