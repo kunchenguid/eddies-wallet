@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.11...eddies-wallet-v0.1.12) (2026-08-07)
+
+
+### Features
+
+* add in-app Apple account deletion ([#52](https://github.com/kunchenguid/eddies-wallet/issues/52)) ([9b02592](https://github.com/kunchenguid/eddies-wallet/commit/9b0259261ca223b529fb964d987dcc7c53e976de))
+
 ## [0.1.11](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.10...eddies-wallet-v0.1.11) (2026-08-06)
 
 
