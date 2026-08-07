@@ -11,7 +11,7 @@ struct DeleteAccountView: View {
         case confirmation
         case deleting
         case deleted
-        case unknownOutcome
+        case incomplete
     }
 
     @EnvironmentObject private var store: WalletStore
@@ -42,8 +42,8 @@ struct DeleteAccountView: View {
                     progressContent
                 case .deleted:
                     deletedContent
-                case .unknownOutcome:
-                    unknownOutcomeContent
+                case .incomplete:
+                    incompleteContent
                 }
             }
             .padding(.horizontal, EW.Space.screenMargin)
@@ -67,7 +67,7 @@ struct DeleteAccountView: View {
         case .confirmation: "Delete account"
         case .deleting: "Deleting account"
         case .deleted: "Account deleted"
-        case .unknownOutcome: "Check account deletion"
+        case .incomplete: "Finish account deletion"
         }
     }
 
@@ -107,7 +107,7 @@ struct DeleteAccountView: View {
             deletionDetail("Your household, including your child's profile and nickname")
             deletionDetail("The whole wallet: balance, recorded deposits, withdrawals, allowances, loans, and repayments")
             deletionDetail("Your Cloud backup, if you have one")
-            deletionDetail("This \(DeviceCopy.deviceNoun)'s copy of the wallet and your parent PIN")
+            deletionDetail("This \(DeviceCopy.deviceNoun)'s copy of the wallet and your parent PIN, before the service account")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .ewCard()
@@ -138,7 +138,7 @@ struct DeleteAccountView: View {
 
             Divider().overlay(EW.Color.gold300)
 
-            Text("If \(ProductBrand.displayName) is on another family device, that device keeps its own saved copy until it is signed out there.")
+            Text("If \(ProductBrand.displayName) is on another family device, that device keeps its own saved copy. To remove it, delete the app from that device.")
                 .font(EW.Font.caption)
                 .foregroundStyle(EW.Color.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -219,23 +219,19 @@ struct DeleteAccountView: View {
         .accessibilityIdentifier("delete-account-success")
     }
 
-    private var unknownOutcomeContent: some View {
+    private var incompleteContent: some View {
         VStack(alignment: .leading, spacing: EW.Space.four) {
             Image(systemName: "questionmark.circle.fill")
                 .font(.system(size: 48, weight: .semibold))
                 .foregroundStyle(EW.Color.gold700)
-                .accessibilityHidden(true)
-            Text("We're not sure whether the deletion went through.")
+            Text("We could not confirm account deletion.")
                 .font(EW.Font.display)
-                .foregroundStyle(EW.Color.textPrimary)
-            Text("Sign in again to check. We have not erased this \(DeviceCopy.deviceNoun)'s wallet because the service did not give a definite answer.")
+            Text("This \(DeviceCopy.deviceNoun)'s copy of the wallet is removed. Try again, or sign in later to finish.")
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .ewCard(variant: .alt)
-        .accessibilityIdentifier("delete-account-unknown-outcome")
+        .accessibilityIdentifier("delete-account-incomplete")
     }
 
     @ViewBuilder
@@ -258,12 +254,10 @@ struct DeleteAccountView: View {
             }
             .buttonStyle(PrimaryButtonStyle())
             .accessibilityIdentifier("delete-account-done")
-        case .unknownOutcome:
-            Button("Back to account settings") {
-                screen = .confirmation
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .accessibilityIdentifier("delete-account-unknown-back")
+        case .incomplete:
+            Button("Try again") { retryDeletion() }
+                .buttonStyle(PrimaryButtonStyle())
+                .accessibilityIdentifier("delete-account-incomplete-retry")
         case .deleting:
             EmptyView()
         }
@@ -293,8 +287,19 @@ struct DeleteAccountView: View {
             case .refused(let message):
                 refusalMessage = message
                 screen = .confirmation
-            case .unknownOutcome:
-                screen = .unknownOutcome
+            case .incomplete:
+                screen = .incomplete
+            }
+        }
+    }
+
+    private func retryDeletion() {
+        screen = .deleting
+        Task {
+            switch await store.retryAccountDeletion(idempotencyKey: deletionKey) {
+            case .deleted: screen = .deleted
+            case .incomplete: screen = .incomplete
+            case .refused(let message): refusalMessage = message; screen = .confirmation
             }
         }
     }

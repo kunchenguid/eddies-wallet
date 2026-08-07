@@ -69,7 +69,7 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 
 ## How long data is kept
 
-- **On your device:** for as long as the wallet exists there. Deleting the account and wallet from the Parent area removes this device's wallet database, parent PIN, stored Apple user identifier, session, and cached wallet state immediately.
+- **On your device:** for as long as the wallet exists there. Account deletion first removes this device's wallet database, parent PIN, and cached wallet state, then asks the service to remove the account. The session and Apple user identifier are removed after a confirmed service result.
 - **On the service:** a wallet that has been uploaded is kept until the parent deletes their account and wallet in the app. Letting the Cloud subscription lapse stops the paid features; it does not erase the wallet the service already holds.
 - **Sessions:** these expire. A session stops working once it passes its expiry or is revoked by signing out. The revoked record itself is kept rather than removed.
 - **Backups:** the service's host is backed up daily by its hosting provider. The service also keeps encrypted off-site database backups. A deleted account can remain in an encrypted off-site backup for up to 30 days; those backup copies are then deleted automatically.
@@ -77,9 +77,10 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 ## Deleting your data
 
 - **In-app account deletion:** a parent can open **Parent area** > **Account** > **Delete account and wallet**. The action is behind the parent PIN and requires typing `DELETE` plus an acknowledgement before it is enabled.
-- **What is deleted now:** the service removes the parent account and sign-in, the household, child profile and nickname, wallet balance and ledger history, allowance rules, loans, repayments, Cloud entitlement and StoreKit subscription records. The app then removes this device's wallet copy, parent PIN, parent identity evidence, session, and cached wallet state.
+- **What is deleted now:** the app first removes this device's wallet copy, parent PIN, and cached wallet state, then the service removes the parent account and sign-in, household, child profile and nickname, wallet balance and ledger history, allowance rules, loans, repayments, Cloud entitlement and StoreKit subscription records. If the service result cannot be confirmed, the app says so plainly; the device copy stays removed and the parent can retry or sign in later to finish.
+- **Billing-only record:** to safely reconnect an already-active Apple subscription if the same parent returns, the service retains only an anonymous hash of the Apple identity and its billing token or transaction lineage. It contains no household, child, wallet, ledger, name, or email data; everything else is deleted.
 - **Backup timeline:** the live account and wallet data are removed from the service right away. Encrypted off-site backup copies can remain for up to 30 days and are then deleted automatically.
-- **Other devices:** if the wallet is on another family device, that device keeps its own saved copy until it is signed out there.
+- **Other devices:** if the wallet is on another family device, that device keeps its own saved copy. To remove it, delete the app from that device.
 - **Cloud billing:** deleting an account does not cancel an Apple auto-renewable Cloud subscription. The deletion screen tells the parent that billing continues through Apple, asks them to cancel first, and provides a link to Apple's subscription management settings. Apple keeps the subscription, Apple ID, and Apple purchase history.
 - **Returning after deletion:** a parent who signs in again starts with a fresh account. If the same Apple ID has an active Cloud subscription, the app restores the existing StoreKit entitlement instead of asking Apple to charge for a second subscription.
 - **Wallet never uploaded to the service:** signing out from the Parent area erases that device's wallet database, the parent PIN, the stored Apple user identifier, and any cached wallet snapshot. This is permanent, and there is no other copy.

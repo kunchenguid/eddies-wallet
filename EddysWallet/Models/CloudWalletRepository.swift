@@ -217,17 +217,14 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         client.clearLocalSession()
     }
 
-    /// Erases the protected on-device Cloud replica only after the service has
-    /// definitely deleted the account. Unlike normal Cloud sign-out this does
-    /// not hand the replica back to local authority or issue another server
-    /// request after the account is gone.
-    public func eraseLocalAccountDataAfterRemoteDeletion() throws {
+    /// Retires the protected local replica before DELETE. It intentionally
+    /// keeps the bearer session alive until the service command is sent.
+    public func retireReplicaForAccountDeletion() throws {
         mutationLifecycleGeneration += 1
         try replica.clearSession()
         activeMutation = nil
         activeSettlement?.task.cancel()
         activeSettlement = nil
-        client.clearLocalSession()
     }
 
     // MARK: - Mutation construction

@@ -7,10 +7,10 @@ import XCTest
 /// production service.
 @MainActor
 final class AccountDeletionTests: XCTestCase {
-    func testDefiniteServerDeletionErasesFreeLocalWalletOnlyAfterTheServerCommand() async throws {
+    func testDeletionSendsTheServerCommandOnlyAfterConfirmedLocalErase() async throws {
         let repository = MockWalletRepository(snapshot: .fixture())
         let service = AccountDeletionRecorder(onDelete: {
-            XCTAssertTrue(repository.hasConfiguredKid, "the server command must run before local data is erased")
+            XCTAssertFalse(repository.hasConfiguredKid, "the local wallet must be erased before DELETE")
         })
         let pending = InMemoryPendingCommandStore(commands: [
             WalletCommand(kind: .deposit, amountCents: 100, idempotencyKey: "11111111-1111-4111-8111-111111111111")
@@ -50,7 +50,7 @@ final class AccountDeletionTests: XCTestCase {
         XCTAssertEqual(store.elevation, .none)
     }
 
-    func testUnknownServerOutcomeNeverErasesTheFreeLocalWallet() async throws {
+    func testServerFailureAfterLocalEraseIsIncompleteAndNeverReexposesTheWallet() async throws {
         let repository = MockWalletRepository(snapshot: .fixture())
         let service = AccountDeletionRecorder(result: .failure(.network("The network is unavailable.")))
         let pinStore = InMemoryParentPINStore(pin: "1234")
@@ -69,11 +69,11 @@ final class AccountDeletionTests: XCTestCase {
 
         let outcome = await store.deleteAccount(idempotencyKey: "22222222-2222-4222-8222-222222222222")
 
-        XCTAssertEqual(outcome, .unknownOutcome)
-        XCTAssertTrue(repository.hasConfiguredKid, "local history must survive until the service gives a definite answer")
-        XCTAssertEqual(pinStore.pin, "1234")
-        XCTAssertEqual(identityStore.appleUserID, "synthetic-parent")
-        XCTAssertTrue(store.isSignedIn)
+        XCTAssertEqual(outcome, .incomplete("This \(DeviceCopy.deviceNoun)'s copy of the wallet is removed. We could not confirm your account was removed from the service."))
+        XCTAssertFalse(repository.hasConfiguredKid)
+        XCTAssertNil(pinStore.pin)
+        XCTAssertEqual(identityStore.appleUserID, "synthetic-parent", "credentials remain for the retry")
+        XCTAssertFalse(store.isSignedIn)
         XCTAssertFalse(store.hasDeletedAccount)
     }
 
