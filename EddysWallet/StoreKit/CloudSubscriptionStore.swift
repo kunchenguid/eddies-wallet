@@ -260,6 +260,32 @@ public final class CloudSubscriptionStore: ObservableObject {
         }
     }
 
+    /// Account deletion removes the service binding, so no signed transaction
+    /// or projected entitlement from that account may remain in memory while
+    /// the terminal confirmation is on screen.
+    public func resetAfterAccountDeletion() {
+        recoveryTask?.cancel()
+        updatesTask?.cancel()
+        recoveryTask = nil
+        updatesTask = nil
+        products = []
+        state = .idle
+        lastVerifiedContext = nil
+        deliveriesInFlight.removeAll()
+        let pendingDeliveryWaiters = deliveryWaiters.values.flatMap { $0 }
+        deliveryWaiters.removeAll()
+        for waiter in pendingDeliveryWaiters {
+            waiter.resume()
+        }
+        let pendingSettlementWaiters = deliverySettlementWaiters
+        deliverySettlementWaiters.removeAll()
+        for waiter in pendingSettlementWaiters {
+            waiter.resume()
+        }
+        completedDeliveries.removeAll()
+        deliveryGeneration = 0
+    }
+
     /// Products are usable only when both the backend capability and exactly
     /// the two StoreKit products are available. There is no price fallback.
     public func loadProducts() async {

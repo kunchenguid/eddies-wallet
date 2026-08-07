@@ -104,6 +104,7 @@ final class EddysWalletUITests: XCTestCase {
             XCTAssertFalse(app.buttons[title].exists, "\(title) must not be reachable on the kid home")
         }
         XCTAssertFalse(app.buttons["Sign out"].exists, "Sign out must not be reachable on the kid home")
+        XCTAssertFalse(app.descendants(matching: .any)["delete-account-settings"].exists, "Account deletion must not be reachable on the kid home")
         XCTAssertFalse(app.buttons["Parent"].exists, "No peer role switch on the kid home")
         XCTAssertFalse(app.staticTexts["Parent area"].exists)
     }
@@ -825,6 +826,50 @@ final class EddysWalletUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["Sign in with Apple"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Hi, Eddie"].exists, "No usable family data after sign-out")
+    }
+
+    // Account deletion is an intentionally separate destructive route, behind
+    // the PIN gate, with both deliberate confirmations required before it can
+    // erase even synthetic local fixture data.
+    func testAccountDeletionRequiresTypedAndBillingConfirmationsThenReturnsToWelcome() throws {
+        let app = launch("delete-account")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let entry = app.descendants(matching: .any)["delete-account-settings"]
+        for _ in 0..<10 where !entry.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "Delete account must be inside the PIN-gated Parent area")
+        entry.tap()
+
+        XCTAssertTrue(app.staticTexts["Delete your account and Eddie's Wallet?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "kept for up to 30 days")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "another family device")).firstMatch.exists)
+        XCTAssertTrue(app.buttons["delete-account-manage-subscription"].exists)
+
+        let delete = app.buttons["delete-account-confirm-button"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        XCTAssertFalse(delete.isEnabled, "typing alone and billing acknowledgement alone must not arm deletion")
+
+        let field = app.textFields["delete-account-confirmation-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("DELETE")
+        XCTAssertFalse(delete.isEnabled, "billing acknowledgement remains required after typed confirmation")
+
+        let acknowledgement = app.switches["delete-account-billing-acknowledgement"]
+        XCTAssertTrue(acknowledgement.waitForExistence(timeout: 5))
+        acknowledgement.tap()
+        XCTAssertTrue(delete.isEnabled, "only both confirmations may arm the destructive action")
+
+        delete.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["delete-account-success"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Your account and wallet are deleted."].exists)
+
+        app.buttons["delete-account-done"].tap()
+        XCTAssertTrue(app.buttons["Set up your child's wallet"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Hi, Eddie"].exists, "terminal Done must leave no signed-in child wallet")
     }
 
     // Captain-selected recovery: fresh Sign in with Apple by the owning

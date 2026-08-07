@@ -111,6 +111,50 @@ final class FirstRunExistingWalletTests: XCTestCase {
         XCTAssertTrue(mutatingRequests(transport).isEmpty)
     }
 
+    func testFreshSignInDeliversAnExistingSubscriptionBeforeHouseholdDiscoveryWithoutPurchasingAgain() async throws {
+        let transport = discoveringTransport()
+        let operations = StubCloudStoreKitOperations()
+        operations.entitlementOutcome = CloudStoreKitScanOutcome(verified: [
+            CloudStoreKitTransaction(
+                productID: CloudProductID.monthly,
+                jwsRepresentation: "signed.transaction.from.the.existing.subscription",
+                purchaseDate: .now
+            )
+        ])
+        // This is the backend's successful restored-transaction projection for
+        // the new account. A mismatch would be a 403 instead; no new purchase
+        // can repair an active Apple auto-renewing subscription.
+        transport.stub("POST", "/v1/cloud/transactions", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.stub("GET", "/v1/cloud/legacy-context", FirstRunFixtures.noHouseholdContext)
+
+        let client = CloudAPIClient(
+            baseURL: Self.baseURL,
+            sessionStore: InMemorySessionStore(),
+            transport: transport
+        )
+        let coordinator = CloudCoordinator(
+            client: client,
+            subscriptions: CloudSubscriptionStore(client: client, storeKit: operations, observeTransactions: false)
+        )
+        let store = try makeStore(transport: transport, cloudCoordinator: coordinator)
+
+        await store.signInWithApple()
+
+        let delivered = transport.requests.filter { $0.url?.path == "/v1/cloud/transactions" }
+        XCTAssertEqual(delivered.count, 1, "one existing entitlement is delivered once for re-binding")
+        let delivery = try XCTUnwrap(delivered.first)
+        let deliveryBody = try XCTUnwrap(delivery.httpBody)
+        let decodedDelivery = try XCTUnwrap(try JSONSerialization.jsonObject(with: deliveryBody) as? [String: Any])
+        XCTAssertEqual(decodedDelivery["signedTransaction"] as? String, "signed.transaction.from.the.existing.subscription")
+        XCTAssertEqual(operations.purchaseCallCount, 0, "a returning subscriber must never be sent through a new purchase")
+        XCTAssertGreaterThanOrEqual(operations.currentEntitlementsCallCount, 1, "fresh sign-in must inspect existing StoreKit entitlements")
+        let deliveryIndex = try XCTUnwrap(transport.requests.firstIndex { $0.url?.path == "/v1/cloud/transactions" })
+        let discoveryIndex = try XCTUnwrap(transport.requests.firstIndex { $0.url?.path == "/v1/cloud/legacy-context" })
+        XCTAssertLessThan(deliveryIndex, discoveryIndex, "re-binding finishes before the fresh-account household decision")
+        XCTAssertEqual(store.rootRoute, .setup, "the deleted household stays deleted; only the paid entitlement is restored")
+    }
+
     // MARK: - Accepting the offered wallet
 
     func testAcceptingTheOfferedWalletRecoversEveryWalletFactWithoutResetup() async throws {
@@ -608,7 +652,8 @@ final class FirstRunExistingWalletTests: XCTestCase {
     private func makeStore(
         transport: RoutingTransport,
         provider: FirstRunSignInProvider? = nil,
-        identityStore: InMemoryParentIdentityStore? = nil
+        identityStore: InMemoryParentIdentityStore? = nil,
+        cloudCoordinator: CloudCoordinator? = nil
     ) throws -> WalletStore {
         let local = try LocalWalletRepository(directory: directory)
         return WalletStore(
@@ -617,7 +662,7 @@ final class FirstRunExistingWalletTests: XCTestCase {
             initiallySignedIn: false,
             pinStore: InMemoryParentPINStore(),
             identityStore: identityStore ?? InMemoryParentIdentityStore(),
-            cloudCoordinator: coordinator(transport: transport, session: nil)
+            cloudCoordinator: cloudCoordinator ?? coordinator(transport: transport, session: nil)
         )
     }
 

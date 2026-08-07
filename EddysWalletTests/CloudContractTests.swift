@@ -26,6 +26,57 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(request.httpBody?.jsonObject()["nonce"] as? String, "signed-nonce")
     }
 
+    // MARK: - Account deletion
+
+    func testAccountDeletionSendsTheAuthenticatedDeleteWithOneIdempotencyKeyAndRequiresATerminalBody() async throws {
+        let transport = StubTransport(responses: [.init(statusCode: 200, body: Data("{\"status\":\"deleted\",\"deletedAt\":\"2026-08-06T00:00:00Z\"}".utf8))])
+        let client = CloudAPIClient(
+            baseURL: Self.baseURL,
+            sessionStore: InMemorySessionStore(session: session),
+            transport: transport
+        )
+
+        let result = try await client.deleteAccount(idempotencyKey: "33333333-3333-4333-8333-333333333333")
+
+        XCTAssertEqual(result, .deleted)
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.url?.path, "/v1/account")
+        XCTAssertEqual(request.httpMethod, "DELETE")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(session.token)")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Idempotency-Key"), "33333333-3333-4333-8333-333333333333")
+        XCTAssertNil(request.httpBody)
+    }
+
+    func testAccountDeletionAcceptsTheExplicitAlreadyDeletedTerminalResponse() async throws {
+        let client = CloudAPIClient(
+            baseURL: Self.baseURL,
+            sessionStore: InMemorySessionStore(session: session),
+            transport: StubTransport(responses: [.init(statusCode: 200, body: Data("{\"status\":\"already-deleted\"}".utf8))])
+        )
+
+        let result = try await client.deleteAccount(idempotencyKey: "33333333-3333-4333-8333-333333333333")
+
+        XCTAssertEqual(result, .alreadyDeleted)
+    }
+
+    func testAccountDeletionDoesNotTreatAMalformedSuccessAsADeletedAccount() async throws {
+        let client = CloudAPIClient(
+            baseURL: Self.baseURL,
+            sessionStore: InMemorySessionStore(session: session),
+            transport: StubTransport(responses: [.init(statusCode: 200, body: Data("{\"status\":\"queued\"}".utf8))])
+        )
+
+        do {
+            _ = try await client.deleteAccount(idempotencyKey: "33333333-3333-4333-8333-333333333333")
+            XCTFail("a non-terminal body must never be read as a deleted account")
+        } catch {
+            XCTAssertEqual(
+                error as? WalletAPIError,
+                .invalidResponse("The service did not confirm whether the account was deleted.")
+            )
+        }
+    }
+
     // MARK: - Capability
 
     func testCapabilityDecodesTheBackendProductsFieldAndGatesOnExactProducts() async throws {
@@ -457,7 +508,7 @@ final class CloudContractTests: XCTestCase {
     func testShippedClientMatchesTheSharedPublicContractFixture() throws {
         let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "v1", withExtension: "json", subdirectory: "Fixtures/cloud-api-contract"))
         let contract = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        XCTAssertEqual(contract["version"] as? Int, 2, "a wire-contract version bump must be reconciled in both repositories")
+        XCTAssertEqual(contract["version"] as? Int, 3, "a wire-contract version bump must be reconciled in both repositories")
         let endpoints = try XCTUnwrap(contract["endpoints"] as? [String: Any])
 
         func endpoint(_ name: String) throws -> [String: Any] {
@@ -469,6 +520,12 @@ final class CloudContractTests: XCTestCase {
         }
 
         XCTAssertEqual(Set(try fields("cloudAuthentication").keys), ["token", "expiresAt", "parent"])
+
+        let accountDeletion = try endpoint("accountDeletion")
+        XCTAssertEqual(accountDeletion["method"] as? String, "DELETE")
+        XCTAssertEqual(accountDeletion["path"] as? String, "/v1/account")
+        XCTAssertEqual(accountDeletion["status"] as? Int, 200)
+        XCTAssertEqual(Set(try fields("accountDeletion").keys), ["status"])
 
         // Capability: the product ids live under `products`, which is the key the
         // client decodes into productIDs.
@@ -498,8 +555,8 @@ final class CloudContractTests: XCTestCase {
         XCTAssertTrue(verified.entitlementState.grantsCloud)
         XCTAssertEqual(verified.revision, 4, "the revision the next Cloud write must send is readable")
 
-        // Version 2 is strictly additive: first-run discovery and the settled
-        // transition, with every earlier shape unchanged.
+        // Version 2 added first-run discovery and the settled transition;
+        // version 3 adds account deletion without changing earlier shapes.
         let legacyContextFields = try fields("cloudLegacyContext")
         XCTAssertEqual(Set(legacyContextFields.keys), ["household", "entitlement", "exportAvailable"])
         XCTAssertEqual(try endpoint("cloudLegacyContext")["path"] as? String, "/v1/cloud/legacy-context")

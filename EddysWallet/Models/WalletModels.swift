@@ -568,6 +568,22 @@ public protocol ParentAuthenticator: AnyObject {
     func authenticateApple(identityToken: String, nonce: String) async throws -> AuthSession
 }
 
+/// The only definite server outcomes for an account-delete request. Any
+/// missing, malformed, or transport-level response remains intentionally
+/// distinct so the client never calls an unobserved deletion complete.
+public enum AccountDeletionResult: Equatable, Sendable {
+    case deleted
+    case alreadyDeleted
+}
+
+/// Service boundary for the irreversible account-delete command. Keeping it
+/// separate from a wallet repository lets even a free local wallet delete the
+/// backend parent identity created during Apple sign-in before local data goes.
+@MainActor
+public protocol AccountDeletionPerforming: AnyObject {
+    func deleteAccount(idempotencyKey: String) async throws -> AccountDeletionResult
+}
+
 @MainActor
 public final class MockWalletRepository: WalletRepository {
     private var current: WalletSnapshot

@@ -37,7 +37,8 @@ enum DebugLaunchScenario {
             authority: WalletAuthorityState? = nil,
             purchase: PurchaseAttemptState = .idle,
             entitlement: CloudEntitlementState = .none,
-            hasValidCloudReplica: Bool? = nil
+            hasValidCloudReplica: Bool? = nil,
+            accountDeletionService: (any AccountDeletionPerforming)? = nil
         ) -> WalletStore {
             let result = WalletStore(
                 repository: repository,
@@ -45,7 +46,8 @@ enum DebugLaunchScenario {
                 initiallySignedIn: signedIn,
                 pinStore: InMemoryParentPINStore(pin: pin),
                 identityStore: InMemoryParentIdentityStore(appleUserID: knownOwner ? owningParentAppleUserID : nil),
-                gatePolicy: gatePolicy
+                gatePolicy: gatePolicy,
+                accountDeletionService: accountDeletionService
             )
             if let authority {
                 result.applyDebugCloudState(
@@ -63,6 +65,19 @@ enum DebugLaunchScenario {
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)))
         case "configured-empty":
             return store(repository: MockWalletRepository(snapshot: emptySnapshot(environment: environment)))
+        case "delete-account":
+            return store(
+                repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)),
+                accountDeletionService: ScriptedAccountDeletionService()
+            )
+        case "delete-account-subscribed":
+            return store(
+                repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)),
+                authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
+                entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+                hasValidCloudReplica: true,
+                accountDeletionService: ScriptedAccountDeletionService()
+            )
         case "offline":
             let repository = ScriptedWalletRepository(
                 snapshot: snapshot(legacyCachedSnapshot(), environment: environment),
@@ -347,6 +362,16 @@ final class ReconnectingWalletRepository: WalletRepository {
 
     private func unreachable() -> WalletAPIError {
         .network("The network is unavailable. The accepted balance was not changed.")
+    }
+}
+
+@MainActor
+private final class ScriptedAccountDeletionService: AccountDeletionPerforming {
+    func deleteAccount(idempotencyKey: String) async throws -> AccountDeletionResult {
+        guard UUID(uuidString: idempotencyKey) != nil else {
+            throw WalletAPIError.invalidResponse("The account deletion request needs a valid confirmation key.")
+        }
+        return .deleted
     }
 }
 

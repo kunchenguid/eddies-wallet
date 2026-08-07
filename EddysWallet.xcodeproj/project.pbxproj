@@ -42,12 +42,14 @@
 		301000000000000000000024 /* CloudSubscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 208000000000000000000001 /* CloudSubscriptionStore.swift */; };
 		301000000000000000000025 /* CloudStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F000000000000000000009 /* CloudStatusView.swift */; };
 		301000000000000000000026 /* WalletModel.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 207000000000000000000003 /* WalletModel.xcdatamodeld */; };
+		301000000000000000000027 /* DeleteAccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F00000000000000000000A /* DeleteAccountView.swift */; };
 		301000000000000000000028 /* LocalWalletPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000002 /* LocalWalletPersistenceTests.swift */; };
 		301000000000000000000029 /* CloudStoreConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000003 /* CloudStoreConfigurationTests.swift */; };
 		30100000000000000000002A /* CloudContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000004 /* CloudContractTests.swift */; };
 		30100000000000000000002B /* CloudVerticalSliceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000005 /* CloudVerticalSliceTests.swift */; };
 		30100000000000000000002C /* FirstRunExistingWalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000006 /* FirstRunExistingWalletTests.swift */; };
 		30100000000000000000002D /* ChildHomeRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000007 /* ChildHomeRefreshTests.swift */; };
+		30100000000000000000002E /* AccountDeletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000008 /* AccountDeletionTests.swift */; };
 		30100000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20A000000000000000000001 /* Assets.xcassets */; };
 		3010000000000000000000F1 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 20E0000000000000000000F1 /* Fixtures */; };
 		30100000000000000000000B /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B000000000000000000001 /* WalletTests.swift */; };
@@ -94,12 +96,14 @@
 		208000000000000000000001 /* CloudSubscriptionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSubscriptionStore.swift; sourceTree = "<group>"; };
 		208000000000000000000002 /* EddysWallet.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = ../Configuration/EddysWallet.storekit; sourceTree = "<group>"; };
 		20F000000000000000000009 /* CloudStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStatusView.swift; sourceTree = "<group>"; };
+		20F00000000000000000000A /* DeleteAccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeleteAccountView.swift; sourceTree = "<group>"; };
 		20E000000000000000000002 /* LocalWalletPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalWalletPersistenceTests.swift; sourceTree = "<group>"; };
 		20E000000000000000000003 /* CloudStoreConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStoreConfigurationTests.swift; sourceTree = "<group>"; };
 		20E000000000000000000004 /* CloudContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudContractTests.swift; sourceTree = "<group>"; };
 		20E000000000000000000005 /* CloudVerticalSliceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVerticalSliceTests.swift; sourceTree = "<group>"; };
 		20E000000000000000000006 /* FirstRunExistingWalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunExistingWalletTests.swift; sourceTree = "<group>"; };
 		20E000000000000000000007 /* ChildHomeRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildHomeRefreshTests.swift; sourceTree = "<group>"; };
+		20E000000000000000000008 /* AccountDeletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionTests.swift; sourceTree = "<group>"; };
 		212000000000000000000001 /* EddysWalletUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		210000000000000000000001 /* EddysWallet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EddysWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		211000000000000000000001 /* EddysWalletTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -206,6 +210,7 @@
 				20F000000000000000000009 /* CloudStatusView.swift */,
 				2090000000000000000000A5 /* CloudDiagnosticsView.swift */,
 				2090000000000000000000A7 /* CloudRecoveryEvidenceView.swift */,
+				20F00000000000000000000A /* DeleteAccountView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -222,6 +227,7 @@
 				20E000000000000000000005 /* CloudVerticalSliceTests.swift */,
 				20E000000000000000000006 /* FirstRunExistingWalletTests.swift */,
 				20E000000000000000000007 /* ChildHomeRefreshTests.swift */,
+				20E000000000000000000008 /* AccountDeletionTests.swift */,
 				20E0000000000000000000F1 /* Fixtures */,
 			);
 			path = EddysWalletTests;
@@ -388,6 +394,7 @@
 				301000000000000000000024 /* CloudSubscriptionStore.swift in Sources */,
 				301000000000000000000025 /* CloudStatusView.swift in Sources */,
 				301000000000000000000026 /* WalletModel.xcdatamodeld in Sources */,
+				301000000000000000000027 /* DeleteAccountView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -404,6 +411,7 @@
 				30100000000000000000002B /* CloudVerticalSliceTests.swift in Sources */,
 				30100000000000000000002C /* FirstRunExistingWalletTests.swift in Sources */,
 				30100000000000000000002D /* ChildHomeRefreshTests.swift in Sources */,
+				30100000000000000000002E /* AccountDeletionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
