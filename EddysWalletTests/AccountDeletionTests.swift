@@ -431,10 +431,11 @@ final class AccountDeletionTests: XCTestCase {
         XCTAssertTrue(store.isSignedIn)
         XCTAssertEqual(store.rootRoute, .kidHome)
         XCTAssertEqual(store.snapshot, repository.childSnapshot())
-        XCTAssertNotNil(store.errorMessage)
+        let message = try XCTUnwrap(store.errorMessage)
+        XCTAssertTrue(message.contains("still available"), "the wallet genuinely remains, so the banner truthfully says so")
     }
 
-    func testSignOutFlushFailureAfterEraseSurfacesErrorWithoutClearingCredentials() async throws {
+    func testSignOutUnconfirmedFlushAfterEraseCompletesSignOutWithTruthfulMessage() async throws {
         let persistence = TestLocalPersistence()
         let repository = try LocalWalletRepository(persistence: persistence)
         _ = try await repository.setup(ParentSetup(nickname: "Eddie"))
@@ -442,11 +443,12 @@ final class AccountDeletionTests: XCTestCase {
         let cache = TestSnapshotCache(snapshot: .fixture())
         let configured = InMemoryConfiguredKidStore(isConfigured: true)
         let pinStore = InMemoryParentPINStore(pin: "1234")
+        let identityStore = InMemoryParentIdentityStore(appleUserID: "synthetic-parent")
         let store = WalletStore(
             repository: repository,
             initiallySignedIn: true,
             pinStore: pinStore,
-            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
+            identityStore: identityStore,
             accountDeletionPendingStore: pending,
             accountDeletionSnapshotCache: cache,
             accountDeletionConfiguredKidStore: configured,
@@ -457,12 +459,18 @@ final class AccountDeletionTests: XCTestCase {
         store.signOut()
 
         XCTAssertFalse(repository.hasConfiguredKid, "sign-out erases the wallet first, so a later flush failure still leaves it gone")
-        XCTAssertTrue(store.isSignedIn, "the aborted sign-out returns before clearing the session")
+        XCTAssertFalse(store.isSignedIn, "the erase succeeded, so sign-out completes rather than leaving a torn signed-in state")
         XCTAssertTrue(pending.load().isEmpty)
         XCTAssertNil(cache.load())
         XCTAssertFalse(configured.isConfigured)
-        XCTAssertEqual(pinStore.pin, "1234", "the PIN clear runs only after a confirmed erase-and-flush")
-        XCTAssertNotNil(store.errorMessage)
+        XCTAssertNil(pinStore.pin, "the erase already happened, so the PIN is cleared with the rest of the local credentials")
+        XCTAssertNil(identityStore.appleUserID)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 0)
+        XCTAssertNil(store.snapshot.childNickname)
+        XCTAssertTrue(store.snapshot.activities.isEmpty)
+        XCTAssertEqual(store.elevation, .none)
+        let message = try XCTUnwrap(store.errorMessage)
+        XCTAssertFalse(message.contains("still available"), "the banner must not claim the erased wallet is still available")
     }
 
     func testFinalRenewingEntitlementRequiresAcknowledgementBeforeLocalErase() async {

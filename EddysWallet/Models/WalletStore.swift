@@ -1159,11 +1159,14 @@ public final class WalletStore: ObservableObject {
         guard elevation == .active || isPreFamilySetup else { return }
         refreshGeneration += 1
         firstRunDecisionGeneration += 1
+        var cleanupUnconfirmed = false
         do {
             try eraseLocalWalletSurfaces()
-        } catch {
+        } catch SharedLocalEraseError.finalErase {
             errorMessage = "Sign out could not finish. The wallet is still available on this device."
             return
+        } catch {
+            cleanupUnconfirmed = true
         }
         invalidateCloudActivation()
         cloudCoordinator?.clearLocalSession()
@@ -1178,7 +1181,9 @@ public final class WalletStore: ObservableObject {
         identityStore.clear()
         try? pinStore.clear()
         snapshot = .empty()
-        errorMessage = nil
+        errorMessage = cleanupUnconfirmed
+            ? "Signed out. This \(DeviceCopy.deviceNoun)'s wallet is erased, but cleanup could not be fully confirmed."
+            : nil
         sessionExpired = false
         isOffline = false
         showsFirstActionsHandoff = false
