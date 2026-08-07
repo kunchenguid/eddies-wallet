@@ -367,6 +367,8 @@ final class ReconnectingWalletRepository: WalletRepository {
 
 @MainActor
 private final class ScriptedAccountDeletionService: AccountDeletionPerforming {
+    func preflightAccountDeletion() async throws {}
+
     func deleteAccount(idempotencyKey: String) async throws -> AccountDeletionResult {
         guard UUID(uuidString: idempotencyKey) != nil else {
             throw WalletAPIError.invalidResponse("The account deletion request needs a valid confirmation key.")

@@ -69,9 +69,19 @@ public final class CloudCoordinator: ObservableObject, AccountDeletionPerforming
         try await client.deleteAccount(idempotencyKey: idempotencyKey)
     }
 
+    public func preflightAccountDeletion() async throws {
+        let context = try await client.context()
+        apply(context)
+    }
+
+    public func clearAuthenticationForAccountDeletion() throws {
+        sessionGeneration += 1
+        try client.clearLocalSessionForAccountDeletion()
+    }
+
     /// Drops every in-memory StoreKit/session projection that can describe the
     /// deleted account. The device-local wallet replica is erased separately by
-    /// `WalletStore` after the server has definitely accepted deletion.
+    /// `WalletStore` before the service deletion request.
     public func resetAfterAccountDeletion() {
         sessionGeneration += 1
         client.clearLocalSession()

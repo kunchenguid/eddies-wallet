@@ -11,9 +11,9 @@ public enum WalletRootRoute: Equatable, Sendable {
     case recovery
 }
 
-/// Presentation outcome for the irreversible account-delete command. Only a
-/// named server success permits local erasure; a lost or unreadable answer is
-/// intentionally shown as unknown rather than treated as a successful delete.
+/// Presentation outcome for the irreversible account-delete command. A lost
+/// or unreadable server answer after local erasure remains intentionally
+/// distinct from confirmed deletion.
 public enum AccountDeletionAttemptOutcome: Equatable, Sendable {
     case deleted
     case refused(String)
@@ -165,6 +165,7 @@ public final class WalletStore: ObservableObject {
     @Published public private(set) var authorityState: WalletAuthorityState
     @Published public private(set) var purchaseAttempt: PurchaseAttemptState = .idle
     @Published public private(set) var cloudEntitlement: CloudEntitlementState = .none
+    @Published public private(set) var accountDeletionEntitlement: CloudEntitlementState?
     /// Transient parent elevation over the kid home. In-memory only, never
     /// persisted: a cold launch of a configured app always rests on the kid
     /// home, and backgrounding drops any parent context immediately.
@@ -177,6 +178,7 @@ public final class WalletStore: ObservableObject {
     /// True only while a DELETE request is in flight. Parent-area exit is
     /// disabled then because the server command cannot be cancelled safely.
     @Published public private(set) var isDeletingAccount = false
+    @Published public private(set) var accountDeletionPresentation: AccountDeletionPresentation? = nil
     /// A definite server success has erased this device. The terminal screen
     /// stays up until its Done action deliberately returns to Welcome.
     @Published public private(set) var hasDeletedAccount = false
@@ -215,6 +217,7 @@ public final class WalletStore: ObservableObject {
     private let cloudCoordinator: CloudCoordinator?
     private var cloudObservation: Task<Void, Never>?
     private var cloudActivationTask: Task<Void, Never>?
+    private var cloudActivationGeneration = 0
     private let pinStore: any ParentPINStore
     private let identityStore: any ParentIdentityStore
     private let accountDeletionService: (any AccountDeletionPerforming)?
@@ -222,6 +225,7 @@ public final class WalletStore: ObservableObject {
     private let accountDeletionSnapshotCache: any WalletSnapshotCache
     private let accountDeletionConfiguredKidStore: any ConfiguredKidStore
     private let accountDeletionFlush: () -> Bool
+    private var serverConfirmedAccountDeletionID: String?
     /// Opens the protected local store that a service-held wallet is mirrored
     /// into. Used only when a legacy device converges onto Cloud authority.
     private let localReplicaProvider: () throws -> LocalWalletRepository
@@ -1156,11 +1160,12 @@ public final class WalletStore: ObservableObject {
         refreshGeneration += 1
         firstRunDecisionGeneration += 1
         do {
-            try repository.clearSession()
+            try eraseLocalWalletSurfaces()
         } catch {
-            errorMessage = "This wallet could not be erased. Nothing else was removed."
+            errorMessage = "Sign out could not finish. The wallet is still available on this device."
             return
         }
+        invalidateCloudActivation()
         cloudCoordinator?.clearLocalSession()
         authorityState = .unconfigured
         purchaseAttempt = .idle
@@ -1170,8 +1175,8 @@ public final class WalletStore: ObservableObject {
         existingWalletNotice = nil
         isSignedIn = false
         needsSetup = false
-        pinStore.clear()
         identityStore.clear()
+        try? pinStore.clear()
         snapshot = .empty()
         errorMessage = nil
         sessionExpired = false
@@ -1183,9 +1188,12 @@ public final class WalletStore: ObservableObject {
 
     // MARK: - Account deletion
 
-    /// The confirmed Core Data erase happens before DELETE, so a deleted
-    /// account can never coexist with a wallet this device can render.
-    public func deleteAccount(idempotencyKey: String) async -> AccountDeletionAttemptOutcome {
+    /// A failed Core Data erase refuses before DELETE and leaves the
+    /// authoritative wallet available. Incomplete begins after local erase.
+    public func deleteAccount(
+        idempotencyKey: String,
+        acknowledgedBillingRisk: Bool = false
+    ) async -> AccountDeletionAttemptOutcome {
         guard elevation == .active, !isDeletingAccount, !hasDeletedAccount else {
             return .refused("Only the Parent area can delete your account.")
         }
@@ -1195,29 +1203,61 @@ public final class WalletStore: ObservableObject {
             return .refused("Sign in with Apple again before deleting this account.")
         }
         isDeletingAccount = true
+        serverConfirmedAccountDeletionID = nil
+        accountDeletionPresentation = .deleting(idempotencyKey: idempotencyKey)
         errorMessage = nil
         defer { isDeletingAccount = false }
-        if let cloudCoordinator {
-            guard await ensureCloudSession(), await cloudCoordinator.refreshContext() != nil else {
+        if cloudCoordinator != nil {
+            guard await ensureCloudSession() else {
+                accountDeletionPresentation = nil
                 return .refused("Deleting your account needs an internet connection. Nothing was deleted.")
             }
         }
-        let cloudRepository = repository as? CloudWalletRepository
+        do {
+            try await accountDeletionService.preflightAccountDeletion()
+        } catch {
+            accountDeletionPresentation = nil
+            return .refused("Deleting your account needs an internet connection. Nothing was deleted.")
+        }
+        if let cloudCoordinator {
+            accountDeletionEntitlement = cloudCoordinator.entitlement
+            guard !cloudCoordinator.entitlement.requiresAccountDeletionBillingAcknowledgement || acknowledgedBillingRisk else {
+                accountDeletionPresentation = nil
+                return .refused("Review and acknowledge the updated Apple subscription warning before deleting your account.")
+            }
+        }
         do {
             try eraseLocalWalletSurfaces()
+        } catch SharedLocalEraseError.finalErase(_) {
+            accountDeletionPresentation = nil
+            return .refused("This \(DeviceCopy.deviceNoun)'s wallet could not be erased, so the account was not deleted.")
+        } catch SharedLocalEraseError.unconfirmedFlush {
+            publishLocalAccountDeletion()
+            accountDeletionPresentation = .incomplete(idempotencyKey: idempotencyKey)
+            return .incomplete("This \(DeviceCopy.deviceNoun)'s copy of the wallet is removed. We could not confirm your account was removed from the service.")
         } catch {
-            return .refused("This \(DeviceCopy.deviceNoun)'s wallet could not be erased, so nothing was deleted.")
+            accountDeletionPresentation = nil
+            return .refused("The wallet remains on this \(DeviceCopy.deviceNoun), so the account was not deleted.")
         }
         publishLocalAccountDeletion()
         do {
             _ = try await accountDeletionService.deleteAccount(idempotencyKey: idempotencyKey)
         } catch {
+            accountDeletionPresentation = .incomplete(idempotencyKey: idempotencyKey)
             return .incomplete("This \(DeviceCopy.deviceNoun)'s copy of the wallet is removed. We could not confirm your account was removed from the service.")
         }
-        identityStore.clear()
-        cloudRepository?.clearAuthentication()
+        serverConfirmedAccountDeletionID = idempotencyKey
+        do {
+            try clearAccountDeletionCredentials()
+        } catch {
+            cloudCoordinator?.resetAfterAccountDeletion()
+            accountDeletionPresentation = .incomplete(idempotencyKey: idempotencyKey)
+            return .incomplete("The account was removed from the service, but this \(DeviceCopy.deviceNoun) could not confirm credential cleanup.")
+        }
         cloudCoordinator?.resetAfterAccountDeletion()
+        serverConfirmedAccountDeletionID = nil
         hasDeletedAccount = true
+        accountDeletionPresentation = .deleted
         return .deleted
     }
 
@@ -1227,29 +1267,61 @@ public final class WalletStore: ObservableObject {
     public func finishAccountDeletion() {
         guard hasDeletedAccount else { return }
         hasDeletedAccount = false
+        serverConfirmedAccountDeletionID = nil
+        accountDeletionPresentation = nil
         deElevate()
     }
 
+    public func finishAccountDeletionLater() {
+        guard case .incomplete = accountDeletionPresentation, !isDeletingAccount else { return }
+        serverConfirmedAccountDeletionID = nil
+        accountDeletionPresentation = nil
+        if elevation != .none {
+            deElevate()
+        }
+    }
+
+    /// Phase 1 has one abort boundary: the transactional repository erase.
+    /// A refusal means that commit threw before changing any device surface.
+    /// After it succeeds, later failures are incomplete by definition.
     private func eraseLocalWalletSurfaces() throws {
+        do {
+            try performFinalWalletErase()
+        } catch {
+            throw SharedLocalEraseError.finalErase(error)
+        }
         accountDeletionPendingStore.clear()
         accountDeletionSnapshotCache.clear()
         accountDeletionConfiguredKidStore.clear()
-        pinStore.clear()
-        guard accountDeletionFlush() else {
-            throw WalletAPIError.invalidResponse("This device could not confirm its local cleanup.")
-        }
+        guard accountDeletionFlush() else { throw SharedLocalEraseError.unconfirmedFlush }
+    }
+
+    private func performFinalWalletErase() throws {
         if let cloud = repository as? CloudWalletRepository {
             try cloud.retireReplicaForAccountDeletion()
-            repository = try localReplicaProvider()
-            guard !repository.hasConfiguredKid else { throw WalletAPIError.invalidResponse("This device could not erase its Cloud copy.") }
+        } else if let retiringRepository = repository as? any AccountDeletionLocalRetiring {
+            try retiringRepository.retireLocalWalletForAccountDeletion()
         } else {
-            try repository.clearSession()
+            throw WalletAPIError.invalidResponse("This device could not erase its wallet safely.")
         }
+    }
+
+    private enum SharedLocalEraseError: Error {
+        case finalErase(Error)
+        case unconfirmedFlush
+    }
+
+    private func clearAccountDeletionCredentials() throws {
+        try repository.clearAuthenticationForAccountDeletion()
+        try cloudCoordinator?.clearAuthenticationForAccountDeletion()
+        try identityStore.clearForAccountDeletion()
+        try pinStore.clear()
     }
 
     private func publishLocalAccountDeletion() {
         refreshGeneration += 1
         firstRunDecisionGeneration += 1
+        invalidateCloudActivation()
         authorityState = .unconfigured
         purchaseAttempt = .idle
         cloudEntitlement = .none
@@ -1272,20 +1344,77 @@ public final class WalletStore: ObservableObject {
     }
 
     public func retryAccountDeletion(idempotencyKey: String) async -> AccountDeletionAttemptOutcome {
-        guard !isDeletingAccount, let accountDeletionService else {
+        guard !isDeletingAccount, UUID(uuidString: idempotencyKey) != nil else {
             return .refused("Account deletion is unavailable in this build.")
         }
         isDeletingAccount = true
+        accountDeletionPresentation = .deleting(idempotencyKey: idempotencyKey)
         defer { isDeletingAccount = false }
-        do {
-            _ = try await accountDeletionService.deleteAccount(idempotencyKey: idempotencyKey)
-            identityStore.clear()
+        if serverConfirmedAccountDeletionID == idempotencyKey {
+            do {
+                try clearAccountDeletionCredentials()
+            } catch {
+                cloudCoordinator?.resetAfterAccountDeletion()
+                accountDeletionPresentation = .incomplete(idempotencyKey: idempotencyKey)
+                return .incomplete("The account was removed from the service, but this \(DeviceCopy.deviceNoun) could not confirm credential cleanup.")
+            }
             cloudCoordinator?.resetAfterAccountDeletion()
+            serverConfirmedAccountDeletionID = nil
             hasDeletedAccount = true
+            accountDeletionPresentation = .deleted
             return .deleted
+        }
+        guard let accountDeletionService else {
+            accountDeletionPresentation = .incomplete(idempotencyKey: idempotencyKey)
+            return .refused("Account deletion is unavailable in this build.")
+        }
+        do {
+            try eraseLocalWalletSurfaces()
+        } catch SharedLocalEraseError.unconfirmedFlush {
+            accountDeletionPresentation = .incomplete(idempotencyKey: idempotencyKey)
+            return .incomplete("This \(DeviceCopy.deviceNoun)'s copy of the wallet is removed. We could not confirm your account was removed from the service.")
         } catch {
+            accountDeletionPresentation = .incomplete(idempotencyKey: idempotencyKey)
             return .incomplete("This \(DeviceCopy.deviceNoun)'s copy of the wallet is removed. We could not confirm your account was removed from the service.")
         }
+        if cloudCoordinator != nil {
+            guard await ensureCloudSession() else {
+                accountDeletionPresentation = .incomplete(idempotencyKey: idempotencyKey)
+                return .incomplete("This \(DeviceCopy.deviceNoun)'s copy of the wallet is removed. We could not confirm your account was removed from the service.")
+            }
+        }
+        do {
+            _ = try await accountDeletionService.deleteAccount(idempotencyKey: idempotencyKey)
+        } catch {
+            accountDeletionPresentation = .incomplete(idempotencyKey: idempotencyKey)
+            return .incomplete("This \(DeviceCopy.deviceNoun)'s copy of the wallet is removed. We could not confirm your account was removed from the service.")
+        }
+        serverConfirmedAccountDeletionID = idempotencyKey
+        do {
+            try clearAccountDeletionCredentials()
+        } catch {
+            cloudCoordinator?.resetAfterAccountDeletion()
+            accountDeletionPresentation = .incomplete(idempotencyKey: idempotencyKey)
+            return .incomplete("The account was removed from the service, but this \(DeviceCopy.deviceNoun) could not confirm credential cleanup.")
+        }
+        cloudCoordinator?.resetAfterAccountDeletion()
+        serverConfirmedAccountDeletionID = nil
+        hasDeletedAccount = true
+        accountDeletionPresentation = .deleted
+        return .deleted
+    }
+
+    public func refreshAccountDeletionContext() async {
+        guard elevation == .active, let cloudCoordinator else {
+            accountDeletionEntitlement = cloudCoordinator == nil ? cloudEntitlement : nil
+            return
+        }
+        guard await ensureCloudSession(), await cloudCoordinator.refreshContext() != nil else {
+            accountDeletionEntitlement = nil
+            return
+        }
+        cloudEntitlement = cloudCoordinator.entitlement
+        accountDeletionEntitlement = cloudCoordinator.entitlement
     }
 
     // MARK: - Cloud (optional, guarded)
@@ -1453,6 +1582,7 @@ public final class WalletStore: ObservableObject {
 
     private func adoptCoordinatorState() async {
         guard let cloudCoordinator else { return }
+        guard permitsCloudActivation else { return }
         purchaseAttempt = cloudCoordinator.purchaseAttempt
         cloudEntitlement = cloudCoordinator.entitlement
         cloudMessage = cloudCoordinator.message
@@ -1486,6 +1616,7 @@ public final class WalletStore: ObservableObject {
     /// a projected entitlement for local activation or an existing Cloud
     /// household for adoption. Any failure leaves the free local wallet intact.
     private func activateCloudIfPaid() async {
+        guard permitsCloudActivation else { return }
         guard let cloudCoordinator else { return }
         guard let local = repository as? LocalWalletRepository else { return }
         guard cloudCoordinator.isCloudActive || cloudCoordinator.household != nil else { return }
@@ -1493,16 +1624,28 @@ public final class WalletStore: ObservableObject {
             await cloudActivationTask.value
             return
         }
+        let generation = cloudActivationGeneration
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.performCloudActivation(using: local, coordinator: cloudCoordinator)
+            await self.performCloudActivation(
+                using: local,
+                coordinator: cloudCoordinator,
+                generation: generation
+            )
         }
         cloudActivationTask = task
         await task.value
-        cloudActivationTask = nil
+        if generation == cloudActivationGeneration {
+            cloudActivationTask = nil
+        }
     }
 
-    private func performCloudActivation(using local: LocalWalletRepository, coordinator cloudCoordinator: CloudCoordinator) async {
+    private func performCloudActivation(
+        using local: LocalWalletRepository,
+        coordinator cloudCoordinator: CloudCoordinator,
+        generation: Int
+    ) async {
+        guard permitsCloudActivation(generation: generation) else { return }
         let previousAuthority = authorityState
         authorityState = .transitioningToCloud
         do {
@@ -1512,6 +1655,7 @@ public final class WalletStore: ObservableObject {
             } else {
                 cloud = try await cloudCoordinator.activateCloud(from: local, familyName: cloudFamilyName)
             }
+            guard permitsCloudActivation(generation: generation) else { return }
             repository = cloud
             authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
             snapshot = cloud.snapshot()
@@ -1520,6 +1664,7 @@ public final class WalletStore: ObservableObject {
             }
             cloudMessage = cloudCoordinator.message
         } catch {
+            guard permitsCloudActivation(generation: generation) else { return }
             authorityState = previousAuthority
             if cloudCoordinator.activationConflict {
                 purchaseAttempt = .activationConflict
@@ -1528,6 +1673,22 @@ public final class WalletStore: ObservableObject {
                 cloudMessage = "Cloud is on for your account. This wallet is still on this device and will try again."
             }
         }
+    }
+
+    private var permitsCloudActivation: Bool {
+        guard !isDeletingAccount, accountDeletionPresentation == nil else { return false }
+        if case .unconfigured = authorityState { return false }
+        return true
+    }
+
+    private func permitsCloudActivation(generation: Int) -> Bool {
+        generation == cloudActivationGeneration && !Task.isCancelled && permitsCloudActivation
+    }
+
+    private func invalidateCloudActivation() {
+        cloudActivationGeneration += 1
+        cloudActivationTask?.cancel()
+        cloudActivationTask = nil
     }
 
     private var cloudFamilyName: String {
@@ -1583,7 +1744,7 @@ public final class WalletStore: ObservableObject {
         pinError = false
         gateErrorMessage = nil
         showsFirstActionsHandoff = false
-        snapshot = repository.childSnapshot()
+        snapshot = authorityState == .unconfigured ? .empty() : repository.childSnapshot()
         isLoading = false
         if repository.isAuthenticated {
             Task { [weak self] in await self?.refresh() }

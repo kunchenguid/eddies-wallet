@@ -200,9 +200,8 @@ public final class CloudAPIClient: ParentAuthenticator {
     }
 
     /// Deletes the authenticated parent account and its service-held household.
-    /// A local erase happens only after this returns one of the two explicit,
-    /// terminal server answers. A transport or malformed-response failure is
-    /// deliberately propagated as an unknown outcome rather than guessed.
+    /// A transport or malformed-response failure is deliberately propagated as
+    /// an unknown outcome rather than guessed.
     public func deleteAccount(idempotencyKey: String) async throws -> AccountDeletionResult {
         guard UUID(uuidString: idempotencyKey) != nil else {
             throw WalletAPIError.invalidResponse("The account deletion request needs a valid confirmation key.")
@@ -226,6 +225,10 @@ public final class CloudAPIClient: ParentAuthenticator {
     /// could not reach the server.
     public func clearLocalSession() {
         sessionStore.clear()
+    }
+
+    public func clearLocalSessionForAccountDeletion() throws {
+        try sessionStore.clearForAccountDeletion()
     }
 
     /// How a request presents the parent session.

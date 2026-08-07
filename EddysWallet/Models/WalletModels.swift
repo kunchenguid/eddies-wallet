@@ -395,7 +395,7 @@ public struct WalletSnapshot: Hashable, Codable, Sendable {
     }
 }
 
-public enum WalletCommandKind: String, Sendable, Codable {
+public enum WalletCommandKind: String, Sendable, Codable, Equatable {
     case allowance
     case deposit
     case withdrawal
@@ -403,7 +403,7 @@ public enum WalletCommandKind: String, Sendable, Codable {
     case repayment
 }
 
-public struct WalletCommand: Sendable, Codable {
+public struct WalletCommand: Sendable, Codable, Equatable {
     public let kind: WalletCommandKind
     public let amountCents: Int
     public let reason: String?
@@ -556,11 +556,13 @@ public protocol WalletRepository: AnyObject {
     func setup(_ setup: ParentSetup) async throws -> WalletSnapshot
     func updateChildProfile(_ update: ChildProfileUpdate) async throws -> WalletSnapshot
     func clearAuthentication()
+    func clearAuthenticationForAccountDeletion() throws
     func clearSession() throws
 }
 
 public extension WalletRepository {
     var supportsRuntimeMutations: Bool { true }
+    func clearAuthenticationForAccountDeletion() throws { clearAuthentication() }
 }
 
 @MainActor
@@ -576,16 +578,35 @@ public enum AccountDeletionResult: Equatable, Sendable {
     case alreadyDeleted
 }
 
+public enum AccountDeletionPresentation: Equatable, Sendable {
+    case deleting(idempotencyKey: String)
+    case incomplete(idempotencyKey: String)
+    case deleted
+
+    public var idempotencyKey: String? {
+        switch self {
+        case .deleting(let idempotencyKey), .incomplete(let idempotencyKey): idempotencyKey
+        case .deleted: nil
+        }
+    }
+}
+
 /// Service boundary for the irreversible account-delete command. Keeping it
 /// separate from a wallet repository lets even a free local wallet delete the
 /// backend parent identity created during Apple sign-in before local data goes.
 @MainActor
 public protocol AccountDeletionPerforming: AnyObject {
+    func preflightAccountDeletion() async throws
     func deleteAccount(idempotencyKey: String) async throws -> AccountDeletionResult
 }
 
 @MainActor
-public final class MockWalletRepository: WalletRepository {
+public protocol AccountDeletionLocalRetiring: AnyObject {
+    func retireLocalWalletForAccountDeletion() throws
+}
+
+@MainActor
+public final class MockWalletRepository: WalletRepository, AccountDeletionLocalRetiring {
     private var current: WalletSnapshot
     private var currentChild: WalletSnapshot
     private var configuredKid: Bool
@@ -626,6 +647,7 @@ public final class MockWalletRepository: WalletRepository {
         current = .empty()
         currentChild = .empty()
     }
+    public func retireLocalWalletForAccountDeletion() throws { try clearSession() }
 
     public func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {
         guard let nickname = ChildProfileCopy.configuredNickname(from: setup.nickname) else { return current }

@@ -94,6 +94,16 @@ public protocol SessionStore: AnyObject {
     var session: AuthSession? { get }
     func save(_ session: AuthSession) throws
     func clear()
+    func clearForAccountDeletion() throws
+}
+
+public extension SessionStore {
+    func clearForAccountDeletion() throws {
+        clear()
+        guard session == nil else {
+            throw WalletAPIError.invalidResponse("The parent session could not be removed securely.")
+        }
+    }
 }
 
 @MainActor
@@ -150,12 +160,26 @@ public final class KeychainSessionStore: SessionStore {
 
     public func clear() {
         migrateLegacyItemIfNeeded()
+        try? clearForAccountDeletion()
+    }
+
+    public func clearForAccountDeletion() throws {
+        try deleteSession(service: service)
+        if let legacyService = KeychainServiceMigration.legacyService(forCurrentService: service) {
+            try deleteSession(service: legacyService)
+        }
+    }
+
+    private func deleteSession(service: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw WalletAPIError.invalidResponse("The parent session could not be removed securely.")
+        }
     }
 
     private func migrateLegacyItemIfNeeded() {
@@ -176,7 +200,7 @@ public final class KeychainSessionStore: SessionStore {
 public protocol ParentPINStore: AnyObject {
     var pin: String? { get }
     func save(pin: String) throws
-    func clear()
+    func clear() throws
 }
 
 @MainActor
@@ -188,6 +212,10 @@ public final class KeychainParentPINStore: ParentPINStore {
 
     public var pin: String? {
         migrateLegacyItemIfNeeded()
+        return readPIN(account: account)
+    }
+
+    private func readPIN(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -205,6 +233,10 @@ public final class KeychainParentPINStore: ParentPINStore {
 
     public func save(pin: String) throws {
         migrateLegacyItemIfNeeded()
+        try save(pin: pin, account: account)
+    }
+
+    private func save(pin: String, account: String) throws {
         guard pin.count == 4, pin.allSatisfy(\.isNumber) else {
             throw WalletAPIError.invalidResponse("The parent PIN must contain four digits.")
         }
@@ -229,14 +261,21 @@ public final class KeychainParentPINStore: ParentPINStore {
         }
     }
 
-    public func clear() {
-        migrateLegacyItemIfNeeded()
+    public func clear() throws {
+        try clear(account: account, service: service)
+        try clear(account: account, service: KeychainServiceMigration.legacyParentPINService)
+    }
+
+    private func clear(account: String, service: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw WalletAPIError.invalidResponse("The parent PIN could not be removed securely.")
+        }
     }
 
     private func migrateLegacyItemIfNeeded() {
@@ -254,7 +293,7 @@ public final class InMemoryParentPINStore: ParentPINStore {
 
     public init(pin: String? = nil) { self.pin = pin }
     public func save(pin: String) throws { self.pin = pin }
-    public func clear() { pin = nil }
+    public func clear() throws { pin = nil }
 }
 
 /// Stores the stable Apple user identifier of the owning parent on this
@@ -267,6 +306,16 @@ public protocol ParentIdentityStore: AnyObject {
     var appleUserID: String? { get }
     func save(appleUserID: String) throws
     func clear()
+    func clearForAccountDeletion() throws
+}
+
+public extension ParentIdentityStore {
+    func clearForAccountDeletion() throws {
+        clear()
+        guard appleUserID == nil else {
+            throw WalletAPIError.invalidResponse("The parent identity could not be removed securely.")
+        }
+    }
 }
 
 @MainActor
@@ -320,12 +369,19 @@ public final class KeychainParentIdentityStore: ParentIdentityStore {
     }
 
     public func clear() {
+        try? clearForAccountDeletion()
+    }
+
+    public func clearForAccountDeletion() throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw WalletAPIError.invalidResponse("The parent identity could not be removed securely.")
+        }
     }
 }
 
@@ -407,6 +463,7 @@ public final class UserDefaultsPendingCommandStore: PendingCommandStore {
     }
 
     public func clear() { defaults.removeObject(forKey: key) }
+
 }
 
 @MainActor
@@ -442,6 +499,7 @@ public final class UserDefaultsWalletSnapshotCache: WalletSnapshotCache {
     }
 
     public func clear() { defaults.removeObject(forKey: key) }
+
 }
 
 @MainActor
@@ -587,7 +645,7 @@ private struct LoanDetailDTO: Decodable {
 }
 
 @MainActor
-public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
+public final class APIWalletRepository: WalletRepository, ParentAuthenticator, AccountDeletionLocalRetiring {
     private let baseURL: URL
     private let sessionStore: any SessionStore
     private let transport: any HTTPTransport
@@ -861,9 +919,17 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator {
         sessionStore.clear()
     }
 
+    public func clearAuthenticationForAccountDeletion() throws {
+        try sessionStore.clearForAccountDeletion()
+    }
+
     public func clearSession() throws {
-        lifecycleGeneration += 1
         sessionStore.clear()
+        try retireLocalWalletForAccountDeletion()
+    }
+
+    public func retireLocalWalletForAccountDeletion() throws {
+        lifecycleGeneration += 1
         pendingCommands.removeAll()
         rejectedEvents.removeAll()
         pendingStore.clear()

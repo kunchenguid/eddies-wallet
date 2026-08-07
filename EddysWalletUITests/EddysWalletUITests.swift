@@ -832,7 +832,7 @@ final class EddysWalletUITests: XCTestCase {
     // the PIN gate, with both deliberate confirmations required before it can
     // erase even synthetic local fixture data.
     func testAccountDeletionRequiresTypedAndBillingConfirmationsThenReturnsToWelcome() throws {
-        let app = launch("delete-account")
+        let app = launch("delete-account-subscribed")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 
@@ -868,7 +868,7 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Your account and wallet are deleted."].exists)
 
         app.buttons["delete-account-done"].tap()
-        XCTAssertTrue(app.buttons["Set up your child's wallet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Sign in with Apple"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Hi, Eddie"].exists, "terminal Done must leave no signed-in child wallet")
     }
 

@@ -2,6 +2,39 @@ import StoreKit
 import SwiftUI
 import UIKit
 
+struct AccountDeletionBillingNotice: Equatable {
+    let warning: String?
+    let acknowledgement: String?
+    let completionReminder: String?
+
+    var requiresAcknowledgement: Bool { acknowledgement != nil }
+
+    func allowsDeletion(typedConfirmationIsValid: Bool, acknowledged: Bool) -> Bool {
+        typedConfirmationIsValid && (!requiresAcknowledgement || acknowledged)
+    }
+
+    init(entitlement: CloudEntitlementState?) {
+        switch entitlement {
+        case .some(.active(_, autoRenewEnabled: false)):
+            warning = "Your Cloud access continues until its expiry date, but it will not renew. Deleting your account does not change that Apple subscription."
+            acknowledgement = nil
+            completionReminder = "Your non-renewing Cloud access remains with Apple until its expiry date."
+        case .some(.none), .some(.expired), .some(.refunded), .some(.revoked):
+            warning = nil
+            acknowledgement = nil
+            completionReminder = nil
+        case .some(.active(_, autoRenewEnabled: true)), .some(.billingGrace), .some(.billingRetry), .some(.verificationPending):
+            warning = "Your Cloud subscription may keep billing through Apple. Deleting your account here does not cancel it. Cancel it in your Apple subscription settings first."
+            acknowledgement = "I understand billing may continue through Apple"
+            completionReminder = "Your Cloud subscription may still need cancelling in Apple's subscription settings."
+        case nil:
+            warning = "We could not confirm your Apple subscription status. It may keep billing after account deletion. Check your Apple subscription settings first."
+            acknowledgement = "I understand billing may continue through Apple"
+            completionReminder = "Check Apple's subscription settings for any Cloud subscription that may still be active."
+        }
+    }
+}
+
 /// The irreversible parent-only account-delete confirmation. Its primary
 /// action is pinned in a bottom safe-area inset so the typed confirmation,
 /// billing acknowledgement, and destructive action remain simultaneously
@@ -18,7 +51,6 @@ struct DeleteAccountView: View {
     @Environment(\.openURL) private var openURL
     @State private var confirmation = ""
     @State private var acknowledgesBilling = false
-    @State private var screen: Screen = .confirmation
     @State private var refusalMessage: String?
     @State private var deletionKey = UUID().uuidString
 
@@ -29,7 +61,23 @@ struct DeleteAccountView: View {
     }
 
     private var canDelete: Bool {
-        isConfirmed && acknowledgesBilling && !store.isDeletingAccount
+        billingNotice.allowsDeletion(
+            typedConfirmationIsValid: isConfirmed,
+            acknowledged: acknowledgesBilling
+        ) && !store.isDeletingAccount
+    }
+
+    private var billingNotice: AccountDeletionBillingNotice {
+        AccountDeletionBillingNotice(entitlement: store.accountDeletionEntitlement)
+    }
+
+    private var screen: Screen {
+        switch store.accountDeletionPresentation {
+        case .deleting: .deleting
+        case .deleted: .deleted
+        case .incomplete: .incomplete
+        case nil: .confirmation
+        }
     }
 
     var body: some View {
@@ -59,6 +107,11 @@ struct DeleteAccountView: View {
         .interactiveDismissDisabled(screen == .deleting)
         .safeAreaInset(edge: .bottom) {
             bottomAction
+        }
+        .task {
+            if store.accountDeletionPresentation == nil {
+                await store.refreshAccountDeletionContext()
+            }
         }
     }
 
@@ -119,10 +172,12 @@ struct DeleteAccountView: View {
                 .font(EW.Font.headingSmall)
                 .foregroundStyle(EW.Color.gold700)
 
-            Text("Your Cloud subscription keeps billing through Apple. Deleting your account here does not cancel it. Cancel it in your Apple subscription settings first.")
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let warning = billingNotice.warning {
+                Text(warning)
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Button("Manage subscription") {
                 showManageSubscriptions()
@@ -130,11 +185,13 @@ struct DeleteAccountView: View {
             .buttonStyle(SecondaryButtonStyle(compact: true))
             .accessibilityIdentifier("delete-account-manage-subscription")
 
-            Toggle("I understand billing continues through Apple", isOn: $acknowledgesBilling)
-                .font(EW.Font.bodyBold)
-                .foregroundStyle(EW.Color.textPrimary)
-                .tint(EW.Color.gold700)
-                .accessibilityIdentifier("delete-account-billing-acknowledgement")
+            if let acknowledgement = billingNotice.acknowledgement {
+                Toggle(acknowledgement, isOn: $acknowledgesBilling)
+                    .font(EW.Font.bodyBold)
+                    .foregroundStyle(EW.Color.textPrimary)
+                    .tint(EW.Color.gold700)
+                    .accessibilityIdentifier("delete-account-billing-acknowledgement")
+            }
 
             Divider().overlay(EW.Color.gold300)
 
@@ -204,10 +261,12 @@ struct DeleteAccountView: View {
             Text("Your account and wallet are deleted.")
                 .font(EW.Font.display)
                 .foregroundStyle(EW.Color.textPrimary)
-            Text("Your Cloud subscription, if you had one, still needs cancelling in Apple's subscription settings.")
-                .font(EW.Font.body)
-                .foregroundStyle(EW.Color.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let completionReminder = billingNotice.completionReminder {
+                Text(completionReminder)
+                    .font(EW.Font.body)
+                    .foregroundStyle(EW.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Button("Manage subscription") {
                 showManageSubscriptions()
             }
@@ -224,9 +283,9 @@ struct DeleteAccountView: View {
             Image(systemName: "questionmark.circle.fill")
                 .font(.system(size: 48, weight: .semibold))
                 .foregroundStyle(EW.Color.gold700)
-            Text("We could not confirm account deletion.")
+            Text("Account deletion needs one more step.")
                 .font(EW.Font.display)
-            Text("This \(DeviceCopy.deviceNoun)'s copy of the wallet is removed. Try again, or sign in later to finish.")
+            Text("This \(DeviceCopy.deviceNoun)'s wallet is no longer available. Try again to finish service or device cleanup. If retry is not possible, remove the app from this device.")
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
         }
@@ -255,9 +314,16 @@ struct DeleteAccountView: View {
             .buttonStyle(PrimaryButtonStyle())
             .accessibilityIdentifier("delete-account-done")
         case .incomplete:
-            Button("Try again") { retryDeletion() }
-                .buttonStyle(PrimaryButtonStyle())
-                .accessibilityIdentifier("delete-account-incomplete-retry")
+            VStack(spacing: EW.Space.three) {
+                Button("Try again") { retryDeletion() }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .accessibilityIdentifier("delete-account-incomplete-retry")
+                Button("Finish later") {
+                    store.finishAccountDeletionLater()
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .accessibilityIdentifier("delete-account-incomplete-finish-later")
+            }
         case .deleting:
             EmptyView()
         }
@@ -279,27 +345,24 @@ struct DeleteAccountView: View {
     private func beginDeletion() {
         guard canDelete else { return }
         refusalMessage = nil
-        screen = .deleting
         Task {
-            switch await store.deleteAccount(idempotencyKey: deletionKey) {
-            case .deleted:
-                screen = .deleted
+            switch await store.deleteAccount(
+                idempotencyKey: deletionKey,
+                acknowledgedBillingRisk: acknowledgesBilling
+            ) {
+            case .deleted, .incomplete:
+                break
             case .refused(let message):
                 refusalMessage = message
-                screen = .confirmation
-            case .incomplete:
-                screen = .incomplete
             }
         }
     }
 
     private func retryDeletion() {
-        screen = .deleting
+        guard let idempotencyKey = store.accountDeletionPresentation?.idempotencyKey else { return }
         Task {
-            switch await store.retryAccountDeletion(idempotencyKey: deletionKey) {
-            case .deleted: screen = .deleted
-            case .incomplete: screen = .incomplete
-            case .refused(let message): refusalMessage = message; screen = .confirmation
+            if case .refused(let message) = await store.retryAccountDeletion(idempotencyKey: idempotencyKey) {
+                refusalMessage = message
             }
         }
     }

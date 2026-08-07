@@ -209,6 +209,11 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         client.clearLocalSession()
     }
 
+    public func clearAuthenticationForAccountDeletion() throws {
+        mutationLifecycleGeneration += 1
+        try client.clearLocalSessionForAccountDeletion()
+    }
+
     public func clearSession() throws {
         mutationLifecycleGeneration += 1
         Task { [client] in
@@ -220,8 +225,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     /// Retires the protected local replica before DELETE. It intentionally
     /// keeps the bearer session alive until the service command is sent.
     public func retireReplicaForAccountDeletion() throws {
-        mutationLifecycleGeneration += 1
         try replica.clearSession()
+        mutationLifecycleGeneration += 1
         activeMutation = nil
         activeSettlement?.task.cancel()
         activeSettlement = nil
