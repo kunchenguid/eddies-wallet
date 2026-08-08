@@ -345,6 +345,7 @@ if sim_require_headless_command open -a Simulator; then bad "headless guard acce
 if sim_require_headless_command /usr/bin/open -a Simulator; then bad "headless guard accepted Simulator.app launch through an absolute open path"; else ok "headless guard rejects Simulator.app launch through an absolute open path"; fi
 if sim_require_headless_command open -W -a Simulator; then bad "headless guard accepted Simulator.app launch with open options"; else ok "headless guard rejects Simulator.app launch with open options"; fi
 if sim_require_headless_command sh -c 'open -a Simulator'; then bad "headless guard accepted a shell command payload"; else ok "headless guard rejects a shell command payload"; fi
+if sim_require_headless_command env EW_CAPTURE=1 open -a Simulator; then bad "headless guard accepted a wrapped Simulator.app launch"; else ok "headless guard rejects a wrapped Simulator.app launch"; fi
 
 original_visible_process_probe="$(declare -f _sim_visible_simulator_app_processes)"
 visible_process_snapshot=""
@@ -370,6 +371,8 @@ SIM_UDID=""
 eval "$original_visible_process_probe"
 
 if sim_is_xcodebuild_test_command /usr/bin/xcodebuild -scheme EddysWallet test; then ok "detects xcodebuild test for single-worker enforcement"; else bad "did not detect xcodebuild test"; fi
+if sim_is_xcodebuild_test_command env EW_CAPTURE=1 /usr/bin/xcodebuild -scheme EddysWallet test; then ok "detects env-wrapped xcodebuild test"; else bad "did not detect env-wrapped xcodebuild test"; fi
+if sim_is_xcodebuild_test_command nice -n 5 time -p /usr/bin/xcodebuild test-without-building; then ok "detects multiply wrapped xcodebuild test"; else bad "did not detect multiply wrapped xcodebuild test"; fi
 if sim_is_xcodebuild_test_command /usr/bin/xcodebuild build; then bad "classified xcodebuild build as test"; else ok "does not classify xcodebuild build as test"; fi
 
 SIM_MAX_SOURCE_DEVICES=1

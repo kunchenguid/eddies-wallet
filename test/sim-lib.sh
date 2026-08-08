@@ -114,11 +114,11 @@ _sim_require_nonnegative_integer() {
     fi
 }
 
-# Build, test, and screenshot capture are headless. Simulator wrappers reject commands that
-# try to launch the visible Simulator GUI.
-sim_require_headless_command() {
+_SIM_COMMAND_INDEX=-1
+_sim_find_command_index() {
     local -a arguments=("$@")
-    local index=0 argument executable application
+    local index=0 argument executable
+    _SIM_COMMAND_INDEX=-1
 
     while (( index < ${#arguments[@]} )); do
         argument="${arguments[index]}"
@@ -127,7 +127,10 @@ sim_require_headless_command() {
         case "$executable" in
             command|exec)
                 (( index += 1 ))
-                while (( index < ${#arguments[@]} )) && [[ "${arguments[index]}" == -* ]]; do
+                while (( index < ${#arguments[@]} )); do
+                    argument="${arguments[index]}"
+                    [[ "$argument" == "--" ]] && { (( index += 1 )); break; }
+                    [[ "$argument" == -* ]] || break
                     (( index += 1 ))
                 done
                 ;;
@@ -135,23 +138,64 @@ sim_require_headless_command() {
                 (( index += 1 ))
                 while (( index < ${#arguments[@]} )); do
                     argument="${arguments[index]}"
-                    [[ "$argument" == -* || "$argument" =~ ^[[:alpha:]_][[:alnum:]_]*= ]] || break
-                    (( index += 1 ))
+                    case "$argument" in
+                        --) (( index += 1 )); break ;;
+                        -u|-C|--unset|--chdir) (( index += 2 )) ;;
+                        -S|--split-string|--split-string=*) return 2 ;;
+                        -*) (( index += 1 )) ;;
+                        *) [[ "$argument" =~ ^[[:alpha:]_][[:alnum:]_]*= ]] && (( index += 1 )) || break ;;
+                    esac
                 done
                 ;;
-            time|nice)
+            time)
                 (( index += 1 ))
-                while (( index < ${#arguments[@]} )) && [[ "${arguments[index]}" == -* ]]; do
-                    (( index += 1 ))
+                while (( index < ${#arguments[@]} )); do
+                    argument="${arguments[index]}"
+                    [[ "$argument" == "--" ]] && { (( index += 1 )); break; }
+                    case "$argument" in
+                        -o|--output|-f|--format) (( index += 2 )) ;;
+                        -*) (( index += 1 )) ;;
+                        *) break ;;
+                    esac
+                done
+                ;;
+            nice)
+                (( index += 1 ))
+                while (( index < ${#arguments[@]} )); do
+                    argument="${arguments[index]}"
+                    [[ "$argument" == "--" ]] && { (( index += 1 )); break; }
+                    case "$argument" in
+                        -n|--adjustment) (( index += 2 )) ;;
+                        -*) (( index += 1 )) ;;
+                        *) break ;;
+                    esac
                 done
                 ;;
             *)
-                break
+                _SIM_COMMAND_INDEX="$index"
+                return 0
                 ;;
         esac
     done
+    return 1
+}
 
-    (( index < ${#arguments[@]} )) || return 0
+# Build, test, and screenshot capture are headless. Simulator wrappers reject commands that
+# try to launch the visible Simulator GUI.
+sim_require_headless_command() {
+    local -a arguments=("$@")
+    local index argument application
+
+    local find_status=0
+    _sim_find_command_index "${arguments[@]}" || find_status=$?
+    if [[ "$find_status" != "0" ]]; then
+        if [[ "$find_status" == "2" ]]; then
+            sim_log "refusing command-string wrappers; simulator build/test requires direct argv"
+            return 1
+        fi
+        return 0
+    fi
+    index="$_SIM_COMMAND_INDEX"
     argument="${arguments[index]}"
     if [[ "$argument" == "Simulator.app" || "$argument" == */Simulator.app || "$argument" == */Simulator.app/* ]]; then
         sim_log "refusing to launch Simulator.app; simulator build/test is headless by default"
@@ -245,15 +289,16 @@ _sim_reject_run_simulator_app() {
     return 1
 }
 
-# Returns success when an argv array starts with xcodebuild and invokes a test action.
+# Returns success when an argv array resolves to xcodebuild and invokes a test action.
 # Callers use this to force a single non-parallel worker, preventing Xcode from creating an
 # unbounded fan-out of test clones.
 sim_is_xcodebuild_test_command() {
-    [[ "$#" -gt 0 ]] || return 1
-    [[ "${1##*/}" == "xcodebuild" ]] || return 1
-    shift
-    local argument
-    for argument in "$@"; do
+    local -a arguments=("$@")
+    _sim_find_command_index "${arguments[@]}" || return 1
+    local index="$_SIM_COMMAND_INDEX" argument
+    [[ "${arguments[index]##*/}" == "xcodebuild" ]] || return 1
+    for (( index += 1; index < ${#arguments[@]}; index += 1 )); do
+        argument="${arguments[index]}"
         case "$argument" in
             test|test-without-building) return 0 ;;
         esac
