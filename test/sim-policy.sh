@@ -21,6 +21,14 @@ _sim_policy_command_basename() {
     printf '%s\n' "${value##*/}"
 }
 
+_sim_policy_current_wrapper_owns_run() {
+    local owner_pid
+    [[ "$0" == */test/sim.sh ]] || return 1
+    [[ -n "${SIM_RUN_DIR:-}" && -d "$SIM_RUN_DIR" ]] || return 1
+    owner_pid="$(cat "$SIM_RUN_DIR/owner.pid" 2>/dev/null || true)"
+    [[ "$owner_pid" == "$$" ]]
+}
+
 _sim_policy_check_command() {
     local command_text="$BASH_COMMAND" command_basename
     trap - DEBUG
@@ -31,15 +39,14 @@ _sim_policy_check_command() {
         return 0
     fi
 
-    if [[ "${EW_SIM_POLICY_WRAPPED:-0}" != "1" \
-        && ( "$command_text" =~ (^|[\;\&\|\(\)[:space:]])([^[:space:]]*/)?xcrun[[:space:]]+simctl[[:space:]]+boot([[:space:]]|$) \
+    if [[ "$command_text" =~ (^|[\;\&\|\(\)[:space:]])([^[:space:]]*/)?xcrun[[:space:]]+simctl[[:space:]]+boot([[:space:]]|$) \
             || ( "$command_basename" == "xcrun" \
-                && "$command_text" =~ simctl[[:space:]]+boot([[:space:]]|$) ) ) ]]; then
+                && "$command_text" =~ simctl[[:space:]]+boot([[:space:]]|$) ) ]] \
+        && ! _sim_policy_current_wrapper_owns_run; then
         echo "sim-policy: simctl boot must run through test/sim.sh" >&2
         exit 92
     fi
-    if [[ "${EW_SIM_POLICY_WRAPPED:-0}" != "1" \
-        && ( "$command_basename" == "xcodebuild" \
+    if [[ ( "$command_basename" == "xcodebuild" \
             || "$command_text" =~ (^|[\;\&\|\(\)[:space:]])([^[:space:]]*/)?xcodebuild([[:space:]]|$) ) \
         && ( "$command_text" == *"iOS Simulator"* \
             || "$command_text" =~ -destination(=|[[:space:]]+)[\"\']?id= ) ]]; then

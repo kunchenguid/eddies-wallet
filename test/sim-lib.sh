@@ -884,6 +884,7 @@ sim_set_up() {
     _sim_proc_lstart "$$" > "$SIM_RUN_DIR/owner.lstart"
     SIM_OWNS_TEARDOWN=1
     _SIM_TORN_DOWN=0
+    export SIM_RUN_DIR SIM_DEVICE_NAME SIM_DEVICE_NAME_PREFIX
 
     sim_log "creating run-scoped simulator $SIM_DEVICE_NAME ($device_type / $runtime) in the default device set"
     local create_output="$SIM_RUN_DIR/create.output"
@@ -911,6 +912,7 @@ sim_set_up() {
         return 1
     fi
     printf '%s\n' "$SIM_UDID" > "$SIM_RUN_DIR/device.udid"
+    export SIM_UDID
 
     # Boot now (and wait): the test command typically needs a booted device, and booting
     # here lets us assert a clean teardown afterwards.

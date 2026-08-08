@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=test/sim-policy-auth.sh
+source "$SCRIPT_DIR/sim-policy-auth.sh"
 simulator_destination=0
 expect_destination=0
 for argument in "$@"; do
@@ -18,8 +21,10 @@ for argument in "$@"; do
         break
     fi
 done
-if [[ "$simulator_destination" == "1" && "${EW_SIM_POLICY_WRAPPED:-0}" != "1" ]]; then
-    echo "sim-policy: simulator xcodebuild must run through test/sim.sh" >&2
-    exit 92
+if [[ "$simulator_destination" == "1" ]]; then
+    if ! _sim_policy_parent_owns_run || ! _sim_policy_managed_destination "$@"; then
+        echo "sim-policy: simulator xcodebuild must run through test/sim.sh" >&2
+        exit 92
+    fi
 fi
 exec "${EW_SIM_POLICY_REAL_XCODEBUILD:-/usr/bin/xcodebuild}" "$@"

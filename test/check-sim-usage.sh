@@ -76,9 +76,15 @@ if env "${policy_env[@]}" open -a Simulator >/dev/null 2>&1; then
     echo "sim-usage: command policy accepted a Simulator.app launch" >&2
     exit 1
 fi
-env "${policy_env[@]}" EW_SIM_POLICY_WRAPPED=1 xcrun simctl boot WRAPPED-UDID
-env "${policy_env[@]}" EW_SIM_POLICY_WRAPPED=1 xcodebuild test \
-    -destination 'platform=iOS Simulator,id=WRAPPED-UDID'
+if env "${policy_env[@]}" EW_SIM_POLICY_WRAPPED=1 xcrun simctl boot FORGED-UDID >/dev/null 2>&1; then
+    echo "sim-usage: command policy trusted a forged wrapper flag for simulator boot" >&2
+    exit 1
+fi
+if env "${policy_env[@]}" EW_SIM_POLICY_WRAPPED=1 xcodebuild test \
+    -destination 'platform=iOS Simulator,id=FORGED-UDID' >/dev/null 2>&1; then
+    echo "sim-usage: command policy trusted a forged wrapper flag for xcodebuild" >&2
+    exit 1
+fi
 env "${policy_env[@]}" xcodebuild build -destination 'generic/platform=iOS'
 
 BASH_POLICY="$ROOT_DIR/test/sim-policy.sh"
@@ -178,7 +184,10 @@ RUBY
 : > "$COMMAND_LOG"
 
 common_env=(
-    "PATH=$BIN_DIR:$PATH"
+    "PATH=$POLICY_BIN:$PATH"
+    "EW_SIM_POLICY_REAL_XCRUN=$BIN_DIR/xcrun"
+    "EW_SIM_POLICY_REAL_XCODEBUILD=$BIN_DIR/xcodebuild"
+    "EW_SIM_POLICY_REAL_OPEN=$BIN_DIR/open"
     "EW_SIM_RUNS_DIR=$RUNS_DIR"
     "EW_XCTEST_DEVICE_SET=$XCTEST_DIR"
     "EW_SIM_TEST_XCRUN_LOG=$XCRUN_LOG"
