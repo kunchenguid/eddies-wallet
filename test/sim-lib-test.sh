@@ -328,6 +328,8 @@ UD_P2_DEAD="22220000-0000-0000-0000-000000000001"
 UD_P2_LIVE="22220000-0000-0000-0000-000000000002"
 UD_P2_USER="22220000-0000-0000-0000-000000000003"
 UD_P2_REUSED="22220000-0000-0000-0000-000000000004"
+UD_P2_LEGACY_DEAD="22220000-0000-0000-0000-000000000005"
+UD_P2_LEGACY_LIVE="22220000-0000-0000-0000-000000000006"
 
 # ---- pass-1 marker-dir fixtures -------------------------------------------
 # 1. owner dead -> reap (clean/SIGKILLed run that never tore down)
@@ -358,6 +360,8 @@ SIMCTL_DEFAULT_DEVICE_LIST="== Devices ==
     ${SIM_DEVICE_NAME_PREFIX}-${LIVE_PID}-${LIVE_IDENTITY}-222 ($UD_P2_LIVE) (Booted)
     iPhone 17 Pro ($UD_P2_USER) (Shutdown)
     ${SIM_DEVICE_NAME_PREFIX}-${LIVE_PID}-${STALE_IDENTITY}-333 ($UD_P2_REUSED) (Booted)
+    ${SIM_DEVICE_NAME_PREFIX}-${DEAD_PID}-444 ($UD_P2_LEGACY_DEAD) (Shutdown)
+    ${SIM_DEVICE_NAME_PREFIX}-${LIVE_PID}-555 ($UD_P2_LEGACY_LIVE) (Booted)
     ${SIM_DEVICE_NAME_PREFIX}-${DEAD_PID}-${DEAD_IDENTITY}-444 ($UD_COVERED) (Shutdown)
     ${SIM_DEVICE_NAME_PREFIX}-${DEAD_PID}-${DEAD_IDENTITY}-555 ($UD_OWN) (Booted)"
 
@@ -383,6 +387,8 @@ assert_logged "simctl delete $UD_P2_DEAD"     "reaps a prefixed device whose nam
 assert_not_logged "simctl delete $UD_P2_LIVE" "spares a prefixed device whose embedded owner identity is alive"
 assert_not_logged "simctl delete $UD_P2_USER" "never touches a non-prefixed (user) device"
 assert_logged "simctl delete $UD_P2_REUSED" "reaps a markerless device after its embedded owner PID is reused"
+assert_logged "simctl delete $UD_P2_LEGACY_DEAD" "reaps a legacy markerless device whose owner PID is dead"
+assert_not_logged "simctl delete $UD_P2_LEGACY_LIVE" "spares a legacy markerless device whose owner PID is live"
 assert_not_logged "simctl delete $UD_COVERED" "spares a device a live marker still owns despite a dead-pid name"
 
 tool_word="simctl"

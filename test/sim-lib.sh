@@ -825,10 +825,10 @@ _sim_reap_run() {
 }
 
 # Echo "udid<TAB>name<TAB>pid<TAB>identity" for every DEFAULT-set device whose name
-# matches the run-scoped prefix "<prefix>-<pid>-<identity>-<rand>". Parsing the
+# matches the current "<prefix>-<pid>-<identity>-<rand>" format or the legacy
+# "<prefix>-<pid>-<rand>" format. Legacy rows have an empty identity. Parsing the
 # human-readable list keeps this dependency-free (no jq/plutil). Devices NOT matching the
-# prefix are never emitted, which
-# is what makes operating in the shared default set safe.
+# prefix are never emitted, which is what makes operating in the shared default set safe.
 _sim_prefixed_devices() {
     local devices
     devices="$(xcrun simctl list devices 2>/dev/null)" || return 0
@@ -843,9 +843,12 @@ _sim_prefixed_devices() {
             sub(/[[:space:]]+$/, "", name)
             if (substr(name, 1, length(prefix) + 1) != prefix "-") next
             rest = substr(name, length(prefix) + 2)
-            if (rest !~ /^[0-9]+-[0-9a-f]+-[0-9A-Za-z]+$/) next
-            split(rest, parts, "-")
-            printf "%s\t%s\t%s\t%s\n", udid, name, parts[1], parts[2]
+            part_count = split(rest, parts, "-")
+            if (part_count == 3 && rest ~ /^[0-9]+-[0-9a-f]+-[0-9A-Za-z]+$/) {
+                printf "%s\t%s\t%s\t%s\n", udid, name, parts[1], parts[2]
+            } else if (part_count == 2 && rest ~ /^[0-9]+-[0-9A-Za-z]+$/) {
+                printf "%s\t%s\t%s\t\n", udid, name, parts[1]
+            }
         }
     ' <<< "$devices"
 }
@@ -913,8 +916,11 @@ sim_reap_stale() {
         [[ "$covered" == *" $udid "* ]] && continue                  # a live marker owns it
         current_identity=""
         if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+            if [[ -z "$owner_identity" ]]; then
+                continue  # legacy names predate stable identity recording
+            fi
             current_identity="$(_sim_process_identity_token "$pid" 2>/dev/null || true)"
-            if [[ -n "$owner_identity" && "$current_identity" == "$owner_identity" ]]; then
+            if [[ "$current_identity" == "$owner_identity" ]]; then
                 continue  # the exact owning process named in the device is still alive
             fi
         fi
