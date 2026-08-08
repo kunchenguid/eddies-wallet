@@ -219,6 +219,25 @@ if _sim_reap_run "$TEST_BASE/run.fin_custom_prefix"; then ok "_sim_reap_run hono
 assert_logged "simctl delete $UD_MARKER_CUSTOM" "_sim_reap_run deletes an orphan created with a different prefix"
 assert_absent "run.fin_custom_prefix" "_sim_reap_run removes a custom-prefix marker dir"
 
+UD_MARKER_CUSTOM_NAME_ONLY="33330000-0000-0000-0000-000000000005"
+CUSTOM_NAME_ONLY="Custom-simrun-${DEAD_PID}-889"
+mkdir -p "$TEST_BASE/run.fin_custom_name_only"
+printf '%s\n' "$CUSTOM_NAME_ONLY" > "$TEST_BASE/run.fin_custom_name_only/device.name"
+SIMCTL_DEFAULT_DEVICE_LIST="    $CUSTOM_NAME_ONLY ($UD_MARKER_CUSTOM_NAME_ONLY) (Shutdown)"
+: > "$xcrun_calls"
+if _sim_reap_run "$TEST_BASE/run.fin_custom_name_only"; then ok "_sim_reap_run resolves a custom-prefix device created before its UDID marker"; else bad "_sim_reap_run failed to resolve a custom-prefix name-only marker"; fi
+assert_logged "simctl delete $UD_MARKER_CUSTOM_NAME_ONLY" "_sim_reap_run deletes the exact device resolved from a name-only marker"
+assert_absent "run.fin_custom_name_only" "_sim_reap_run removes a resolved name-only marker dir"
+
+mkdir -p "$TEST_BASE/run.fin_custom_name_list_fail"
+printf '%s\n' "$CUSTOM_NAME_ONLY" > "$TEST_BASE/run.fin_custom_name_list_fail/device.name"
+XCRUN_LIST_FAIL=1
+: > "$xcrun_calls"
+if _sim_reap_run "$TEST_BASE/run.fin_custom_name_list_fail"; then bad "_sim_reap_run discarded a name-only marker when device lookup failed"; else ok "_sim_reap_run fails closed when a name-only marker cannot be resolved"; fi
+assert_exists "run.fin_custom_name_list_fail" "_sim_reap_run keeps an unresolved name-only marker for retry"
+XCRUN_LIST_FAIL=0
+rm -rf "$TEST_BASE/run.fin_custom_name_list_fail"
+
 mkdir -p "$TEST_BASE/run.fin_verify_fail"
 printf '%s\n' "$UD_MARKER_VERIFY" > "$TEST_BASE/run.fin_verify_fail/device.udid"
 XCRUN_LIST_FAIL=1
@@ -372,14 +391,20 @@ kill() {
     return 0
 }
 visible_process_snapshot="49771 /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator -CurrentDeviceUDID 64AC0F39-22F2-428E-BD90-335AC1D0BB26"
-visible_process_snapshot+=$'\n49772 /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator'
+visible_process_snapshot+=$'\n49772 /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator -CurrentDeviceUDID 64AC0F39-22F2-428E-BD90-335AC1D0BB26'
 SIM_UDID="64AC0F39-22F2-428E-BD90-335AC1D0BB26"
-if _sim_reject_run_simulator_app; then bad "cleanup accepted a Simulator.app process for its run UDID"; else ok "cleanup rejects a Simulator.app process for its run UDID"; fi
-if grep -qF -- "-TERM 49771" "$kill_calls" && ! grep -qF -- "-TERM 49772" "$kill_calls"; then ok "cleanup leaves an unowned Simulator.app process alone"; else bad "cleanup did not preserve an unowned Simulator.app process"; fi
+_SIM_OWNED_SIMULATOR_APP_PIDS=" "
+ps() {
+    if [[ "$*" == "-o pgid= -p 49771" ]]; then printf ' 70001\n'; else printf ' 70002\n'; fi
+}
+_sim_record_owned_simulator_apps 70001
+unset -f ps
+if _sim_reject_run_simulator_app; then bad "cleanup accepted an owned Simulator.app process for its run UDID"; else ok "cleanup rejects an owned Simulator.app process for its run UDID"; fi
+if grep -qF -- "-TERM 49771" "$kill_calls" && ! grep -qF -- "49772" "$kill_calls"; then ok "cleanup terminates only the Simulator.app PID positively owned by the command group"; else bad "cleanup signaled a Simulator.app PID it did not own"; fi
 : > "$kill_calls"
-SIM_UDID="00000000-0000-0000-0000-000000000000"
-if _sim_reject_run_simulator_app; then ok "cleanup ignores a Simulator.app window for somebody else's device"; else bad "cleanup failed on a Simulator.app window it does not own"; fi
-assert_eq "$(wc -l < "$kill_calls" | tr -d ' ')" "0" "cleanup never signals a Simulator.app process it does not own"
+_SIM_OWNED_SIMULATOR_APP_PIDS=" "
+if _sim_reject_run_simulator_app; then ok "cleanup ignores a user-launched Simulator.app targeting the run device"; else bad "cleanup claimed an unowned Simulator.app targeting the run device"; fi
+assert_eq "$(wc -l < "$kill_calls" | tr -d ' ')" "0" "cleanup never signals a Simulator.app process without positive launch ownership"
 unset -f kill
 SIM_UDID=""
 eval "$original_visible_process_probe"

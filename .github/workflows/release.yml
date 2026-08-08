@@ -42,6 +42,9 @@ jobs:
         with:
           ref: ${{ inputs.tag_name || github.event.release.tag_name || github.ref_name }}
 
+      - name: Enforce simulator command routing
+        run: echo "$GITHUB_WORKSPACE/test/sim-policy-bin" >> "$GITHUB_PATH"
+
       - name: Validate release configuration
         run: |
           set -euo pipefail

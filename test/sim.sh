@@ -74,6 +74,7 @@ fi
 # Refuse GUI launch commands before creating anything. Screenshot capture uses `simctl io`
 # against this wrapper's headless device instead.
 sim_require_headless_command "$@"
+export EW_SIM_POLICY_WRAPPED=1
 
 # On a trapped signal or command timeout, stop the full process group then let the EXIT trap
 # tear down the source device and all XCTest clones.
@@ -152,6 +153,7 @@ if (( COMMAND_TIMEOUT_SECS > 0 )); then
     WATCHDOG_PID=$!
 fi
 wait "$CMD_PID" || status=$?
+_sim_record_owned_simulator_apps "$CMD_PID"
 CMD_PID=""
 if [[ -n "$WATCHDOG_PID" ]]; then
     kill -- -"$WATCHDOG_PID" >/dev/null 2>&1 || kill "$WATCHDOG_PID" >/dev/null 2>&1 || true

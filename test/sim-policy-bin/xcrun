@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "simctl" && "${2:-}" == "boot" && "${EW_SIM_POLICY_WRAPPED:-0}" != "1" ]]; then
+    echo "sim-policy: simctl boot must run through test/sim.sh" >&2
+    exit 92
+fi
+exec "${EW_SIM_POLICY_REAL_XCRUN:-/usr/bin/xcrun}" "$@"

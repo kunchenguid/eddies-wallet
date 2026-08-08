@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+simulator_destination=0
+for argument in "$@"; do
+    if [[ "$argument" == *"platform=iOS Simulator"* ]]; then
+        simulator_destination=1
+        break
+    fi
+done
+if [[ "$simulator_destination" == "1" && "${EW_SIM_POLICY_WRAPPED:-0}" != "1" ]]; then
+    echo "sim-policy: simulator xcodebuild must run through test/sim.sh" >&2
+    exit 92
+fi
+exec "${EW_SIM_POLICY_REAL_XCODEBUILD:-/usr/bin/xcodebuild}" "$@"

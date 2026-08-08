@@ -43,7 +43,40 @@ set -euo pipefail
 printf '%s\n' "$*" > "$EW_SIM_TEST_COMMAND_LOG"
 printf '%s\n' "${EW_SIM_TEST_WRAPPED:-}" >> "$EW_SIM_TEST_COMMAND_LOG"
 EOF
-chmod +x "$BIN_DIR/xcrun" "$BIN_DIR/xcodebuild"
+cat > "$BIN_DIR/open" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$EW_SIM_TEST_COMMAND_LOG"
+EOF
+chmod +x "$BIN_DIR/xcrun" "$BIN_DIR/xcodebuild" "$BIN_DIR/open"
+
+POLICY_BIN="$ROOT_DIR/test/sim-policy-bin"
+policy_env=(
+    "PATH=$POLICY_BIN:$PATH"
+    "EW_SIM_POLICY_REAL_XCRUN=$BIN_DIR/xcrun"
+    "EW_SIM_POLICY_REAL_XCODEBUILD=$BIN_DIR/xcodebuild"
+    "EW_SIM_POLICY_REAL_OPEN=$BIN_DIR/open"
+    "EW_SIM_TEST_XCRUN_LOG=$XCRUN_LOG"
+    "EW_SIM_TEST_COMMAND_LOG=$COMMAND_LOG"
+)
+if env "${policy_env[@]}" xcrun simctl boot UNWRAPPED-UDID >/dev/null 2>&1; then
+    echo "sim-usage: command policy accepted an unwrapped simulator boot" >&2
+    exit 1
+fi
+if env "${policy_env[@]}" xcodebuild test -destination 'platform=iOS Simulator,id=UNWRAPPED-UDID' >/dev/null 2>&1; then
+    echo "sim-usage: command policy accepted unwrapped simulator xcodebuild" >&2
+    exit 1
+fi
+if env "${policy_env[@]}" open -a Simulator >/dev/null 2>&1; then
+    echo "sim-usage: command policy accepted a Simulator.app launch" >&2
+    exit 1
+fi
+env "${policy_env[@]}" EW_SIM_POLICY_WRAPPED=1 xcrun simctl boot WRAPPED-UDID
+env "${policy_env[@]}" EW_SIM_POLICY_WRAPPED=1 xcodebuild test \
+    -destination 'platform=iOS Simulator,id=WRAPPED-UDID'
+env "${policy_env[@]}" xcodebuild build -destination 'generic/platform=iOS'
+: > "$XCRUN_LOG"
+: > "$COMMAND_LOG"
 
 common_env=(
     "PATH=$BIN_DIR:$PATH"

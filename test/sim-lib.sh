@@ -91,6 +91,7 @@ _SIM_SOURCE_CREATE_ATTEMPTS=0
 _SIM_XCTEST_CLONE_CAP_EXCEEDED=0
 _SIM_XCTEST_SEEN_CLONE_UDIDS=" "
 _SIM_XCTEST_SEEN_CLONE_COUNT=0
+_SIM_OWNED_SIMULATOR_APP_PIDS=" "
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -144,7 +145,13 @@ _sim_find_command_index() {
                         -S*|--split-string|--split-string=*) return 2 ;;
                         -P*) (( index += 1 )) ;;
                         -*) (( index += 1 )) ;;
-                        *) [[ "$argument" =~ ^[[:alpha:]_][[:alnum:]_]*= ]] && (( index += 1 )) || break ;;
+                        *)
+                            if [[ "$argument" =~ ^[[:alpha:]_][[:alnum:]_]*= ]]; then
+                                index=$(( index + 1 ))
+                            else
+                                break
+                            fi
+                            ;;
                     esac
                 done
                 ;;
@@ -255,15 +262,26 @@ _sim_visible_simulator_app_processes() {
     done < <(pgrep -x Simulator 2>/dev/null || true)
 }
 
-# If this run launched Simulator.app, terminate only the process targeting this run's unique
-# UDID and fail cleanup. A visible-GUI regression must never pass silently; another app's
-# Simulator.app window (a human debugging their own device) is deliberately left alone.
+_sim_record_owned_simulator_apps() {
+    local command_pgid="$1" pid command process_pgid
+    [[ "$command_pgid" =~ ^[0-9]+$ && -n "${SIM_UDID:-}" ]] || return 0
+    while read -r pid command; do
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        [[ "$command" == *"-CurrentDeviceUDID $SIM_UDID"* ]] || continue
+        process_pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
+        [[ "$process_pgid" == "$command_pgid" ]] || continue
+        [[ "$_SIM_OWNED_SIMULATOR_APP_PIDS" == *" $pid "* ]] \
+            || _SIM_OWNED_SIMULATOR_APP_PIDS+="$pid "
+    done < <(_sim_visible_simulator_app_processes)
+}
+
 _sim_reject_run_simulator_app() {
     [[ -n "${SIM_UDID:-}" ]] || return 0
     local processes pid command matched=0 attempt
     processes="$(_sim_visible_simulator_app_processes)"
     while read -r pid command; do
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        [[ "$_SIM_OWNED_SIMULATOR_APP_PIDS" == *" $pid "* ]] || continue
         [[ "$command" == *"-CurrentDeviceUDID $SIM_UDID"* ]] || continue
         sim_log "HEADLESS VIOLATION: terminating Simulator.app process $pid launched for run device $SIM_UDID"
         kill -TERM "$pid" 2>/dev/null || true
@@ -275,6 +293,7 @@ _sim_reject_run_simulator_app() {
         local still_running=0
         while read -r pid command; do
             [[ "$pid" =~ ^[0-9]+$ ]] || continue
+            [[ "$_SIM_OWNED_SIMULATOR_APP_PIDS" == *" $pid "* ]] || continue
             [[ "$command" == *"-CurrentDeviceUDID $SIM_UDID"* ]] || continue
             kill -0 "$pid" 2>/dev/null && still_running=1
         done < <(_sim_visible_simulator_app_processes)
@@ -284,6 +303,7 @@ _sim_reject_run_simulator_app() {
 
     while read -r pid command; do
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        [[ "$_SIM_OWNED_SIMULATOR_APP_PIDS" == *" $pid "* ]] || continue
         [[ "$command" == *"-CurrentDeviceUDID $SIM_UDID"* ]] || continue
         kill -KILL "$pid" 2>/dev/null || true
     done < <(_sim_visible_simulator_app_processes)
@@ -425,6 +445,28 @@ _sim_recorded_device_name() {
     printf '%s\n' "$name"
 }
 
+_sim_default_device_udid_for_name() {
+    local wanted_name="$1" devices
+    [[ -n "$wanted_name" ]] || return 1
+    devices="$(xcrun simctl list devices 2>/dev/null)" || return 2
+    awk -v wanted_name="$wanted_name" '
+        {
+            line = $0
+            sub(/^[[:space:]]+/, "", line)
+            if (!match(line, /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/)) next
+            udid = substr(line, RSTART, RLENGTH)
+            name = line
+            sub(/ \([0-9A-Fa-f-]+\).*$/, "", name)
+            sub(/[[:space:]]+$/, "", name)
+            if (name != wanted_name) next
+            print udid
+            matched = 1
+            exit
+        }
+        END { exit matched ? 0 : 1 }
+    ' <<< "$devices"
+}
+
 _sim_default_device_name_for_udid() {
     local udid="$1" devices
     [[ -n "$udid" ]] || return 1
@@ -481,6 +523,14 @@ _sim_reap_run() {
     local udid="" recorded_name=""
     udid="$(_sim_recorded_udid "$run_dir")" || return 1
     recorded_name="$(_sim_recorded_device_name "$run_dir")" || return 1
+    if [[ -z "$udid" && -n "$recorded_name" ]]; then
+        local resolve_status=0
+        udid="$(_sim_default_device_udid_for_name "$recorded_name")" || resolve_status=$?
+        if [[ "$resolve_status" == "2" ]]; then
+            sim_log "failed to resolve simulator $recorded_name before reaping $(basename "$run_dir"); leaving marker for retry"
+            return 1
+        fi
+    fi
     if [[ -n "$udid" ]]; then
         local device_name lookup_status ownership_matches=0
         lookup_status=0

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+for argument in "$@"; do
+    case "$argument" in
+        Simulator|com.apple.iphonesimulator|Simulator.app|*/Simulator.app|*/Simulator.app/*)
+            echo "sim-policy: Simulator.app launches are not allowed in automated workflows" >&2
+            exit 92
+            ;;
+    esac
+done
+exec "${EW_SIM_POLICY_REAL_OPEN:-/usr/bin/open}" "$@"
