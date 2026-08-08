@@ -60,9 +60,11 @@ jobs:
       - name: Release pipeline regression checks
         run: ./test/release-checks.sh
 
-      # Boot-free: proves the simulator lifecycle's reaping/teardown decisions.
+      # Boot-free: proves the wrapper boundary and lifecycle's reaping/teardown decisions.
       - name: Simulator lifecycle checks
-        run: ./test/sim-lib-test.sh
+        run: |
+          ./test/check-sim-usage.sh
+          ./test/sim-lib-test.sh
 
       - name: Select Xcode 26
         run: |

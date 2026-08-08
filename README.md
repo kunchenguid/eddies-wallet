@@ -28,7 +28,7 @@ git clone https://github.com/kunchenguid/eddies-wallet.git
 cd eddies-wallet
 ```
 
-Open `EddysWallet.xcodeproj` in Xcode and use the shared `EddysWallet` scheme, or work from the command line. Run the test suite in the iOS Simulator through `test/sim.sh`, which creates a throwaway simulator, runs the command headlessly on it, and always deletes that simulator afterwards:
+Open `EddysWallet.xcodeproj` in Xcode and use the shared `EddysWallet` scheme, or work from the command line. Run the command-line test suite in the iOS Simulator through `test/sim.sh`, which creates a throwaway simulator, runs the command headlessly on it, and deletes that simulator on every trappable exit. If the wrapper itself is forcibly killed, the next invocation reaps its orphaned run-scoped device:
 
 ```sh
 ./test/sim.sh -- xcodebuild test \
@@ -36,7 +36,7 @@ Open `EddysWallet.xcodeproj` in Xcode and use the shared `EddysWallet` scheme, o
   -destination 'platform=iOS Simulator,id={{UDID}}'
 ```
 
-`{{UDID}}` is replaced with the booted device. Never point `xcodebuild` at a simulator you created by hand: those devices stay booted long after the run that made them. CI routes every command that boots or runs a simulator device through this wrapper, and `./test/sim.sh --help` documents the device, runtime, and timeout options.
+`{{UDID}}` is replaced with the booted device. Never point `xcodebuild` at a simulator you created by hand: those devices stay booted long after the run that made them. CI routes every command that boots or runs a simulator device through this wrapper, and `./test/sim.sh --help` documents its device and runtime options.
 
 Build a signing-independent Release binary for the simulator without the wrapper. This compile-only exception uses a generic destination that resolves to the SDK, so it neither boots nor creates a simulator device:
 
@@ -62,7 +62,7 @@ This repository contains only the client. A complete free wallet is stored local
 | `EddysWalletTests/` | Unit and transport-contract tests |
 | `EddysWalletUITests/` | Native UI tests and the synthetic screenshot tour |
 | `EddysWallet.xcodeproj` | Xcode project with the shared `EddysWallet` scheme |
-| `test/` | Repository-level checks that need no simulator to reason about: the simulator lifecycle wrapper (`sim.sh`), its library, unit tests, and leak guard, plus the release pipeline regressions |
+| `test/` | The simulator lifecycle wrapper (`sim.sh`) and library, their boot-free boundary and lifecycle checks, and release pipeline regressions |
 | `docs/` | Product requirements, release guidance, the live App Store Connect configuration record, presentation claims, and screenshots |
 | `.agents/skills/eddies-wallet-design/` | Copied web design system and prototype, packaged as an agent skill and kept as visual reference; `.claude/skills` is a symlink to `.agents/skills` so Claude Code discovers the same directory |
 

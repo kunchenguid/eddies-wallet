@@ -33,15 +33,16 @@ When first-run discovery, a legacy wallet, or a Cloud wallet needs a session, it
 
 ## Local development and tests
 
-Every simulator build and test - locally and in CI - goes through `test/sim.sh`, which owns
+Every command-line and CI simulator build and test goes through `test/sim.sh`, which owns
 the whole device lifecycle: it reaps devices orphaned by earlier dead runs, creates exactly
 one run-scoped device in the default CoreSimulator set, boots it headlessly, substitutes
 `{{UDID}}` into the command, and shuts down and deletes that device and its XCTest clone on
 success, failure, timeout, EXIT, INT, and TERM. Deleting the device takes the app container
 with it, so nothing accumulates between runs. The wrapper only ever touches devices carrying
-its own run-scoped name prefix, so simulators you opened yourself for the manual sequences
-below are never disturbed. `test/sim-lib-test.sh` proves those reaping and teardown decisions
-without booting anything, while CI routes its simulator builds and tests through the wrapper.
+its run-scoped name prefix, so simulators you opened yourself for the manual Xcode sequences
+below are never disturbed. `test/check-sim-usage.sh` exercises the public wrapper boundary,
+and `test/sim-lib-test.sh` proves the reaping and teardown decisions, both without booting a
+simulator. CI routes its device-backed simulator builds and tests through the wrapper.
 
 ```sh
 ./test/sim.sh -- xcodebuild test \

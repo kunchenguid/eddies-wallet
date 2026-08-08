@@ -19,8 +19,8 @@
 # The model that fixes the leak, end to end and entirely inside this repository:
 #
 #   * Run-scoped device NAMING in the DEFAULT set. Each run creates ONE device in the
-#     default set with a distinctive, greppable name "<prefix>-<pid>-<rand>" (see
-#     SIM_DEVICE_NAME_PREFIX). xcodebuild resolves it by explicit UDID. A tiny per-user
+#     default set with a distinctive, greppable name "<prefix>-<pid>-<identity>-<rand>"
+#     (see SIM_DEVICE_NAME_PREFIX). xcodebuild resolves it by explicit UDID. A tiny per-user
 #     marker dir ($HOME/Library/Developer/EddiesWalletSimRuns by default) records the
 #     device's UDID plus a liveness marker (owner.pid + owner.lstart) naming the process
 #     that owns it. We act ONLY on devices whose name carries our prefix, so the user's own
@@ -56,7 +56,7 @@ SIM_RUNS_BASE="${EW_SIM_RUNS_DIR:-$HOME/Library/Developer/EddiesWalletSimRuns}"
 # Distinctive, greppable prefix for every wrapper-created device in the DEFAULT set. The
 # reaper only ever shuts down or deletes devices whose name starts with this prefix, so a
 # user's own simulators and Xcode's default devices are never affected. A user is extremely
-# unlikely to name a device "<prefix>-<digits>-<digits>" by hand.
+# unlikely to name a device "<prefix>-<pid>-<process-identity>-<random>" by hand.
 SIM_DEVICE_NAME_PREFIX="${EW_SIM_DEVICE_PREFIX:-EddiesWallet-simrun}"
 
 # Default device type and runtime. iOS 26.4 is what the READMEs verify against; fall back to
@@ -86,7 +86,7 @@ SIM_CLONE_SETTLE_DELAY_SECS="${EW_SIM_CLONE_SETTLE_DELAY_SECS:-1}"
 SIM_RUN_DIR=""        # this run's marker dir under SIM_RUNS_BASE
 SIM_UDID=""           # the created+booted device (in the DEFAULT set)
 SIM_DEVICE_NAME=""    # the created device's run-scoped name
-SIM_OWNS_TEARDOWN=0   # 1 once we have created a device we are responsible for
+SIM_OWNS_TEARDOWN=0   # 1 once this run has claimed lifecycle cleanup
 _SIM_TORN_DOWN=0      # idempotency guard for sim_teardown
 _SIM_SOURCE_CREATE_ATTEMPTS=0
 _SIM_XCTEST_CLONE_CAP_EXCEEDED=0
@@ -1254,8 +1254,9 @@ sim_assert_clean() {
 # One cleanup owner for every caller and every exit path. Clean clones both before and
 # after deleting the source: the first pass catches active test workers, while the second
 # settle-window pass catches a clone published late during xcodebuild shutdown. Every step
-# runs even if an earlier one fails. A run-scoped Simulator.app process is terminated and
-# makes cleanup fail so a visible-GUI regression can never pass silently.
+# runs even if an earlier one fails. A Simulator.app process is terminated only when its
+# PID identity, command group, and run UDID prove the wrapped child launched it; that
+# headless violation makes cleanup fail without disturbing any other visible simulator.
 sim_cleanup_run() {
     local cleanup_status=0 step_status=0
 
