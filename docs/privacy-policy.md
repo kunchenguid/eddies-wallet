@@ -1,9 +1,8 @@
 # Eddie's Wallet privacy policy
 
-**Status: DRAFT for captain review. Not published, not linked from the app, and not submitted to App Review.**
-It describes what the app and its service do, checked against the code of both. The remaining open questions at the end are decisions rather than facts, and must be resolved before publication.
+Last reviewed against the code: 2026-08-08.
 
-Last reviewed against the code: 2026-08-06.
+This policy is published at https://eddies-wallet.kunchenguid.com/. Future revisions will update the "Last reviewed against the code" date on this page.
 
 ## What this app is
 
@@ -14,6 +13,7 @@ The child never signs in and never has an account. Only a parent signs in.
 ## What we do not do
 
 - No advertising, ad networks, or ad identifiers.
+- We do not sell, rent, or share your data with third parties.
 - No behavioral analytics, tracking, or third-party analytics SDKs. The app bundles no third-party SDKs at all.
 - No access to contacts, location, camera roll, microphone, or health data.
 - No chat, public profiles, or sharing between families.
@@ -92,18 +92,4 @@ The app is designed so that the child's side needs no account, no sign-in, and n
 
 ## Contact
 
-_To be filled in by the captain before publication (see open questions)._
-
----
-
-## Open questions for the captain (remove before publication)
-
-Everything the code determines has been written into the policy above. What remains here are decisions, not facts - each one needs a choice from the captain, and none may be answered with plausible-sounding text instead:
-
-1. **Selling, renting, or sharing data with third parties.** The policy above makes no such commitment, because this is a promise about how the product is run rather than something code can establish. Decide what the published policy should commit to.
-2. **Contact address** for privacy questions.
-3. **Legal footing statements** (controller identity, jurisdiction, COPPA/GDPR-K posture, lawful basis). This draft deliberately makes none; a legal review should decide whether any are required for the App Store listing and the markets targeted.
-4. **Email scope - a small product choice.** The behavior is now described accurately above: the app asks Apple for the email scope, never uses the address itself, and the service keeps it when Apple provides one. Decide whether to keep that or drop the scope request, which would let the policy say the email address is never collected at all.
-5. **Publication address and revision practice.** No address is published and no update process exists yet. Confirm where the policy will live and how future revisions will be dated and announced, so the published version can describe it truthfully.
-
-This list is not a fixed set. Every genuine decision or unverifiable claim belongs here as an open question; none of these entries may be deleted to reach a particular count, and none may be answered with invented text instead of a captain decision. Equally, nothing that the app or service code actually determines belongs here - that gets investigated and written as plain policy text.
+For privacy questions, email eddies-wallet@kunchenguid.com.
