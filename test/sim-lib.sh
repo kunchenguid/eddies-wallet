@@ -413,6 +413,18 @@ _sim_recorded_udid() {
     printf '%s\n' "$udid"
 }
 
+_sim_recorded_device_name() {
+    local name_file="$1/device.name"
+    [[ -f "$name_file" ]] || return 0
+
+    local name
+    if ! name="$(cat "$name_file" 2>/dev/null)"; then
+        [[ -e "$name_file" ]] && return 1
+        return 0
+    fi
+    printf '%s\n' "$name"
+}
+
 _sim_default_device_name_for_udid() {
     local udid="$1" devices
     [[ -n "$udid" ]] || return 1
@@ -466,23 +478,31 @@ _sim_finalize_run() {
 _sim_reap_run() {
     local run_dir="$1"
     [[ -d "$run_dir" ]] || return 0
-    local udid=""
+    local udid="" recorded_name=""
     udid="$(_sim_recorded_udid "$run_dir")" || return 1
+    recorded_name="$(_sim_recorded_device_name "$run_dir")" || return 1
     if [[ -n "$udid" ]]; then
-        local device_name lookup_status
+        local device_name lookup_status ownership_matches=0
         lookup_status=0
         device_name="$(_sim_default_device_name_for_udid "$udid")" || lookup_status=$?
         if [[ "$lookup_status" == "2" ]]; then
             sim_log "failed to verify simulator $udid before reaping $(basename "$run_dir"); leaving marker for retry"
             return 1
         fi
-        if [[ "$lookup_status" == "0" ]] && ! _sim_device_name_has_run_prefix "$device_name"; then
-            sim_log "skipping simulator $udid from stale marker $(basename "$run_dir"); device name is not run-scoped: $device_name"
-            if ! rm -rf "$run_dir" 2>/dev/null; then
-                sim_log "failed to remove stale simulator run dir $run_dir; leaving it for retry"
-                return 1
+        if [[ "$lookup_status" == "0" ]]; then
+            if [[ -n "$recorded_name" ]]; then
+                [[ "$device_name" == "$recorded_name" ]] && ownership_matches=1
+            elif _sim_device_name_has_run_prefix "$device_name"; then
+                ownership_matches=1
             fi
-            return 0
+            if [[ "$ownership_matches" == "0" ]]; then
+                sim_log "skipping simulator $udid from stale marker $(basename "$run_dir"); device name does not match recorded ownership: $device_name"
+                if ! rm -rf "$run_dir" 2>/dev/null; then
+                    sim_log "failed to remove stale simulator run dir $run_dir; leaving it for retry"
+                    return 1
+                fi
+                return 0
+            fi
         fi
     fi
     _sim_finalize_run "$run_dir" "$udid"
@@ -773,6 +793,7 @@ sim_set_up() {
     SIM_RUN_DIR="$SIM_RUNS_BASE/run.$$.$rand"
     SIM_DEVICE_NAME="$SIM_DEVICE_NAME_PREFIX-$$-$rand"
     mkdir -p "$SIM_RUN_DIR"
+    printf '%s\n' "$SIM_DEVICE_NAME" > "$SIM_RUN_DIR/device.name"
     printf '%s\n' "$$" > "$SIM_RUN_DIR/owner.pid"
     _sim_proc_lstart "$$" > "$SIM_RUN_DIR/owner.lstart"
     SIM_OWNS_TEARDOWN=1

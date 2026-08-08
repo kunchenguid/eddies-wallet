@@ -208,6 +208,17 @@ if _sim_reap_run "$TEST_BASE/run.fin_prefixed"; then ok "_sim_reap_run allows a 
 assert_logged "simctl delete $UD_MARKER_PREFIXED" "_sim_reap_run deletes a run-scoped recorded UDID"
 assert_absent "run.fin_prefixed" "_sim_reap_run removes a run-scoped marker dir"
 
+UD_MARKER_CUSTOM="33330000-0000-0000-0000-000000000004"
+CUSTOM_DEVICE_NAME="Custom-simrun-${DEAD_PID}-888"
+mkdir -p "$TEST_BASE/run.fin_custom_prefix"
+printf '%s\n' "$UD_MARKER_CUSTOM" > "$TEST_BASE/run.fin_custom_prefix/device.udid"
+printf '%s\n' "$CUSTOM_DEVICE_NAME" > "$TEST_BASE/run.fin_custom_prefix/device.name"
+SIMCTL_DEFAULT_DEVICE_LIST="    $CUSTOM_DEVICE_NAME ($UD_MARKER_CUSTOM) (Shutdown)"
+: > "$xcrun_calls"
+if _sim_reap_run "$TEST_BASE/run.fin_custom_prefix"; then ok "_sim_reap_run honors the creating run's recorded device name"; else bad "_sim_reap_run rejected a recorded custom-prefix device name"; fi
+assert_logged "simctl delete $UD_MARKER_CUSTOM" "_sim_reap_run deletes an orphan created with a different prefix"
+assert_absent "run.fin_custom_prefix" "_sim_reap_run removes a custom-prefix marker dir"
+
 mkdir -p "$TEST_BASE/run.fin_verify_fail"
 printf '%s\n' "$UD_MARKER_VERIFY" > "$TEST_BASE/run.fin_verify_fail/device.udid"
 XCRUN_LIST_FAIL=1
