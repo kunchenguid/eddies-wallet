@@ -485,6 +485,7 @@ fi
 SIM_UDID="64AC0F39-22F2-428E-BD90-335AC1D0BB26"
 if sim_require_managed_simulator_command /usr/bin/xcrun simctl boot OTHER-UDID; then bad "managed command guard accepted a foreign absolute simulator boot"; else ok "managed command guard rejects foreign absolute simulator boot"; fi
 if sim_require_managed_simulator_command /usr/bin/xcrun --run simctl boot OTHER-UDID; then bad "managed command guard accepted an option-dispatched simulator boot"; else ok "managed command guard normalizes xcrun lifecycle dispatch"; fi
+if sim_require_managed_simulator_command /usr/bin/xcrun simctl --set /tmp/devices create Leaked Device Runtime; then bad "managed command guard accepted simulator creation after a global option"; else ok "managed command guard normalizes simctl global options before lifecycle rejection"; fi
 if sim_require_managed_simulator_command xcodebuild test; then bad "managed command guard accepted xcodebuild test without a destination"; else ok "managed command guard requires an explicit test destination"; fi
 if sim_require_managed_simulator_command xcodebuild test -destination "platform=iOS Simulator,id=$SIM_UDID"; then ok "managed command guard accepts the run-scoped xcodebuild destination"; else bad "managed command guard rejected the run-scoped xcodebuild destination"; fi
 if sim_require_managed_simulator_command xcodebuild test -destination "id=$SIM_UDID"; then ok "managed command guard accepts the run-scoped UDID-only destination"; else bad "managed command guard rejected the run-scoped UDID-only destination"; fi
@@ -523,6 +524,16 @@ if [[ -s "$owned_signal_pid_file" ]] && ! kill -0 "$(cat "$owned_signal_pid_file
 else
     bad "deferred TERM left the published owned child running"
 fi
+
+original_proc_lstart="$(declare -f _sim_proc_lstart)"
+stale_signal_calls="$TEST_BASE/.stale-signal-calls"
+: > "$stale_signal_calls"
+_sim_proc_lstart() { printf '%s\n' "Tue Mar 17 10:11:12 2026"; }
+kill() { printf '%s\n' "$*" >> "$stale_signal_calls"; }
+sim_stop_command 49771 0 "Mon Mar 16 10:11:12 2026"
+assert_eq "$(wc -l < "$stale_signal_calls" | tr -d ' ')" "0" "command teardown never signals a reused PID or process group"
+unset -f kill
+eval "$original_proc_lstart"
 
 SIM_MAX_SOURCE_DEVICES=1
 _SIM_SOURCE_CREATE_ATTEMPTS=0

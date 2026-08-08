@@ -385,8 +385,19 @@ sim_require_managed_simulator_command() {
         index="$_SIM_COMMAND_INDEX"
     fi
     if [[ "${arguments[index]##*/}" == "simctl" ]]; then
-        case "${arguments[index + 1]:-}" in
-            boot|create|delete|erase|shutdown)
+        (( index += 1 ))
+        while (( index < ${#arguments[@]} )); do
+            argument="${arguments[index]}"
+            case "$argument" in
+                --) (( index += 1 )); break ;;
+                --set|--profiles) (( index += 2 )) ;;
+                --set=*|--profiles=*) (( index += 1 )) ;;
+                -*) (( index += 1 )) ;;
+                *) break ;;
+            esac
+        done
+        case "${arguments[index]:-}" in
+            boot|bootstatus|create|delete|erase|shutdown)
                 sim_log "refusing simulator lifecycle commands in the wrapped child"
                 return 1
                 ;;
@@ -501,17 +512,28 @@ sim_command_group_running() {
     [[ -n "$stat" && "$stat" != Z* ]]
 }
 
+_sim_command_identity_matches() {
+    local pid="$1" expected_lstart="$2"
+    [[ -n "$expected_lstart" && "$(_sim_proc_lstart "$pid")" == "$expected_lstart" ]]
+}
+
 sim_stop_command() {
     local pid="$1"
     local timeout="${2:-${EW_SIM_TERM_TIMEOUT_SECS:-20}}"
+    local expected_lstart="${3:-}"
     local waited=0
+    if [[ -n "$expected_lstart" ]] && ! _sim_command_identity_matches "$pid" "$expected_lstart"; then
+        return 0
+    fi
     kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
-    while sim_command_group_running "$pid"; do
+    while { [[ -z "$expected_lstart" ]] || _sim_command_identity_matches "$pid" "$expected_lstart"; } \
+        && sim_command_group_running "$pid"; do
         (( waited >= timeout )) && break
         sleep 1
         waited=$(( waited + 1 ))
     done
-    if sim_command_group_running "$pid"; then
+    if { [[ -z "$expected_lstart" ]] || _sim_command_identity_matches "$pid" "$expected_lstart"; } \
+        && sim_command_group_running "$pid"; then
         kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
     fi
     wait "$pid" 2>/dev/null || true
@@ -544,13 +566,18 @@ _sim_resume_owned_spawn_signals() {
 }
 
 sim_run_owned_command() {
-    local status=0
+    local status=0 owned_pid
     _sim_defer_owned_spawn_signals
     "$@" &
     CMD_PID=$!
+    CMD_LSTART="$(_sim_proc_lstart "$CMD_PID")"
+    export CMD_LSTART
+    owned_pid="$CMD_PID"
     _sim_resume_owned_spawn_signals
-    wait "$CMD_PID" || status=$?
+    wait "$owned_pid" || status=$?
     CMD_PID=""
+    CMD_LSTART=""
+    export CMD_LSTART
     return "$status"
 }
 

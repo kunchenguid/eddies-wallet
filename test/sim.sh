@@ -78,6 +78,7 @@ sim_require_headless_command "$@"
 # On a trapped signal or command timeout, stop the full process group then let the EXIT trap
 # tear down the source device and all XCTest clones.
 CMD_PID=""
+CMD_LSTART=""
 WATCHDOG_PID=""
 TIMEOUT_MARKER="${TMPDIR:-/tmp}/eddies-wallet-sim-timeout.$$.$RANDOM"
 COMMAND_TIMEOUT_SECS="${EW_SIM_COMMAND_TIMEOUT_SECS:-1800}"
@@ -108,8 +109,9 @@ on_signal() {
         wait "$WATCHDOG_PID" 2>/dev/null || true
         WATCHDOG_PID=""
     fi
-    [[ -n "$CMD_PID" ]] && sim_stop_command "$CMD_PID"
+    [[ -n "$CMD_PID" && -n "$CMD_LSTART" ]] && sim_stop_command "$CMD_PID" "${EW_SIM_TERM_TIMEOUT_SECS:-20}" "$CMD_LSTART"
     CMD_PID=""
+    CMD_LSTART=""
     exit $(( 128 + signum ))
 }
 trap 'status=$?; cleanup_status=0; finish_cleanup || cleanup_status=$?; if [[ "$status" == "0" && "$cleanup_status" != "0" ]]; then status="$cleanup_status"; fi; exit "$status"' EXIT
@@ -140,25 +142,31 @@ fi
 # The watchdog is killed as a process group: killing only the subshell leaves its sleep
 # child alive holding the inherited stdout, which blocks any caller that piped our output.
 status=0
+command_pgid=""
 _sim_defer_owned_spawn_signals
 "${cmd[@]}" &
 CMD_PID=$!
+CMD_LSTART="$(_sim_proc_lstart "$CMD_PID")"
+command_pgid="$CMD_PID"
 _sim_resume_owned_spawn_signals
 if (( COMMAND_TIMEOUT_SECS > 0 )); then
+    watchdog_command_pid="$CMD_PID"
+    watchdog_command_lstart="$CMD_LSTART"
     _sim_defer_owned_spawn_signals
     (
         sleep "$COMMAND_TIMEOUT_SECS"
-        if sim_command_group_running "$CMD_PID"; then
+        if _sim_command_identity_matches "$watchdog_command_pid" "$watchdog_command_lstart"; then
             printf '%s\n' "timed out after ${COMMAND_TIMEOUT_SECS}s" > "$TIMEOUT_MARKER"
-            sim_stop_command "$CMD_PID"
+            sim_stop_command "$watchdog_command_pid" "${EW_SIM_TERM_TIMEOUT_SECS:-20}" "$watchdog_command_lstart"
         fi
     ) &
     WATCHDOG_PID=$!
     _sim_resume_owned_spawn_signals
 fi
-wait "$CMD_PID" || status=$?
-_sim_record_owned_simulator_apps "$CMD_PID"
+wait "$command_pgid" || status=$?
 CMD_PID=""
+CMD_LSTART=""
+_sim_record_owned_simulator_apps "$command_pgid"
 if [[ -n "$WATCHDOG_PID" ]]; then
     kill -- -"$WATCHDOG_PID" >/dev/null 2>&1 || kill "$WATCHDOG_PID" >/dev/null 2>&1 || true
     wait "$WATCHDOG_PID" 2>/dev/null || true
