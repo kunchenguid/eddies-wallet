@@ -399,6 +399,9 @@ sim_require_managed_simulator_command() {
         local simctl_action="${arguments[index]:-}"
         (( index += 1 ))
         case "$simctl_action" in
+            help|list)
+                return 0
+                ;;
             clone|create|pair|pair_activate|runtime|unpair)
                 sim_log "refusing unscoped simulator lifecycle command in the wrapped child"
                 return 1
@@ -414,15 +417,24 @@ sim_require_managed_simulator_command() {
                         return 1
                     }
                 done
+                return 0
                 ;;
-            boot|bootstatus|erase|rename|shutdown|upgrade)
+            addmedia|appinfo|boot|bootstatus|diagnose|erase|get_app_container|getenv|icloud_sync|install|install_app_data|io|keychain|launch|listapps|location|logverbose|openurl|pbcopy|pbpaste|pbsync|privacy|push|rename|shutdown|spawn|status_bar|terminate|ui|uninstall|upgrade)
                 [[ "${arguments[index]:-}" == "$SIM_UDID" ]] || {
-                    sim_log "refusing simulator lifecycle command outside this run"
+                    sim_log "refusing simulator command outside this run"
                     return 1
                 }
+                return 0
+                ;;
+            "")
+                sim_log "refusing simctl without an explicit read-only action"
+                return 1
+                ;;
+            *)
+                sim_log "refusing unknown simulator command in the wrapped child"
+                return 1
                 ;;
         esac
-        return 0
     fi
     _sim_xcodebuild_command_index "${arguments[@]}" || return 0
     index="$_SIM_COMMAND_INDEX"
@@ -451,23 +463,25 @@ sim_require_managed_simulator_command() {
 
     local destination field found_id
     local -a fields=()
-    for destination in "${destinations[@]}"; do
-        if [[ "$destination" == *"platform=iOS Simulator"* || "$destination" == id=* ]]; then
-            found_id=0
-            fields=()
-            IFS=',' read -r -a fields <<< "$destination"
-            for field in "${fields[@]}"; do
-                case "$field" in
-                    id="$SIM_UDID") found_id=1 ;;
-                    id=*) found_id=0; break ;;
-                esac
-            done
-            if [[ "$found_id" != "1" ]]; then
-                sim_log "refusing xcodebuild simulator destination outside this run"
-                return 1
+    if (( ${#destinations[@]} > 0 )); then
+        for destination in "${destinations[@]}"; do
+            if [[ "$destination" == *"platform=iOS Simulator"* || "$destination" == id=* ]]; then
+                found_id=0
+                fields=()
+                IFS=',' read -r -a fields <<< "$destination"
+                for field in "${fields[@]}"; do
+                    case "$field" in
+                        id="$SIM_UDID") found_id=1 ;;
+                        id=*) found_id=0; break ;;
+                    esac
+                done
+                if [[ "$found_id" != "1" ]]; then
+                    sim_log "refusing xcodebuild simulator destination outside this run"
+                    return 1
+                fi
             fi
-        fi
-    done
+        done
+    fi
 }
 
 _sim_claim_source_device_slot() {
@@ -578,11 +592,14 @@ _sim_resume_owned_spawn_signals() {
     else
         trap - TERM
     fi
-    local pending_signal="$_SIM_DEFERRED_SIGNAL"
+    local pending_signal="$_SIM_DEFERRED_SIGNAL" shell_pid
     _SIM_DEFERRED_SIGNAL=""
     _SIM_SAVED_INT_TRAP=""
     _SIM_SAVED_TERM_TRAP=""
-    [[ -z "$pending_signal" ]] || kill -"$pending_signal" "$BASHPID"
+    if [[ -n "$pending_signal" ]]; then
+        shell_pid="$(sh -c 'printf "%s\n" "$PPID"')"
+        kill -"$pending_signal" "$shell_pid"
+    fi
 }
 
 sim_run_owned_command() {
@@ -921,18 +938,20 @@ sim_cleanup_xctest_clones() {
                 [[ -n "$clone_udid" ]] && clone_udids+=( "$clone_udid" )
             done <<< "$clone_output"
 
-            for clone_udid in "${clone_udids[@]}"; do
-                if [[ "$_SIM_XCTEST_SEEN_CLONE_UDIDS" != *" $clone_udid "* ]]; then
-                    _SIM_XCTEST_SEEN_CLONE_UDIDS+="$clone_udid "
-                    _SIM_XCTEST_SEEN_CLONE_COUNT=$(( _SIM_XCTEST_SEEN_CLONE_COUNT + 1 ))
-                    if (( _SIM_XCTEST_SEEN_CLONE_COUNT > SIM_MAX_XCTEST_CLONES )); then
-                        if [[ "$_SIM_XCTEST_CLONE_CAP_EXCEEDED" == "0" ]]; then
-                            sim_log "HARD CAP: Xcode created $_SIM_XCTEST_SEEN_CLONE_COUNT XCTest clones for $SIM_DEVICE_NAME; per-run maximum is $SIM_MAX_XCTEST_CLONES"
+            if (( ${#clone_udids[@]} > 0 )); then
+                for clone_udid in "${clone_udids[@]}"; do
+                    if [[ "$_SIM_XCTEST_SEEN_CLONE_UDIDS" != *" $clone_udid "* ]]; then
+                        _SIM_XCTEST_SEEN_CLONE_UDIDS+="$clone_udid "
+                        _SIM_XCTEST_SEEN_CLONE_COUNT=$(( _SIM_XCTEST_SEEN_CLONE_COUNT + 1 ))
+                        if (( _SIM_XCTEST_SEEN_CLONE_COUNT > SIM_MAX_XCTEST_CLONES )); then
+                            if [[ "$_SIM_XCTEST_CLONE_CAP_EXCEEDED" == "0" ]]; then
+                                sim_log "HARD CAP: Xcode created $_SIM_XCTEST_SEEN_CLONE_COUNT XCTest clones for $SIM_DEVICE_NAME; per-run maximum is $SIM_MAX_XCTEST_CLONES"
+                            fi
+                            _SIM_XCTEST_CLONE_CAP_EXCEEDED=1
                         fi
-                        _SIM_XCTEST_CLONE_CAP_EXCEEDED=1
                     fi
-                fi
-            done
+                done
+            fi
 
             if [[ "${#clone_udids[@]}" == "0" ]]; then
                 empty_passes=$(( empty_passes + 1 ))
