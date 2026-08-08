@@ -396,10 +396,30 @@ sim_require_managed_simulator_command() {
                 *) break ;;
             esac
         done
-        case "${arguments[index]:-}" in
-            boot|bootstatus|clone|create|delete|erase|shutdown)
-                sim_log "refusing simulator lifecycle commands in the wrapped child"
+        local simctl_action="${arguments[index]:-}"
+        (( index += 1 ))
+        case "$simctl_action" in
+            clone|create|pair|pair_activate|runtime|unpair)
+                sim_log "refusing unscoped simulator lifecycle command in the wrapped child"
                 return 1
+                ;;
+            delete)
+                (( index < ${#arguments[@]} )) || {
+                    sim_log "refusing simulator deletion without this run's UDID"
+                    return 1
+                }
+                for (( ; index < ${#arguments[@]}; index += 1 )); do
+                    [[ "${arguments[index]}" == "$SIM_UDID" ]] || {
+                        sim_log "refusing simulator deletion outside this run"
+                        return 1
+                    }
+                done
+                ;;
+            boot|bootstatus|erase|rename|shutdown|upgrade)
+                [[ "${arguments[index]:-}" == "$SIM_UDID" ]] || {
+                    sim_log "refusing simulator lifecycle command outside this run"
+                    return 1
+                }
                 ;;
         esac
         return 0

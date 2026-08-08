@@ -36,9 +36,9 @@ Open `EddysWallet.xcodeproj` in Xcode and use the shared `EddysWallet` scheme, o
   -destination 'platform=iOS Simulator,id={{UDID}}'
 ```
 
-`{{UDID}}` is replaced with the booted device. Never point `xcodebuild` at a simulator you created by hand: those devices stay booted long after the run that made them. CI routes simulator work through this wrapper, and `./test/sim.sh --help` documents the device, runtime, and timeout options.
+`{{UDID}}` is replaced with the booted device. Never point `xcodebuild` at a simulator you created by hand: those devices stay booted long after the run that made them. CI routes every command that boots or runs a simulator device through this wrapper, and `./test/sim.sh --help` documents the device, runtime, and timeout options.
 
-Build a signing-independent Release binary for the simulator (a generic destination resolves to the SDK, so no device is involved):
+Build a signing-independent Release binary for the simulator without the wrapper. This compile-only exception uses a generic destination that resolves to the SDK, so it neither boots nor creates a simulator device:
 
 ```sh
 xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet \
