@@ -397,7 +397,7 @@ sim_require_managed_simulator_command() {
             esac
         done
         case "${arguments[index]:-}" in
-            boot|bootstatus|create|delete|erase|shutdown)
+            boot|bootstatus|clone|create|delete|erase|shutdown)
                 sim_log "refusing simulator lifecycle commands in the wrapped child"
                 return 1
                 ;;
