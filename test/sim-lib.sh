@@ -95,6 +95,9 @@ _SIM_OWNED_SIMULATOR_APP_IDENTITIES=""
 _SIM_CREATE_PID=""
 _SIM_CREATE_OUTPUT=""
 _SIM_CREATE_GATE=""
+_SIM_DEFERRED_SIGNAL=""
+_SIM_SAVED_INT_TRAP=""
+_SIM_SAVED_TERM_TRAP=""
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -514,10 +517,38 @@ sim_stop_command() {
     wait "$pid" 2>/dev/null || true
 }
 
+_sim_defer_owned_spawn_signals() {
+    _SIM_DEFERRED_SIGNAL=""
+    _SIM_SAVED_INT_TRAP="$(trap -p INT)"
+    _SIM_SAVED_TERM_TRAP="$(trap -p TERM)"
+    trap '_SIM_DEFERRED_SIGNAL=2' INT
+    trap '_SIM_DEFERRED_SIGNAL=15' TERM
+}
+
+_sim_resume_owned_spawn_signals() {
+    if [[ -n "$_SIM_SAVED_INT_TRAP" ]]; then
+        eval "$_SIM_SAVED_INT_TRAP"
+    else
+        trap - INT
+    fi
+    if [[ -n "$_SIM_SAVED_TERM_TRAP" ]]; then
+        eval "$_SIM_SAVED_TERM_TRAP"
+    else
+        trap - TERM
+    fi
+    local pending_signal="$_SIM_DEFERRED_SIGNAL"
+    _SIM_DEFERRED_SIGNAL=""
+    _SIM_SAVED_INT_TRAP=""
+    _SIM_SAVED_TERM_TRAP=""
+    [[ -z "$pending_signal" ]] || kill -"$pending_signal" "$BASHPID"
+}
+
 sim_run_owned_command() {
     local status=0
+    _sim_defer_owned_spawn_signals
     "$@" &
     CMD_PID=$!
+    _sim_resume_owned_spawn_signals
     wait "$CMD_PID" || status=$?
     CMD_PID=""
     return "$status"
@@ -1043,16 +1074,19 @@ sim_set_up() {
     _SIM_CREATE_GATE="$SIM_RUN_DIR/create.start"
     local create_status=0 owner_pid="$$"
     printf '%s\n' pending > "$SIM_RUN_DIR/create.state"
+    _sim_defer_owned_spawn_signals
     (
         while [[ ! -f "$_SIM_CREATE_GATE" ]]; do
             kill -0 "$owner_pid" 2>/dev/null || exit 1
             sleep 0.01
         done
         exec xcrun simctl create "$SIM_DEVICE_NAME" "$device_type" "$runtime"
-    ) > "$_SIM_CREATE_OUTPUT" & _SIM_CREATE_PID=$!
+    ) > "$_SIM_CREATE_OUTPUT" &
+    _SIM_CREATE_PID=$!
     printf '%s\n' "$_SIM_CREATE_PID" > "$SIM_RUN_DIR/create.pid"
     _sim_proc_lstart "$_SIM_CREATE_PID" > "$SIM_RUN_DIR/create.lstart"
     : > "$_SIM_CREATE_GATE"
+    _sim_resume_owned_spawn_signals
     wait "$_SIM_CREATE_PID" || create_status=$?
     _sim_capture_settled_create
     if [[ "$create_status" != "0" || -z "$SIM_UDID" ]]; then

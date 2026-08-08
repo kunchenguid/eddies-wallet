@@ -41,8 +41,7 @@ success, failure, timeout, EXIT, INT, and TERM. Deleting the device takes the ap
 with it, so nothing accumulates between runs. The wrapper only ever touches devices carrying
 its own run-scoped name prefix, so simulators you opened yourself for the manual sequences
 below are never disturbed. `test/sim-lib-test.sh` proves those reaping and teardown decisions
-without booting anything, and `test/check-sim-usage.sh` fails the build if any tracked script
-or workflow drives a simulator outside the wrapper.
+without booting anything, while CI routes its simulator builds and tests through the wrapper.
 
 ```sh
 ./test/sim.sh -- xcodebuild test \

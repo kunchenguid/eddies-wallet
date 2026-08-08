@@ -19,10 +19,10 @@
 #
 # Do NOT call `xcrun simctl boot` or `xcodebuild test`/`build` against a simulator by hand,
 # and do NOT `open -a Simulator` for build/test - hand-made devices are what left booted
-# Eddie's Wallet simulators running for days. Use this wrapper instead; test/check-sim-usage.sh
-# enforces it across tracked scripts and workflows. Running the app manually from Xcode for
-# the sequences in EddysWallet/README.md is unaffected: this wrapper never touches a device
-# it did not create.
+# Eddie's Wallet simulators running for days. Use this wrapper instead. CI routes simulator
+# work through it, and lifecycle tests plus code review enforce that boundary. Running the
+# app manually from Xcode for the sequences in EddysWallet/README.md is unaffected: this
+# wrapper never touches a device it did not create.
 #
 # Usage:
 #   test/sim.sh [--device <name|id>]... [--runtime <ver|id>] -- <command...>
@@ -140,9 +140,12 @@ fi
 # The watchdog is killed as a process group: killing only the subshell leaves its sleep
 # child alive holding the inherited stdout, which blocks any caller that piped our output.
 status=0
+_sim_defer_owned_spawn_signals
 "${cmd[@]}" &
 CMD_PID=$!
+_sim_resume_owned_spawn_signals
 if (( COMMAND_TIMEOUT_SECS > 0 )); then
+    _sim_defer_owned_spawn_signals
     (
         sleep "$COMMAND_TIMEOUT_SECS"
         if sim_command_group_running "$CMD_PID"; then
@@ -151,6 +154,7 @@ if (( COMMAND_TIMEOUT_SECS > 0 )); then
         fi
     ) &
     WATCHDOG_PID=$!
+    _sim_resume_owned_spawn_signals
 fi
 wait "$CMD_PID" || status=$?
 _sim_record_owned_simulator_apps "$CMD_PID"

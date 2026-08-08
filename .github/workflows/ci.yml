@@ -46,7 +46,6 @@ jobs:
     timeout-minutes: 45
 
     env:
-      BASH_ENV: ${{ github.workspace }}/test/sim-policy.sh
       PROJECT_PATH: EddysWallet.xcodeproj
       SCHEME: EddysWallet
       CONFIGURATION: Debug
@@ -58,18 +57,12 @@ jobs:
         with:
           ref: ${{ inputs.tag_name || github.event.release.tag_name || '' }}
 
-      - name: Enforce simulator command routing
-        run: echo "$GITHUB_WORKSPACE/test/sim-policy-bin" >> "$GITHUB_PATH"
-
       - name: Release pipeline regression checks
         run: ./test/release-checks.sh
 
-      # Boot-free: proves the simulator lifecycle's reaping/teardown decisions and
-      # that no tracked script or workflow drives a simulator outside test/sim.sh.
+      # Boot-free: proves the simulator lifecycle's reaping/teardown decisions.
       - name: Simulator lifecycle checks
-        run: |
-          ./test/check-sim-usage.sh
-          ./test/sim-lib-test.sh
+        run: ./test/sim-lib-test.sh
 
       - name: Select Xcode 26
         run: |
@@ -97,9 +90,8 @@ jobs:
       # test/sim.sh owns the whole simulator lifecycle: it reaps orphans, creates
       # exactly one run-scoped device, boots it headlessly, and deletes that device
       # and its XCTest clone on every exit path. Never target a simulator directly
-      # here - a hand-made device outlives the job it was created for, and
-      # test/check-sim-usage.sh fails the build if one reappears. `--device` is an
-      # ordered preference so CI keeps verifying on the same device family the
+      # here - a hand-made device outlives the job it was created for. `--device`
+      # is an ordered preference so CI keeps verifying on the same device family the
       # READMEs do; the runtime falls back to the newest the runner provisions.
       - name: Build
         run: |

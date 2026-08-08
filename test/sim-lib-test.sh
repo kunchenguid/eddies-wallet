@@ -505,6 +505,25 @@ if sim_is_xcodebuild_test_command env -P/usr/bin xcodebuild test; then ok "detec
 if sim_is_xcodebuild_test_command nice -n 5 time -p /usr/bin/xcodebuild test-without-building; then ok "detects multiply wrapped xcodebuild test"; else bad "did not detect multiply wrapped xcodebuild test"; fi
 if sim_is_xcodebuild_test_command /usr/bin/xcodebuild build; then bad "classified xcodebuild build as test"; else ok "does not classify xcodebuild build as test"; fi
 
+owned_signal_pid_file="$TEST_BASE/.owned-signal-pid"
+owned_signal_status=0
+(
+    CMD_PID=""
+    trap '[[ -n "$CMD_PID" ]] || exit 99; printf "%s\n" "$CMD_PID" > "$owned_signal_pid_file"; sim_stop_command "$CMD_PID" 1; exit 143' TERM
+    _sim_defer_owned_spawn_signals
+    bash -c 'kill -TERM "$PPID"; exec sleep 30' &
+    sleep 0.1
+    CMD_PID=$!
+    _sim_resume_owned_spawn_signals
+    exit 98
+) || owned_signal_status=$?
+assert_eq "$owned_signal_status" "143" "deferred TERM reaches the owner after child PID publication"
+if [[ -s "$owned_signal_pid_file" ]] && ! kill -0 "$(cat "$owned_signal_pid_file")" 2>/dev/null; then
+    ok "deferred TERM stops the published owned child"
+else
+    bad "deferred TERM left the published owned child running"
+fi
+
 SIM_MAX_SOURCE_DEVICES=1
 _SIM_SOURCE_CREATE_ATTEMPTS=0
 if _sim_claim_source_device_slot; then ok "first source-device creation claim is allowed"; else bad "first source-device creation claim was rejected"; fi
