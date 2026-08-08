@@ -20,8 +20,13 @@ jobs:
     name: Query App Store Connect
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      BASH_ENV: ${{ github.workspace }}/test/sim-policy.sh
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
       - name: Query build processing state
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}

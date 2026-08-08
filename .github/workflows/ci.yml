@@ -46,6 +46,7 @@ jobs:
     timeout-minutes: 45
 
     env:
+      BASH_ENV: ${{ github.workspace }}/test/sim-policy.sh
       PROJECT_PATH: EddysWallet.xcodeproj
       SCHEME: EddysWallet
       CONFIGURATION: Debug

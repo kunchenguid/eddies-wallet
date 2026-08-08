@@ -75,6 +75,62 @@ env "${policy_env[@]}" EW_SIM_POLICY_WRAPPED=1 xcrun simctl boot WRAPPED-UDID
 env "${policy_env[@]}" EW_SIM_POLICY_WRAPPED=1 xcodebuild test \
     -destination 'platform=iOS Simulator,id=WRAPPED-UDID'
 env "${policy_env[@]}" xcodebuild build -destination 'generic/platform=iOS'
+
+BASH_POLICY="$ROOT_DIR/test/sim-policy.sh"
+assert_policy_probe() {
+    local entrypoint="$1" probe="$2" status=0
+    env BASH_ENV="$BASH_POLICY" EW_SIM_POLICY_PROBE="$probe" \
+        bash "$entrypoint" >"$TEST_DIR/probe.stdout" 2>"$TEST_DIR/probe.stderr" || status=$?
+    if [[ "$status" != "92" ]]; then
+        echo "sim-usage: policy probe '$probe' escaped $entrypoint (status $status)" >&2
+        exit 1
+    fi
+}
+
+for probe in absolute-xcrun command-p-xcrun absolute-xcodebuild absolute-open; do
+    assert_policy_probe "$ROOT_DIR/test/sim.sh" "$probe"
+done
+
+while IFS= read -r -d '' script; do
+    assert_policy_probe "$ROOT_DIR/$script" absolute-xcrun
+done < <(git -C "$ROOT_DIR" ls-files -z '*.sh')
+
+WORKFLOW_ENTRYPOINTS="$TEST_DIR/workflow-entrypoints"
+mkdir -p "$WORKFLOW_ENTRYPOINTS"
+ruby - "$ROOT_DIR" "$WORKFLOW_ENTRYPOINTS" > "$TEST_DIR/workflow-entrypoints.log" <<'RUBY'
+require "fileutils"
+require "psych"
+
+root, output_dir = ARGV
+index = 0
+Dir.glob(File.join(root, ".github/workflows/*.{yml,yaml}")).sort.each do |workflow_path|
+  workflow = Psych.safe_load(File.read(workflow_path), aliases: true) || {}
+  (workflow["jobs"] || {}).each do |job_name, job|
+    run_steps = (job["steps"] || []).each_with_index.select do |step, _step_index|
+      step.is_a?(Hash) && step["run"].is_a?(String)
+    end
+    next if run_steps.empty?
+
+    effective_env = (workflow["env"] || {}).merge(job["env"] || {})
+    unless effective_env["BASH_ENV"] == "${{ github.workspace }}/test/sim-policy.sh"
+      abort "#{workflow_path}: job #{job_name} has run entrypoints outside the simulator policy boundary"
+    end
+
+    run_steps.each do |step, step_index|
+      index += 1
+      path = File.join(output_dir, format("%03d.sh", index))
+      File.write(path, step["run"])
+      puts [path, File.basename(workflow_path), job_name, step_index].join("\t")
+    end
+  end
+end
+abort "no workflow run entrypoints found" if index.zero?
+RUBY
+
+while IFS=$'\t' read -r entrypoint _workflow _job _step; do
+    assert_policy_probe "$entrypoint" command-p-xcrun
+done < "$TEST_DIR/workflow-entrypoints.log"
+
 : > "$XCRUN_LOG"
 : > "$COMMAND_LOG"
 
