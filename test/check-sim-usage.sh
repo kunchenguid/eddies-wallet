@@ -39,6 +39,14 @@ case "$*" in
         ;;
     "simctl list devices")
         ;;
+    simctl\ bootstatus\ *)
+        if [[ -n "${EW_SIM_TEST_BOOTSTATUS_PID_FILE:-}" ]]; then
+            printf '%s\n' "$$" > "$EW_SIM_TEST_BOOTSTATUS_PID_FILE"
+            trap 'exit 143' TERM
+            sleep "${EW_SIM_TEST_BOOTSTATUS_DELAY_SECS:-30}" &
+            wait $!
+        fi
+        ;;
     *)
         ;;
 esac
@@ -186,6 +194,63 @@ end
 abort "no workflow run entrypoints found" if count.zero?
 RUBY
 
+ruby - "$ROOT_DIR" <<'RUBY'
+require "psych"
+
+root = ARGV.fetch(0)
+exempt_scripts = %w[
+  test/check-sim-usage.sh
+  test/sim-lib-test.sh
+  test/sim-lib.sh
+  test/sim-policy.sh
+  test/sim.sh
+].freeze
+
+def direct_simulator_invocation?(body)
+  logical_lines = []
+  current = +""
+  body.each_line do |line|
+    next if current.empty? && line.lstrip.start_with?("#")
+
+    stripped = line.rstrip
+    current << " " unless current.empty?
+    current << (stripped.end_with?("\\") ? stripped.delete_suffix("\\") : stripped)
+    next if stripped.end_with?("\\")
+
+    logical_lines << current
+    current = +""
+  end
+  logical_lines << current unless current.empty?
+  logical_lines.any? do |line|
+    next false if line.match?(%r{(?:^|[;&|()]\s*)(?:\S*/)?test/sim\.sh(?:\s|$)})
+
+    command_prefix = %r{(?:^|[;&|()]\s*)(?:command\s+(?:-p\s+)?)?}
+    line.match?(%r{#{command_prefix}(?:\S*/)?xcrun\s+simctl\s+(?:boot|create)(?:\s|$)}) ||
+      (line.match?(%r{#{command_prefix}(?:\S*/)?xcodebuild(?:\s|$).*?-destination(?:=|\s)}) &&
+        (line.include?("iOS Simulator") || line.match?(/-destination(?:=|\s+)["']?id=/))) ||
+      line.match?(%r{#{command_prefix}(?:\S*/)?open(?:\s|$).*?(?:-a\s*Simulator|-b\s*com\.apple\.iphonesimulator)})
+  end
+end
+
+tracked = IO.popen(["git", "-C", root, "ls-files", "*.sh"], &:read).lines.map(&:chomp)
+tracked.reject { |path| exempt_scripts.include?(path) }.each do |path|
+  body = File.read(File.join(root, path))
+  abort "#{path}: direct simulator invocation must run through test/sim.sh" if direct_simulator_invocation?(body)
+end
+
+Dir.glob(File.join(root, ".github/workflows/*.{yml,yaml}")).sort.each do |workflow_path|
+  workflow = Psych.safe_load(File.read(workflow_path), aliases: true) || {}
+  (workflow["jobs"] || {}).each do |job_name, job|
+    (job["steps"] || []).each_with_index do |step, index|
+      next unless step.is_a?(Hash) && step["run"].is_a?(String)
+      if direct_simulator_invocation?(step["run"])
+        abort "#{workflow_path}: job #{job_name} step #{index + 1} directly invokes simulator tooling"
+      end
+    end
+  end
+end
+RUBY
+
 : > "$XCRUN_LOG"
 : > "$COMMAND_LOG"
 
@@ -233,6 +298,38 @@ if find "$RUNS_DIR" -mindepth 1 -print -quit | grep -q .; then
     exit 1
 fi
 
+BOOTSTATUS_PID_FILE="$TEST_DIR/bootstatus.pid"
+env "${common_env[@]}" \
+    EW_SIM_TEST_BOOTSTATUS_PID_FILE="$BOOTSTATUS_PID_FILE" EW_SIM_TEST_BOOTSTATUS_DELAY_SECS=30 \
+    "$ROOT_DIR/test/sim.sh" -- xcodebuild test \
+    -destination 'platform=iOS Simulator,id={{UDID}}' \
+    >"$TEST_DIR/interrupted-boot.stdout" 2>"$TEST_DIR/interrupted-boot.stderr" &
+interrupted_wrapper_pid=$!
+for _ in {1..100}; do
+    [[ -s "$BOOTSTATUS_PID_FILE" ]] && break
+    sleep 0.02
+done
+[[ -s "$BOOTSTATUS_PID_FILE" ]] || {
+    echo "sim-usage: interrupted-boot probe did not reach simctl bootstatus" >&2
+    exit 1
+}
+interrupted_bootstatus_pid="$(cat "$BOOTSTATUS_PID_FILE")"
+kill -TERM "$interrupted_wrapper_pid"
+interrupted_status=0
+wait "$interrupted_wrapper_pid" || interrupted_status=$?
+[[ "$interrupted_status" == "143" ]] || {
+    echo "sim-usage: interrupted boot returned status $interrupted_status instead of 143" >&2
+    exit 1
+}
+if kill -0 "$interrupted_bootstatus_pid" 2>/dev/null; then
+    echo "sim-usage: interrupted wrapper left simctl bootstatus running" >&2
+    exit 1
+fi
+if find "$RUNS_DIR" -mindepth 1 -print -quit | grep -q .; then
+    echo "sim-usage: interrupted boot left a run marker behind" >&2
+    exit 1
+fi
+
 : > "$XCRUN_LOG"
 if env "${common_env[@]}" "$ROOT_DIR/test/sim.sh" -- env EW_SIM_TEST_WRAPPED=yes open -a Simulator \
     >"$TEST_DIR/gui.stdout" 2>"$TEST_DIR/gui.stderr"; then
@@ -251,6 +348,17 @@ if env "${common_env[@]}" "$ROOT_DIR/test/sim.sh" -- /usr/bin/xcrun simctl boot 
 fi
 if grep -qF 'simctl boot OTHER-UDID' "$XCRUN_LOG"; then
     echo "sim-usage: wrapper executed an unmanaged absolute simulator boot" >&2
+    exit 1
+fi
+if env "${common_env[@]}" "$ROOT_DIR/test/sim.sh" -- xcodebuild test \
+    >"$TEST_DIR/missing-destination.stdout" 2>"$TEST_DIR/missing-destination.stderr"; then
+    echo "sim-usage: wrapper accepted xcodebuild test without a destination" >&2
+    exit 1
+fi
+if env "${common_env[@]}" "$ROOT_DIR/test/sim.sh" -- /usr/bin/xcrun xcodebuild test \
+    -destination id=OTHER-UDID \
+    >"$TEST_DIR/xcrun-foreign-destination.stdout" 2>"$TEST_DIR/xcrun-foreign-destination.stderr"; then
+    echo "sim-usage: wrapper accepted xcrun xcodebuild for a foreign destination" >&2
     exit 1
 fi
 

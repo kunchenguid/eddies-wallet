@@ -119,6 +119,7 @@ trap 'on_signal 15' TERM
 # Reap orphans from previously-dead runs before we create anything new.
 sim_reap_stale
 
+set -m
 sim_set_up "$RUNTIME" "${DEVICES[@]}"
 
 # Substitute the {{UDID}} token in each argument so callers can place it inside an already
@@ -139,7 +140,6 @@ fi
 # The watchdog is killed as a process group: killing only the subshell leaves its sleep
 # child alive holding the inherited stdout, which blocks any caller that piped our output.
 status=0
-set -m
 "${cmd[@]}" &
 CMD_PID=$!
 if (( COMMAND_TIMEOUT_SECS > 0 )); then

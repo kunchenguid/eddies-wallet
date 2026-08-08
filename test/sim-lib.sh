@@ -328,11 +328,38 @@ _sim_reject_run_simulator_app() {
 # Returns success when an argv array resolves to xcodebuild and invokes a test action.
 # Callers use this to force a single non-parallel worker, preventing Xcode from creating an
 # unbounded fan-out of test clones.
-sim_is_xcodebuild_test_command() {
+_sim_xcrun_tool_index() {
+    local -a arguments=("$@")
+    local index="$_SIM_COMMAND_INDEX" argument
+    [[ "${arguments[index]##*/}" == "xcrun" ]] || return 1
+    (( index += 1 ))
+    while (( index < ${#arguments[@]} )); do
+        argument="${arguments[index]}"
+        case "$argument" in
+            --) (( index += 1 )); break ;;
+            -f|--find|-r|--run|-v|--verbose|-n|--no-cache|-k|--kill-cache) (( index += 1 )) ;;
+            -sdk|--sdk|-toolchain|--toolchain) (( index += 2 )) ;;
+            -*) (( index += 1 )) ;;
+            *) break ;;
+        esac
+    done
+    (( index < ${#arguments[@]} )) || return 1
+    _SIM_COMMAND_INDEX="$index"
+}
+
+_sim_xcodebuild_command_index() {
     local -a arguments=("$@")
     _sim_find_command_index "${arguments[@]}" || return 1
+    if [[ "${arguments[_SIM_COMMAND_INDEX]##*/}" == "xcrun" ]]; then
+        _sim_xcrun_tool_index "${arguments[@]}" || return 1
+    fi
+    [[ "${arguments[_SIM_COMMAND_INDEX]:-}" == */xcodebuild || "${arguments[_SIM_COMMAND_INDEX]:-}" == "xcodebuild" ]] || return 1
+}
+
+sim_is_xcodebuild_test_command() {
+    local -a arguments=("$@")
+    _sim_xcodebuild_command_index "${arguments[@]}" || return 1
     local index="$_SIM_COMMAND_INDEX" argument
-    [[ "${arguments[index]##*/}" == "xcodebuild" ]] || return 1
     for (( index += 1; index < ${#arguments[@]}; index += 1 )); do
         argument="${arguments[index]}"
         case "$argument" in
@@ -343,15 +370,19 @@ sim_is_xcodebuild_test_command() {
 }
 
 sim_require_managed_simulator_command() {
-    local -a arguments=("$@")
-    local find_status=0 index executable argument destination="" expect_destination=0
+    local -a arguments=("$@") destinations=()
+    local find_status=0 index executable argument expect_destination=0 action_requires_destination=0
     _sim_find_command_index "${arguments[@]}" || find_status=$?
     [[ "$find_status" == "0" ]] || return "$find_status"
     index="$_SIM_COMMAND_INDEX"
     executable="${arguments[index]##*/}"
 
-    if [[ "$executable" == "xcrun" && "${arguments[index + 1]:-}" == "simctl" ]]; then
-        case "${arguments[index + 2]:-}" in
+    if [[ "$executable" == "xcrun" ]]; then
+        _sim_xcrun_tool_index "${arguments[@]}" || return 0
+        index="$_SIM_COMMAND_INDEX"
+    fi
+    if [[ "${arguments[index]##*/}" == "simctl" ]]; then
+        case "${arguments[index + 1]:-}" in
             boot|create|delete|erase|shutdown)
                 sim_log "refusing simulator lifecycle commands in the wrapped child"
                 return 1
@@ -359,36 +390,50 @@ sim_require_managed_simulator_command() {
         esac
         return 0
     fi
-    [[ "$executable" == "xcodebuild" ]] || return 0
+    _sim_xcodebuild_command_index "${arguments[@]}" || return 0
+    index="$_SIM_COMMAND_INDEX"
 
     for (( index += 1; index < ${#arguments[@]}; index += 1 )); do
         argument="${arguments[index]}"
         if [[ "$expect_destination" == "1" ]]; then
-            destination="$argument"
-            break
+            destinations+=( "$argument" )
+            expect_destination=0
+            continue
         fi
         case "$argument" in
+            build|build-for-testing|test|test-without-building) action_requires_destination=1 ;;
             -destination) expect_destination=1 ;;
-            -destination=*) destination="${argument#-destination=}"; break ;;
+            -destination=*) destinations+=( "${argument#-destination=}" ) ;;
         esac
     done
-    [[ -n "$destination" ]] || return 0
-    if [[ "$destination" == *"iOS Simulator"* || "$destination" == id=* ]]; then
-        local field found_platform=0 found_id=0
-        local -a fields=()
-        IFS=',' read -r -a fields <<< "$destination"
-        for field in "${fields[@]}"; do
-            case "$field" in
-                "platform=iOS Simulator") found_platform=1 ;;
-                id="$SIM_UDID") found_id=1 ;;
-                id=*) return 1 ;;
-            esac
-        done
-        if [[ "$found_platform" != "1" || "$found_id" != "1" ]]; then
-            sim_log "refusing xcodebuild simulator destination outside this run"
-            return 1
-        fi
+    if [[ "$expect_destination" == "1" ]]; then
+        sim_log "refusing xcodebuild with a missing destination value"
+        return 1
     fi
+    if [[ "$action_requires_destination" == "1" && "${#destinations[@]}" == "0" ]]; then
+        sim_log "refusing wrapped xcodebuild build/test without an explicit destination"
+        return 1
+    fi
+
+    local destination field found_id
+    local -a fields=()
+    for destination in "${destinations[@]}"; do
+        if [[ "$destination" == *"platform=iOS Simulator"* || "$destination" == id=* ]]; then
+            found_id=0
+            fields=()
+            IFS=',' read -r -a fields <<< "$destination"
+            for field in "${fields[@]}"; do
+                case "$field" in
+                    id="$SIM_UDID") found_id=1 ;;
+                    id=*) found_id=0; break ;;
+                esac
+            done
+            if [[ "$found_id" != "1" ]]; then
+                sim_log "refusing xcodebuild simulator destination outside this run"
+                return 1
+            fi
+        fi
+    done
 }
 
 _sim_claim_source_device_slot() {
@@ -467,6 +512,15 @@ sim_stop_command() {
         kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
     fi
     wait "$pid" 2>/dev/null || true
+}
+
+sim_run_owned_command() {
+    local status=0
+    "$@" &
+    CMD_PID=$!
+    wait "$CMD_PID" || status=$?
+    CMD_PID=""
+    return "$status"
 }
 
 # Shut down + delete ONE device by UDID from the DEFAULT device set. Always scoped to a
@@ -1010,8 +1064,8 @@ sim_set_up() {
 
     # Boot now (and wait): the test command typically needs a booted device, and booting
     # here lets us assert a clean teardown afterwards.
-    xcrun simctl boot "$SIM_UDID"
-    xcrun simctl bootstatus "$SIM_UDID" -b >/dev/null
+    sim_run_owned_command xcrun simctl boot "$SIM_UDID"
+    sim_run_owned_command xcrun simctl bootstatus "$SIM_UDID" -b >/dev/null
     sim_log "booted $SIM_UDID"
     export SIM_UDID SIM_DEVICE_NAME SIM_RUN_DIR SIM_DEVICE_NAME_PREFIX
 }

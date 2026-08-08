@@ -484,7 +484,12 @@ if [[ "$(trap -p DEBUG)" == *"_sim_policy_check_command"* ]]; then
 fi
 SIM_UDID="64AC0F39-22F2-428E-BD90-335AC1D0BB26"
 if sim_require_managed_simulator_command /usr/bin/xcrun simctl boot OTHER-UDID; then bad "managed command guard accepted a foreign absolute simulator boot"; else ok "managed command guard rejects foreign absolute simulator boot"; fi
+if sim_require_managed_simulator_command /usr/bin/xcrun --run simctl boot OTHER-UDID; then bad "managed command guard accepted an option-dispatched simulator boot"; else ok "managed command guard normalizes xcrun lifecycle dispatch"; fi
+if sim_require_managed_simulator_command xcodebuild test; then bad "managed command guard accepted xcodebuild test without a destination"; else ok "managed command guard requires an explicit test destination"; fi
 if sim_require_managed_simulator_command xcodebuild test -destination "platform=iOS Simulator,id=$SIM_UDID"; then ok "managed command guard accepts the run-scoped xcodebuild destination"; else bad "managed command guard rejected the run-scoped xcodebuild destination"; fi
+if sim_require_managed_simulator_command xcodebuild test -destination "id=$SIM_UDID"; then ok "managed command guard accepts the run-scoped UDID-only destination"; else bad "managed command guard rejected the run-scoped UDID-only destination"; fi
+if sim_require_managed_simulator_command xcodebuild test -destination "id=$SIM_UDID" -destination id=OTHER-UDID; then bad "managed command guard accepted a foreign repeated simulator destination"; else ok "managed command guard validates every simulator destination"; fi
+if sim_require_managed_simulator_command /usr/bin/xcrun xcodebuild test -destination id=OTHER-UDID; then bad "managed command guard accepted xcrun xcodebuild for a foreign destination"; else ok "managed command guard normalizes xcrun xcodebuild dispatch"; fi
 if sim_require_managed_simulator_command xcodebuild test -destination id=OTHER-UDID; then bad "managed command guard accepted a foreign simulator destination"; else ok "managed command guard rejects a foreign simulator destination"; fi
 SIM_UDID=""
 if [[ "$policy_debug_active" == "1" ]]; then
@@ -492,6 +497,8 @@ if [[ "$policy_debug_active" == "1" ]]; then
 fi
 
 if sim_is_xcodebuild_test_command /usr/bin/xcodebuild -scheme EddysWallet test; then ok "detects xcodebuild test for single-worker enforcement"; else bad "did not detect xcodebuild test"; fi
+if sim_is_xcodebuild_test_command /usr/bin/xcrun xcodebuild -scheme EddysWallet test; then ok "detects xcrun-dispatched xcodebuild test"; else bad "did not normalize xcrun-dispatched xcodebuild test"; fi
+if sim_is_xcodebuild_test_command /usr/bin/xcrun --sdk iphonesimulator xcodebuild test; then ok "detects option-dispatched xcodebuild test"; else bad "did not normalize xcrun options before xcodebuild"; fi
 if sim_is_xcodebuild_test_command env EW_CAPTURE=1 /usr/bin/xcodebuild -scheme EddysWallet test; then ok "detects env-wrapped xcodebuild test"; else bad "did not detect env-wrapped xcodebuild test"; fi
 if sim_is_xcodebuild_test_command env -P /usr/bin xcodebuild test; then ok "detects xcodebuild test after env -P"; else bad "did not consume env -P before xcodebuild"; fi
 if sim_is_xcodebuild_test_command env -P/usr/bin xcodebuild test; then ok "detects xcodebuild test after attached env -P"; else bad "did not consume attached env -P before xcodebuild"; fi
