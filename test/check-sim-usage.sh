@@ -68,6 +68,10 @@ if env "${policy_env[@]}" xcodebuild test -destination 'platform=iOS Simulator,i
     echo "sim-usage: command policy accepted unwrapped simulator xcodebuild" >&2
     exit 1
 fi
+if env "${policy_env[@]}" xcodebuild test -destination id=UNWRAPPED-UDID >/dev/null 2>&1; then
+    echo "sim-usage: command policy accepted an unwrapped simulator UDID destination" >&2
+    exit 1
+fi
 if env "${policy_env[@]}" open -a Simulator >/dev/null 2>&1; then
     echo "sim-usage: command policy accepted a Simulator.app launch" >&2
     exit 1
@@ -96,10 +100,16 @@ assert_policy_body_rejected absolute-xcrun '/usr/bin/xcrun simctl boot POLICY-PR
 assert_policy_body_rejected command-p-xcrun 'command -p xcrun simctl boot POLICY-PROBE'
 assert_policy_body_rejected function-absolute-xcrun \
     'boot_device() { /usr/bin/xcrun simctl boot POLICY-PROBE; }; boot_device'
+assert_policy_body_rejected variable-absolute-xcrun \
+    "simctl_tool=/usr/bin/xcrun; \"\$simctl_tool\" simctl boot POLICY-PROBE"
+assert_policy_body_rejected variable-directory-xcrun \
+    "developer_bin=/usr/bin; \"\${developer_bin}/xcrun\" simctl boot POLICY-PROBE"
 assert_policy_body_rejected subshell-command-p-xcrun \
     '(command -p xcrun simctl boot POLICY-PROBE)'
 assert_policy_body_rejected absolute-xcodebuild \
     "/usr/bin/xcodebuild test -destination 'platform=iOS Simulator,id=POLICY-PROBE'"
+assert_policy_body_rejected absolute-xcodebuild-udid \
+    "/usr/bin/xcodebuild test -destination id=POLICY-PROBE"
 assert_policy_body_rejected absolute-open '/usr/bin/open -a Simulator'
 
 mkdir -p "$POLICY_CASES/nested"
@@ -145,9 +155,19 @@ Dir.glob(File.join(root, ".github/workflows/*.{yml,yaml}")).sort.each do |workfl
     next if run_steps.empty?
 
     count += run_steps.length
-    effective_env = (workflow["env"] || {}).merge(job["env"] || {})
-    unless effective_env["BASH_ENV"] == "${{ github.workspace }}/test/sim-policy.sh"
-      abort "#{workflow_path}: job #{job_name} has run entrypoints outside the simulator policy boundary"
+    job_env = (workflow["env"] || {}).merge(job["env"] || {})
+    workflow_shell = workflow.dig("defaults", "run", "shell")
+    job_shell = job.dig("defaults", "run", "shell") || workflow_shell
+    run_steps.each_with_index do |step, index|
+      effective_env = job_env.merge(step["env"] || {})
+      unless effective_env["BASH_ENV"] == "${{ github.workspace }}/test/sim-policy.sh"
+        abort "#{workflow_path}: job #{job_name} step #{index + 1} overrides the simulator policy boundary"
+      end
+
+      shell = step["shell"] || job_shell
+      if shell && !shell.match?(/(^|\/)bash(?:\s|$)/)
+        abort "#{workflow_path}: job #{job_name} step #{index + 1} uses non-Bash shell #{shell.inspect}"
+      end
     end
   end
 end

@@ -91,7 +91,7 @@ _SIM_SOURCE_CREATE_ATTEMPTS=0
 _SIM_XCTEST_CLONE_CAP_EXCEEDED=0
 _SIM_XCTEST_SEEN_CLONE_UDIDS=" "
 _SIM_XCTEST_SEEN_CLONE_COUNT=0
-_SIM_OWNED_SIMULATOR_APP_PIDS=" "
+_SIM_OWNED_SIMULATOR_APP_IDENTITIES=""
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -262,16 +262,28 @@ _sim_visible_simulator_app_processes() {
     done < <(pgrep -x Simulator 2>/dev/null || true)
 }
 
+_sim_owned_simulator_app_identity_matches() {
+    local wanted_pid="$1" recorded_pid recorded_lstart current_lstart
+    current_lstart="$(_sim_proc_lstart "$wanted_pid")"
+    [[ -n "$current_lstart" ]] || return 1
+    while IFS=$'\t' read -r recorded_pid recorded_lstart; do
+        [[ "$recorded_pid" == "$wanted_pid" && "$recorded_lstart" == "$current_lstart" ]] && return 0
+    done <<< "$_SIM_OWNED_SIMULATOR_APP_IDENTITIES"
+    return 1
+}
+
 _sim_record_owned_simulator_apps() {
-    local command_pgid="$1" pid command process_pgid
+    local command_pgid="$1" pid command process_pgid process_lstart
     [[ "$command_pgid" =~ ^[0-9]+$ && -n "${SIM_UDID:-}" ]] || return 0
     while read -r pid command; do
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
         [[ "$command" == *"-CurrentDeviceUDID $SIM_UDID"* ]] || continue
         process_pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
         [[ "$process_pgid" == "$command_pgid" ]] || continue
-        [[ "$_SIM_OWNED_SIMULATOR_APP_PIDS" == *" $pid "* ]] \
-            || _SIM_OWNED_SIMULATOR_APP_PIDS+="$pid "
+        process_lstart="$(_sim_proc_lstart "$pid")"
+        [[ -n "$process_lstart" ]] || continue
+        _sim_owned_simulator_app_identity_matches "$pid" \
+            || _SIM_OWNED_SIMULATOR_APP_IDENTITIES+="$pid"$'\t'"$process_lstart"$'\n'
     done < <(_sim_visible_simulator_app_processes)
 }
 
@@ -281,7 +293,7 @@ _sim_reject_run_simulator_app() {
     processes="$(_sim_visible_simulator_app_processes)"
     while read -r pid command; do
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
-        [[ "$_SIM_OWNED_SIMULATOR_APP_PIDS" == *" $pid "* ]] || continue
+        _sim_owned_simulator_app_identity_matches "$pid" || continue
         [[ "$command" == *"-CurrentDeviceUDID $SIM_UDID"* ]] || continue
         sim_log "HEADLESS VIOLATION: terminating Simulator.app process $pid launched for run device $SIM_UDID"
         kill -TERM "$pid" 2>/dev/null || true
@@ -293,7 +305,7 @@ _sim_reject_run_simulator_app() {
         local still_running=0
         while read -r pid command; do
             [[ "$pid" =~ ^[0-9]+$ ]] || continue
-            [[ "$_SIM_OWNED_SIMULATOR_APP_PIDS" == *" $pid "* ]] || continue
+            _sim_owned_simulator_app_identity_matches "$pid" || continue
             [[ "$command" == *"-CurrentDeviceUDID $SIM_UDID"* ]] || continue
             kill -0 "$pid" 2>/dev/null && still_running=1
         done < <(_sim_visible_simulator_app_processes)
@@ -303,7 +315,7 @@ _sim_reject_run_simulator_app() {
 
     while read -r pid command; do
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
-        [[ "$_SIM_OWNED_SIMULATOR_APP_PIDS" == *" $pid "* ]] || continue
+        _sim_owned_simulator_app_identity_matches "$pid" || continue
         [[ "$command" == *"-CurrentDeviceUDID $SIM_UDID"* ]] || continue
         kill -KILL "$pid" 2>/dev/null || true
     done < <(_sim_visible_simulator_app_processes)

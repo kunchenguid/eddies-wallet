@@ -431,18 +431,26 @@ kill() {
 visible_process_snapshot="49771 /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator -CurrentDeviceUDID 64AC0F39-22F2-428E-BD90-335AC1D0BB26"
 visible_process_snapshot+=$'\n49772 /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator -CurrentDeviceUDID 64AC0F39-22F2-428E-BD90-335AC1D0BB26'
 SIM_UDID="64AC0F39-22F2-428E-BD90-335AC1D0BB26"
-_SIM_OWNED_SIMULATOR_APP_PIDS=" "
+_SIM_OWNED_SIMULATOR_APP_IDENTITIES=""
+simulator_process_lstart="Mon Mar 16 10:11:12 2026"
 ps() {
-    if [[ "$*" == "-o pgid= -p 49771" ]]; then printf ' 70001\n'; else printf ' 70002\n'; fi
+    case "$*" in
+        "-o pgid= -p 49771") printf ' 70001\n' ;;
+        "-o pgid= -p 49772") printf ' 70002\n' ;;
+        "-o lstart= -p 49771"|"-o lstart= -p 49772") printf '%s\n' "$simulator_process_lstart" ;;
+    esac
 }
 _sim_record_owned_simulator_apps 70001
-unset -f ps
 if _sim_reject_run_simulator_app; then bad "cleanup accepted an owned Simulator.app process for its run UDID"; else ok "cleanup rejects an owned Simulator.app process for its run UDID"; fi
 if grep -qF -- "-TERM 49771" "$kill_calls" && ! grep -qF -- "49772" "$kill_calls"; then ok "cleanup terminates only the Simulator.app PID positively owned by the command group"; else bad "cleanup signaled a Simulator.app PID it did not own"; fi
 : > "$kill_calls"
-_SIM_OWNED_SIMULATOR_APP_PIDS=" "
+simulator_process_lstart="Tue Mar 17 10:11:12 2026"
+if _sim_reject_run_simulator_app; then ok "cleanup ignores a reused PID for a user-launched Simulator.app"; else bad "cleanup claimed a reused Simulator.app PID"; fi
+assert_eq "$(wc -l < "$kill_calls" | tr -d ' ')" "0" "cleanup never signals a Simulator.app process after its owned PID is reused"
+_SIM_OWNED_SIMULATOR_APP_IDENTITIES=""
 if _sim_reject_run_simulator_app; then ok "cleanup ignores a user-launched Simulator.app targeting the run device"; else bad "cleanup claimed an unowned Simulator.app targeting the run device"; fi
 assert_eq "$(wc -l < "$kill_calls" | tr -d ' ')" "0" "cleanup never signals a Simulator.app process without positive launch ownership"
+unset -f ps
 unset -f kill
 SIM_UDID=""
 eval "$original_visible_process_probe"
