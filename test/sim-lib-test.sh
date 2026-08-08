@@ -240,15 +240,33 @@ rm -rf "$TEST_BASE/run.fin_custom_name_list_fail"
 
 mkdir -p "$TEST_BASE/run.fin_custom_name_pending"
 printf '%s\n' "$CUSTOM_NAME_ONLY" > "$TEST_BASE/run.fin_custom_name_pending/device.name"
+printf '%s\n' pending > "$TEST_BASE/run.fin_custom_name_pending/create.state"
+printf '%s\n' "$LIVE_PID" > "$TEST_BASE/run.fin_custom_name_pending/create.pid"
+printf '%s\n' "$LIVE_LSTART" > "$TEST_BASE/run.fin_custom_name_pending/create.lstart"
 SIMCTL_DEFAULT_DEVICE_LIST=""
 : > "$xcrun_calls"
-if _sim_reap_run "$TEST_BASE/run.fin_custom_name_pending"; then bad "_sim_reap_run finalized a name-only marker before creation settled"; else ok "_sim_reap_run defers an unsettled name-only marker"; fi
-assert_exists "run.fin_custom_name_pending" "_sim_reap_run preserves a marker while custom-prefix creation settles"
+if _sim_reap_run "$TEST_BASE/run.fin_custom_name_pending"; then bad "_sim_reap_run finalized a name-only marker before creation settled"; else ok "_sim_reap_run defers a live name-only creation"; fi
+assert_exists "run.fin_custom_name_pending" "_sim_reap_run preserves a marker while custom-prefix creation runs"
 assert_not_logged "simctl delete $UD_MARKER_CUSTOM_NAME_ONLY" "_sim_reap_run does not invent a deletion before the device appears"
 SIMCTL_DEFAULT_DEVICE_LIST="    $CUSTOM_NAME_ONLY ($UD_MARKER_CUSTOM_NAME_ONLY) (Shutdown)"
 if _sim_reap_run "$TEST_BASE/run.fin_custom_name_pending"; then ok "_sim_reap_run retries a settled custom-prefix creation"; else bad "_sim_reap_run did not retry a settled custom-prefix creation"; fi
 assert_logged "simctl delete $UD_MARKER_CUSTOM_NAME_ONLY" "_sim_reap_run deletes a custom-prefix device after delayed publication"
 assert_absent "run.fin_custom_name_pending" "_sim_reap_run removes the marker after delayed creation settles"
+
+mkdir -p "$TEST_BASE/run.fin_custom_name_failed"
+printf '%s\n' "$CUSTOM_NAME_ONLY" > "$TEST_BASE/run.fin_custom_name_failed/device.name"
+printf '%s\n' settled > "$TEST_BASE/run.fin_custom_name_failed/create.state"
+SIMCTL_DEFAULT_DEVICE_LIST=""
+if _sim_reap_run "$TEST_BASE/run.fin_custom_name_failed"; then ok "_sim_reap_run finalizes a settled failed creation"; else bad "_sim_reap_run retained a settled failed creation"; fi
+assert_absent "run.fin_custom_name_failed" "_sim_reap_run removes a settled failed-creation marker"
+
+mkdir -p "$TEST_BASE/run.fin_custom_name_dead_create"
+printf '%s\n' "$CUSTOM_NAME_ONLY" > "$TEST_BASE/run.fin_custom_name_dead_create/device.name"
+printf '%s\n' pending > "$TEST_BASE/run.fin_custom_name_dead_create/create.state"
+printf '%s\n' "$DEAD_PID" > "$TEST_BASE/run.fin_custom_name_dead_create/create.pid"
+printf '%s\n' whenever > "$TEST_BASE/run.fin_custom_name_dead_create/create.lstart"
+if _sim_reap_run "$TEST_BASE/run.fin_custom_name_dead_create"; then ok "_sim_reap_run finalizes a dead failed creation"; else bad "_sim_reap_run retained a dead failed creation"; fi
+assert_absent "run.fin_custom_name_dead_create" "_sim_reap_run removes a dead failed-creation marker"
 
 mkdir -p "$TEST_BASE/run.fin_verify_fail"
 printf '%s\n' "$UD_MARKER_VERIFY" > "$TEST_BASE/run.fin_verify_fail/device.udid"
@@ -383,6 +401,11 @@ fi
 # Headless command guard and hard source-device cap
 # ===========================================================================
 if sim_require_headless_command xcodebuild test; then ok "headless guard accepts CLI xcodebuild"; else bad "headless guard rejected CLI xcodebuild"; fi
+policy_debug_active=0
+if [[ "$(trap -p DEBUG)" == *"_sim_policy_check_command"* ]]; then
+    policy_debug_active=1
+    trap - DEBUG
+fi
 if sim_require_headless_command open -a Simulator; then bad "headless guard accepted Simulator.app launch"; else ok "headless guard rejects Simulator.app launch"; fi
 if sim_require_headless_command /usr/bin/open -a Simulator; then bad "headless guard accepted Simulator.app launch through an absolute open path"; else ok "headless guard rejects Simulator.app launch through an absolute open path"; fi
 if sim_require_headless_command open -W -a Simulator; then bad "headless guard accepted Simulator.app launch with open options"; else ok "headless guard rejects Simulator.app launch with open options"; fi
@@ -391,6 +414,9 @@ if sim_require_headless_command env EW_CAPTURE=1 open -a Simulator; then bad "he
 if sim_require_headless_command env '-Sopen -a Simulator'; then bad "headless guard accepted an attached env split-string payload"; else ok "headless guard rejects attached env split-string payloads"; fi
 if sim_require_headless_command env -P /usr/bin open -a Simulator; then bad "headless guard accepted a Simulator.app launch after env -P"; else ok "headless guard consumes env -P and rejects the wrapped launch"; fi
 if sim_require_headless_command env -P/usr/bin open -a Simulator; then bad "headless guard accepted a Simulator.app launch after attached env -P"; else ok "headless guard consumes attached env -P and rejects the wrapped launch"; fi
+if [[ "$policy_debug_active" == "1" ]]; then
+    trap _sim_policy_check_command DEBUG
+fi
 
 original_visible_process_probe="$(declare -f _sim_visible_simulator_app_processes)"
 visible_process_snapshot=""

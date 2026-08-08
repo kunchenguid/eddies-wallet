@@ -348,11 +348,10 @@ _sim_proc_lstart() {
     ps -o lstart= -p "$pid" 2>/dev/null | sed 's/^ *//; s/ *$//' | tr -s ' '
 }
 
-# 0 if the owner recorded in $1 (a run dir) is still alive, 1 otherwise.
-_sim_owner_alive() {
-    local run_dir="$1"
-    local pid_file="$run_dir/owner.pid"
-    local lstart_file="$run_dir/owner.lstart"
+_sim_recorded_process_alive() {
+    local run_dir="$1" role="$2"
+    local pid_file="$run_dir/$role.pid"
+    local lstart_file="$run_dir/$role.lstart"
     [[ -f "$pid_file" ]] || return 1
 
     local pid
@@ -360,8 +359,6 @@ _sim_owner_alive() {
     [[ "$pid" =~ ^[0-9]+$ ]] || return 1
     kill -0 "$pid" 2>/dev/null || return 1
 
-    # PID is alive. If we recorded a start-time, require it to still match so a recycled
-    # PID belonging to an unrelated process is not mistaken for a live owner.
     if [[ -f "$lstart_file" ]]; then
         local want have
         want="$(cat "$lstart_file" 2>/dev/null)"
@@ -369,6 +366,11 @@ _sim_owner_alive() {
         [[ -n "$have" && "$have" == "$want" ]] || return 1
     fi
     return 0
+}
+
+# 0 if the owner recorded in $1 (a run dir) is still alive, 1 otherwise.
+_sim_owner_alive() {
+    _sim_recorded_process_alive "$1" owner
 }
 
 # Age in seconds of a path's mtime (large number if it cannot be determined).
@@ -531,8 +533,24 @@ _sim_reap_run() {
             return 1
         fi
         if [[ "$resolve_status" == "1" ]]; then
-            sim_log "simulator creation for $recorded_name has not settled; leaving marker for retry"
-            return 3
+            local creation_state=""
+            [[ -f "$run_dir/create.state" ]] \
+                && creation_state="$(cat "$run_dir/create.state" 2>/dev/null || true)"
+            if [[ "$creation_state" == "pending" && -s "$run_dir/create.pid" ]]; then
+                if _sim_recorded_process_alive "$run_dir" create; then
+                    sim_log "simulator creation for $recorded_name is still running; leaving marker for retry"
+                    return 3
+                fi
+            elif [[ "$creation_state" != "settled" ]]; then
+                local marker_age
+                marker_age="$(_sim_path_age_secs "$run_dir")"
+                if (( marker_age < SIM_REAP_GRACE_SECS )); then
+                    sim_log "simulator creation for $recorded_name has not settled; leaving marker for retry"
+                    return 3
+                fi
+            fi
+            _sim_finalize_run "$run_dir" ""
+            return
         fi
     fi
     if [[ -n "$udid" ]]; then
@@ -856,8 +874,27 @@ sim_set_up() {
     _SIM_TORN_DOWN=0
 
     sim_log "creating run-scoped simulator $SIM_DEVICE_NAME ($device_type / $runtime) in the default device set"
-    SIM_UDID="$(xcrun simctl create "$SIM_DEVICE_NAME" "$device_type" "$runtime")"
-    if [[ -z "$SIM_UDID" ]]; then
+    local create_output="$SIM_RUN_DIR/create.output"
+    local create_gate="$SIM_RUN_DIR/create.start"
+    local create_status=0 create_pid owner_pid="$$"
+    printf '%s\n' pending > "$SIM_RUN_DIR/create.state"
+    (
+        while [[ ! -f "$create_gate" ]]; do
+            kill -0 "$owner_pid" 2>/dev/null || exit 1
+            sleep 0.01
+        done
+        exec xcrun simctl create "$SIM_DEVICE_NAME" "$device_type" "$runtime"
+    ) > "$create_output" &
+    create_pid=$!
+    printf '%s\n' "$create_pid" > "$SIM_RUN_DIR/create.pid"
+    _sim_proc_lstart "$create_pid" > "$SIM_RUN_DIR/create.lstart"
+    : > "$create_gate"
+    wait "$create_pid" || create_status=$?
+    printf '%s\n' settled > "$SIM_RUN_DIR/create.state"
+    rm -f "$create_gate" "$SIM_RUN_DIR/create.pid" "$SIM_RUN_DIR/create.lstart"
+    SIM_UDID="$(cat "$create_output" 2>/dev/null || true)"
+    rm -f "$create_output"
+    if [[ "$create_status" != "0" || -z "$SIM_UDID" ]]; then
         sim_log "failed to create simulator"
         return 1
     fi

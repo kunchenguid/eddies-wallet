@@ -32,25 +32,3 @@ _sim_policy_check_command() {
 
 set -T
 trap _sim_policy_check_command DEBUG
-
-case "${EW_SIM_POLICY_PROBE:-}" in
-    absolute-xcrun)
-        /usr/bin/xcrun simctl boot POLICY-PROBE
-        ;;
-    command-p-xcrun)
-        command -p xcrun simctl boot POLICY-PROBE
-        ;;
-    function-absolute-xcrun)
-        _sim_policy_probe_function() { /usr/bin/xcrun simctl boot POLICY-PROBE; }
-        _sim_policy_probe_function
-        ;;
-    subshell-command-p-xcrun)
-        (command -p xcrun simctl boot POLICY-PROBE) || exit $?
-        ;;
-    absolute-xcodebuild)
-        /usr/bin/xcodebuild test -destination 'platform=iOS Simulator,id=POLICY-PROBE'
-        ;;
-    absolute-open)
-        /usr/bin/open -a Simulator
-        ;;
-esac
