@@ -80,6 +80,7 @@ sim_require_headless_command "$@"
 CMD_PID=""
 CMD_LSTART=""
 WATCHDOG_PID=""
+WATCHDOG_LSTART=""
 TIMEOUT_MARKER="${TMPDIR:-/tmp}/eddies-wallet-sim-timeout.$$.$RANDOM"
 COMMAND_TIMEOUT_SECS="${EW_SIM_COMMAND_TIMEOUT_SECS:-1800}"
 CLEANED=0
@@ -88,10 +89,10 @@ _sim_require_nonnegative_integer "EW_SIM_COMMAND_TIMEOUT_SECS" "$COMMAND_TIMEOUT
 finish_cleanup() {
     [[ "$CLEANED" == "1" ]] && return 0
     trap '' INT TERM
-    if [[ -n "$WATCHDOG_PID" ]]; then
-        kill -- -"$WATCHDOG_PID" >/dev/null 2>&1 || kill "$WATCHDOG_PID" >/dev/null 2>&1 || true
-        wait "$WATCHDOG_PID" 2>/dev/null || true
+    if [[ -n "$WATCHDOG_PID" && -n "$WATCHDOG_LSTART" ]]; then
+        sim_stop_command "$WATCHDOG_PID" 1 "$WATCHDOG_LSTART"
         WATCHDOG_PID=""
+        WATCHDOG_LSTART=""
     fi
     local cleanup_status=0
     sim_cleanup_run || cleanup_status=$?
@@ -104,10 +105,10 @@ finish_cleanup() {
 on_signal() {
     local signum="$1"
     trap - INT TERM  # avoid re-entry while we shut down
-    if [[ -n "$WATCHDOG_PID" ]]; then
-        kill -- -"$WATCHDOG_PID" >/dev/null 2>&1 || kill "$WATCHDOG_PID" >/dev/null 2>&1 || true
-        wait "$WATCHDOG_PID" 2>/dev/null || true
+    if [[ -n "$WATCHDOG_PID" && -n "$WATCHDOG_LSTART" ]]; then
+        sim_stop_command "$WATCHDOG_PID" 1 "$WATCHDOG_LSTART"
         WATCHDOG_PID=""
+        WATCHDOG_LSTART=""
     fi
     [[ -n "$CMD_PID" && -n "$CMD_LSTART" ]] && sim_stop_command "$CMD_PID" "${EW_SIM_TERM_TIMEOUT_SECS:-20}" "$CMD_LSTART"
     CMD_PID=""
@@ -161,16 +162,17 @@ if (( COMMAND_TIMEOUT_SECS > 0 )); then
         fi
     ) &
     WATCHDOG_PID=$!
+    WATCHDOG_LSTART="$(_sim_proc_lstart "$WATCHDOG_PID")"
     _sim_resume_owned_spawn_signals
 fi
 wait "$command_pgid" || status=$?
 CMD_PID=""
 CMD_LSTART=""
 _sim_record_owned_simulator_apps "$command_pgid"
-if [[ -n "$WATCHDOG_PID" ]]; then
-    kill -- -"$WATCHDOG_PID" >/dev/null 2>&1 || kill "$WATCHDOG_PID" >/dev/null 2>&1 || true
-    wait "$WATCHDOG_PID" 2>/dev/null || true
+if [[ -n "$WATCHDOG_PID" && -n "$WATCHDOG_LSTART" ]]; then
+    sim_stop_command "$WATCHDOG_PID" 1 "$WATCHDOG_LSTART"
     WATCHDOG_PID=""
+    WATCHDOG_LSTART=""
 fi
 if [[ -f "$TIMEOUT_MARKER" ]]; then
     sim_log "command $(cat "$TIMEOUT_MARKER")"

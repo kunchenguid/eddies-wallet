@@ -133,6 +133,9 @@ assert_not_logged() { if logged "$1"; then bad "$2 (unexpected in xcrun log: '$1
 wait "$DEAD_PID" 2>/dev/null || true
 LIVE_PID=$$
 LIVE_LSTART="$(_sim_proc_lstart "$LIVE_PID")"
+LIVE_IDENTITY="$(_sim_process_identity_token "$LIVE_PID")"
+DEAD_IDENTITY="00"
+STALE_IDENTITY="ff"
 
 # ===========================================================================
 # _sim_delete_device: deletes one UDID, treats already-gone as success, real failure as fail
@@ -324,6 +327,7 @@ UD_COVERED="11110000-0000-0000-0000-000000000006"
 UD_P2_DEAD="22220000-0000-0000-0000-000000000001"
 UD_P2_LIVE="22220000-0000-0000-0000-000000000002"
 UD_P2_USER="22220000-0000-0000-0000-000000000003"
+UD_P2_REUSED="22220000-0000-0000-0000-000000000004"
 
 # ---- pass-1 marker-dir fixtures -------------------------------------------
 # 1. owner dead -> reap (clean/SIGKILLed run that never tore down)
@@ -350,11 +354,12 @@ SIM_UDID="$UD_OWN"
 # ---- pass-2 default-set device fixtures (no live marker unless noted) ------
 SIMCTL_DEFAULT_DEVICE_LIST="== Devices ==
 -- iOS 26.4 --
-    ${SIM_DEVICE_NAME_PREFIX}-${DEAD_PID}-111 ($UD_P2_DEAD) (Shutdown)
-    ${SIM_DEVICE_NAME_PREFIX}-${LIVE_PID}-222 ($UD_P2_LIVE) (Booted)
+    ${SIM_DEVICE_NAME_PREFIX}-${DEAD_PID}-${DEAD_IDENTITY}-111 ($UD_P2_DEAD) (Shutdown)
+    ${SIM_DEVICE_NAME_PREFIX}-${LIVE_PID}-${LIVE_IDENTITY}-222 ($UD_P2_LIVE) (Booted)
     iPhone 17 Pro ($UD_P2_USER) (Shutdown)
-    ${SIM_DEVICE_NAME_PREFIX}-${DEAD_PID}-444 ($UD_COVERED) (Shutdown)
-    ${SIM_DEVICE_NAME_PREFIX}-${DEAD_PID}-555 ($UD_OWN) (Booted)"
+    ${SIM_DEVICE_NAME_PREFIX}-${LIVE_PID}-${STALE_IDENTITY}-333 ($UD_P2_REUSED) (Booted)
+    ${SIM_DEVICE_NAME_PREFIX}-${DEAD_PID}-${DEAD_IDENTITY}-444 ($UD_COVERED) (Shutdown)
+    ${SIM_DEVICE_NAME_PREFIX}-${DEAD_PID}-${DEAD_IDENTITY}-555 ($UD_OWN) (Booted)"
 
 : > "$xcrun_calls"
 sim_reap_stale
@@ -375,8 +380,9 @@ assert_exists "notrun_dir"                    "ignores non-run.* directories"
 
 # pass 2 (name-based fallback for devices whose marker was lost)
 assert_logged "simctl delete $UD_P2_DEAD"     "reaps a prefixed device whose name pid is dead and marker is gone"
-assert_not_logged "simctl delete $UD_P2_LIVE" "spares a prefixed device whose name pid is alive"
+assert_not_logged "simctl delete $UD_P2_LIVE" "spares a prefixed device whose embedded owner identity is alive"
 assert_not_logged "simctl delete $UD_P2_USER" "never touches a non-prefixed (user) device"
+assert_logged "simctl delete $UD_P2_REUSED" "reaps a markerless device after its embedded owner PID is reused"
 assert_not_logged "simctl delete $UD_COVERED" "spares a device a live marker still owns despite a dead-pid name"
 
 tool_word="simctl"

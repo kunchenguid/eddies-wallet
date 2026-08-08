@@ -29,8 +29,9 @@
 #   * A pre-run reaper. Before creating anything, delete every run-scoped device whose
 #     owning process is no longer alive (dead, SIGKILLed, or PID reused) - found via the
 #     marker dirs and, as a belt-and-suspenders backstop, via any prefixed default-set
-#     device whose embedded pid is dead even if its marker was lost. This is the ONLY thing
-#     that closes the SIGKILL hole, and the run-scoped naming + owner liveness check is what
+#     device whose embedded pid and process-start identity no longer identify a live owner,
+#     even if its marker was lost. This is the ONLY thing that closes the SIGKILL hole, and
+#     the run-scoped naming + owner liveness check is what
 #     makes it safe under concurrency: a live concurrent run's device has a live owner and
 #     is always spared.
 #
@@ -502,7 +503,14 @@ _sim_ensure_base() {
 # distinguishes "still our owner" from "pid was recycled for someone else".
 _sim_proc_lstart() {
     local pid="$1"
-    ps -o lstart= -p "$pid" 2>/dev/null | sed 's/^ *//; s/ *$//' | tr -s ' '
+    LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null | sed 's/^ *//; s/ *$//' | tr -s ' '
+}
+
+_sim_process_identity_token() {
+    local lstart
+    lstart="$(_sim_proc_lstart "$1")"
+    [[ -n "$lstart" ]] || return 1
+    printf '%s' "$lstart" | LC_ALL=C od -An -tx1 | tr -d ' \n'
 }
 
 _sim_recorded_process_alive() {
@@ -551,6 +559,20 @@ _sim_command_identity_matches() {
     [[ -n "$expected_lstart" && "$(_sim_proc_lstart "$pid")" == "$expected_lstart" ]]
 }
 
+_sim_signal_owned_command() {
+    local pid="$1" signal="$2" expected_lstart="$3"
+    if [[ -n "$expected_lstart" ]] && ! _sim_command_identity_matches "$pid" "$expected_lstart"; then
+        return 1
+    fi
+    if kill -"$signal" "-$pid" 2>/dev/null; then
+        return 0
+    fi
+    if [[ -n "$expected_lstart" ]] && ! _sim_command_identity_matches "$pid" "$expected_lstart"; then
+        return 1
+    fi
+    kill -"$signal" "$pid" 2>/dev/null
+}
+
 sim_stop_command() {
     local pid="$1"
     local timeout="${2:-${EW_SIM_TERM_TIMEOUT_SECS:-20}}"
@@ -559,7 +581,7 @@ sim_stop_command() {
     if [[ -n "$expected_lstart" ]] && ! _sim_command_identity_matches "$pid" "$expected_lstart"; then
         return 0
     fi
-    kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+    _sim_signal_owned_command "$pid" TERM "$expected_lstart" || true
     while { [[ -z "$expected_lstart" ]] || _sim_command_identity_matches "$pid" "$expected_lstart"; } \
         && sim_command_group_running "$pid"; do
         (( waited >= timeout )) && break
@@ -568,7 +590,7 @@ sim_stop_command() {
     done
     if { [[ -z "$expected_lstart" ]] || _sim_command_identity_matches "$pid" "$expected_lstart"; } \
         && sim_command_group_running "$pid"; then
-        kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+        _sim_signal_owned_command "$pid" KILL "$expected_lstart" || true
     fi
     wait "$pid" 2>/dev/null || true
 }
@@ -709,7 +731,7 @@ _sim_device_name_has_run_prefix() {
     local name="$1" rest
     [[ "$name" == "$SIM_DEVICE_NAME_PREFIX"-* ]] || return 1
     rest="${name#"$SIM_DEVICE_NAME_PREFIX"-}"
-    [[ "$rest" =~ ^[0-9]+-[0-9A-Za-z]+$ ]]
+    [[ "$rest" =~ ^[0-9]+-([0-9a-f]+-)?[0-9A-Za-z]+$ ]]
 }
 
 # Finalize one run: delete its device (UDID may be empty if create never succeeded) and
@@ -802,9 +824,10 @@ _sim_reap_run() {
     _sim_finalize_run "$run_dir" "$udid"
 }
 
-# Echo "udid<TAB>name<TAB>pid" for every DEFAULT-set device whose name matches the
-# run-scoped prefix "<prefix>-<pid>-<rand>". Parsing the human-readable list keeps this
-# dependency-free (no jq/plutil). Devices NOT matching the prefix are never emitted, which
+# Echo "udid<TAB>name<TAB>pid<TAB>identity" for every DEFAULT-set device whose name
+# matches the run-scoped prefix "<prefix>-<pid>-<identity>-<rand>". Parsing the
+# human-readable list keeps this dependency-free (no jq/plutil). Devices NOT matching the
+# prefix are never emitted, which
 # is what makes operating in the shared default set safe.
 _sim_prefixed_devices() {
     local devices
@@ -820,9 +843,9 @@ _sim_prefixed_devices() {
             sub(/[[:space:]]+$/, "", name)
             if (substr(name, 1, length(prefix) + 1) != prefix "-") next
             rest = substr(name, length(prefix) + 2)
-            if (rest !~ /^[0-9]+-[0-9A-Za-z]+$/) next
+            if (rest !~ /^[0-9]+-[0-9a-f]+-[0-9A-Za-z]+$/) next
             split(rest, parts, "-")
-            printf "%s\t%s\t%s\n", udid, name, parts[1]
+            printf "%s\t%s\t%s\t%s\n", udid, name, parts[1], parts[2]
         }
     ' <<< "$devices"
 }
@@ -837,7 +860,8 @@ _sim_prefixed_devices() {
 # create. Two passes:
 #   1. By marker dir: a dead-owner run's recorded device is deleted by UDID.
 #   2. By name: a prefixed default-set device whose marker was lost is judged by the pid
-#      embedded in its name; if that pid is dead, the device is an orphan and is deleted.
+#      and process-start identity embedded in its name; if they no longer identify its
+#      owner, the device is an orphan and is deleted.
 sim_reap_stale() {
     _sim_ensure_base
 
@@ -882,13 +906,17 @@ sim_reap_stale() {
     done
 
     # Pass 2: prefixed default-set devices whose marker was lost.
-    local udid name pid
-    while IFS=$'\t' read -r udid name pid; do
+    local udid name pid owner_identity current_identity
+    while IFS=$'\t' read -r udid name pid owner_identity; do
         [[ -n "$udid" ]] || continue
         [[ -n "$SIM_UDID" && "$udid" == "$SIM_UDID" ]] && continue   # spare our own device
         [[ "$covered" == *" $udid "* ]] && continue                  # a live marker owns it
+        current_identity=""
         if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
-            continue  # the owning process named in the device is still alive
+            current_identity="$(_sim_process_identity_token "$pid" 2>/dev/null || true)"
+            if [[ -n "$owner_identity" && "$current_identity" == "$owner_identity" ]]; then
+                continue  # the exact owning process named in the device is still alive
+            fi
         fi
         sim_log "reaping orphaned simulator device $name ($udid) (no marker, owner dead)"
         if _sim_delete_device "$udid"; then
@@ -1124,9 +1152,11 @@ sim_set_up() {
     # Write the liveness marker FIRST, before any device exists, so a run always has an owner
     # the reaper can evaluate. Claim teardown ownership at the same moment, so even a failed
     # `create` leaves a dir our own teardown removes.
-    local rand="$RANDOM$RANDOM"
+    local rand="$RANDOM$RANDOM" owner_identity
+    owner_identity="$(_sim_process_identity_token "$$")" \
+        || { sim_log "could not record simulator owner process identity"; return 1; }
     SIM_RUN_DIR="$SIM_RUNS_BASE/run.$$.$rand"
-    SIM_DEVICE_NAME="$SIM_DEVICE_NAME_PREFIX-$$-$rand"
+    SIM_DEVICE_NAME="$SIM_DEVICE_NAME_PREFIX-$$-$owner_identity-$rand"
     mkdir -p "$SIM_RUN_DIR"
     printf '%s\n' "$SIM_DEVICE_NAME" > "$SIM_RUN_DIR/device.name"
     printf '%s\n' "$$" > "$SIM_RUN_DIR/owner.pid"
