@@ -140,8 +140,9 @@ _sim_find_command_index() {
                     argument="${arguments[index]}"
                     case "$argument" in
                         --) (( index += 1 )); break ;;
-                        -u|-C|--unset|--chdir) (( index += 2 )) ;;
-                        -S|--split-string|--split-string=*) return 2 ;;
+                        -u|-C|-P|--unset|--chdir) (( index += 2 )) ;;
+                        -S*|--split-string|--split-string=*) return 2 ;;
+                        -P*) (( index += 1 )) ;;
                         -*) (( index += 1 )) ;;
                         *) [[ "$argument" =~ ^[[:alpha:]_][[:alnum:]_]*= ]] && (( index += 1 )) || break ;;
                     esac
