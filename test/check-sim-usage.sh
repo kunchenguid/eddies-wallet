@@ -2,6 +2,7 @@
 #
 # test/check-sim-usage.sh - exercise the sanctioned simulator command interface end to end.
 set -euo pipefail
+trap - DEBUG
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/eddies-wallet-sim-usage.XXXXXX")"
@@ -87,12 +88,13 @@ assert_policy_probe() {
     fi
 }
 
-for probe in absolute-xcrun command-p-xcrun absolute-xcodebuild absolute-open; do
+for probe in absolute-xcrun command-p-xcrun function-absolute-xcrun \
+    subshell-command-p-xcrun absolute-xcodebuild absolute-open; do
     assert_policy_probe "$ROOT_DIR/test/sim.sh" "$probe"
 done
 
 while IFS= read -r -d '' script; do
-    assert_policy_probe "$ROOT_DIR/$script" absolute-xcrun
+    assert_policy_probe "$ROOT_DIR/$script" function-absolute-xcrun
 done < <(git -C "$ROOT_DIR" ls-files -z '*.sh')
 
 WORKFLOW_ENTRYPOINTS="$TEST_DIR/workflow-entrypoints"
@@ -128,7 +130,7 @@ abort "no workflow run entrypoints found" if index.zero?
 RUBY
 
 while IFS=$'\t' read -r entrypoint _workflow _job _step; do
-    assert_policy_probe "$entrypoint" command-p-xcrun
+    assert_policy_probe "$entrypoint" subshell-command-p-xcrun
 done < "$TEST_DIR/workflow-entrypoints.log"
 
 : > "$XCRUN_LOG"

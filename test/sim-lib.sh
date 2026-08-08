@@ -530,6 +530,10 @@ _sim_reap_run() {
             sim_log "failed to resolve simulator $recorded_name before reaping $(basename "$run_dir"); leaving marker for retry"
             return 1
         fi
+        if [[ "$resolve_status" == "1" ]]; then
+            sim_log "simulator creation for $recorded_name has not settled; leaving marker for retry"
+            return 3
+        fi
     fi
     if [[ -n "$udid" ]]; then
         local device_name lookup_status ownership_matches=0
@@ -618,9 +622,11 @@ sim_reap_stale() {
         fi
 
         sim_log "reaping orphaned simulator run $(basename "$run_dir") (owner dead)"
-        if _sim_reap_run "$run_dir"; then
+        local reap_status=0
+        _sim_reap_run "$run_dir" || reap_status=$?
+        if [[ "$reap_status" == "0" ]]; then
             reaped=$(( reaped + 1 ))
-        else
+        elif [[ "$reap_status" != "3" ]]; then
             return 1
         fi
     done

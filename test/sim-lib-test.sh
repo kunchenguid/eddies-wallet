@@ -238,6 +238,18 @@ assert_exists "run.fin_custom_name_list_fail" "_sim_reap_run keeps an unresolved
 XCRUN_LIST_FAIL=0
 rm -rf "$TEST_BASE/run.fin_custom_name_list_fail"
 
+mkdir -p "$TEST_BASE/run.fin_custom_name_pending"
+printf '%s\n' "$CUSTOM_NAME_ONLY" > "$TEST_BASE/run.fin_custom_name_pending/device.name"
+SIMCTL_DEFAULT_DEVICE_LIST=""
+: > "$xcrun_calls"
+if _sim_reap_run "$TEST_BASE/run.fin_custom_name_pending"; then bad "_sim_reap_run finalized a name-only marker before creation settled"; else ok "_sim_reap_run defers an unsettled name-only marker"; fi
+assert_exists "run.fin_custom_name_pending" "_sim_reap_run preserves a marker while custom-prefix creation settles"
+assert_not_logged "simctl delete $UD_MARKER_CUSTOM_NAME_ONLY" "_sim_reap_run does not invent a deletion before the device appears"
+SIMCTL_DEFAULT_DEVICE_LIST="    $CUSTOM_NAME_ONLY ($UD_MARKER_CUSTOM_NAME_ONLY) (Shutdown)"
+if _sim_reap_run "$TEST_BASE/run.fin_custom_name_pending"; then ok "_sim_reap_run retries a settled custom-prefix creation"; else bad "_sim_reap_run did not retry a settled custom-prefix creation"; fi
+assert_logged "simctl delete $UD_MARKER_CUSTOM_NAME_ONLY" "_sim_reap_run deletes a custom-prefix device after delayed publication"
+assert_absent "run.fin_custom_name_pending" "_sim_reap_run removes the marker after delayed creation settles"
+
 mkdir -p "$TEST_BASE/run.fin_verify_fail"
 printf '%s\n' "$UD_MARKER_VERIFY" > "$TEST_BASE/run.fin_verify_fail/device.udid"
 XCRUN_LIST_FAIL=1
