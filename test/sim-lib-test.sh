@@ -268,6 +268,28 @@ printf '%s\n' whenever > "$TEST_BASE/run.fin_custom_name_dead_create/create.lsta
 if _sim_reap_run "$TEST_BASE/run.fin_custom_name_dead_create"; then ok "_sim_reap_run finalizes a dead failed creation"; else bad "_sim_reap_run retained a dead failed creation"; fi
 assert_absent "run.fin_custom_name_dead_create" "_sim_reap_run removes a dead failed-creation marker"
 
+mkdir -p "$TEST_BASE/run.fin_custom_name_publish_race"
+printf '%s\n' "$CUSTOM_NAME_ONLY" > "$TEST_BASE/run.fin_custom_name_publish_race/device.name"
+printf '%s\n' pending > "$TEST_BASE/run.fin_custom_name_publish_race/create.state"
+printf '%s\n' "$DEAD_PID" > "$TEST_BASE/run.fin_custom_name_publish_race/create.pid"
+printf '%s\n' whenever > "$TEST_BASE/run.fin_custom_name_publish_race/create.lstart"
+resolve_count_file="$TEST_BASE/.resolve-count"
+printf '%s\n' 0 > "$resolve_count_file"
+original_name_resolver="$(declare -f _sim_default_device_udid_for_name)"
+_sim_default_device_udid_for_name() {
+    local count
+    count="$(cat "$resolve_count_file")"
+    count=$(( count + 1 ))
+    printf '%s\n' "$count" > "$resolve_count_file"
+    [[ "$count" == "1" ]] && return 1
+    printf '%s\n' "$UD_MARKER_CUSTOM_NAME_ONLY"
+}
+: > "$xcrun_calls"
+if _sim_reap_run "$TEST_BASE/run.fin_custom_name_publish_race"; then ok "_sim_reap_run resolves a device published as its creator exits"; else bad "_sim_reap_run lost a device published after creator liveness changed"; fi
+assert_logged "simctl delete $UD_MARKER_CUSTOM_NAME_ONLY" "_sim_reap_run deletes a device published during creator exit"
+assert_absent "run.fin_custom_name_publish_race" "_sim_reap_run removes the marker after the creator publication race"
+eval "$original_name_resolver"
+
 mkdir -p "$TEST_BASE/run.fin_verify_fail"
 printf '%s\n' "$UD_MARKER_VERIFY" > "$TEST_BASE/run.fin_verify_fail/device.udid"
 XCRUN_LIST_FAIL=1
@@ -454,6 +476,20 @@ unset -f ps
 unset -f kill
 SIM_UDID=""
 eval "$original_visible_process_probe"
+
+policy_debug_active=0
+if [[ "$(trap -p DEBUG)" == *"_sim_policy_check_command"* ]]; then
+    policy_debug_active=1
+    trap - DEBUG
+fi
+SIM_UDID="64AC0F39-22F2-428E-BD90-335AC1D0BB26"
+if sim_require_managed_simulator_command /usr/bin/xcrun simctl boot OTHER-UDID; then bad "managed command guard accepted a foreign absolute simulator boot"; else ok "managed command guard rejects foreign absolute simulator boot"; fi
+if sim_require_managed_simulator_command xcodebuild test -destination "platform=iOS Simulator,id=$SIM_UDID"; then ok "managed command guard accepts the run-scoped xcodebuild destination"; else bad "managed command guard rejected the run-scoped xcodebuild destination"; fi
+if sim_require_managed_simulator_command xcodebuild test -destination id=OTHER-UDID; then bad "managed command guard accepted a foreign simulator destination"; else ok "managed command guard rejects a foreign simulator destination"; fi
+SIM_UDID=""
+if [[ "$policy_debug_active" == "1" ]]; then
+    trap _sim_policy_check_command DEBUG
+fi
 
 if sim_is_xcodebuild_test_command /usr/bin/xcodebuild -scheme EddysWallet test; then ok "detects xcodebuild test for single-worker enforcement"; else bad "did not detect xcodebuild test"; fi
 if sim_is_xcodebuild_test_command env EW_CAPTURE=1 /usr/bin/xcodebuild -scheme EddysWallet test; then ok "detects env-wrapped xcodebuild test"; else bad "did not detect env-wrapped xcodebuild test"; fi

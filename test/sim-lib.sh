@@ -92,6 +92,9 @@ _SIM_XCTEST_CLONE_CAP_EXCEEDED=0
 _SIM_XCTEST_SEEN_CLONE_UDIDS=" "
 _SIM_XCTEST_SEEN_CLONE_COUNT=0
 _SIM_OWNED_SIMULATOR_APP_IDENTITIES=""
+_SIM_CREATE_PID=""
+_SIM_CREATE_OUTPUT=""
+_SIM_CREATE_GATE=""
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -339,6 +342,55 @@ sim_is_xcodebuild_test_command() {
     return 1
 }
 
+sim_require_managed_simulator_command() {
+    local -a arguments=("$@")
+    local find_status=0 index executable argument destination="" expect_destination=0
+    _sim_find_command_index "${arguments[@]}" || find_status=$?
+    [[ "$find_status" == "0" ]] || return "$find_status"
+    index="$_SIM_COMMAND_INDEX"
+    executable="${arguments[index]##*/}"
+
+    if [[ "$executable" == "xcrun" && "${arguments[index + 1]:-}" == "simctl" ]]; then
+        case "${arguments[index + 2]:-}" in
+            boot|create|delete|erase|shutdown)
+                sim_log "refusing simulator lifecycle commands in the wrapped child"
+                return 1
+                ;;
+        esac
+        return 0
+    fi
+    [[ "$executable" == "xcodebuild" ]] || return 0
+
+    for (( index += 1; index < ${#arguments[@]}; index += 1 )); do
+        argument="${arguments[index]}"
+        if [[ "$expect_destination" == "1" ]]; then
+            destination="$argument"
+            break
+        fi
+        case "$argument" in
+            -destination) expect_destination=1 ;;
+            -destination=*) destination="${argument#-destination=}"; break ;;
+        esac
+    done
+    [[ -n "$destination" ]] || return 0
+    if [[ "$destination" == *"iOS Simulator"* || "$destination" == id=* ]]; then
+        local field found_platform=0 found_id=0
+        local -a fields=()
+        IFS=',' read -r -a fields <<< "$destination"
+        for field in "${fields[@]}"; do
+            case "$field" in
+                "platform=iOS Simulator") found_platform=1 ;;
+                id="$SIM_UDID") found_id=1 ;;
+                id=*) return 1 ;;
+            esac
+        done
+        if [[ "$found_platform" != "1" || "$found_id" != "1" ]]; then
+            sim_log "refusing xcodebuild simulator destination outside this run"
+            return 1
+        fi
+    fi
+}
+
 _sim_claim_source_device_slot() {
     _sim_require_nonnegative_integer "SIM_MAX_SOURCE_DEVICES" "$SIM_MAX_SOURCE_DEVICES" || return 1
     if (( _SIM_SOURCE_CREATE_ATTEMPTS >= SIM_MAX_SOURCE_DEVICES )); then
@@ -545,10 +597,11 @@ _sim_reap_run() {
             return 1
         fi
         if [[ "$resolve_status" == "1" ]]; then
-            local creation_state=""
+            local creation_state="" creator_was_pending=0
             [[ -f "$run_dir/create.state" ]] \
                 && creation_state="$(cat "$run_dir/create.state" 2>/dev/null || true)"
             if [[ "$creation_state" == "pending" && -s "$run_dir/create.pid" ]]; then
+                creator_was_pending=1
                 if _sim_recorded_process_alive "$run_dir" create; then
                     sim_log "simulator creation for $recorded_name is still running; leaving marker for retry"
                     return 3
@@ -561,8 +614,16 @@ _sim_reap_run() {
                     return 3
                 fi
             fi
-            _sim_finalize_run "$run_dir" ""
-            return
+            if [[ "$creator_was_pending" == "1" ]]; then
+                resolve_status=0
+                udid="$(_sim_default_device_udid_for_name "$recorded_name")" || resolve_status=$?
+                if [[ "$resolve_status" == "2" ]]; then
+                    sim_log "failed to resolve settled simulator $recorded_name; leaving marker for retry"
+                    return 1
+                fi
+                [[ "$resolve_status" == "0" ]] || udid=""
+            fi
+            [[ -n "$udid" ]] || { _sim_finalize_run "$run_dir" ""; return; }
         fi
     fi
     if [[ -n "$udid" ]]; then
@@ -853,6 +914,43 @@ _sim_resolve_preferred_device_type() {
 # Per-run device creation + boot
 # ---------------------------------------------------------------------------
 
+_sim_capture_settled_create() {
+    [[ -n "$_SIM_CREATE_OUTPUT" ]] || return 0
+    printf '%s\n' settled > "$SIM_RUN_DIR/create.state"
+    rm -f "$_SIM_CREATE_GATE" "$SIM_RUN_DIR/create.pid" "$SIM_RUN_DIR/create.lstart"
+    local created_udid=""
+    created_udid="$(cat "$_SIM_CREATE_OUTPUT" 2>/dev/null || true)"
+    rm -f "$_SIM_CREATE_OUTPUT"
+    if [[ -z "$created_udid" ]]; then
+        created_udid="$(_sim_default_device_udid_for_name "$SIM_DEVICE_NAME" 2>/dev/null || true)"
+    fi
+    if [[ -n "$created_udid" ]]; then
+        SIM_UDID="$created_udid"
+        printf '%s\n' "$SIM_UDID" > "$SIM_RUN_DIR/device.udid"
+        export SIM_UDID
+    fi
+    _SIM_CREATE_PID=""
+    _SIM_CREATE_OUTPUT=""
+    _SIM_CREATE_GATE=""
+}
+
+sim_stop_inflight_create() {
+    [[ -n "$_SIM_CREATE_PID" ]] || return 0
+    if _sim_recorded_process_alive "$SIM_RUN_DIR" create; then
+        kill -TERM "$_SIM_CREATE_PID" 2>/dev/null || true
+        local attempt
+        for attempt in 1 2 3 4 5; do
+            _sim_recorded_process_alive "$SIM_RUN_DIR" create || break
+            sleep 1
+        done
+        if _sim_recorded_process_alive "$SIM_RUN_DIR" create; then
+            kill -KILL "$_SIM_CREATE_PID" 2>/dev/null || true
+        fi
+    fi
+    wait "$_SIM_CREATE_PID" 2>/dev/null || true
+    _sim_capture_settled_create
+}
+
 # sim_set_up <runtime> [device-type...]
 # Creates this run's run-scoped device in the DEFAULT set, boots it, and waits for boot to
 # complete. Sets SIM_UDID / SIM_DEVICE_NAME / SIM_RUN_DIR and marks us as owning teardown.
@@ -887,26 +985,22 @@ sim_set_up() {
     export SIM_RUN_DIR SIM_DEVICE_NAME SIM_DEVICE_NAME_PREFIX
 
     sim_log "creating run-scoped simulator $SIM_DEVICE_NAME ($device_type / $runtime) in the default device set"
-    local create_output="$SIM_RUN_DIR/create.output"
-    local create_gate="$SIM_RUN_DIR/create.start"
-    local create_status=0 create_pid owner_pid="$$"
+    _SIM_CREATE_OUTPUT="$SIM_RUN_DIR/create.output"
+    _SIM_CREATE_GATE="$SIM_RUN_DIR/create.start"
+    local create_status=0 owner_pid="$$"
     printf '%s\n' pending > "$SIM_RUN_DIR/create.state"
     (
-        while [[ ! -f "$create_gate" ]]; do
+        while [[ ! -f "$_SIM_CREATE_GATE" ]]; do
             kill -0 "$owner_pid" 2>/dev/null || exit 1
             sleep 0.01
         done
         exec xcrun simctl create "$SIM_DEVICE_NAME" "$device_type" "$runtime"
-    ) > "$create_output" &
-    create_pid=$!
-    printf '%s\n' "$create_pid" > "$SIM_RUN_DIR/create.pid"
-    _sim_proc_lstart "$create_pid" > "$SIM_RUN_DIR/create.lstart"
-    : > "$create_gate"
-    wait "$create_pid" || create_status=$?
-    printf '%s\n' settled > "$SIM_RUN_DIR/create.state"
-    rm -f "$create_gate" "$SIM_RUN_DIR/create.pid" "$SIM_RUN_DIR/create.lstart"
-    SIM_UDID="$(cat "$create_output" 2>/dev/null || true)"
-    rm -f "$create_output"
+    ) > "$_SIM_CREATE_OUTPUT" & _SIM_CREATE_PID=$!
+    printf '%s\n' "$_SIM_CREATE_PID" > "$SIM_RUN_DIR/create.pid"
+    _sim_proc_lstart "$_SIM_CREATE_PID" > "$SIM_RUN_DIR/create.lstart"
+    : > "$_SIM_CREATE_GATE"
+    wait "$_SIM_CREATE_PID" || create_status=$?
+    _sim_capture_settled_create
     if [[ "$create_status" != "0" || -z "$SIM_UDID" ]]; then
         sim_log "failed to create simulator"
         return 1
@@ -975,6 +1069,7 @@ sim_assert_clean() {
 sim_cleanup_run() {
     local cleanup_status=0 step_status=0
 
+    sim_stop_inflight_create || { step_status=$?; cleanup_status="$step_status"; }
     _sim_reject_run_simulator_app || { step_status=$?; cleanup_status="$step_status"; }
     _sim_reset_xctest_clone_tracking
     sim_cleanup_xctest_clones || { step_status=$?; cleanup_status="$step_status"; }

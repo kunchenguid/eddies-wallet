@@ -29,6 +29,12 @@ case "$*" in
         printf '%s\n' 'iPhone 17 Pro (com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)'
         ;;
     simctl\ create\ *)
+        if [[ -n "${EW_SIM_TEST_CREATE_PID_FILE:-}" ]]; then
+            printf '%s\n' "$$" > "$EW_SIM_TEST_CREATE_PID_FILE"
+            trap 'exit 143' TERM
+            sleep "${EW_SIM_TEST_CREATE_DELAY_SECS:-30}" &
+            wait $!
+        fi
         printf '%s\n' '11111111-2222-3333-4444-555555555555'
         ;;
     "simctl list devices")
@@ -195,6 +201,39 @@ common_env=(
     "EW_SIM_COMMAND_TIMEOUT_SECS=10"
 )
 
+CREATE_PID_FILE="$TEST_DIR/create.pid"
+env "${common_env[@]}" \
+    EW_SIM_TEST_CREATE_PID_FILE="$CREATE_PID_FILE" EW_SIM_TEST_CREATE_DELAY_SECS=30 \
+    "$ROOT_DIR/test/sim.sh" -- xcodebuild test \
+    -destination 'platform=iOS Simulator,id={{UDID}}' \
+    >"$TEST_DIR/interrupted-create.stdout" 2>"$TEST_DIR/interrupted-create.stderr" &
+interrupted_wrapper_pid=$!
+for _ in {1..100}; do
+    [[ -s "$CREATE_PID_FILE" ]] && break
+    sleep 0.02
+done
+[[ -s "$CREATE_PID_FILE" ]] || {
+    echo "sim-usage: interrupted-create probe did not reach simctl create" >&2
+    exit 1
+}
+interrupted_create_pid="$(cat "$CREATE_PID_FILE")"
+kill -TERM "$interrupted_wrapper_pid"
+interrupted_status=0
+wait "$interrupted_wrapper_pid" || interrupted_status=$?
+[[ "$interrupted_status" == "143" ]] || {
+    echo "sim-usage: interrupted create returned status $interrupted_status instead of 143" >&2
+    exit 1
+}
+if kill -0 "$interrupted_create_pid" 2>/dev/null; then
+    echo "sim-usage: interrupted wrapper left simctl create running" >&2
+    exit 1
+fi
+if find "$RUNS_DIR" -mindepth 1 -print -quit | grep -q .; then
+    echo "sim-usage: interrupted wrapper finalized cleanup before create settled" >&2
+    exit 1
+fi
+
+: > "$XCRUN_LOG"
 if env "${common_env[@]}" "$ROOT_DIR/test/sim.sh" -- env EW_SIM_TEST_WRAPPED=yes open -a Simulator \
     >"$TEST_DIR/gui.stdout" 2>"$TEST_DIR/gui.stderr"; then
     echo "sim-usage: wrapper accepted a Simulator.app launch" >&2
@@ -205,6 +244,17 @@ if [[ -s "$XCRUN_LOG" ]]; then
     exit 1
 fi
 
+if env "${common_env[@]}" "$ROOT_DIR/test/sim.sh" -- /usr/bin/xcrun simctl boot OTHER-UDID \
+    >"$TEST_DIR/foreign-boot.stdout" 2>"$TEST_DIR/foreign-boot.stderr"; then
+    echo "sim-usage: wrapper accepted an unmanaged absolute simulator boot" >&2
+    exit 1
+fi
+if grep -qF 'simctl boot OTHER-UDID' "$XCRUN_LOG"; then
+    echo "sim-usage: wrapper executed an unmanaged absolute simulator boot" >&2
+    exit 1
+fi
+
+: > "$XCRUN_LOG"
 env "${common_env[@]}" "$ROOT_DIR/test/sim.sh" -- \
     env EW_SIM_TEST_WRAPPED=yes xcodebuild test \
     -destination 'platform=iOS Simulator,id={{UDID}}'

@@ -127,6 +127,7 @@ cmd=()
 for arg in "$@"; do
     cmd+=( "${arg//\{\{UDID\}\}/$SIM_UDID}" )
 done
+sim_require_managed_simulator_command "${cmd[@]}"
 
 # The shared scheme marks unit tests parallelizable. Override that for managed simulator
 # runs: one worker is enough here and prevents an unbounded fan-out of cloned devices.
