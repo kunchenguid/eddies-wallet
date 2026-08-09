@@ -28,14 +28,17 @@ git clone https://github.com/kunchenguid/eddies-wallet.git
 cd eddies-wallet
 ```
 
-Open `EddysWallet.xcodeproj` in Xcode and use the shared `EddysWallet` scheme, or work from the command line. Run the test suite in the iOS Simulator:
+Open `EddysWallet.xcodeproj` in Xcode and use the shared `EddysWallet` scheme, or work from the command line. Run the command-line test suite in the iOS Simulator through `test/sim.sh`, which creates a throwaway simulator, runs the command headlessly on it, and deletes that simulator on every trappable exit. If the wrapper itself is forcibly killed, the next invocation reaps its orphaned run-scoped device:
 
 ```sh
-xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4' test
+./test/sim.sh -- xcodebuild test \
+  -project EddysWallet.xcodeproj -scheme EddysWallet \
+  -destination 'platform=iOS Simulator,id={{UDID}}'
 ```
 
-Build a signing-independent Release binary for the simulator:
+`{{UDID}}` is replaced with the booted device. Never point `xcodebuild` at a simulator you created by hand: those devices stay booted long after the run that made them. CI routes every command that boots or runs a simulator device through this wrapper, and `./test/sim.sh --help` documents its device and runtime options.
+
+Build a signing-independent Release binary for the simulator without the wrapper. This compile-only exception uses a generic destination that resolves to the SDK, so it neither boots nor creates a simulator device:
 
 ```sh
 xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet \
@@ -43,7 +46,7 @@ xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-If your installed simulator runtime differs, substitute any available iPhone destination (`xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet -showdestinations` lists them). The declared deployment target is iOS 17.0, but recent verification used iOS 26 simulators.
+`test/sim.sh` prefers an iPhone 17 Pro on the iOS 26.4 runtime and falls back to an iPhone 17 and to the newest installed iOS runtime; `./test/sim.sh --device "iPad (A16)" -- ...` picks another family (`xcrun simctl list devicetypes` lists them). The declared deployment target is iOS 17.0, but recent verification used iOS 26 simulators.
 
 **Signing expectations:** building and testing in the simulator requires no signing setup. Actually exercising Sign in with Apple requires membership in the Apple Developer team that owns the app ID, as described in [`EddysWallet/README.md`](EddysWallet/README.md); that is an external prerequisite this repository cannot provide, and nothing in this repository requires it for local builds or tests.
 
@@ -59,6 +62,7 @@ This repository contains only the client. A complete free wallet is stored local
 | `EddysWalletTests/` | Unit and transport-contract tests |
 | `EddysWalletUITests/` | Native UI tests and the synthetic screenshot tour |
 | `EddysWallet.xcodeproj` | Xcode project with the shared `EddysWallet` scheme |
+| `test/` | The simulator lifecycle wrapper (`sim.sh`) and library, their boot-free boundary and lifecycle checks, and release pipeline regressions |
 | `docs/` | Product requirements, release guidance, the live App Store Connect configuration record, presentation claims, and screenshots |
 | `.agents/skills/eddies-wallet-design/` | Copied web design system and prototype, packaged as an agent skill and kept as visual reference; `.claude/skills` is a symlink to `.agents/skills` so Claude Code discovers the same directory |
 
