@@ -100,9 +100,9 @@ The following remain deliberately unproven or undone:
 - No submission for App Review, and no request for Apple's test notification.
 - No build is attached to the App Store version record, no App Store listing screenshots exist, and no App Review submission object has been created.
 
-### The guarded state is not a product-discovery failure
+### An account-policy state is not a product-discovery failure
 
-The in-app note "Cloud isn't available yet" is selected by the **backend** capability branch, not by StoreKit. `CloudSubscriptionStore.loadProducts()` reads `/v1/capabilities` first and returns before asking StoreKit for anything when activation is unavailable. A screenshot of that note therefore says nothing about whether Apple's catalog resolves the two products.
+The in-app note "Cloud isn't available for this account yet" means `/v1/capabilities` returned a deliberate unavailable answer. `CloudSubscriptionStore.loadProducts()` reads that endpoint first and returns without asking StoreKit in this branch, so a screenshot of this exact note says nothing about whether Apple's catalog resolves the two products. By contrast, "Cloud plans couldn't be checked right now" is intentionally broader: it can mean that the capability read failed or that StoreKit returned no products, a mismatched set, or an error.
 
 Product discovery is proven separately, and independently of the backend: `testDebugStoreKitDiagnosticsProvesTheExactCloudProductsAndPrices` drives the Debug-only diagnostics surface, which talks only to StoreKit. Under `xcodebuild` that resolves the **live App Store catalog** rather than the checked-in configuration file, and `ci.yml` runs it on every release tag, so each candidate tag carries its own live proof of both product identifiers, both localized prices, both periods, and Family Sharing being off.
 

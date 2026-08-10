@@ -165,7 +165,7 @@ public struct CloudRecoveryEvidenceRow: Equatable, Identifiable, Sendable {
 }
 
 extension CloudRecoveryEvidence {
-    /// The exact content the Release-visible readout renders. Keeping the
+    /// The exact content the Debug-only readout renders. Keeping the
     /// derivation here lets tests prove no sensitive value can appear on it.
     public var displayRows: [CloudRecoveryEvidenceRow] {
         var rows = [

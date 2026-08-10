@@ -2374,7 +2374,7 @@ final class CloudSubscriptionStoreTests: XCTestCase {
 
 /// The local evidence surface can only ever carry aggregate counts, outcome
 /// classes, the scan phase, and the build context. These
-/// tests prove that shape for both the serialization and the Release-visible
+/// tests prove that shape for both the serialization and the Debug-only
 /// readout content.
 final class CloudRecoveryEvidenceTests: XCTestCase {
     func testSerializationContainsOnlyAggregateCountsClassesAndBuildContext() throws {
