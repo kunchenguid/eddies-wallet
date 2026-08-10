@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.13](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.12...eddies-wallet-v0.1.13) (2026-08-10)
+
+
+### Bug Fixes
+
+* distinguish and retry Cloud plan availability checks ([#57](https://github.com/kunchenguid/eddies-wallet/issues/57)) ([7dec0d6](https://github.com/kunchenguid/eddies-wallet/commit/7dec0d697d4bae789e3cc7652665565f87b5c1e3))
+
 ## [0.1.12](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.11...eddies-wallet-v0.1.12) (2026-08-07)
 
 
