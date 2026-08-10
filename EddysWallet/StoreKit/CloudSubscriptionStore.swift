@@ -230,6 +230,7 @@ public final class CloudSubscriptionStore: ObservableObject {
     private var deliverySettlementWaiters: [CheckedContinuation<Void, Never>] = []
     private var completedDeliveries: Set<String> = []
     private var deliveryGeneration = 0
+    private var availabilityCheckGeneration = 0
     var onTransactionUpdateDelivery: (() async -> Void)?
 
     /// The one bounded wait between an empty post-sync sweep and its single
@@ -289,6 +290,7 @@ public final class CloudSubscriptionStore: ObservableObject {
         }
         completedDeliveries.removeAll()
         deliveryGeneration = 0
+        availabilityCheckGeneration &+= 1
     }
 
     /// Products are usable only when both the backend capability and exactly
@@ -301,15 +303,19 @@ public final class CloudSubscriptionStore: ObservableObject {
     /// service "no" is `.notOffered`; every failed or wrong answer is
     /// `.couldNotCheck`, because whether Cloud could be offered is unknown.
     public func loadProducts() async {
+        availabilityCheckGeneration &+= 1
+        let generation = availabilityCheckGeneration
         let capabilities: CloudCapabilities
         do {
             capabilities = try await client.capabilities()
         } catch {
+            guard generation == availabilityCheckGeneration else { return }
             recoveryEvidence.recordCapabilityRead(.unreadable)
             products = []
             state = .productsUnavailable(.couldNotCheck)
             return
         }
+        guard generation == availabilityCheckGeneration else { return }
         guard capabilities.canOfferCloud else {
             recoveryEvidence.recordCapabilityRead(.notPermitted)
             products = []
@@ -321,11 +327,13 @@ public final class CloudSubscriptionStore: ObservableObject {
         do {
             loaded = try await storeKit.products(for: CloudProductID.all)
         } catch {
+            guard generation == availabilityCheckGeneration else { return }
             recoveryEvidence.recordProductLoad(.networkFailure)
             products = []
             state = .productsUnavailable(.couldNotCheck)
             return
         }
+        guard generation == availabilityCheckGeneration else { return }
         let outcome = Self.productLoadOutcome(forLoadedIDs: loaded.map(\.id))
         recoveryEvidence.recordProductLoad(outcome)
         guard outcome == .loaded else {

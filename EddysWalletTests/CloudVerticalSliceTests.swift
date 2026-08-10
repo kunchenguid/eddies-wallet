@@ -2302,6 +2302,33 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         XCTAssertEqual(operations.productsCallCount, 1)
     }
 
+    func testConcurrentRetryKeepsOnlyTheLatestAvailabilityCheck() async {
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/capabilities", CloudSliceFixtures.capabilitiesReady)
+        let operations = StubCloudStoreKitOperations()
+        operations.suspendNextProducts()
+        let store = makeStore(transport: transport, operations: operations)
+
+        let firstCheck = Task { await store.loadProducts() }
+        await operations.waitUntilProductsSuspended()
+
+        transport.failEverything = true
+        await store.loadProducts()
+
+        XCTAssertEqual(store.state, .productsUnavailable(.couldNotCheck))
+        XCTAssertEqual(store.recoveryEvidence.lastCapabilityRead, .unreadable)
+        XCTAssertNil(store.recoveryEvidence.lastProductLoad)
+
+        transport.failEverything = false
+        operations.resumeProducts()
+        await firstCheck.value
+
+        XCTAssertEqual(store.state, .productsUnavailable(.couldNotCheck))
+        XCTAssertEqual(store.recoveryEvidence.lastCapabilityRead, .unreadable)
+        XCTAssertNil(store.recoveryEvidence.lastProductLoad)
+        XCTAssertTrue(store.products.isEmpty)
+    }
+
     private func transaction(
         productID: String = CloudProductID.monthly,
         jwsRepresentation: String = "synthetic.signed.transaction",
@@ -2496,6 +2523,9 @@ final class StubCloudStoreKitOperations: CloudStoreKitOperations {
     private let unfinishedStream: AsyncStream<CloudStoreKitStreamEvent>
     private let updatesStream: AsyncStream<CloudStoreKitStreamEvent>
     private var updatesContinuation: AsyncStream<CloudStoreKitStreamEvent>.Continuation?
+    private var shouldSuspendProducts = false
+    private var productsContinuation: CheckedContinuation<Void, Never>?
+    private var productsSuspensionObserver: CheckedContinuation<Void, Never>?
 
     init() {
         unfinishedStream = AsyncStream { _ in }
@@ -2506,7 +2536,29 @@ final class StubCloudStoreKitOperations: CloudStoreKitOperations {
 
     func products(for _: Set<String>) async throws -> [Product] {
         productsCallCount += 1
+        if shouldSuspendProducts {
+            shouldSuspendProducts = false
+            await withCheckedContinuation { continuation in
+                productsContinuation = continuation
+                productsSuspensionObserver?.resume()
+                productsSuspensionObserver = nil
+            }
+        }
         return try productsResult.get()
+    }
+
+    func suspendNextProducts() {
+        shouldSuspendProducts = true
+    }
+
+    func waitUntilProductsSuspended() async {
+        if productsContinuation != nil { return }
+        await withCheckedContinuation { productsSuspensionObserver = $0 }
+    }
+
+    func resumeProducts() {
+        productsContinuation?.resume()
+        productsContinuation = nil
     }
 
     func purchase(productID _: String, product _: Product?, accountToken _: UUID) async throws -> CloudStoreKitPurchaseResult {
