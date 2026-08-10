@@ -3,6 +3,7 @@ import StoreKit
 
 @MainActor
 protocol CloudStoreKitOperations {
+    func products(for identifiers: Set<String>) async throws -> [Product]
     func purchase(productID: String, product: Product?, accountToken: UUID) async throws -> CloudStoreKitPurchaseResult
     func currentEntitlements() async -> CloudStoreKitScanOutcome
     func latestTransactions() async -> CloudStoreKitScanOutcome
@@ -76,6 +77,10 @@ enum CloudStoreKitStreamEvent {
 
 @MainActor
 private struct SystemCloudStoreKitOperations: CloudStoreKitOperations {
+    func products(for identifiers: Set<String>) async throws -> [Product] {
+        try await Product.products(for: identifiers)
+    }
+
     func purchase(productID: String, product: Product?, accountToken: UUID) async throws -> CloudStoreKitPurchaseResult {
         let selectedProduct: Product
         if let product {
@@ -225,6 +230,7 @@ public final class CloudSubscriptionStore: ObservableObject {
     private var deliverySettlementWaiters: [CheckedContinuation<Void, Never>] = []
     private var completedDeliveries: Set<String> = []
     private var deliveryGeneration = 0
+    private var availabilityCheckGeneration = 0
     var onTransactionUpdateDelivery: (() async -> Void)?
 
     /// The one bounded wait between an empty post-sync sweep and its single
@@ -284,26 +290,67 @@ public final class CloudSubscriptionStore: ObservableObject {
         }
         completedDeliveries.removeAll()
         deliveryGeneration = 0
+        availabilityCheckGeneration &+= 1
     }
 
     /// Products are usable only when both the backend capability and exactly
     /// the two StoreKit products are available. There is no price fallback.
+    ///
+    /// Each step records its outcome class in the local recovery evidence, so
+    /// an unavailable card names the step that actually failed instead of
+    /// collapsing a policy answer, an unreadable service, and a failed App
+    /// Store query into one indistinguishable state. Only a deliberate
+    /// service "no" is `.notOffered`; every failed or wrong answer is
+    /// `.couldNotCheck`, because whether Cloud could be offered is unknown.
     public func loadProducts() async {
+        availabilityCheckGeneration &+= 1
+        let generation = availabilityCheckGeneration
+        let capabilities: CloudCapabilities
         do {
-            let capabilities = try await client.capabilities()
-            guard capabilities.canOfferCloud else {
-                products = []; state = .productsUnavailable; return
-            }
-            let loaded = try await Product.products(for: CloudProductID.all)
-            guard Set(loaded.map(\.id)) == CloudProductID.all, loaded.count == 2 else {
-                products = []; state = .productsUnavailable; return
-            }
-            products = CloudProductID.ordered.compactMap { id in loaded.first { $0.id == id } }
-            state = .idle
+            capabilities = try await client.capabilities()
         } catch {
+            guard generation == availabilityCheckGeneration else { return }
+            recoveryEvidence.recordCapabilityRead(.unreadable)
             products = []
-            state = .productsUnavailable
+            state = .productsUnavailable(.couldNotCheck)
+            return
         }
+        guard generation == availabilityCheckGeneration else { return }
+        guard capabilities.canOfferCloud else {
+            recoveryEvidence.recordCapabilityRead(.notPermitted)
+            products = []
+            state = .productsUnavailable(.notOffered)
+            return
+        }
+        recoveryEvidence.recordCapabilityRead(.permitted)
+        let loaded: [Product]
+        do {
+            loaded = try await storeKit.products(for: CloudProductID.all)
+        } catch {
+            guard generation == availabilityCheckGeneration else { return }
+            recoveryEvidence.recordProductLoad(.networkFailure)
+            products = []
+            state = .productsUnavailable(.couldNotCheck)
+            return
+        }
+        guard generation == availabilityCheckGeneration else { return }
+        let outcome = Self.productLoadOutcome(forLoadedIDs: loaded.map(\.id))
+        recoveryEvidence.recordProductLoad(outcome)
+        guard outcome == .loaded else {
+            products = []
+            state = .productsUnavailable(.couldNotCheck)
+            return
+        }
+        products = CloudProductID.ordered.compactMap { id in loaded.first { $0.id == id } }
+        state = .idle
+    }
+
+    /// `.loaded` only when the store answered with exactly the two Cloud
+    /// plans; anything else is classified, never partially accepted.
+    static func productLoadOutcome(forLoadedIDs ids: [String]) -> CloudRecoveryEvidence.ProductLoadOutcome {
+        if ids.isEmpty { return .storeReturnedNone }
+        guard Set(ids) == CloudProductID.all, ids.count == 2 else { return .productSetMismatch }
+        return .loaded
     }
 
     public func purchase(_ product: Product, accountToken: UUID) async {
@@ -315,7 +362,7 @@ public final class CloudSubscriptionStore: ObservableObject {
     }
 
     private func purchase(productID: String, product: Product?, accountToken: UUID) async {
-        guard CloudProductID.all.contains(productID) else { state = .productsUnavailable; return }
+        guard CloudProductID.all.contains(productID) else { state = .productsUnavailable(.notOffered); return }
         state = .purchasing(productID: productID)
         do {
             switch try await storeKit.purchase(productID: productID, product: product, accountToken: accountToken) {

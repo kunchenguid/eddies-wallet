@@ -176,7 +176,7 @@ public final class CloudCoordinator: ObservableObject, AccountDeletionPerforming
     // MARK: - Purchase and restore
 
     public func purchase(_ product: Product) async -> CloudEntitlementState {
-        guard client.hasSession, canOfferPlans else { purchaseAttempt = .productsUnavailable; return entitlement }
+        guard client.hasSession, canOfferPlans else { purchaseAttempt = .productsUnavailable(.notOffered); return entitlement }
         let refreshedToken = storeAccountToken == nil ? await refreshContext()?.storeAccountToken : storeAccountToken
         guard let accountToken = refreshedToken else {
             purchaseAttempt = .serverRejected(correlationID: nil)

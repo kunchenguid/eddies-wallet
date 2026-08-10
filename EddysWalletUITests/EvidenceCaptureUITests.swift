@@ -407,6 +407,31 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
     }
 
+    /// Reviewer-visible proof that the two formerly collapsed Cloud-plan
+    /// failures render as different parent-facing cards, each with its retry.
+    func testCloudPlansUnavailableCards() throws {
+        for (scenario, evidenceName, expectedCopy) in [
+            ("cloud-plans-not-offered", "cloud-plans-not-offered", "Cloud isn't available for this account yet."),
+            ("cloud-plans-check-failed", "cloud-plans-check-failed", "Cloud plans couldn't be checked right now."),
+        ] {
+            let app = launch(scenario)
+            XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+            unlockParentArea(app)
+
+            let card = app.descendants(matching: .any)["cloud-backup-sync-card"]
+            for _ in 0..<8 where !card.isHittable {
+                app.swipeUp()
+            }
+            XCTAssertTrue(card.waitForExistence(timeout: 5))
+            let note = app.staticTexts["cloud-plans-unavailable-note"]
+            XCTAssertTrue(note.exists)
+            XCTAssertTrue(note.label.contains(expectedCopy))
+            XCTAssertTrue(app.buttons["cloud-plans-retry-button"].exists)
+            capture(evidenceName)
+            app.terminate()
+        }
+    }
+
     /// Reviewer-visible proof for the four captain-reported UX fixes. The
     /// behavioral UI tests own the individual regressions; this tour keeps the
     /// affected TestFlight surfaces together as synthetic screenshot evidence.

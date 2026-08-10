@@ -731,6 +731,48 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "$24.99")).count, 0)
     }
 
+    // The unavailable card must say which kind of unavailable it is. A
+    // deliberate service "no" reads as account availability - never as a
+    // passing outage - and the parent can check again from the card itself.
+    func testCloudPlansNotOfferedCardNamesAccountPolicyAndOffersCheckAgain() throws {
+        let app = launch("cloud-plans-not-offered")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let card = app.otherElements["cloud-backup-sync-card"]
+        for _ in 0..<8 where !card.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        let note = app.staticTexts["cloud-plans-unavailable-note"]
+        XCTAssertTrue(note.exists)
+        XCTAssertTrue(note.label.contains("isn't available for this account"), "a policy answer names the account, got: \(note.label)")
+        XCTAssertTrue(app.buttons["cloud-plans-retry-button"].exists, "the unavailable card carries its own retry")
+        XCTAssertFalse(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"].exists)
+        XCTAssertFalse(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"].exists)
+    }
+
+    // A failed availability check is the other branch: transient wording, a
+    // retry, and still no purchase control or price.
+    func testCloudPlansCheckFailedCardReadsAsTransientAndOffersCheckAgain() throws {
+        let app = launch("cloud-plans-check-failed")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let card = app.otherElements["cloud-backup-sync-card"]
+        for _ in 0..<8 where !card.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        let note = app.staticTexts["cloud-plans-unavailable-note"]
+        XCTAssertTrue(note.exists)
+        XCTAssertTrue(note.label.contains("couldn't be checked right now"), "a failed check reads as transient, got: \(note.label)")
+        let retry = app.buttons["cloud-plans-retry-button"]
+        XCTAssertTrue(retry.exists, "a failed check offers a way to run it again")
+        XCTAssertFalse(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"].exists)
+        XCTAssertFalse(app.buttons["cloud-restore-button"].exists)
+    }
+
     func testRejectedCloudCleanupIsTerminalAndLocallyRetryable() throws {
         let app = launch("cloud-rejected-cleanup")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))

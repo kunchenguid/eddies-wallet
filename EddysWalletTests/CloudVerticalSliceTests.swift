@@ -1375,6 +1375,55 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(store.cloudPlans.isEmpty, "StoreKit unavailability cannot be replaced by a local grant")
     }
 
+    /// The 2026-08-04 incident regression, end to end at the parent surface: a
+    /// signed-in parent whose authenticated capability read returns the
+    /// service's real dark answer sees an unavailable card that names account
+    /// policy, while the same parent behind an unreachable service sees a
+    /// different card that names a failed check - with a retry in both. The
+    /// two conditions must never collapse into one indistinguishable state
+    /// again, on screen or in the local recovery evidence.
+    func testDarkCapabilitiesAndOutageProduceDistinguishableUnavailableCards() async throws {
+        let local = try await localWalletWithHistory()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/capabilities", CloudSliceFixtures.capabilitiesDark)
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextNoEntitlement)
+        let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
+        let store = elevatedStore(repository: local, coordinator: coordinator)
+
+        await store.loadCloudPlans()
+
+        XCTAssertFalse(store.needsCloudSignIn)
+        XCTAssertTrue(store.cloudPlans.isEmpty)
+        XCTAssertFalse(store.canOfferCloudPlans)
+        XCTAssertEqual(store.cloudEntitlement, .none)
+        XCTAssertEqual(store.purchaseAttempt, .productsUnavailable(.notOffered))
+        XCTAssertEqual(store.cloudSubscriptionStore?.recoveryEvidence.lastCapabilityRead, .notPermitted)
+        XCTAssertNil(store.cloudSubscriptionStore?.recoveryEvidence.lastProductLoad)
+        let policyCopy = CloudStatusView.plansUnavailableNoteCopy(for: store.purchaseAttempt, deviceNoun: "iPad")
+        XCTAssertTrue(policyCopy.contains("isn't available for this account"), "a policy answer reads as account availability: \(policyCopy)")
+        XCTAssertTrue(CloudStatusView.showsPlansRetryControl(for: store.purchaseAttempt))
+
+        // The same parent behind an unreachable service: a different truthful
+        // sentence, a different recorded step, and still a retry.
+        transport.failEverything = true
+        await store.loadCloudPlans()
+
+        XCTAssertEqual(store.purchaseAttempt, .productsUnavailable(.couldNotCheck))
+        XCTAssertEqual(store.cloudSubscriptionStore?.recoveryEvidence.lastCapabilityRead, .unreadable)
+        let transientCopy = CloudStatusView.plansUnavailableNoteCopy(for: store.purchaseAttempt, deviceNoun: "iPad")
+        XCTAssertTrue(transientCopy.contains("couldn't be checked right now"), "a failed check reads as transient: \(transientCopy)")
+        XCTAssertNotEqual(policyCopy, transientCopy, "different upstream conditions must not share one sentence")
+        XCTAssertTrue(CloudStatusView.showsPlansRetryControl(for: store.purchaseAttempt))
+
+        // The retry re-runs the whole check: once the service answers again,
+        // the state and evidence move off the stale failed-check classes.
+        transport.failEverything = false
+        await store.loadCloudPlans()
+
+        XCTAssertEqual(store.purchaseAttempt, .productsUnavailable(.notOffered))
+        XCTAssertEqual(store.cloudSubscriptionStore?.recoveryEvidence.lastCapabilityRead, .notPermitted)
+    }
+
     func testDifferentAppleAccountFailsBeforeCloudSessionOrRequests() async throws {
         let local = try await localWalletWithHistory()
         let sessions = InMemorySessionStore()
@@ -2156,6 +2205,130 @@ final class CloudSubscriptionStoreTests: XCTestCase {
         XCTAssertEqual(store.recoveryEvidence.deliveryOutcome, .active)
     }
 
+    // MARK: - Distinguishable plan-availability outcomes
+
+    /// The formerly collapsed conditions behind one `.productsUnavailable`:
+    /// the service's deliberate "no", an unreadable capability answer, and a
+    /// failed App Store product query must stay distinguishable through both
+    /// the attempt state and the local recovery evidence.
+    func testCapabilityNotPermittedIsRecordedAsPolicyAndNeverAsksTheStore() async {
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/capabilities", CloudSliceFixtures.capabilitiesDark)
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.loadProducts()
+
+        XCTAssertEqual(store.state, .productsUnavailable(.notOffered), "a deliberate service answer is policy, not an outage")
+        XCTAssertTrue(store.products.isEmpty)
+        XCTAssertEqual(store.recoveryEvidence.lastCapabilityRead, .notPermitted)
+        XCTAssertNil(store.recoveryEvidence.lastProductLoad, "the App Store is never asked after the service said no")
+        XCTAssertEqual(operations.productsCallCount, 0)
+    }
+
+    func testUnreadableCapabilityAnswerIsRecordedAsFailedCheck() async {
+        let transport = RoutingTransport()
+        transport.failEverything = true
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.loadProducts()
+
+        XCTAssertEqual(store.state, .productsUnavailable(.couldNotCheck), "an unreadable answer is unknown availability, never a settled no")
+        XCTAssertEqual(store.recoveryEvidence.lastCapabilityRead, .unreadable)
+        XCTAssertNil(store.recoveryEvidence.lastProductLoad)
+        XCTAssertEqual(operations.productsCallCount, 0)
+    }
+
+    func testPermittedCapabilityWithEmptyStoreAnswerRecordsTheProductLoadStep() async {
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/capabilities", CloudSliceFixtures.capabilitiesReady)
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.loadProducts()
+
+        XCTAssertEqual(store.state, .productsUnavailable(.couldNotCheck))
+        XCTAssertEqual(store.recoveryEvidence.lastCapabilityRead, .permitted)
+        XCTAssertEqual(store.recoveryEvidence.lastProductLoad, .storeReturnedNone, "the evidence names the step that failed, not a collapsed state")
+        XCTAssertEqual(operations.productsCallCount, 1)
+    }
+
+    func testPermittedCapabilityWithThrowingStoreRecordsNetworkFailure() async {
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/capabilities", CloudSliceFixtures.capabilitiesReady)
+        let operations = StubCloudStoreKitOperations()
+        operations.productsResult = .failure(StubCloudStoreKitError.productsFailed)
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.loadProducts()
+
+        XCTAssertEqual(store.state, .productsUnavailable(.couldNotCheck))
+        XCTAssertEqual(store.recoveryEvidence.lastCapabilityRead, .permitted)
+        XCTAssertEqual(store.recoveryEvidence.lastProductLoad, .networkFailure)
+    }
+
+    func testProductLoadOutcomeClassifiesEveryStoreAnswer() {
+        XCTAssertEqual(CloudSubscriptionStore.productLoadOutcome(forLoadedIDs: []), .storeReturnedNone)
+        XCTAssertEqual(CloudSubscriptionStore.productLoadOutcome(forLoadedIDs: [CloudProductID.monthly]), .productSetMismatch)
+        XCTAssertEqual(CloudSubscriptionStore.productLoadOutcome(forLoadedIDs: [CloudProductID.monthly, CloudProductID.monthly]), .productSetMismatch, "a duplicate is not the two distinct plans")
+        XCTAssertEqual(
+            CloudSubscriptionStore.productLoadOutcome(forLoadedIDs: [CloudProductID.monthly, CloudProductID.annual, "com.example.unrelated"]),
+            .productSetMismatch
+        )
+        XCTAssertEqual(CloudSubscriptionStore.productLoadOutcome(forLoadedIDs: [CloudProductID.monthly, CloudProductID.annual]), .loaded)
+        XCTAssertEqual(CloudSubscriptionStore.productLoadOutcome(forLoadedIDs: [CloudProductID.annual, CloudProductID.monthly]), .loaded, "order never matters")
+    }
+
+    func testRetryRunsAFreshCheckAndReclassifiesBothSteps() async {
+        let transport = RoutingTransport()
+        transport.failEverything = true
+        let operations = StubCloudStoreKitOperations()
+        let store = makeStore(transport: transport, operations: operations)
+
+        await store.loadProducts()
+        XCTAssertEqual(store.recoveryEvidence.lastCapabilityRead, .unreadable)
+
+        // The service recovers between the failed check and the retry; the
+        // rerun must reclassify the capability step and record the product
+        // step it now reaches, leaving nothing from the stale check behind.
+        transport.failEverything = false
+        transport.stub("GET", "/v1/capabilities", CloudSliceFixtures.capabilitiesReady)
+        await store.loadProducts()
+
+        XCTAssertEqual(store.recoveryEvidence.lastCapabilityRead, .permitted)
+        XCTAssertEqual(store.recoveryEvidence.lastProductLoad, .storeReturnedNone)
+        XCTAssertEqual(store.state, .productsUnavailable(.couldNotCheck))
+        XCTAssertEqual(operations.productsCallCount, 1)
+    }
+
+    func testConcurrentRetryKeepsOnlyTheLatestAvailabilityCheck() async {
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/capabilities", CloudSliceFixtures.capabilitiesReady)
+        let operations = StubCloudStoreKitOperations()
+        operations.suspendNextProducts()
+        let store = makeStore(transport: transport, operations: operations)
+
+        let firstCheck = Task { await store.loadProducts() }
+        await operations.waitUntilProductsSuspended()
+
+        transport.failEverything = true
+        await store.loadProducts()
+
+        XCTAssertEqual(store.state, .productsUnavailable(.couldNotCheck))
+        XCTAssertEqual(store.recoveryEvidence.lastCapabilityRead, .unreadable)
+        XCTAssertNil(store.recoveryEvidence.lastProductLoad)
+
+        transport.failEverything = false
+        operations.resumeProducts()
+        await firstCheck.value
+
+        XCTAssertEqual(store.state, .productsUnavailable(.couldNotCheck))
+        XCTAssertEqual(store.recoveryEvidence.lastCapabilityRead, .unreadable)
+        XCTAssertNil(store.recoveryEvidence.lastProductLoad)
+        XCTAssertTrue(store.products.isEmpty)
+    }
+
     private func transaction(
         productID: String = CloudProductID.monthly,
         jwsRepresentation: String = "synthetic.signed.transaction",
@@ -2201,7 +2374,7 @@ final class CloudSubscriptionStoreTests: XCTestCase {
 
 /// The local evidence surface can only ever carry aggregate counts, outcome
 /// classes, the scan phase, and the build context. These
-/// tests prove that shape for both the serialization and the Release-visible
+/// tests prove that shape for both the serialization and the Debug-only
 /// readout content.
 final class CloudRecoveryEvidenceTests: XCTestCase {
     func testSerializationContainsOnlyAggregateCountsClassesAndBuildContext() throws {
@@ -2211,6 +2384,9 @@ final class CloudRecoveryEvidenceTests: XCTestCase {
         evidence.recordStreamSighting(surface: .transactionUpdates, verified: true)
         evidence.recordStreamSighting(surface: .unfinished, verified: false)
         evidence.recordSync(.returned)
+        evidence.recordCapabilityRead(.notPermitted)
+        evidence.recordCapabilityRead(.permitted)
+        evidence.recordProductLoad(.productSetMismatch)
         evidence.recordDelivery(.network)
 
         let data = try JSONEncoder().encode(evidence)
@@ -2223,13 +2399,15 @@ final class CloudRecoveryEvidenceTests: XCTestCase {
         // Every leaf must be a count, one of
         // the fixed structural or class words, or the build context.
         var vocabulary: Set<String> = [
-            "surfaces", "lastSyncOutcome", "deliveryOutcome", "buildContext",
+            "surfaces", "lastSyncOutcome", "lastCapabilityRead", "lastProductLoad", "deliveryOutcome", "buildContext",
             "verifiedCloud", "unverified", "phase",
             "0.1.7 (9)",
         ]
         vocabulary.formUnion(CloudRecoveryEvidence.Surface.allCases.map(\.rawValue))
         vocabulary.formUnion(["passive", "immediate", "delayed", "returned", "threw",
-                              "notAttempted", "active", "inactive", "pending", "rejected", "network"])
+                              "notAttempted", "active", "inactive", "pending", "rejected", "network",
+                              "permitted", "notPermitted", "unreadable",
+                              "loaded", "storeReturnedNone", "productSetMismatch", "networkFailure"])
         for leaf in leaves where !vocabulary.contains(leaf) && Double(leaf) == nil {
             XCTFail("the evidence serialization may only carry counts, class words, and the build context; found '\(leaf)'")
         }
@@ -2250,15 +2428,18 @@ final class CloudRecoveryEvidenceTests: XCTestCase {
         evidence.recordScan(surface: .currentEntitlements, phase: .immediate, verifiedCloud: 0, unverified: 0)
         evidence.recordScan(surface: .latestTransaction, phase: .delayed, verifiedCloud: 1, unverified: 0)
         evidence.recordSync(.threw)
+        evidence.recordCapabilityRead(.notPermitted)
         evidence.recordDelivery(.inactive)
 
         let rows = evidence.displayRows
         XCTAssertEqual(
             rows.map(\.id),
-            ["build", "sync", "currentEntitlements", "latestTransaction", "transactionHistory",
-             "subscriptionStatus", "unfinished", "transactionUpdates", "delivery"]
+            ["build", "capabilityRead", "productLoad", "sync", "currentEntitlements", "latestTransaction",
+             "transactionHistory", "subscriptionStatus", "unfinished", "transactionUpdates", "delivery"]
         )
         XCTAssertEqual(rows.first { $0.id == "build" }?.value, "0.1.7 (9)")
+        XCTAssertEqual(rows.first { $0.id == "capabilityRead" }?.value, "not permitted for this account")
+        XCTAssertEqual(rows.first { $0.id == "productLoad" }?.value, "not run", "a step that never ran says so instead of implying a scan")
         XCTAssertEqual(rows.first { $0.id == "sync" }?.value, "threw")
         XCTAssertEqual(rows.first { $0.id == "currentEntitlements" }?.value, "empty")
         XCTAssertEqual(rows.first { $0.id == "currentEntitlements" }?.detail, "just after Restore")
@@ -2275,6 +2456,20 @@ final class CloudRecoveryEvidenceTests: XCTestCase {
                           "receipt", "correlationId", "Error"] {
             XCTAssertFalse(rowText.contains(forbidden), "the readout must never render \(forbidden)")
         }
+    }
+
+    /// The two availability rows always describe one coherent check: a new
+    /// capability read starts a fresh check, so a product-load outcome from an
+    /// earlier attempt can never sit next to a newer capability outcome.
+    func testANewCapabilityReadClearsTheEarlierProductLoadStep() {
+        var evidence = CloudRecoveryEvidence(buildContext: "0.1.7 (9)")
+        evidence.recordCapabilityRead(.permitted)
+        evidence.recordProductLoad(.storeReturnedNone)
+        evidence.recordCapabilityRead(.unreadable)
+
+        XCTAssertEqual(evidence.lastCapabilityRead, .unreadable)
+        XCTAssertNil(evidence.lastProductLoad)
+        XCTAssertEqual(evidence.displayRows.first { $0.id == "productLoad" }?.value, "not run")
     }
 
     private func flattenJSON(_ value: Any, into leaves: inout [String]) {
@@ -2304,12 +2499,17 @@ private final class FinishRecorder {
 
 @MainActor
 final class StubCloudStoreKitOperations: CloudStoreKitOperations {
+    /// Tests cannot construct StoreKit `Product` values, so a successful stub
+    /// answer is always the empty set: exactly what a store that resolves
+    /// neither Cloud product returns.
+    var productsResult: Result<[Product], Error> = .success([])
     var purchaseResult: Result<CloudStoreKitPurchaseResult, Error> = .failure(StubCloudStoreKitError.purchaseFailed)
     var entitlementOutcome = CloudStoreKitScanOutcome()
     var latestOutcome = CloudStoreKitScanOutcome()
     var historyOutcome = CloudStoreKitScanOutcome()
     var statusOutcome = CloudStoreKitScanOutcome()
     var syncError: Error?
+    private(set) var productsCallCount = 0
     private(set) var purchaseCallCount = 0
     private(set) var currentEntitlementsCallCount = 0
     private(set) var latestCallCount = 0
@@ -2323,12 +2523,42 @@ final class StubCloudStoreKitOperations: CloudStoreKitOperations {
     private let unfinishedStream: AsyncStream<CloudStoreKitStreamEvent>
     private let updatesStream: AsyncStream<CloudStoreKitStreamEvent>
     private var updatesContinuation: AsyncStream<CloudStoreKitStreamEvent>.Continuation?
+    private var shouldSuspendProducts = false
+    private var productsContinuation: CheckedContinuation<Void, Never>?
+    private var productsSuspensionObserver: CheckedContinuation<Void, Never>?
 
     init() {
         unfinishedStream = AsyncStream { _ in }
         var continuation: AsyncStream<CloudStoreKitStreamEvent>.Continuation?
         updatesStream = AsyncStream { continuation = $0 }
         updatesContinuation = continuation
+    }
+
+    func products(for _: Set<String>) async throws -> [Product] {
+        productsCallCount += 1
+        if shouldSuspendProducts {
+            shouldSuspendProducts = false
+            await withCheckedContinuation { continuation in
+                productsContinuation = continuation
+                productsSuspensionObserver?.resume()
+                productsSuspensionObserver = nil
+            }
+        }
+        return try productsResult.get()
+    }
+
+    func suspendNextProducts() {
+        shouldSuspendProducts = true
+    }
+
+    func waitUntilProductsSuspended() async {
+        if productsContinuation != nil { return }
+        await withCheckedContinuation { productsSuspensionObserver = $0 }
+    }
+
+    func resumeProducts() {
+        productsContinuation?.resume()
+        productsContinuation = nil
     }
 
     func purchase(productID _: String, product _: Product?, accountToken _: UUID) async throws -> CloudStoreKitPurchaseResult {
@@ -2379,6 +2609,7 @@ final class StubCloudStoreKitOperations: CloudStoreKitOperations {
 enum StubCloudStoreKitError: Error {
     case purchaseFailed
     case syncFailed
+    case productsFailed
 }
 
 // MARK: - Fixtures and stubs
@@ -2387,6 +2618,17 @@ enum CloudSliceFixtures {
     static let authenticated = Data("""
     {"token":"synthetic-session","expiresAt":"2099-01-01T00:00:00Z",
      "parent":{"provider":"apple","subject":"synthetic-parent","email":null}}
+    """.utf8)
+    /// The verbatim production answer observed in the 2026-08-04 incident: the
+    /// service is reachable and healthy, and activation is deliberately not
+    /// permitted for the asking parent.
+    static let capabilitiesDark = Data("""
+    {"cloudActivationAvailable":false,"cloudServiceAvailable":true,
+     "products":["com.kunchenguid.eddieswallet.cloud.monthly","com.kunchenguid.eddieswallet.cloud.annual"]}
+    """.utf8)
+    static let capabilitiesReady = Data("""
+    {"cloudActivationAvailable":true,"cloudServiceAvailable":true,
+     "products":["com.kunchenguid.eddieswallet.cloud.monthly","com.kunchenguid.eddieswallet.cloud.annual"]}
     """.utf8)
     static let contextNoEntitlement = Data("""
     {"storeAccountToken":"11111111-1111-4111-8111-111111111111","entitlement":null,"household":null}
