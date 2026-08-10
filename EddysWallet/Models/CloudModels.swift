@@ -57,9 +57,23 @@ public enum WalletRecoveryState: Equatable, Sendable {
     case storageUnavailable
 }
 
+/// Why Cloud plans cannot be offered right now, at the granularity the parent
+/// copy branches on. The finer per-step outcome classes live in
+/// `CloudRecoveryEvidence`; this only separates a deliberate service answer
+/// from a failed check, so the card never presents a stable policy state as a
+/// passing outage or the other way around.
+public enum CloudPlansUnavailableReason: Equatable, Sendable {
+    /// The service answered: Cloud is not offered for this account right now.
+    case notOffered
+    /// The availability check itself failed - the service answer or the App
+    /// Store product query was unreadable, absent, or wrong - so whether Cloud
+    /// could be offered is unknown. A retry may succeed.
+    case couldNotCheck
+}
+
 public enum PurchaseAttemptState: Equatable, Sendable {
     case idle
-    case productsUnavailable
+    case productsUnavailable(CloudPlansUnavailableReason)
     case purchasing(productID: String)
     case pending
     case cancelled

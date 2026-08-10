@@ -184,13 +184,26 @@ struct CloudStatusView: View {
                 statusText(Self.noEntitlementStatusCopy(authority: store.authorityState, deviceNoun: DeviceCopy.deviceNoun))
                 if !store.canOfferCloudPlans, !store.needsCloudSignIn {
                     Label(
-                        "Cloud isn't available yet. Everything in the wallet keeps working on this \(DeviceCopy.deviceNoun).",
-                        systemImage: "clock"
+                        Self.plansUnavailableNoteCopy(for: store.purchaseAttempt, deviceNoun: DeviceCopy.deviceNoun),
+                        systemImage: Self.plansUnavailableNoteSymbol(for: store.purchaseAttempt)
                     )
                         .font(EW.Font.caption)
                         .foregroundStyle(EW.Color.gold700)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("cloud-plans-unavailable-note")
+                    if Self.showsPlansRetryControl(for: store.purchaseAttempt) {
+                        Button("Check again") {
+                            guard !isWorking else { return }
+                            isWorking = true
+                            Task {
+                                await store.loadCloudPlans()
+                                isWorking = false
+                            }
+                        }
+                        .buttonStyle(SecondaryButtonStyle(compact: true))
+                        .disabled(isWorking)
+                        .accessibilityIdentifier("cloud-plans-retry-button")
+                    }
                 }
             }
         }
@@ -220,6 +233,37 @@ struct CloudStatusView: View {
             return "This \(deviceNoun) is showing the last synced Cloud wallet. Reconnect to check its current status."
         }
         return "Right now this wallet is saved only on this \(deviceNoun)."
+    }
+
+    /// The unavailable note must never present a deliberate service answer as
+    /// a passing outage or a failed check as a settled "no": a stable policy
+    /// state reads as "isn't available for this account", while a failed check
+    /// reads as "couldn't be checked". States that never ran the check - a
+    /// scripted state without a Cloud session, or a check not attempted yet -
+    /// keep the original neutral wording.
+    static func plansUnavailableNoteCopy(for attempt: PurchaseAttemptState, deviceNoun: String) -> String {
+        switch attempt {
+        case .productsUnavailable(.notOffered):
+            "Cloud isn't available for this account yet. Everything in the wallet keeps working on this \(deviceNoun)."
+        case .productsUnavailable(.couldNotCheck):
+            "Cloud plans couldn't be checked right now. Everything in the wallet keeps working on this \(deviceNoun)."
+        default:
+            "Cloud isn't available yet. Everything in the wallet keeps working on this \(deviceNoun)."
+        }
+    }
+
+    static func plansUnavailableNoteSymbol(for attempt: PurchaseAttemptState) -> String {
+        if case .productsUnavailable(.couldNotCheck) = attempt { return "exclamationmark.icloud" }
+        return "clock"
+    }
+
+    /// A definite unavailable answer earns a retry: capabilities are re-read
+    /// on demand, so checking again is truthful for both the policy and the
+    /// failed-check state. States that never ran a real check offer no retry,
+    /// because there is nothing for the control to re-run.
+    static func showsPlansRetryControl(for attempt: PurchaseAttemptState) -> Bool {
+        if case .productsUnavailable = attempt { return true }
+        return false
     }
 
     /// The backend verified the delivered transaction and projected its real

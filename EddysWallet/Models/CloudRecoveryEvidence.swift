@@ -38,6 +38,25 @@ public struct CloudRecoveryEvidence: Codable, Equatable, Sendable {
         case threw
     }
 
+    /// How the last backend capability read (`GET /v1/capabilities`) ended.
+    /// `unreadable` covers every thrown transport or decoding failure - the
+    /// class alone is recorded, never the error.
+    public enum CapabilityReadOutcome: String, Codable, Equatable, Sendable {
+        case permitted
+        case notPermitted
+        case unreadable
+    }
+
+    /// How the last StoreKit product query for the two Cloud plans ended.
+    /// Only run after a permitted capability read. `networkFailure` covers
+    /// every thrown StoreKit error - the class alone is recorded.
+    public enum ProductLoadOutcome: String, Codable, Equatable, Sendable {
+        case loaded
+        case storeReturnedNone
+        case productSetMismatch
+        case networkFailure
+    }
+
     /// The last delivery outcome class. `notAttempted` means no verified Cloud
     /// transaction was ever found to deliver.
     public enum DeliveryOutcome: String, Codable, Equatable, Sendable {
@@ -66,6 +85,11 @@ public struct CloudRecoveryEvidence: Codable, Equatable, Sendable {
 
     public private(set) var surfaces: [Surface: SurfaceReadout]
     public private(set) var lastSyncOutcome: SyncOutcome?
+    /// The last plan-availability check, step by step: absent means that step
+    /// has not run. Product load runs only after a permitted capability read,
+    /// so these two rows name the exact step an unavailable card came from.
+    public private(set) var lastCapabilityRead: CapabilityReadOutcome?
+    public private(set) var lastProductLoad: ProductLoadOutcome?
     public private(set) var deliveryOutcome: DeliveryOutcome
     /// Marketing version and build, for example "0.1.7 (9)": the only context
     /// kept, so separate scans on separate builds can be told apart.
@@ -74,6 +98,8 @@ public struct CloudRecoveryEvidence: Codable, Equatable, Sendable {
     public init(buildContext: String = CloudRecoveryEvidence.currentBuildContext()) {
         surfaces = [:]
         lastSyncOutcome = nil
+        lastCapabilityRead = nil
+        lastProductLoad = nil
         deliveryOutcome = .notAttempted
         self.buildContext = buildContext
     }
@@ -105,6 +131,18 @@ public struct CloudRecoveryEvidence: Codable, Equatable, Sendable {
         lastSyncOutcome = outcome
     }
 
+    /// A capability read starts a fresh availability check, so any product
+    /// load recorded for an earlier check is cleared: the two rows always
+    /// describe one coherent check, never steps from different attempts.
+    mutating func recordCapabilityRead(_ outcome: CapabilityReadOutcome) {
+        lastCapabilityRead = outcome
+        lastProductLoad = nil
+    }
+
+    mutating func recordProductLoad(_ outcome: ProductLoadOutcome) {
+        lastProductLoad = outcome
+    }
+
     mutating func recordDelivery(_ outcome: DeliveryOutcome) {
         deliveryOutcome = outcome
     }
@@ -132,6 +170,18 @@ extension CloudRecoveryEvidence {
     public var displayRows: [CloudRecoveryEvidenceRow] {
         var rows = [
             CloudRecoveryEvidenceRow(id: "build", title: "Build", value: buildContext, detail: nil),
+            CloudRecoveryEvidenceRow(
+                id: "capabilityRead",
+                title: "Cloud availability check",
+                value: lastCapabilityRead?.displayName ?? "not run",
+                detail: "Asks the service whether Cloud can be offered here."
+            ),
+            CloudRecoveryEvidenceRow(
+                id: "productLoad",
+                title: "Plan load",
+                value: lastProductLoad?.displayName ?? "not run",
+                detail: "Asks the App Store for the two Cloud plans. Runs only after a permitted availability check."
+            ),
             CloudRecoveryEvidenceRow(
                 id: "sync",
                 title: "Restore sync",
@@ -195,6 +245,27 @@ private extension CloudRecoveryEvidence.SyncOutcome {
         switch self {
         case .returned: "returned"
         case .threw: "threw"
+        }
+    }
+}
+
+private extension CloudRecoveryEvidence.CapabilityReadOutcome {
+    var displayName: String {
+        switch self {
+        case .permitted: "permitted"
+        case .notPermitted: "not permitted for this account"
+        case .unreadable: "could not be read"
+        }
+    }
+}
+
+private extension CloudRecoveryEvidence.ProductLoadOutcome {
+    var displayName: String {
+        switch self {
+        case .loaded: "loaded both plans"
+        case .storeReturnedNone: "App Store returned none"
+        case .productSetMismatch: "App Store returned a different set"
+        case .networkFailure: "failed to load"
         }
     }
 }
