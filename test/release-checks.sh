@@ -89,6 +89,7 @@ forbid_grep '^[[:space:]]*(contents|actions|pull-requests|id-token|packages): wr
 # changelog-path, version-file, extra-files) plus the manifest path from
 # release-please.yml, so the ignore contract cannot silently drift when the
 # strategy or extra-files change.
+# shellcheck disable=SC2016 # Ruby program intentionally uses single-quoted strings.
 if ci_event_shape_out="$(ruby -ryaml -e '
   wf = YAML.load_file(".github/workflows/ci.yml")
   # YAML parses a bare `on:` key as boolean true; accept either form.
@@ -276,6 +277,15 @@ if python3 test/app-store-review-monitor-test.py >/dev/null; then
   pass "review monitor deterministic fixtures and negative controls"
 else
   fail "review monitor deterministic fixtures and negative controls"
+fi
+
+# Phase 1 App Review core is deliberately pure: its tests use only fake App
+# Store Connect and GitHub issue boundaries, so this check cannot reach a
+# credential, network endpoint, or mutation path.
+if python3 test/app-review-core-test.py >/dev/null; then
+  pass "App Review deterministic core fake-boundary tests"
+else
+  fail "App Review deterministic core fake-boundary tests"
 fi
 
 # --- Export options --------------------------------------------------------
