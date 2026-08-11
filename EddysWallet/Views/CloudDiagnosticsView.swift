@@ -88,36 +88,54 @@ struct CloudDiagnosticsView: View {
 
     private func load() async {
         do {
-            let products = try await Product.products(for: CloudProductID.ordered)
-            rows = CloudProductID.ordered.compactMap { identifier in
-                guard let product = products.first(where: { $0.id == identifier }) else { return nil }
-                // A deterministic, lowercase description so the proof surface is
-                // stable across locales and StoreKit's own formatting.
-                let period: String = {
-                    guard let subscription = product.subscription else { return "no subscription period" }
-                    let unit: String = switch subscription.subscriptionPeriod.unit {
-                    case .day: "day"
-                    case .week: "week"
-                    case .month: "month"
-                    case .year: "year"
-                    @unknown default: "period"
-                    }
-                    return "\(subscription.subscriptionPeriod.value) \(unit)"
-                }()
-                return Row(
-                    id: product.id,
-                    displayPrice: product.displayPrice,
-                    period: period,
-                    familyShareable: product.isFamilyShareable
-                )
+            for attempt in 0..<2 {
+                let products = try await Product.products(for: CloudProductID.ordered)
+                rows = makeRows(from: products)
+                if rows.count == CloudProductID.ordered.count {
+                    status = .loaded(count: rows.count)
+                    return
+                }
+
+                // A cold live sandbox query can transiently return an empty
+                // catalog while StoreKit warms its cache. Confirm that answer
+                // once before calling products missing; a genuinely wrong
+                // catalog still reaches the same terminal status on attempt 2.
+                if attempt == 0 {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                }
             }
-            status =
-                rows.count == CloudProductID.ordered.count
-                ? .loaded(count: rows.count)
-                : .missingProducts(found: rows.count)
+            status = .missingProducts(found: rows.count)
+        } catch is CancellationError {
+            // The view went away. Leave no terminal verdict from an abandoned
+            // proof attempt.
         } catch {
             rows = []
             status = .storeKitError
+        }
+    }
+
+    private func makeRows(from products: [Product]) -> [Row] {
+        CloudProductID.ordered.compactMap { identifier in
+            guard let product = products.first(where: { $0.id == identifier }) else { return nil }
+            // A deterministic, lowercase description so the proof surface is
+            // stable across locales and StoreKit's own formatting.
+            let period: String = {
+                guard let subscription = product.subscription else { return "no subscription period" }
+                let unit: String = switch subscription.subscriptionPeriod.unit {
+                case .day: "day"
+                case .week: "week"
+                case .month: "month"
+                case .year: "year"
+                @unknown default: "period"
+                }
+                return "\(subscription.subscriptionPeriod.value) \(unit)"
+            }()
+            return Row(
+                id: product.id,
+                displayPrice: product.displayPrice,
+                period: period,
+                familyShareable: product.isFamilyShareable
+            )
         }
     }
 }

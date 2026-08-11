@@ -357,7 +357,22 @@ final class EddysWalletUITests: XCTestCase {
         )
 
         // Typing with no extra tap proves the focus is real, not decorative.
-        app.typeText("7.50")
+        // Pace the synthetic key events by waiting for each one to reach the
+        // field. A busy CI simulator can otherwise discard the tail of one
+        // multi-character XCTest event even though the app handled every key
+        // event it actually received.
+        for (character, expectedValue) in [("7", "7"), (".", "7."), ("5", "7.5"), ("0", "7.50")] {
+            app.typeText(character)
+            let valueArrived = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", expectedValue),
+                object: amount
+            )
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [valueArrived], timeout: 2),
+                .completed,
+                "the amount field must receive \(character) before XCTest sends the next key"
+            )
+        }
         XCTAssertEqual(amount.value as? String, "7.50")
         XCTAssertFalse(app.staticTexts["Enter an amount greater than US$0.00."].exists)
     }
