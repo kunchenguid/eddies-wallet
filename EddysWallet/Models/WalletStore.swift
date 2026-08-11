@@ -843,9 +843,8 @@ public final class WalletStore: ObservableObject {
             // readout is only updated by a read that may still publish. What it
             // shows then survives a later successful read: a parent reporting
             // an intermittent failure needs it after the wallet recovers.
-            if canPublish(attempt, generation: generation, role: requestedRole),
-               let diagnostic = transportDiagnostic(for: error) {
-                latestTransportDiagnostic = diagnostic
+            if canPublish(attempt, generation: generation, role: requestedRole) {
+                publishOperationDiagnostic(for: error)
             }
             switch error {
             case .familyNotSetup:
@@ -935,9 +934,21 @@ public final class WalletStore: ObservableObject {
     /// it, so it is bound to exactly this attempt; a failing HTTP status is
     /// answered with its own typed error, so only the repository that made the
     /// request still holds the shape of it.
-    private func transportDiagnostic(for error: WalletAPIError) -> TransportDiagnostic? {
-        if case let .transportFailure(diagnostic) = error { return diagnostic }
-        return repository.latestTransportDiagnostic
+    private func publishOperationDiagnostic(for error: WalletAPIError? = nil) {
+        let diagnostic: TransportDiagnostic?
+        if case let .transportFailure(carried)? = error {
+            diagnostic = carried
+        } else {
+            diagnostic = repository.latestTransportDiagnostic
+        }
+        guard let diagnostic, let observedConnection = diagnostic.connection else { return }
+        latestTransportDiagnostic = diagnostic
+        if observedConnection == .reached {
+            connection = .reached
+            if let cloud = repository as? CloudWalletRepository {
+                authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+            }
+        }
     }
 
     /// Publishes a read that could not reach its authority, saying only what
@@ -1042,6 +1053,9 @@ public final class WalletStore: ObservableObject {
             }
             return true
         } catch let error as WalletAPIError {
+            if generation == refreshGeneration {
+                publishOperationDiagnostic(for: error)
+            }
             if error == .unauthorized || error == .noSession {
                 sessionExpired = repository.hasConfiguredKid
                 if elevation != .none { deElevate() }
@@ -1095,6 +1109,9 @@ public final class WalletStore: ObservableObject {
             }
             return true
         } catch let error as WalletAPIError {
+            if generation == refreshGeneration {
+                publishOperationDiagnostic(for: error)
+            }
             if error == .unauthorized || error == .noSession {
                 sessionExpired = repository.hasConfiguredKid
                 if elevation != .none { deElevate() }
@@ -1153,11 +1170,15 @@ public final class WalletStore: ObservableObject {
         do {
             let result = try await repository.submit(command)
             if generation == refreshGeneration, elevation == .active {
+                publishOperationDiagnostic()
                 snapshot = repository.snapshot()
                 errorMessage = nil
             }
             return result
         } catch let error as WalletAPIError {
+            if generation == refreshGeneration {
+                publishOperationDiagnostic(for: error)
+            }
             if error == .unauthorized || error == .noSession {
                 sessionExpired = repository.hasConfiguredKid
                 if elevation != .none { deElevate() }

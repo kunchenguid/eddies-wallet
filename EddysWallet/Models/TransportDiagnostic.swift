@@ -197,7 +197,7 @@ public struct TransportDiagnostic: Equatable, Sendable {
         self.category = category
         self.code = code
         self.hasUnderlyingError = hasUnderlyingError
-        self.route = route
+        self.route = Self.route(forPath: route)
         self.httpStatus = httpStatus
         self.elapsedMilliseconds = elapsedMilliseconds
         self.timestamp = timestamp
@@ -295,29 +295,52 @@ public struct TransportDiagnostic: Equatable, Sendable {
         ([Self.summaryTitle] + displayRows.map { "\($0.title): \($0.value)" }).joined(separator: "\n")
     }
 
-    /// The fixed words every route in this client is built from.
-    ///
-    /// A path component that is not one of them is an identifier - a ledger
-    /// entry or a loan id - and is replaced with `{id}`. A route word added to
-    /// the client but not here degrades to `{id}`: less detail in a report,
-    /// never a leaked identifier.
-    private static let routeWords: Set<String> = [
-        "v1",
-        "account", "activity", "allowance-rule", "apple", "auth",
-        "bootstrap", "capabilities", "changes", "child", "child-view", "cloud",
-        "context", "current", "deposits", "family", "household", "import",
-        "legacy-activate", "legacy-context", "loans", "session", "setup",
-        "transactions", "wallet", "withdrawals",
+    /// Every route shape this client can request. Parameter positions are
+    /// explicit, so an identifier is redacted even when its value happens to
+    /// equal a fixed route component.
+    private static let routeTemplates: [[String]] = [
+        ["v1", "child-view"],
+        ["v1", "wallet"],
+        ["v1", "wallet", "deposits"],
+        ["v1", "wallet", "withdrawals"],
+        ["v1", "activity"],
+        ["v1", "activity", "{id}"],
+        ["v1", "loans"],
+        ["v1", "loans", "{id}"],
+        ["v1", "loans", "{id}", "repayments"],
+        ["v1", "allowance-rule"],
+        ["v1", "allowance-rule", "{id}", "occurrences", "{id}", "record"],
+        ["v1", "family", "setup"],
+        ["v1", "child"],
+        ["v1", "auth", "apple"],
+        ["v1", "capabilities"],
+        ["v1", "cloud", "context"],
+        ["v1", "cloud", "transactions"],
+        ["v1", "cloud", "bootstrap"],
+        ["v1", "cloud", "changes"],
+        ["v1", "cloud", "household", "import"],
+        ["v1", "cloud", "legacy-context"],
+        ["v1", "cloud", "legacy-activate"],
+        ["v1", "session", "current"],
+        ["v1", "account"],
     ]
 
-    /// Reduces a request path to a route template: the query and fragment are
-    /// dropped, and any component that is not a fixed route word is replaced.
+    /// Reduces a request path to a known route template after dropping its
+    /// query and fragment. Unknown shapes are fully redacted rather than
+    /// risking disclosure from a future parameter position.
     public static func route(forPath path: String) -> String {
         let withoutQuery = path.prefix { $0 != "?" && $0 != "#" }
-        let components = withoutQuery.split(separator: "/", omittingEmptySubsequences: true)
+        let components = withoutQuery
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
         guard !components.isEmpty else { return "/" }
-        return "/" + components
-            .map { routeWords.contains(String($0)) ? String($0) : "{id}" }
-            .joined(separator: "/")
+        if let template = routeTemplates.first(where: { template in
+            template.count == components.count && zip(template, components).allSatisfy { pair in
+                pair.0 == "{id}" || pair.0 == pair.1
+            }
+        }) {
+            return "/" + template.joined(separator: "/")
+        }
+        return "/" + components.map { _ in "{id}" }.joined(separator: "/")
     }
 }

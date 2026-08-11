@@ -75,7 +75,7 @@ final class TransportDiagnosticTests: XCTestCase {
             XCTAssertEqual(store.connection, .reached)
             XCTAssertNil(kidStatusMessage(store))
             XCTAssertNil(store.errorMessage)
-            XCTAssertEqual(store.latestTransportDiagnostic?.category, .cancelled)
+            XCTAssertNil(store.latestTransportDiagnostic)
             XCTAssertFalse(store.snapshot.isStale, "a cancelled read saw nothing, so it cannot age the wallet either")
         }
     }
@@ -118,6 +118,21 @@ final class TransportDiagnosticTests: XCTestCase {
         XCTAssertEqual(store.latestTransportDiagnostic?.httpStatus, 500)
     }
 
+    func testAnHTTPAnswerReplacesAnEarlierOfflineClassification() async {
+        let transport = ScriptedTransport(.failure(URLError(.notConnectedToInternet)))
+        let store = await makeSignedInStore(transport)
+        XCTAssertEqual(store.connection, .deviceOffline)
+        XCTAssertEqual(kidStatusMessage(store), KidCopy.offlineBanner(lastUpdated: store.snapshot.lastUpdated))
+
+        transport.outcome = .status(500)
+        await refreshAndSettle(store, transport)
+
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertEqual(kidStatusMessage(store), KidCopy.cannotReachBanner(lastUpdated: store.snapshot.lastUpdated))
+        XCTAssertNotEqual(kidStatusMessage(store), KidCopy.offlineBanner(lastUpdated: store.snapshot.lastUpdated))
+        XCTAssertEqual(store.latestTransportDiagnostic?.httpStatus, 500)
+    }
+
     /// The readout describes the most recent failure, and keeps describing it
     /// after the wallet recovers: an intermittent failure is exactly the one a
     /// parent needs to report once things are working again.
@@ -151,6 +166,17 @@ final class TransportDiagnosticTests: XCTestCase {
         XCTAssertEqual(diagnostic?.route, "/v1/activity/{id}")
         XCTAssertFalse(diagnostic?.shareableSummary.contains(entryID) ?? true)
         XCTAssertFalse(diagnostic?.shareableSummary.contains("3F2504E0") ?? true)
+    }
+
+    func testAnIdentifierEqualToARouteWordIsStillRedacted() async {
+        let repository = makeRepository(ScriptedTransport(.failure(URLError(.timedOut))))
+
+        do {
+            _ = try await repository.activityDetail(remoteID: "wallet")
+            XCTFail("expected the scripted transport failure")
+        } catch {}
+
+        XCTAssertEqual(repository.latestTransportDiagnostic?.route, "/v1/activity/{id}")
     }
 
     func testAQueryNeverReachesTheDiagnostic() {
@@ -199,6 +225,45 @@ final class TransportDiagnosticTests: XCTestCase {
         for forbidden in [Self.sessionToken, "Bearer", "Authorization", "example.test", "https", "Robin"] {
             XCTAssertFalse(summary.contains(forbidden), "\(forbidden) must never reach a shared report")
         }
+    }
+
+    // MARK: - Parent mutations
+
+    func testFailedParentMutationsReachTheConnectionReadout() async {
+        let transport = ScriptedTransport(.success(Self.childViewResponse))
+        let store = await makeSignedInStore(transport)
+        let completedBeforeGate = transport.completedRequests
+
+        store.openParentGate()
+        for digit in "1234" {
+            store.appendPINDigit(String(digit))
+        }
+        await expect("entering the Parent area finishes its wallet read") {
+            transport.completedRequests > completedBeforeGate && !store.isLoading
+        }
+        XCTAssertEqual(store.elevation, .active)
+
+        transport.outcome = .failure(URLError(.timedOut))
+
+        let allowanceRecorded = await store.setAllowance(AllowanceRuleCommand(
+            amountCents: 500,
+            weekday: 6,
+            startDate: .now
+        ))
+        XCTAssertFalse(allowanceRecorded)
+        XCTAssertEqual(store.latestTransportDiagnostic?.route, "/v1/allowance-rule")
+
+        let profileRecorded = await store.updateChildProfile(nickname: "Robin")
+        XCTAssertFalse(profileRecorded)
+        XCTAssertEqual(store.latestTransportDiagnostic?.route, "/v1/child")
+
+        let result = await store.submit(WalletCommand(kind: .deposit, amountCents: 500))
+        guard case .pending = result else {
+            return XCTFail("a transport failure should leave the exact protected request pending")
+        }
+        XCTAssertEqual(store.latestTransportDiagnostic?.route, "/v1/wallet/deposits")
+        XCTAssertEqual(store.latestTransportDiagnostic?.category, .timedOut)
+        XCTAssertEqual(store.elevation, .active)
     }
 
     // MARK: - The local wallet is untouched
