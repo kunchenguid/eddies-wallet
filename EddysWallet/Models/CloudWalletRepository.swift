@@ -92,9 +92,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             }
             let readGeneration = beginRead()
             let changes = try await client.changes(afterRevision: revision)
-            // A read this device has already overtaken is not a failure: it
-            // answered, and it says less than what is already accepted. It
-            // publishes nothing and reports the newer wallet it arrived behind.
+            // A lower-revision answer this device may have overtaken is not a
+            // failure once its authority is validated. It publishes nothing
+            // and reports the newer wallet it arrived behind.
             if isObsolete(changes, readGeneration: readGeneration) {
                 try replica.validateCloudReplicaAuthority(
                     changes,
@@ -609,15 +609,16 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     /// later-started request from an older snapshot than one that already
     /// landed. Ordering reads only by when they started cannot see that: the
     /// later request wins the generation test, reaches the replica, and is
-    /// refused there for regressing the accepted revision. Nothing was wrong
-    /// with the request, the connection, or the answer, so publication is
-    /// ordered by observed revision as well, and an overtaken answer becomes a
-    /// benign no-op instead of a failure the kid home would have to explain.
+    /// refused there for regressing the accepted revision. For an answer from
+    /// the expected Cloud authority, nothing was wrong with the request or
+    /// connection, so publication is ordered by observed revision as well and
+    /// the overtaken answer becomes a benign no-op. The caller validates that
+    /// authority before accepting the no-op.
     ///
     /// The opposite ordering - a read that *started* earlier arriving after a
     /// later one applied - is a retired read, and `apply` still refuses it as
-    /// cancelled. Neither case may reach the replica, whose monotonic revision
-    /// guard remains the last defence for accepted state.
+    /// cancelled. Neither case may reach replica application, whose monotonic
+    /// revision guard remains the last defence for accepted state.
     private func isObsolete(_ replicaPayload: CloudReplica, readGeneration: Int) -> Bool {
         guard readGeneration >= lastAppliedReadGeneration, let lastAppliedRevision else { return false }
         return replicaPayload.household.revision < lastAppliedRevision
