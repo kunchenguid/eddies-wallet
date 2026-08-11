@@ -221,12 +221,15 @@ public final class CloudCoordinator: ObservableObject, AccountDeletionPerforming
         let household: CloudHousehold
         do {
             household = try await client.importHousehold(manifest, idempotencyKey: "cloud-import-\(operationID.uuidString.lowercased())")
-        } catch WalletAPIError.server(let status, let code, let message) where status == 409 {
+        } catch let error as WalletAPIError {
+            guard case .server(let status, _, _) = error.operationError, status == 409 else {
+                throw error
+            }
             // Another household already owns this parent, or this lineage was
             // already imported under different facts. Never overwrite either.
             activationConflict = true
             self.message = "This wallet could not be moved to Cloud. Nothing was changed."
-            throw WalletAPIError.server(statusCode: status, code: code, message: message)
+            throw error
         }
         guard household.isCloudAuthoritative, let lineageID = household.lineageID else {
             throw WalletAPIError.invalidResponse("Cloud did not confirm this wallet. Nothing was changed.")

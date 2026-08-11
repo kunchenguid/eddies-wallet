@@ -846,7 +846,7 @@ public final class WalletStore: ObservableObject {
             if canPublish(attempt, generation: generation, role: requestedRole) {
                 publishOperationDiagnostic(for: error)
             }
-            switch error {
+            switch error.operationError {
             case .familyNotSetup:
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 needsSetup = true
@@ -894,17 +894,21 @@ public final class WalletStore: ObservableObject {
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudAcceptedAwaitingReplica:
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
-                connection = .reached
-                if let cloud = repository as? CloudWalletRepository {
-                    authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+                if error.transportDiagnostic == nil {
+                    connection = .reached
+                    if let cloud = repository as? CloudWalletRepository {
+                        authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+                    }
                 }
                 errorMessage = nil
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudMutationAwaitingReconciliation:
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
-                connection = .reached
-                if let cloud = repository as? CloudWalletRepository {
-                    authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+                if error.transportDiagnostic == nil {
+                    connection = .reached
+                    if let cloud = repository as? CloudWalletRepository {
+                        authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+                    }
                 }
                 errorMessage = nil
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
@@ -930,28 +934,20 @@ public final class WalletStore: ObservableObject {
         }
     }
 
-    /// The failed attempt's own shape. A preserved transport failure carries
-    /// it, so it is bound to exactly this attempt; a failing HTTP status is
-    /// answered with its own typed error, so only the repository that made the
-    /// request still holds the shape of it.
     private func publishOperationDiagnostic(
         for error: WalletAPIError? = nil,
         preferredDiagnostic: TransportDiagnostic? = nil
     ) {
-        let diagnostic: TransportDiagnostic?
-        if let preferredDiagnostic {
-            diagnostic = preferredDiagnostic
-        } else if case let .transportFailure(carried)? = error {
-            diagnostic = carried
-        } else {
-            diagnostic = repository.latestTransportDiagnostic
-        }
-        guard let diagnostic, let observedConnection = diagnostic.connection else { return }
+        guard let diagnostic = preferredDiagnostic ?? error?.transportDiagnostic,
+              let observedConnection = diagnostic.connection else { return }
         latestTransportDiagnostic = diagnostic
-        if observedConnection == .reached {
-            connection = .reached
-            if let cloud = repository as? CloudWalletRepository {
+        connection = observedConnection
+        if let cloud = repository as? CloudWalletRepository {
+            switch observedConnection {
+            case .reached:
                 authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+            case .deviceOffline, .serviceUnreachable:
+                authorityState = .cloudOffline(lineageID: cloud.lineageID, revision: cloud.revision)
             }
         }
     }
@@ -1057,12 +1053,6 @@ public final class WalletStore: ObservableObject {
                 isLoading = false
             }
             return true
-        } catch let operationError as CloudWalletRepository.CloudOperationError {
-            return handleParentMutationFailure(
-                operationError.error,
-                diagnostic: operationError.diagnostic,
-                generation: generation
-            )
         } catch let error as WalletAPIError {
             return handleParentMutationFailure(error, generation: generation)
         } catch {
@@ -1083,11 +1073,12 @@ public final class WalletStore: ObservableObject {
         if generation == refreshGeneration {
             publishOperationDiagnostic(for: error, preferredDiagnostic: diagnostic)
         }
-        if error == .unauthorized || error == .noSession {
+        let operationError = error.operationError
+        if operationError == .unauthorized || operationError == .noSession {
             sessionExpired = repository.hasConfiguredKid
             if elevation != .none { deElevate() }
         } else if generation == refreshGeneration, elevation == .active {
-            switch error {
+            switch operationError {
             case .cloudAcceptedAwaitingReplica:
                 latestParentMutationOutcome = .acceptedAwaitingReplica
                 snapshot = repository.snapshot()
@@ -1127,12 +1118,6 @@ public final class WalletStore: ObservableObject {
                 isLoading = false
             }
             return true
-        } catch let operationError as CloudWalletRepository.CloudOperationError {
-            return handleParentMutationFailure(
-                operationError.error,
-                diagnostic: operationError.diagnostic,
-                generation: generation
-            )
         } catch let error as WalletAPIError {
             return handleParentMutationFailure(error, generation: generation)
         } catch {
@@ -1182,11 +1167,12 @@ public final class WalletStore: ObservableObject {
             if generation == refreshGeneration {
                 publishOperationDiagnostic(for: error)
             }
-            if error == .unauthorized || error == .noSession {
+            let operationError = error.operationError
+            if operationError == .unauthorized || operationError == .noSession {
                 sessionExpired = repository.hasConfiguredKid
                 if elevation != .none { deElevate() }
             }
-            if case .revisionConflict = error,
+            if case .revisionConflict = operationError,
                generation == refreshGeneration,
                elevation == .active {
                 // Another device moved first: nothing was recorded here, and the
@@ -1194,13 +1180,13 @@ public final class WalletStore: ObservableObject {
                 needsCloudReview = true
                 Task { [weak self] in await self?.refresh() }
             }
-            if case .revisionRequired = error,
+            if case .revisionRequired = operationError,
                generation == refreshGeneration,
                elevation == .active {
                 needsCloudReview = true
                 Task { [weak self] in await self?.refresh() }
             }
-            if case .cloudEntitlementRequired = error,
+            if case .cloudEntitlementRequired = operationError,
                generation == refreshGeneration,
                elevation == .active {
                 cloudEntitlement = cloudCoordinator?.entitlement ?? .expired

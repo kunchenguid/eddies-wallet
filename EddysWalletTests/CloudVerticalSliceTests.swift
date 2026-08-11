@@ -364,7 +364,6 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.snapshot().activities.filter { $0.remoteID == "lost-response-entry" }.count, 1)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
         XCTAssertFalse(cloud.hasUnsettledMutation)
-        XCTAssertNil(cloud.latestTransportDiagnostic)
         XCTAssertEqual(attemptDiagnostic?.category, .networkConnectionLost)
         XCTAssertEqual(attemptDiagnostic?.route, "/v1/wallet/deposits")
     }
@@ -836,8 +835,12 @@ final class CloudVerticalSliceTests: XCTestCase {
         do {
             _ = try await overlappingRefresh.value
             XCTFail("the joined ambiguous settlement must remain waiting")
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error.operationError, .cloudMutationAwaitingReconciliation)
+            XCTAssertEqual(error.transportDiagnostic?.category, .timedOut)
+            XCTAssertEqual(error.transportDiagnostic?.route, "/v1/wallet/deposits")
         } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+            XCTFail("the joined settlement should preserve its wallet failure")
         }
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
 

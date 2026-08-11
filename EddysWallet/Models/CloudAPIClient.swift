@@ -8,11 +8,6 @@ public final class CloudAPIClient: ParentAuthenticator {
     private let baseURL: URL
     private let sessionStore: any SessionStore
     private let transport: any HTTPTransport
-    /// The privacy-safe shape of the most recent request that did not succeed,
-    /// cleared as soon as one does. `CloudWalletRepository` surfaces it for the
-    /// parent readout.
-    public private(set) var latestTransportDiagnostic: TransportDiagnostic?
-
     public init(baseURL: URL = APIConfiguration.productionBaseURL, sessionStore: (any SessionStore)? = nil, transport: any HTTPTransport = URLSessionTransport()) {
         self.baseURL = baseURL
         self.sessionStore = sessionStore ?? KeychainSessionStore()
@@ -169,7 +164,7 @@ public final class CloudAPIClient: ParentAuthenticator {
     }
 
     private static func refusal(for error: WalletAPIError) -> CloudLegacyActivationRefusal {
-        switch error {
+        switch error.operationError {
         case .unauthorized, .noSession:
             return .authenticationRequired
         case .cloudEntitlementRequired:
@@ -303,32 +298,40 @@ public final class CloudAPIClient: ParentAuthenticator {
         do {
             let (data, response) = try await transport.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw WalletAPIError.invalidResponse("The server returned an invalid HTTP response.") }
-            // A status is an answer, so it keeps its own typed error below. The
-            // diagnostic is still recorded, because the parent-facing readout
-            // has to be able to show a failing status too.
-            latestTransportDiagnostic = (200..<300).contains(http.statusCode)
-                ? nil
-                : TransportDiagnostic.httpFailure(
-                    status: http.statusCode,
-                    path: path,
-                    elapsedMilliseconds: stopwatch.elapsedMilliseconds
-                )
+            let diagnostic = TransportDiagnostic.httpFailure(
+                status: http.statusCode,
+                path: path,
+                elapsedMilliseconds: stopwatch.elapsedMilliseconds
+            )
             if http.statusCode == pendingStatusCode {
-                throw WalletAPIError.server(statusCode: http.statusCode, code: "VERIFICATION_PENDING", message: "The Cloud service is still verifying this purchase.")
+                throw WalletAPIError.server(
+                    statusCode: http.statusCode,
+                    code: "VERIFICATION_PENDING",
+                    message: "The Cloud service is still verifying this purchase."
+                ).carrying(diagnostic)
             }
             guard (200..<300).contains(http.statusCode) else {
-                if http.statusCode == 401 { sessionStore.clear(); throw WalletAPIError.unauthorized }
+                if http.statusCode == 401 {
+                    sessionStore.clear()
+                    throw WalletAPIError.unauthorized.carrying(diagnostic)
+                }
                 let envelope = try? JSONDecoder().decode(CloudErrorEnvelope.self, from: data)
                 if http.statusCode == 409, envelope?.error.code == "REVISION_CONFLICT" {
-                    throw WalletAPIError.revisionConflict(currentRevision: envelope?.error.details?.currentRevision ?? envelope?.error.currentRevision ?? 0)
+                    throw WalletAPIError.revisionConflict(
+                        currentRevision: envelope?.error.details?.currentRevision ?? envelope?.error.currentRevision ?? 0
+                    ).carrying(diagnostic)
                 }
                 if http.statusCode == 428 {
-                    throw WalletAPIError.revisionRequired
+                    throw WalletAPIError.revisionRequired.carrying(diagnostic)
                 }
                 if http.statusCode == 403, envelope?.error.code == "CLOUD_ENTITLEMENT_REQUIRED" {
-                    throw WalletAPIError.cloudEntitlementRequired
+                    throw WalletAPIError.cloudEntitlementRequired.carrying(diagnostic)
                 }
-                throw WalletAPIError.server(statusCode: http.statusCode, code: envelope?.error.code ?? "HTTP_\(http.statusCode)", message: envelope?.error.message ?? "The Cloud service did not accept this request.")
+                throw WalletAPIError.server(
+                    statusCode: http.statusCode,
+                    code: envelope?.error.code ?? "HTTP_\(http.statusCode)",
+                    message: envelope?.error.message ?? "The Cloud service did not accept this request."
+                ).carrying(diagnostic)
             }
             return CloudHTTPResponse(data: data, http: http)
         } catch let error as WalletAPIError { throw error
@@ -341,7 +344,6 @@ public final class CloudAPIClient: ParentAuthenticator {
                 path: path,
                 elapsedMilliseconds: stopwatch.elapsedMilliseconds
             )
-            latestTransportDiagnostic = diagnostic
             throw WalletAPIError.transportFailure(diagnostic)
         }
     }

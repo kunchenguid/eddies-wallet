@@ -541,7 +541,7 @@ public final class CloudSubscriptionStore: ObservableObject {
                 recoveryEvidence.recordDelivery(.inactive)
             }
         } catch let error as WalletAPIError {
-            switch error {
+            switch error.operationError {
             case .server(let status, _, _) where status == 202:
                 completedDeliveries.insert(jws)
                 // Accepted but not yet verified: pending, never finished.

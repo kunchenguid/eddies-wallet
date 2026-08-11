@@ -157,12 +157,18 @@ final class TransportDiagnosticTests: XCTestCase {
         let entryID = "3F2504E0-4F89-11D3-9A0C-0305E82C3301"
         let repository = makeRepository(ScriptedTransport(.failure(URLError(.timedOut))))
 
+        let diagnostic: TransportDiagnostic?
         do {
             _ = try await repository.activityDetail(remoteID: entryID)
             XCTFail("expected the scripted transport failure")
-        } catch {}
+            diagnostic = nil
+        } catch let error as WalletAPIError {
+            diagnostic = error.transportDiagnostic
+        } catch {
+            XCTFail("expected a wallet transport failure")
+            diagnostic = nil
+        }
 
-        let diagnostic = repository.latestTransportDiagnostic
         XCTAssertEqual(diagnostic?.route, "/v1/activity/{id}")
         XCTAssertFalse(diagnostic?.shareableSummary.contains(entryID) ?? true)
         XCTAssertFalse(diagnostic?.shareableSummary.contains("3F2504E0") ?? true)
@@ -174,9 +180,11 @@ final class TransportDiagnosticTests: XCTestCase {
         do {
             _ = try await repository.activityDetail(remoteID: "wallet")
             XCTFail("expected the scripted transport failure")
-        } catch {}
-
-        XCTAssertEqual(repository.latestTransportDiagnostic?.route, "/v1/activity/{id}")
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error.transportDiagnostic?.route, "/v1/activity/{id}")
+        } catch {
+            XCTFail("expected a wallet transport failure")
+        }
     }
 
     func testAQueryNeverReachesTheDiagnostic() {

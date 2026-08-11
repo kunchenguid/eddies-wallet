@@ -582,10 +582,6 @@ public protocol WalletRepository: AnyObject {
     var isAuthenticated: Bool { get }
     var hasConfiguredKid: Bool { get }
     var supportsRuntimeMutations: Bool { get }
-    /// The privacy-safe shape of the most recent request that did not succeed,
-    /// cleared as soon as one does. A repository that makes no network request
-    /// never has one.
-    var latestTransportDiagnostic: TransportDiagnostic? { get }
     func snapshot() -> WalletSnapshot
     func childSnapshot() -> WalletSnapshot
     func refresh(for role: UserRole) async throws -> WalletSnapshot
@@ -603,7 +599,6 @@ public protocol WalletRepository: AnyObject {
 
 public extension WalletRepository {
     var supportsRuntimeMutations: Bool { true }
-    var latestTransportDiagnostic: TransportDiagnostic? { nil }
     func clearAuthenticationForAccountDeletion() throws { clearAuthentication() }
 }
 

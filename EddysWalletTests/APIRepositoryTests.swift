@@ -44,9 +44,14 @@ final class APIRepositoryTests: XCTestCase {
         do {
             _ = try await client.deliver(transactionJWS: "signed-jws")
             XCTFail("Expected verification to remain pending")
-        } catch let WalletAPIError.server(statusCode, code, _) {
+        } catch let error as WalletAPIError {
+            guard case .server(let statusCode, let code, _) = error.operationError else {
+                return XCTFail("Unexpected wallet error: \(error)")
+            }
             XCTAssertEqual(statusCode, 202)
             XCTAssertEqual(code, "VERIFICATION_PENDING")
+            XCTAssertEqual(error.transportDiagnostic?.httpStatus, 202)
+            XCTAssertEqual(error.transportDiagnostic?.route, "/v1/cloud/transactions")
         } catch {
             XCTFail("Unexpected error: \(error)")
         }

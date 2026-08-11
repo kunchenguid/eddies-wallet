@@ -46,7 +46,6 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     public var supportsRuntimeMutations: Bool { true }
     public var localReplica: LocalWalletRepository { replica }
     public var hasValidReplica: Bool { replica.hasAcceptedCloudReplica(lineageID: lineageID) }
-    public var latestTransportDiagnostic: TransportDiagnostic? { client.latestTransportDiagnostic }
     public var hasUnsettledMutation: Bool { activeMutation != nil }
     var unsettledMutationPhase: CloudMutationPhase? { activeMutation?.phase }
     var unsettledMutationMessage: String? { activeMutation?.waitingMessage }
@@ -70,15 +69,15 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             switch try await settle(activeMutation) {
             case .observed:
                 return snapshot()
-            case .waiting(let error, _):
-                switch error {
+            case .waiting(let error, let diagnostic):
+                switch error.operationError {
                 case .noSession, .unauthorized:
                     throw error
                 default:
-                    throw WalletAPIError.cloudMutationAwaitingReconciliation
+                    throw WalletAPIError.cloudMutationAwaitingReconciliation.carrying(diagnostic)
                 }
-            case .acceptedAwaitingReplica:
-                throw WalletAPIError.cloudAcceptedAwaitingReplica
+            case .acceptedAwaitingReplica(_, let diagnostic):
+                throw WalletAPIError.cloudAcceptedAwaitingReplica.carrying(diagnostic)
             }
         }
         do {
@@ -310,15 +309,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         case .observed:
             return snapshot()
         case .waiting(_, let diagnostic):
-            throw CloudOperationError(
-                error: .cloudMutationAwaitingReconciliation,
-                diagnostic: diagnostic
-            )
+            throw WalletAPIError.cloudMutationAwaitingReconciliation.carrying(diagnostic)
         case .acceptedAwaitingReplica(_, let diagnostic):
-            throw CloudOperationError(
-                error: .cloudAcceptedAwaitingReplica,
-                diagnostic: diagnostic
-            )
+            throw WalletAPIError.cloudAcceptedAwaitingReplica.carrying(diagnostic)
         }
     }
 
@@ -333,11 +326,6 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         case observed(WalletEvent?)
         case waiting(WalletAPIError, TransportDiagnostic?)
         case acceptedAwaitingReplica(WalletAPIError?, TransportDiagnostic?)
-    }
-
-    struct CloudOperationError: Error {
-        let error: WalletAPIError
-        let diagnostic: TransportDiagnostic?
     }
 
     private struct ActiveSettlement {
@@ -435,9 +423,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                     return .waiting(.cancelled, nil)
                 }
                 if isDefinitiveRejection(rejection) {
-                    if case .revisionConflict = rejection {
+                    if case .revisionConflict = rejection.operationError {
                         isReadyForRuntimeMutations = false
-                    } else if rejection == .revisionRequired {
+                    } else if case .revisionRequired = rejection.operationError {
                         isReadyForRuntimeMutations = false
                     }
                     do {
@@ -466,7 +454,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 }
                 return .waiting(
                     .network("Cloud is unavailable right now. The previous change will be checked again."),
-                    client.latestTransportDiagnostic
+                    nil
                 )
             }
         }
@@ -517,15 +505,12 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         } catch let error as WalletAPIError {
             return .acceptedAwaitingReplica(error, diagnostic(for: error))
         } catch {
-            return .acceptedAwaitingReplica(nil, client.latestTransportDiagnostic)
+            return .acceptedAwaitingReplica(nil, nil)
         }
     }
 
     private func diagnostic(for error: WalletAPIError) -> TransportDiagnostic? {
-        if case .transportFailure(let diagnostic) = error {
-            return diagnostic
-        }
-        return client.latestTransportDiagnostic
+        error.transportDiagnostic
     }
 
     private func isActive(
@@ -548,7 +533,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     }
 
     private func isDefinitiveRejection(_ error: WalletAPIError) -> Bool {
-        switch error {
+        switch error.operationError {
         case .revisionConflict, .revisionRequired, .cloudEntitlementRequired:
             true
         case .server(let statusCode, let code, _):
@@ -556,7 +541,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 && code != "COMMAND_IN_PROGRESS"
                 && (400..<500).contains(statusCode)
         case .noSession, .unauthorized, .familyNotSetup, .identityMismatch,
-             .invalidConfiguration, .network, .transportFailure, .invalidResponse,
+             .invalidConfiguration, .network, .transportFailure, .requestFailure, .invalidResponse,
              .cancelled, .timedOut,
              .cloudMutationAwaitingReconciliation, .cloudAcceptedAwaitingReplica:
             false
@@ -601,7 +586,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     }
 
     private func storeRejection(_ error: WalletAPIError, in mutation: inout PendingCloudMutation) {
-        switch error {
+        switch error.operationError {
         case .revisionConflict:
             mutation.rejectionStatusCode = 409
             mutation.rejectionCode = "REVISION_CONFLICT"
