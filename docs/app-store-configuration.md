@@ -36,7 +36,7 @@ The uploaded builds are TestFlight artifacts, not App Store candidates: a build 
 
 Three review-preparation items cannot be completed truthfully from this repository:
 
-- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. A finalized privacy policy is committed here and set to publish at https://eddies-wallet.kunchenguid.com/ via GitHub Pages (`site/` and `.github/workflows/pages.yml`); enabling Pages and entering that URL in the version record remain captain actions with no committed-here surface.
+- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. The finalized privacy policy is published at https://eddies-wallet.kunchenguid.com/ via GitHub Pages (`site/` and `.github/workflows/pages.yml`); entering that URL in the version record remains a captain action with no committed-here surface.
 
 - **App Privacy (data collection) answers** have no public API surface; they are entered in the App Store Connect console.
 - **App Review contact details** (name, email, phone) are the captain's real contact information. They must never be invented, and no synthetic value belongs in that field.
