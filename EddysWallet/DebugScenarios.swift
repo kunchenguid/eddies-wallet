@@ -149,6 +149,18 @@ enum DebugLaunchScenario {
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .local(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!), purchase: .productsUnavailable(.notOffered))
         case "cloud-plans-check-failed":
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .local(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!), purchase: .productsUnavailable(.couldNotCheck))
+        case "cloud-plans-available":
+            // Injects the same shape StoreKit resolves in production
+            // (`CloudSubscriptionStore.storekit` product ids, display names,
+            // and prices) without a live StoreKit/backend round trip, so the
+            // plans card - and its Guideline 3.1.2 legal links - render
+            // deterministically for UI tests.
+            let result = store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .local(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!))
+            result.applyDebugCloudPlans([
+                CloudPlan(id: "com.kunchenguid.eddieswallet.cloud.monthly", displayName: "Cloud monthly", displayPrice: "$2.99", periodDescription: "every month"),
+                CloudPlan(id: "com.kunchenguid.eddieswallet.cloud.annual", displayName: "Cloud annual", displayPrice: "$24.99", periodDescription: "every year")
+            ])
+            return result
         case "cloud-offline-grace":
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .cloudOfflineGrace(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7), entitlement: .active(accessUntil: .distantPast, autoRenewEnabled: true))
         case "device-conflict":

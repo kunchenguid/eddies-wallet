@@ -10,6 +10,18 @@ struct CloudStatusView: View {
     @EnvironmentObject private var store: WalletStore
     @State private var isWorking = false
 
+    /// Guideline 3.1.2 requires the purchase surface itself to link both
+    /// documents next to the subscription offer. The privacy policy is this
+    /// project's own published page; the terms of use is Apple's Standard
+    /// EULA, which governs an auto-renewable subscription that ships no
+    /// custom EULA of its own.
+    static let termsOfUseURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+    static let privacyPolicyURL = URL(string: "https://eddies-wallet.kunchenguid.com/")!
+
+    /// The remaining factual half of the Guideline 3.1.2 disclosure - title,
+    /// length, and price already appear on each plan row above.
+    static let autoRenewDisclosure = "Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel anytime in Settings > Apple ID > Subscriptions."
+
     private var isCloudOn: Bool { store.cloudEntitlement.grantsCloud }
 
     private var hasCloudWalletOnDevice: Bool {
@@ -358,6 +370,22 @@ struct CloudStatusView: View {
             .frame(minHeight: 44)
             .disabled(isWorking)
             .accessibilityIdentifier("cloud-restore-button")
+            Divider().overlay(EW.Color.border)
+                .padding(.top, EW.Space.one)
+            Text(Self.autoRenewDisclosure)
+                .font(EW.Font.caption)
+                .foregroundStyle(EW.Color.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("cloud-auto-renew-disclosure")
+            HStack(spacing: EW.Space.five) {
+                Link("Terms of Use", destination: Self.termsOfUseURL)
+                    .accessibilityIdentifier("cloud-terms-link")
+                Link("Privacy Policy", destination: Self.privacyPolicyURL)
+                    .accessibilityIdentifier("cloud-privacy-link")
+            }
+            .font(EW.Font.caption)
+            .foregroundStyle(EW.Color.primaryActive)
+            .frame(minHeight: 44, alignment: .leading)
         }
     }
 

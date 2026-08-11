@@ -773,6 +773,51 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertFalse(app.buttons["cloud-restore-button"].exists)
     }
 
+    // Guideline 3.1.2: the purchase surface itself must show the auto-renew
+    // disclosure and functional links to both the terms of use and the
+    // privacy policy, in close proximity to the purchase controls. Exact URL
+    // correctness is pinned separately by
+    // `testCloudPlansLegalLinksPointAtTheRequiredDestinations`; this proves
+    // the links actually render, are tappable, and sit alongside the offer
+    // in the real card - not merely that the right strings exist somewhere.
+    func testCloudPlansCardShowsTappableTermsAndPrivacyLinksWithAutoRenewDisclosure() throws {
+        let app = launch("cloud-plans-available")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let card = app.otherElements["cloud-backup-sync-card"]
+        for _ in 0..<8 where !card.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"].exists)
+        XCTAssertTrue(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"].exists)
+        XCTAssertTrue(app.buttons["cloud-restore-button"].exists)
+
+        let disclosure = app.staticTexts["cloud-auto-renew-disclosure"]
+        for _ in 0..<8 where !disclosure.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(disclosure.waitForExistence(timeout: 5))
+        XCTAssertTrue(disclosure.label.localizedCaseInsensitiveContains("renew"))
+        XCTAssertTrue(disclosure.label.localizedCaseInsensitiveContains("cancel"))
+
+        // `Link` does not report a stable XCUIElementType across OS
+        // versions, so query loosely by identifier as the existing
+        // diagnostics-link test already does.
+        let terms = app.descendants(matching: .any)["cloud-terms-link"]
+        let privacy = app.descendants(matching: .any)["cloud-privacy-link"]
+        for _ in 0..<8 where !terms.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(terms.waitForExistence(timeout: 5))
+        XCTAssertEqual(terms.label, "Terms of Use")
+        XCTAssertTrue(terms.isHittable, "the terms link must be tappable, not just present")
+        XCTAssertTrue(privacy.exists)
+        XCTAssertEqual(privacy.label, "Privacy Policy")
+        XCTAssertTrue(privacy.isHittable, "the privacy link must be tappable, not just present")
+    }
+
     func testRejectedCloudCleanupIsTerminalAndLocallyRetryable() throws {
         let app = launch("cloud-rejected-cleanup")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))

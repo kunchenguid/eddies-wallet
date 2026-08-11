@@ -249,6 +249,7 @@ public final class WalletStore: ObservableObject {
     private var isCommittingFirstRunCloudAdoption = false
     #if DEBUG
     private var debugHasValidCloudReplica: Bool?
+    private var debugCloudPlansOverride: [CloudPlan]?
     #endif
 
     public init(
@@ -1478,6 +1479,12 @@ public final class WalletStore: ObservableObject {
     /// Reads backend capability and StoreKit products together. Plans stay empty
     /// unless both are ready, so the parent never sees an unusable price.
     public func loadCloudPlans() async {
+        #if DEBUG
+        if let debugCloudPlansOverride {
+            cloudPlans = debugCloudPlansOverride
+            return
+        }
+        #endif
         guard let cloudCoordinator else { cloudPlans = []; return }
         guard cloudCoordinator.hasSession else {
             cloudPlans = []
@@ -1715,6 +1722,16 @@ public final class WalletStore: ObservableObject {
         purchaseAttempt = purchase
         cloudEntitlement = entitlement
         debugHasValidCloudReplica = hasValidReplica
+    }
+
+    /// Debug-only seam for reviewing the populated Cloud plans surface
+    /// without a live StoreKit/backend round trip, so its legal links and
+    /// auto-renew disclosure stay UI-testable. The override sticks so the
+    /// view's own `.task { await store.loadCloudPlans() }` does not wipe it
+    /// out on appear.
+    func applyDebugCloudPlans(_ plans: [CloudPlan]) {
+        debugCloudPlansOverride = plans
+        cloudPlans = plans
     }
 
     /// Debug-only seam for reviewing the first-run existing-wallet screen
