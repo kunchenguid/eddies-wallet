@@ -934,9 +934,14 @@ public final class WalletStore: ObservableObject {
     /// it, so it is bound to exactly this attempt; a failing HTTP status is
     /// answered with its own typed error, so only the repository that made the
     /// request still holds the shape of it.
-    private func publishOperationDiagnostic(for error: WalletAPIError? = nil) {
+    private func publishOperationDiagnostic(
+        for error: WalletAPIError? = nil,
+        preferredDiagnostic: TransportDiagnostic? = nil
+    ) {
         let diagnostic: TransportDiagnostic?
-        if case let .transportFailure(carried)? = error {
+        if let preferredDiagnostic {
+            diagnostic = preferredDiagnostic
+        } else if case let .transportFailure(carried)? = error {
             diagnostic = carried
         } else {
             diagnostic = repository.latestTransportDiagnostic
@@ -1052,30 +1057,14 @@ public final class WalletStore: ObservableObject {
                 isLoading = false
             }
             return true
+        } catch let operationError as CloudWalletRepository.CloudOperationError {
+            return handleParentMutationFailure(
+                operationError.error,
+                diagnostic: operationError.diagnostic,
+                generation: generation
+            )
         } catch let error as WalletAPIError {
-            if generation == refreshGeneration {
-                publishOperationDiagnostic(for: error)
-            }
-            if error == .unauthorized || error == .noSession {
-                sessionExpired = repository.hasConfiguredKid
-                if elevation != .none { deElevate() }
-            } else if generation == refreshGeneration, elevation == .active {
-                switch error {
-                case .cloudAcceptedAwaitingReplica:
-                    latestParentMutationOutcome = .acceptedAwaitingReplica
-                    snapshot = repository.snapshot()
-                    errorMessage = nil
-                case .cloudMutationAwaitingReconciliation:
-                    latestParentMutationOutcome = .waitingForCloud
-                    snapshot = repository.snapshot()
-                    errorMessage = nil
-                default:
-                    latestParentMutationOutcome = .notRecorded
-                    errorMessage = userMessage(for: error)
-                }
-                isLoading = false
-            }
-            return false
+            return handleParentMutationFailure(error, generation: generation)
         } catch {
             if generation == refreshGeneration, elevation == .active {
                 latestParentMutationOutcome = .notRecorded
@@ -1084,6 +1073,36 @@ public final class WalletStore: ObservableObject {
             }
             return false
         }
+    }
+
+    private func handleParentMutationFailure(
+        _ error: WalletAPIError,
+        diagnostic: TransportDiagnostic? = nil,
+        generation: Int
+    ) -> Bool {
+        if generation == refreshGeneration {
+            publishOperationDiagnostic(for: error, preferredDiagnostic: diagnostic)
+        }
+        if error == .unauthorized || error == .noSession {
+            sessionExpired = repository.hasConfiguredKid
+            if elevation != .none { deElevate() }
+        } else if generation == refreshGeneration, elevation == .active {
+            switch error {
+            case .cloudAcceptedAwaitingReplica:
+                latestParentMutationOutcome = .acceptedAwaitingReplica
+                snapshot = repository.snapshot()
+                errorMessage = nil
+            case .cloudMutationAwaitingReconciliation:
+                latestParentMutationOutcome = .waitingForCloud
+                snapshot = repository.snapshot()
+                errorMessage = nil
+            default:
+                latestParentMutationOutcome = .notRecorded
+                errorMessage = userMessage(for: error)
+            }
+            isLoading = false
+        }
+        return false
     }
 
     @discardableResult
@@ -1108,30 +1127,14 @@ public final class WalletStore: ObservableObject {
                 isLoading = false
             }
             return true
+        } catch let operationError as CloudWalletRepository.CloudOperationError {
+            return handleParentMutationFailure(
+                operationError.error,
+                diagnostic: operationError.diagnostic,
+                generation: generation
+            )
         } catch let error as WalletAPIError {
-            if generation == refreshGeneration {
-                publishOperationDiagnostic(for: error)
-            }
-            if error == .unauthorized || error == .noSession {
-                sessionExpired = repository.hasConfiguredKid
-                if elevation != .none { deElevate() }
-            } else if generation == refreshGeneration, elevation == .active {
-                switch error {
-                case .cloudAcceptedAwaitingReplica:
-                    latestParentMutationOutcome = .acceptedAwaitingReplica
-                    snapshot = repository.snapshot()
-                    errorMessage = nil
-                case .cloudMutationAwaitingReconciliation:
-                    latestParentMutationOutcome = .waitingForCloud
-                    snapshot = repository.snapshot()
-                    errorMessage = nil
-                default:
-                    latestParentMutationOutcome = .notRecorded
-                    errorMessage = userMessage(for: error)
-                }
-                isLoading = false
-            }
-            return false
+            return handleParentMutationFailure(error, generation: generation)
         } catch {
             if generation == refreshGeneration, elevation == .active {
                 latestParentMutationOutcome = .notRecorded
@@ -1170,7 +1173,7 @@ public final class WalletStore: ObservableObject {
         do {
             let result = try await repository.submit(command)
             if generation == refreshGeneration, elevation == .active {
-                publishOperationDiagnostic()
+                publishOperationDiagnostic(preferredDiagnostic: result.transportDiagnostic)
                 snapshot = repository.snapshot()
                 errorMessage = nil
             }

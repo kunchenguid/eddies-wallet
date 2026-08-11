@@ -70,7 +70,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             switch try await settle(activeMutation) {
             case .observed:
                 return snapshot()
-            case .waiting(let error):
+            case .waiting(let error, _):
                 switch error {
                 case .noSession, .unauthorized:
                     throw error
@@ -155,13 +155,19 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 return .acceptedAwaitingReplica(try pendingEvent(for: mutation, phase: .acceptedAwaitingReplica))
             }
             return .accepted(event)
-        case .waiting:
+        case .waiting(_, let diagnostic):
             if activeMutation?.phase == .rejected {
                 throw WalletAPIError.cloudMutationAwaitingReconciliation
             }
-            return .pending(try pendingEvent(for: mutation, phase: activeMutation?.phase ?? .staged))
-        case .acceptedAwaitingReplica:
-            return .acceptedAwaitingReplica(try pendingEvent(for: mutation, phase: .acceptedAwaitingReplica))
+            return .pending(
+                try pendingEvent(for: mutation, phase: activeMutation?.phase ?? .staged),
+                diagnostic: diagnostic
+            )
+        case .acceptedAwaitingReplica(_, let diagnostic):
+            return .acceptedAwaitingReplica(
+                try pendingEvent(for: mutation, phase: .acceptedAwaitingReplica),
+                diagnostic: diagnostic
+            )
         }
     }
 
@@ -303,10 +309,16 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         switch try await settle(mutation) {
         case .observed:
             return snapshot()
-        case .waiting:
-            throw WalletAPIError.cloudMutationAwaitingReconciliation
-        case .acceptedAwaitingReplica:
-            throw WalletAPIError.cloudAcceptedAwaitingReplica
+        case .waiting(_, let diagnostic):
+            throw CloudOperationError(
+                error: .cloudMutationAwaitingReconciliation,
+                diagnostic: diagnostic
+            )
+        case .acceptedAwaitingReplica(_, let diagnostic):
+            throw CloudOperationError(
+                error: .cloudAcceptedAwaitingReplica,
+                diagnostic: diagnostic
+            )
         }
     }
 
@@ -319,8 +331,13 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
 
     private enum Settlement {
         case observed(WalletEvent?)
-        case waiting(WalletAPIError)
-        case acceptedAwaitingReplica(WalletAPIError?)
+        case waiting(WalletAPIError, TransportDiagnostic?)
+        case acceptedAwaitingReplica(WalletAPIError?, TransportDiagnostic?)
+    }
+
+    struct CloudOperationError: Error {
+        let error: WalletAPIError
+        let diagnostic: TransportDiagnostic?
     }
 
     private struct ActiveSettlement {
@@ -332,7 +349,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private func settle(_ original: PendingCloudMutation) async throws -> Settlement {
         if let activeSettlement {
             guard activeSettlement.operationID == original.operationID else {
-                return .waiting(.cloudMutationAwaitingReconciliation)
+                return .waiting(.cloudMutationAwaitingReconciliation, nil)
             }
             return try await activeSettlement.task.value
         }
@@ -372,7 +389,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 try clear(mutation)
             } catch {
                 activeMutation = mutation
-                return .waiting(.cloudMutationAwaitingReconciliation)
+                return .waiting(.cloudMutationAwaitingReconciliation, nil)
             }
             throw rejection
         }
@@ -383,7 +400,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 activeMutation = mutation
             } catch {
                 activeMutation = original
-                return .waiting(.cloudMutationAwaitingReconciliation)
+                return .waiting(.cloudMutationAwaitingReconciliation, nil)
             }
         }
         let attemptedMutation = mutation
@@ -393,7 +410,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 token: token,
                 lifecycleGeneration: lifecycleGeneration
             ) else {
-                return .waiting(.cancelled)
+                return .waiting(.cancelled, nil)
             }
             do {
                 let acceptance = try await client.mutate(mutation)
@@ -402,7 +419,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                     token: token,
                     lifecycleGeneration: lifecycleGeneration
                 ) else {
-                    return .waiting(.cancelled)
+                    return .waiting(.cancelled, nil)
                 }
                 mutation.phase = .acceptedAwaitingReplica
                 mutation.acceptedEntryID = acceptance.entryID
@@ -415,7 +432,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                     token: token,
                     lifecycleGeneration: lifecycleGeneration
                 ) else {
-                    return .waiting(.cancelled)
+                    return .waiting(.cancelled, nil)
                 }
                 if isDefinitiveRejection(rejection) {
                     if case .revisionConflict = rejection {
@@ -433,21 +450,24 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                             try replica.markCloudMutationAccepted(mutation)
                         } catch {
                             activeMutation = attemptedMutation
-                            return .waiting(.cloudMutationAwaitingReconciliation)
+                            return .waiting(.cloudMutationAwaitingReconciliation, nil)
                         }
                     }
                     throw rejection
                 }
-                return .waiting(rejection)
+                return .waiting(rejection, diagnostic(for: rejection))
             } catch {
                 guard isActive(
                     operationID: mutation.operationID,
                     token: token,
                     lifecycleGeneration: lifecycleGeneration
                 ) else {
-                    return .waiting(.cancelled)
+                    return .waiting(.cancelled, nil)
                 }
-                return .waiting(.network("Cloud is unavailable right now. The previous change will be checked again."))
+                return .waiting(
+                    .network("Cloud is unavailable right now. The previous change will be checked again."),
+                    client.latestTransportDiagnostic
+                )
             }
         }
         return await observeAcceptedMutation(
@@ -470,7 +490,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 token: token,
                 lifecycleGeneration: lifecycleGeneration
             ) else {
-                return .waiting(.cancelled)
+                return .waiting(.cancelled, nil)
             }
             var resolving = accepted
             if resolving.acceptedEntryID == nil,
@@ -489,16 +509,23 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 resolving: resolving,
                 readGeneration: readGeneration
             )
-            guard observed else { return .acceptedAwaitingReplica(nil) }
+            guard observed else { return .acceptedAwaitingReplica(nil, nil) }
             let event = resolving.acceptedEntryID.flatMap { entryID in
                 replica.snapshot().activities.first { $0.remoteID == entryID }
             }
             return .observed(event)
         } catch let error as WalletAPIError {
-            return .acceptedAwaitingReplica(error)
+            return .acceptedAwaitingReplica(error, diagnostic(for: error))
         } catch {
-            return .acceptedAwaitingReplica(nil)
+            return .acceptedAwaitingReplica(nil, client.latestTransportDiagnostic)
         }
+    }
+
+    private func diagnostic(for error: WalletAPIError) -> TransportDiagnostic? {
+        if case .transportFailure(let diagnostic) = error {
+            return diagnostic
+        }
+        return client.latestTransportDiagnostic
     }
 
     private func isActive(

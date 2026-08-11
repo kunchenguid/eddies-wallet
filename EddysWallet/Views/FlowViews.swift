@@ -306,10 +306,10 @@ struct MoneyFlowView: View {
         case .accepted:
             resultState = .recorded
             resultMessage = "This virtual money event was accepted and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
-        case .pending(let event):
+        case .pending(let event, _):
             resultState = .pending
             resultMessage = event.explanation
-        case .acceptedAwaitingReplica(let event):
+        case .acceptedAwaitingReplica(let event, _):
             resultState = .pending
             resultMessage = event.explanation
         case .rejected(let event):

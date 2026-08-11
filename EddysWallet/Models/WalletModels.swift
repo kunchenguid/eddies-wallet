@@ -533,9 +533,18 @@ public struct LoanDetail: Sendable {
 
 public enum CommandResult: Sendable {
     case accepted(WalletEvent)
-    case pending(WalletEvent)
-    case acceptedAwaitingReplica(WalletEvent)
+    case pending(WalletEvent, diagnostic: TransportDiagnostic? = nil)
+    case acceptedAwaitingReplica(WalletEvent, diagnostic: TransportDiagnostic? = nil)
     case rejected(WalletEvent)
+
+    public var transportDiagnostic: TransportDiagnostic? {
+        switch self {
+        case .pending(_, let diagnostic), .acceptedAwaitingReplica(_, let diagnostic):
+            diagnostic
+        case .accepted, .rejected:
+            nil
+        }
+    }
 }
 
 /// Parent-visible result for mutations that do not create ledger entries.

@@ -286,7 +286,7 @@ final class APIRepositoryTests: XCTestCase {
 
         let result = try await repository.submit(WalletCommand(kind: .withdrawal, amountCents: 50, idempotencyKey: "offline-key"))
 
-        guard case .pending(let event) = result else { return XCTFail("A network failure must remain pending") }
+        guard case .pending(let event, _) = result else { return XCTFail("A network failure must remain pending") }
         XCTAssertEqual(event.syncState, .pending)
         XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 0)
         XCTAssertEqual(repository.snapshot().pendingEvents.count, 1)

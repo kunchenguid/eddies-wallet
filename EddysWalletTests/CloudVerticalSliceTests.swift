@@ -344,10 +344,12 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.dropNextResponse("POST", "/v1/wallet/deposits")
 
         let command = WalletCommand(kind: .deposit, amountCents: 250, reason: "synthetic response loss", idempotencyKey: "response-loss-key")
-        guard case .pending(let waiting) = try await cloud.submit(command) else {
+        guard case .pending(let waiting, let attemptDiagnostic) = try await cloud.submit(command) else {
             return XCTFail("a lost response is unresolved, not rejected")
         }
         XCTAssertEqual(waiting.syncState, .pending)
+        XCTAssertEqual(attemptDiagnostic?.category, .networkConnectionLost)
+        XCTAssertEqual(attemptDiagnostic?.route, "/v1/wallet/deposits")
         XCTAssertTrue(cloud.hasUnsettledMutation)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
 
@@ -362,6 +364,9 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.snapshot().activities.filter { $0.remoteID == "lost-response-entry" }.count, 1)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
         XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertNil(cloud.latestTransportDiagnostic)
+        XCTAssertEqual(attemptDiagnostic?.category, .networkConnectionLost)
+        XCTAssertEqual(attemptDiagnostic?.route, "/v1/wallet/deposits")
     }
 
     func testServerCommandInProgressReplaysOnlyTheOriginalRequest() async throws {
@@ -443,7 +448,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         // accepted replica save then fails after the server has accepted.
         persistence.failOnSaveNumber = persistence.saveCount + 4
 
-        guard case .acceptedAwaitingReplica(let event) = try await cloud.submit(
+        guard case .acceptedAwaitingReplica(let event, _) = try await cloud.submit(
             WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "persistence-key")
         ) else {
             return XCTFail("local persistence failure after acceptance cannot become rejection")
@@ -459,7 +464,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "accepted-unseen"), status: 201)
         transport.dropNextResponse("GET", "/v1/cloud/changes")
 
-        guard case .acceptedAwaitingReplica(let event) = try await cloud.submit(
+        guard case .acceptedAwaitingReplica(let event, _) = try await cloud.submit(
             WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "accepted-unseen-key")
         ) else {
             return XCTFail("server acceptance plus failed reread needs its own truthful result")
@@ -635,7 +640,7 @@ final class CloudVerticalSliceTests: XCTestCase {
             firstMutationSave + 5,
         ]
 
-        guard case .pending(let waiting) = try await cloud.submit(
+        guard case .pending(let waiting, _) = try await cloud.submit(
             WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "rejection-waiting-key")
         ) else {
             return XCTFail("a rejection without durable settlement must remain Waiting")
@@ -713,7 +718,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         )
         transport.dropNextResponse("POST", "/v1/allowance-rule/a-1/occurrences/o-7/record")
 
-        guard case .pending(let event) = try await cloud.submit(
+        guard case .pending(let event, _) = try await cloud.submit(
             WalletCommand(kind: .allowance, amountCents: 500, idempotencyKey: "exact-allowance-key")
         ) else {
             return XCTFail("the lost response should leave the exact scheduled amount waiting")
