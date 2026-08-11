@@ -1,4 +1,5 @@
 import AuthenticationServices
+import Foundation
 import XCTest
 @testable import EddysWallet
 
@@ -35,12 +36,12 @@ final class WalletTests: XCTestCase {
 
         await store.refresh()
         XCTAssertTrue(store.hasRejectedCloudMutationCleanup)
-        XCTAssertFalse(store.isOffline)
+        XCTAssertEqual(store.connection, .reached)
         XCTAssertTrue(store.authorityState.isCloudAuthority)
 
         for _ in 0..<4 where store.hasRejectedCloudMutationCleanup {
             await store.refresh()
-            XCTAssertFalse(store.isOffline)
+            XCTAssertEqual(store.connection, .reached)
         }
         XCTAssertFalse(store.hasRejectedCloudMutationCleanup)
         XCTAssertFalse(store.hasUnsettledCloudMutation)
@@ -402,6 +403,72 @@ final class WalletTests: XCTestCase {
         XCTAssertTrue(store.isSignedIn, "Recovery must not require full sign-out or re-setup")
     }
 
+    func testCancelledSignInPublishesNoFailureState() async {
+        for error in cancellationRepresentations() {
+            let provider = FakeAppleSignInProvider(appleUserID: "owner-1", failure: error)
+            let store = WalletStore(
+                repository: MockWalletRepository(snapshot: .empty(), hasConfiguredKid: false),
+                appleSignInProvider: provider,
+                initiallySignedIn: false,
+                pinStore: InMemoryParentPINStore(),
+                identityStore: InMemoryParentIdentityStore()
+            )
+
+            await store.signInWithApple()
+
+            XCTAssertFalse(store.isSignedIn)
+            XCTAssertNil(store.errorMessage)
+            XCTAssertEqual(store.connection, .reached)
+            XCTAssertNil(store.latestTransportDiagnostic)
+        }
+    }
+
+    func testCancelledParentReauthenticationPublishesNoFailureState() async {
+        for error in cancellationRepresentations() {
+            let provider = FakeAppleSignInProvider(appleUserID: "owner-1", failure: error)
+            let store = makeConfiguredStore(provider: provider)
+            store.openParentGate()
+            store.requestPINRecovery()
+
+            await store.reauthenticateOwningParent()
+
+            XCTAssertEqual(store.elevation, .gate)
+            XCTAssertEqual(store.gateRoute, .reauth(.forgotPIN))
+            XCTAssertNil(store.gateErrorMessage)
+            XCTAssertEqual(store.connection, .reached)
+            XCTAssertNil(store.latestTransportDiagnostic)
+        }
+    }
+
+    func testCancelledCloudReconciliationRefreshPublishesNoStateChange() async throws {
+        let diagnostic = TransportDiagnostic.transportFailure(
+            URLError(.cancelled),
+            path: "/v1/cloud/changes",
+            elapsedMilliseconds: 1
+        )
+        for operationError in [
+            WalletAPIError.cloudMutationAwaitingReconciliation,
+            WalletAPIError.cloudAcceptedAwaitingReplica,
+        ] {
+            let repository = FailingRefreshRepository(
+                snapshot: .fixture(),
+                error: operationError.carrying(diagnostic)
+            )
+            let store = makeConfiguredStore(repository: repository)
+            let publishedSnapshot = store.snapshot
+            let publishedAuthority = store.authorityState
+
+            _ = try await repository.updateChildProfile(ChildProfileUpdate(nickname: "Maya"))
+            await store.refresh()
+
+            XCTAssertEqual(store.snapshot, publishedSnapshot)
+            XCTAssertEqual(store.authorityState, publishedAuthority)
+            XCTAssertEqual(store.connection, .reached)
+            XCTAssertNil(store.errorMessage)
+            XCTAssertNil(store.latestTransportDiagnostic)
+        }
+    }
+
     func testRecoveryRefusesAnyOtherAppleAccount() async {
         let provider = FakeAppleSignInProvider(appleUserID: "intruder", failsIdentityCheck: true)
         let pinStore = InMemoryParentPINStore(pin: "1234")
@@ -487,14 +554,20 @@ final class WalletTests: XCTestCase {
     func testOfflineRefreshKeepsSnapshotAndSetsKidOfflineState() async {
         let repository = FailingRefreshRepository(
             snapshot: .fixture(),
-            error: .network("The network is unavailable. The accepted balance was not changed.")
+            error: .transportFailure(
+                TransportDiagnostic.transportFailure(
+                    URLError(.notConnectedToInternet),
+                    path: "/v1/child-view",
+                    elapsedMilliseconds: 1
+                )
+            )
         )
         let store = makeConfiguredStore(repository: repository)
         let cachedBalance = store.snapshot.acceptedBalanceCents
 
         await store.refresh()
 
-        XCTAssertTrue(store.isOffline)
+        XCTAssertEqual(store.connection, .deviceOffline)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, cachedBalance)
         XCTAssertNotNil(store.errorMessage, "Parent surfaces keep the precise message")
     }
@@ -1030,23 +1103,38 @@ final class WalletTests: XCTestCase {
             store.appendPINDigit(String(digit))
         }
     }
+
+    private func cancellationRepresentations() -> [Error] {
+        [
+            WalletAPIError.cancelled,
+            CancellationError(),
+            WalletAPIError.transportFailure(TransportDiagnostic.transportFailure(
+                URLError(.cancelled),
+                path: "/v1/auth/apple",
+                elapsedMilliseconds: 1
+            )),
+        ]
+    }
 }
 
 @MainActor
 private final class FakeAppleSignInProvider: AppleSignInProviding {
     private let appleUserID: String
     private let failsIdentityCheck: Bool
+    private let failure: Error?
     private(set) var lastRequiredAppleUserID: String??
     weak var store: WalletStore?
     var beforeReturning: ((WalletStore?) -> Void)?
 
-    init(appleUserID: String, failsIdentityCheck: Bool = false) {
+    init(appleUserID: String, failsIdentityCheck: Bool = false, failure: Error? = nil) {
         self.appleUserID = appleUserID
         self.failsIdentityCheck = failsIdentityCheck
+        self.failure = failure
     }
 
     func signIn(requiredAppleUserID: String?) async throws -> AppleSignInOutcome {
         lastRequiredAppleUserID = requiredAppleUserID
+        if let failure { throw failure }
         if failsIdentityCheck || (requiredAppleUserID != nil && requiredAppleUserID != appleUserID) {
             throw WalletAPIError.identityMismatch
         }

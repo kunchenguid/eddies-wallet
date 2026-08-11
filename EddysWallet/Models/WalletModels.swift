@@ -110,7 +110,35 @@ public enum ChildProfileCopy {
 /// technical vocabulary ("accepted balance", "sync", "session") - PRD 11.
 public enum KidCopy {
     public static func offlineBanner(lastUpdated: Date) -> String {
-        "You're offline - this is what your wallet looked like at \(lastUpdated.formatted(date: .omitted, time: .shortened))."
+        "You're offline - this is what your wallet looked like at \(asOf(lastUpdated))."
+    }
+
+    /// Said only when this device has a connection but the wallet could not be
+    /// reached. Telling a kid on working WiFi that they are offline is simply
+    /// untrue, so the two never share wording.
+    public static func cannotReachBanner(lastUpdated: Date) -> String {
+        "Your wallet is hard to reach right now - this is what it looked like at \(asOf(lastUpdated))."
+    }
+
+    /// The one status line the kid home shows, in the order the kid needs it:
+    /// a wallet that needs a grown-up first, then what this device could
+    /// reach, then any other trouble the newest read reported.
+    public static func statusBanner(
+        sessionExpired: Bool,
+        connection: WalletConnection,
+        hasError: Bool,
+        lastUpdated: Date
+    ) -> String? {
+        if sessionExpired { return sessionBanner }
+        switch connection {
+        case .deviceOffline: return offlineBanner(lastUpdated: lastUpdated)
+        case .serviceUnreachable: return cannotReachBanner(lastUpdated: lastUpdated)
+        case .reached: return hasError ? cannotReachBanner(lastUpdated: lastUpdated) : nil
+        }
+    }
+
+    private static func asOf(_ date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
     }
 
     public static let sessionBanner = "A parent needs to sign in again."
@@ -505,9 +533,18 @@ public struct LoanDetail: Sendable {
 
 public enum CommandResult: Sendable {
     case accepted(WalletEvent)
-    case pending(WalletEvent)
-    case acceptedAwaitingReplica(WalletEvent)
+    case pending(WalletEvent, diagnostic: TransportDiagnostic? = nil)
+    case acceptedAwaitingReplica(WalletEvent, diagnostic: TransportDiagnostic? = nil)
     case rejected(WalletEvent)
+
+    public var transportDiagnostic: TransportDiagnostic? {
+        switch self {
+        case .pending(_, let diagnostic), .acceptedAwaitingReplica(_, let diagnostic):
+            diagnostic
+        case .accepted, .rejected:
+            nil
+        }
+    }
 }
 
 /// Parent-visible result for mutations that do not create ledger entries.

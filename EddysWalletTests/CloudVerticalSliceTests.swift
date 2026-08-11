@@ -344,10 +344,12 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.dropNextResponse("POST", "/v1/wallet/deposits")
 
         let command = WalletCommand(kind: .deposit, amountCents: 250, reason: "synthetic response loss", idempotencyKey: "response-loss-key")
-        guard case .pending(let waiting) = try await cloud.submit(command) else {
+        guard case .pending(let waiting, let attemptDiagnostic) = try await cloud.submit(command) else {
             return XCTFail("a lost response is unresolved, not rejected")
         }
         XCTAssertEqual(waiting.syncState, .pending)
+        XCTAssertEqual(attemptDiagnostic?.category, .networkConnectionLost)
+        XCTAssertEqual(attemptDiagnostic?.route, "/v1/wallet/deposits")
         XCTAssertTrue(cloud.hasUnsettledMutation)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
 
@@ -362,6 +364,8 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.snapshot().activities.filter { $0.remoteID == "lost-response-entry" }.count, 1)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_000)
         XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertEqual(attemptDiagnostic?.category, .networkConnectionLost)
+        XCTAssertEqual(attemptDiagnostic?.route, "/v1/wallet/deposits")
     }
 
     func testServerCommandInProgressReplaysOnlyTheOriginalRequest() async throws {
@@ -443,7 +447,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         // accepted replica save then fails after the server has accepted.
         persistence.failOnSaveNumber = persistence.saveCount + 4
 
-        guard case .acceptedAwaitingReplica(let event) = try await cloud.submit(
+        guard case .acceptedAwaitingReplica(let event, _) = try await cloud.submit(
             WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "persistence-key")
         ) else {
             return XCTFail("local persistence failure after acceptance cannot become rejection")
@@ -459,7 +463,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "accepted-unseen"), status: 201)
         transport.dropNextResponse("GET", "/v1/cloud/changes")
 
-        guard case .acceptedAwaitingReplica(let event) = try await cloud.submit(
+        guard case .acceptedAwaitingReplica(let event, _) = try await cloud.submit(
             WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "accepted-unseen-key")
         ) else {
             return XCTFail("server acceptance plus failed reread needs its own truthful result")
@@ -470,6 +474,35 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(cloud.hasUnsettledMutation)
         XCTAssertEqual(cloud.unsettledMutationPhase, .acceptedAwaitingReplica)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
+    }
+
+    func testReconciliationHTTPFailureKeepsKidStatusAndWaitingWallet() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntil("the Parent-area read settles") { !store.isLoading }
+        transport.stub("POST", "/v1/wallet/deposits", Data("{}".utf8), status: 500)
+
+        guard case .pending = await store.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "http-waiting-key")
+        ) else {
+            return XCTFail("an HTTP failure cannot resolve an ambiguous Cloud mutation")
+        }
+
+        await store.refresh()
+
+        XCTAssertTrue(cloud.hasUnsettledMutation)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertEqual(store.latestTransportDiagnostic?.httpStatus, 500)
+        XCTAssertEqual(
+            KidCopy.statusBanner(
+                sessionExpired: store.sessionExpired,
+                connection: store.connection,
+                hasError: store.errorMessage != nil,
+                lastUpdated: store.snapshot.lastUpdated
+            ),
+            KidCopy.cannotReachBanner(lastUpdated: store.snapshot.lastUpdated)
+        )
     }
 
     func testAcceptedProfileWriteWithFailedRereadIsDistinctFromRejection() async throws {
@@ -521,8 +554,10 @@ final class CloudVerticalSliceTests: XCTestCase {
                 WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "durably-rejected-key")
             )
             XCTFail("the service explicitly rejected the command")
-        } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudEntitlementRequired)
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error.operationError, .cloudEntitlementRequired)
+            XCTAssertEqual(error.transportDiagnostic?.httpStatus, 403)
+            XCTAssertEqual(error.transportDiagnostic?.route, "/v1/wallet/deposits")
         }
 
         let relaunchedLocal = try LocalWalletRepository(persistence: persistence)
@@ -635,7 +670,7 @@ final class CloudVerticalSliceTests: XCTestCase {
             firstMutationSave + 5,
         ]
 
-        guard case .pending(let waiting) = try await cloud.submit(
+        guard case .pending(let waiting, _) = try await cloud.submit(
             WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "rejection-waiting-key")
         ) else {
             return XCTFail("a rejection without durable settlement must remain Waiting")
@@ -713,7 +748,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         )
         transport.dropNextResponse("POST", "/v1/allowance-rule/a-1/occurrences/o-7/record")
 
-        guard case .pending(let event) = try await cloud.submit(
+        guard case .pending(let event, _) = try await cloud.submit(
             WalletCommand(kind: .allowance, amountCents: 500, idempotencyKey: "exact-allowance-key")
         ) else {
             return XCTFail("the lost response should leave the exact scheduled amount waiting")
@@ -773,7 +808,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.snapshot().activities.filter { $0.remoteID == "background-entry" }.count, 1)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_000)
         XCTAssertFalse(store.snapshot.isStale)
-        XCTAssertFalse(store.isOffline)
+        XCTAssertEqual(store.connection, .reached)
         XCTAssertTrue(store.authorityState.isCloudAuthority)
     }
 
@@ -802,7 +837,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(cloud.hasUnsettledMutation)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
-        XCTAssertFalse(store.isOffline)
+        XCTAssertEqual(store.connection, .reached)
         XCTAssertFalse(store.snapshot.isStale)
         XCTAssertTrue(store.authorityState.isCloudAuthority)
     }
@@ -831,8 +866,12 @@ final class CloudVerticalSliceTests: XCTestCase {
         do {
             _ = try await overlappingRefresh.value
             XCTFail("the joined ambiguous settlement must remain waiting")
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error.operationError, .cloudMutationAwaitingReconciliation)
+            XCTAssertEqual(error.transportDiagnostic?.category, .timedOut)
+            XCTAssertEqual(error.transportDiagnostic?.route, "/v1/wallet/deposits")
         } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+            XCTFail("the joined settlement should preserve its wallet failure")
         }
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
 
@@ -1136,9 +1175,9 @@ final class CloudVerticalSliceTests: XCTestCase {
         let store = elevatedStore(repository: cloud, coordinator: nil)
         transport.failEverything = true
         await store.refresh()
-        await waitUntil("the newest overlapping Cloud read reports the outage") { store.isOffline }
+        await waitUntil("the newest overlapping Cloud read reports the outage") { store.connection == .deviceOffline }
 
-        XCTAssertTrue(store.isOffline)
+        XCTAssertEqual(store.connection, .deviceOffline)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
         XCTAssertTrue(cloud.hasValidReplica)
         XCTAssertFalse(cloud.isReadyForRuntimeMutations)
@@ -1307,8 +1346,8 @@ final class CloudVerticalSliceTests: XCTestCase {
 
         let store = elevatedStore(repository: cloud, coordinator: coordinator)
         await store.refresh()
-        await waitUntil("the newest overlapping Cloud read reports the outage") { store.isOffline }
-        XCTAssertTrue(store.isOffline)
+        await waitUntil("the newest overlapping Cloud read reports the outage") { store.connection == .deviceOffline }
+        XCTAssertEqual(store.connection, .deviceOffline)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "the last accepted Cloud state stays readable offline")
         if case .cloudOffline = store.authorityState {} else {
             XCTFail("an offline Cloud wallet is presented as offline, not as local authority: \(store.authorityState)")

@@ -78,6 +78,37 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }
 
+    func testConnectionFailurePrivacyAndParentReadout() throws {
+        let app = launch("cannot-reach")
+
+        let cannotReach = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Your wallet is hard to reach")
+        ).firstMatch
+        XCTAssertTrue(cannotReach.waitForExistence(timeout: 10))
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "offline")).count,
+            0
+        )
+        XCTAssertFalse(app.descendants(matching: .any)["connection-details-settings"].exists)
+        capture("connection-failure-kid-home")
+
+        unlockParentArea(app)
+        let details = app.buttons["connection-details-settings"]
+        for _ in 0..<8 where !details.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        details.tap()
+
+        XCTAssertTrue(app.staticTexts["Connection details"].waitForExistence(timeout: 5))
+        let category = app.descendants(matching: .any)["connection-detail-category"]
+        XCTAssertTrue(category.label.contains("timedOut"))
+        XCTAssertTrue(app.descendants(matching: .any)["connection-detail-code"].label.contains("-1001"))
+        XCTAssertTrue(app.descendants(matching: .any)["connection-detail-route"].label.contains("/v1/child-view"))
+        XCTAssertTrue(app.buttons["copy-connection-details"].exists)
+        capture("connection-failure-parent-details")
+    }
+
     func testCloudPlansLegalLinks() throws {
         let app = launch("cloud-plans-available")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))

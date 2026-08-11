@@ -357,7 +357,22 @@ final class EddysWalletUITests: XCTestCase {
         )
 
         // Typing with no extra tap proves the focus is real, not decorative.
-        app.typeText("7.50")
+        // Pace the synthetic key events by waiting for each one to reach the
+        // field. A busy CI simulator can otherwise discard the tail of one
+        // multi-character XCTest event even though the app handled every key
+        // event it actually received.
+        for (character, expectedValue) in [("7", "7"), (".", "7."), ("5", "7.5"), ("0", "7.50")] {
+            app.typeText(character)
+            let valueArrived = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", expectedValue),
+                object: amount
+            )
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [valueArrived], timeout: 2),
+                .completed,
+                "the amount field must receive \(character) before XCTest sends the next key"
+            )
+        }
         XCTAssertEqual(amount.value as? String, "7.50")
         XCTAssertFalse(app.staticTexts["Enter an amount greater than US$0.00."].exists)
     }
@@ -1035,6 +1050,55 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Activity detail"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Your parent recorded that US$4.00 was used."].waitForExistence(timeout: 3))
         XCTAssertFalse(app.staticTexts["Legacy cached explanation with virtual dollars."].exists)
+    }
+
+    // The honest split, end to end. A device that is online but could not get
+    // an answer must never tell a kid they are offline, and the exact failure
+    // must be reachable behind the parent PIN - carrying nothing about the
+    // family, the account, or the wallet.
+    func testUnreachableServiceReadsHonestlyAndIsExplainedOnlyToAParent() throws {
+        let app = launch("cannot-reach")
+
+        let cannotReach = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Your wallet is hard to reach")
+        ).firstMatch
+        XCTAssertTrue(cannotReach.waitForExistence(timeout: 10), "an unreachable service is reported as exactly that")
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "offline")).count,
+            0,
+            "a device with a working connection must never be told it is offline"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["connection-details-settings"].exists,
+            "raw failure detail is never kid-facing"
+        )
+
+        _ = openParentArea(in: app)
+        let details = app.buttons["connection-details-settings"]
+        for _ in 0..<8 where !details.isHittable { app.swipeUp() }
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        details.tap()
+
+        XCTAssertTrue(app.staticTexts["Connection details"].waitForExistence(timeout: 5))
+        let category = app.descendants(matching: .any)["connection-detail-category"]
+        XCTAssertTrue(category.waitForExistence(timeout: 5))
+        XCTAssertTrue(category.label.contains("timedOut"), "the readout names the failure the transport reported: \(category.label)")
+        XCTAssertTrue(app.descendants(matching: .any)["connection-detail-route"].label.contains("/v1/child-view"))
+        XCTAssertTrue(app.buttons["copy-connection-details"].exists, "a parent can hand the failure on")
+
+        // The readout is exactly these rows, and the copy action shares the
+        // same rows, so nothing sensitive can be handed on from here.
+        let rowIdentifiers = ["category", "code", "underlying", "route", "status", "elapsed", "timestamp"]
+        for identifier in rowIdentifiers {
+            let row = app.descendants(matching: .any)["connection-detail-\(identifier)"]
+            XCTAssertTrue(row.exists, "the readout is missing its \(identifier) row")
+            for forbidden in ["Eddie", "Bearer", "token", "US$", "https"] {
+                XCTAssertFalse(
+                    row.label.contains(forbidden),
+                    "\(forbidden) must never appear on a shareable connection readout: \(row.label)"
+                )
+            }
+        }
     }
 
     // The reported field defect, end to end: the read the app issues at launch

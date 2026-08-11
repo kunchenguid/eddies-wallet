@@ -13,6 +13,7 @@ struct ParentAreaView: View {
     @State private var isShowingAllowance = false
     @State private var isShowingChangePIN = false
     @State private var isShowingEditProfile = false
+    @State private var isShowingConnectionDetails = false
     @State private var isConfirmingSignOut = false
 
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
@@ -144,6 +145,12 @@ struct ParentAreaView: View {
         .sheet(isPresented: $isShowingEditProfile) {
             EditChildProfileView()
                 .ewFormSheetPresentation()
+        }
+        .sheet(isPresented: $isShowingConnectionDetails) {
+            if let diagnostic = store.latestTransportDiagnostic {
+                ConnectionDetailsView(diagnostic: diagnostic)
+                    .ewFormSheetPresentation()
+            }
         }
     }
 
@@ -476,6 +483,18 @@ struct ParentAreaView: View {
                 isShowingChangePIN = true
             }
             Divider().overlay(EW.Color.border)
+            // Only offered once something actually failed: a family with a
+            // healthy connection is never shown a diagnostics row.
+            if store.latestTransportDiagnostic != nil {
+                settingsRow(
+                    title: "Connection details",
+                    icon: "antenna.radiowaves.left.and.right",
+                    accessibilityIdentifier: "connection-details-settings"
+                ) {
+                    isShowingConnectionDetails = true
+                }
+                Divider().overlay(EW.Color.border)
+            }
             settingsRow(title: "Sign out", icon: "rectangle.portrait.and.arrow.right", role: .destructive) {
                 isConfirmingSignOut = true
             }

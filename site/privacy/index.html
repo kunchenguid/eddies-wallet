@@ -39,7 +39,7 @@
   <header class="masthead"><div class="masthead-inner"><span class="mark" aria-hidden="true">E</span>Eddie's Wallet</div></header>
   <main id="policy">
         <h1>Eddie&#x27;s Wallet privacy policy</h1>
-        <p>Last reviewed against the code: 2026-08-08.</p>
+        <p>Last reviewed against the code: 2026-08-11.</p>
         <p>This policy is published at <a href="https://eddies-wallet.kunchenguid.com/">https://eddies-wallet.kunchenguid.com/</a>. Future revisions will update the &quot;Last reviewed against the code&quot; date on this page.</p>
         <h2 id="what-this-app-is">What this app is</h2>
         <p>Eddie&#x27;s Wallet is an iOS app for families. A parent records virtual allowance, deposits, withdrawals, loans, and repayments for one child, and the child sees a read-only wallet. The money in the app is pretend: it cannot be redeemed and never moves real money.</p>
@@ -85,7 +85,15 @@
         <li><strong>Existing service wallets.</strong> A device that was already set up against the service before the on-device mode existed continues to read and write its ledger through the service, and keeps a cached copy on the device for offline display.</li>
         </ul>
         <p>Wallet data is never included in analytics, notifications, or crash reports, because the app sends none.</p>
-        <h3 id="5-purchases-storekit">5. Purchases (StoreKit)</h3>
+        <h3 id="5-connection-details">5. Connection details</h3>
+        <p>When a service request fails, the app keeps a privacy-safe description of that attempt in memory so it can describe the connection honestly and help a parent report the problem.</p>
+        <ul>
+        <li>It keeps only the failure category and numeric code, whether the system attached an underlying error (yes or no, never the error itself), a fixed route template, the HTTP status if the service answered, how long the attempt took, and when it ended.</li>
+        <li>It never keeps the full URL or query, request or response body, raw error details, account or session information, or child, family, or wallet data. Identifiers in request paths are replaced with <code>{id}</code>, and an unknown path is fully redacted.</li>
+        <li>The child sees only a calm status message. The exact details are available only in the Parent area after a request has failed.</li>
+        <li>The details are not persisted and the app never transmits them automatically. They leave the device only if a parent deliberately uses <strong>Copy details</strong> and shares the copied text.</li>
+        </ul>
+        <h3 id="6-purchases-storekit">6. Purchases (StoreKit)</h3>
         <p>The optional Cloud subscription is an Apple auto-renewable subscription. Apple, not this app, processes the payment.</p>
         <ul>
         <li>The app never sees or handles card numbers, billing addresses, or any payment credential.</li>

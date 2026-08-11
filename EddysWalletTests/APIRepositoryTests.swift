@@ -44,9 +44,14 @@ final class APIRepositoryTests: XCTestCase {
         do {
             _ = try await client.deliver(transactionJWS: "signed-jws")
             XCTFail("Expected verification to remain pending")
-        } catch let WalletAPIError.server(statusCode, code, _) {
+        } catch let error as WalletAPIError {
+            guard case .server(let statusCode, let code, _) = error.operationError else {
+                return XCTFail("Unexpected wallet error: \(error)")
+            }
             XCTAssertEqual(statusCode, 202)
             XCTAssertEqual(code, "VERIFICATION_PENDING")
+            XCTAssertEqual(error.transportDiagnostic?.httpStatus, 202)
+            XCTAssertEqual(error.transportDiagnostic?.route, "/v1/cloud/transactions")
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
@@ -286,7 +291,7 @@ final class APIRepositoryTests: XCTestCase {
 
         let result = try await repository.submit(WalletCommand(kind: .withdrawal, amountCents: 50, idempotencyKey: "offline-key"))
 
-        guard case .pending(let event) = result else { return XCTFail("A network failure must remain pending") }
+        guard case .pending(let event, _) = result else { return XCTFail("A network failure must remain pending") }
         XCTAssertEqual(event.syncState, .pending)
         XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 0)
         XCTAssertEqual(repository.snapshot().pendingEvents.count, 1)
@@ -307,7 +312,9 @@ final class APIRepositoryTests: XCTestCase {
             _ = try await repository.refresh(for: .parent)
             XCTFail("Unauthorized responses must fail")
         } catch let error as WalletAPIError {
-            XCTAssertEqual(error, .unauthorized)
+            XCTAssertEqual(error.operationError, .unauthorized)
+            XCTAssertEqual(error.transportDiagnostic?.httpStatus, 401)
+            XCTAssertEqual(error.transportDiagnostic?.route, "/v1/wallet")
         }
         XCTAssertNil(sessions.session)
         XCTAssertFalse(repository.isAuthenticated)

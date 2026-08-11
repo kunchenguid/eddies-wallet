@@ -60,6 +60,13 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
     case identityMismatch
     case server(statusCode: Int, code: String, message: String)
     case network(String)
+    /// A wallet request that never produced a usable answer, carrying the
+    /// privacy-safe shape of what actually failed. Every error thrown by the
+    /// transport arrives here instead of being flattened into `.network`, so
+    /// the app can tell a genuinely offline device from an unreachable
+    /// service, and a parent can report the real failure.
+    case transportFailure(TransportDiagnostic)
+    indirect case requestFailure(WalletAPIError, TransportDiagnostic)
     case invalidResponse(String)
     case invalidConfiguration
     case revisionConflict(currentRevision: Int64)
@@ -78,6 +85,8 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         case .identityMismatch: "That is not the Apple account that manages this wallet."
         case let .server(_, _, message): message
         case let .network(message): message
+        case let .transportFailure(diagnostic): diagnostic.parentMessage
+        case let .requestFailure(error, _): error.localizedDescription
         case let .invalidResponse(message): message
         case .invalidConfiguration: "The production API URL is not configured correctly."
         case .revisionConflict: "This wallet changed on another device. Review the latest balance before recording this action."
@@ -86,6 +95,27 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         case .cloudMutationAwaitingReconciliation: "Cloud has not confirmed the previous change yet. Reconnect and check it before recording another change."
         case .cloudAcceptedAwaitingReplica: "Cloud accepted this change. This device is waiting to see the updated wallet. Do not record it again."
         }
+    }
+
+    var transportDiagnostic: TransportDiagnostic? {
+        switch self {
+        case .transportFailure(let diagnostic), .requestFailure(_, let diagnostic):
+            diagnostic
+        default:
+            nil
+        }
+    }
+
+    var operationError: WalletAPIError {
+        switch self {
+        case .requestFailure(let error, _): error.operationError
+        default: self
+        }
+    }
+
+    func carrying(_ diagnostic: TransportDiagnostic?) -> WalletAPIError {
+        guard let diagnostic else { return self }
+        return .requestFailure(operationError, diagnostic)
     }
 }
 
@@ -658,7 +688,6 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
     private var rejectedEvents: [WalletEvent] = []
     private var reportedFamilyAuthority: String?
     private var lifecycleGeneration = 0
-
     public init(
         baseURL: URL = APIConfiguration.productionBaseURL,
         sessionStore: (any SessionStore)? = nil,
@@ -758,15 +787,24 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         } catch let error as WalletAPIError {
             switch error {
             case .network, .invalidResponse:
-                if role == .child, requestedGeneration == lifecycleGeneration {
-                    currentChild.isStale = true
-                    cache.save(currentChild)
+                markCachedChildStale(role: role, generation: requestedGeneration)
+            case let .transportFailure(diagnostic):
+                // A cancelled attempt observed nothing, so it cannot claim the
+                // cached wallet is out of date either.
+                if diagnostic.connection != nil {
+                    markCachedChildStale(role: role, generation: requestedGeneration)
                 }
             default:
                 break
             }
             throw error
         }
+    }
+
+    private func markCachedChildStale(role: UserRole, generation: Int) {
+        guard role == .child, generation == lifecycleGeneration else { return }
+        currentChild.isStale = true
+        cache.save(currentChild)
     }
 
     public func activity(limit: Int = 50) async throws -> [WalletEvent] {
@@ -891,7 +929,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
             return result
         } catch let error as WalletAPIError {
             try requireCurrentLifecycle(generation)
-            switch error {
+            switch error.operationError {
             case .unauthorized, .noSession:
                 throw error
             case let .server(statusCode, _, message) where (400..<500).contains(statusCode):
@@ -907,10 +945,13 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
                 let event = makeLocalEvent(for: command, state: .rejected, message: "This action was not recorded. Review the latest balance before recording it again.", rejectionReason: error.localizedDescription)
                 rejectedEvents.insert(event, at: 0)
                 return .rejected(event)
-            case .server, .network, .invalidResponse, .invalidConfiguration:
+            case .server, .network, .transportFailure, .requestFailure, .invalidResponse, .invalidConfiguration:
                 pendingCommands[command.idempotencyKey] = command
                 try savePendingCommands(generation: generation)
-                return .pending(makeLocalEvent(for: command, state: .pending, message: "This parent action is waiting to sync. It is not included in the accepted balance."))
+                return .pending(
+                    makeLocalEvent(for: command, state: .pending, message: "This parent action is waiting to sync. It is not included in the accepted balance."),
+                    diagnostic: error.transportDiagnostic
+                )
             }
         }
     }
@@ -951,7 +992,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
                 try savePendingCommands(generation: generation)
             } catch let error as WalletAPIError {
                 try requireCurrentLifecycle(generation)
-                switch error {
+                switch error.operationError {
                 case .unauthorized, .noSession:
                     throw error
                 case let .server(statusCode, _, message) where (400..<500).contains(statusCode):
@@ -1065,28 +1106,57 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
             request.setValue("Bearer \(session.token)", forHTTPHeaderField: "Authorization")
         }
 
+        let stopwatch = TransportDiagnostic.Stopwatch()
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await transport.data(for: request)
         } catch {
-            throw WalletAPIError.network("The network is unavailable. The accepted balance was not changed.")
+            // The real error is preserved rather than flattened: what the
+            // transport reported is the only evidence of why a request that
+            // never reached a response failed.
+            throw record(
+                TransportDiagnostic.transportFailure(
+                    error,
+                    path: path,
+                    elapsedMilliseconds: stopwatch.elapsedMilliseconds
+                )
+            )
         }
         guard let http = response as? HTTPURLResponse else {
             throw WalletAPIError.invalidResponse("The server returned an invalid HTTP response.")
         }
         guard (200..<300).contains(http.statusCode) else {
+            let diagnostic = TransportDiagnostic.httpFailure(
+                status: http.statusCode,
+                path: path,
+                elapsedMilliseconds: stopwatch.elapsedMilliseconds
+            )
             if http.statusCode == 401 {
                 sessionStore.clear()
-                throw WalletAPIError.unauthorized
+                throw WalletAPIError.unauthorized.carrying(diagnostic)
             }
             if let envelope = try? JSONDecoder().decode(ErrorEnvelope.self, from: data) {
-                if envelope.error.code == "FAMILY_NOT_SETUP" { throw WalletAPIError.familyNotSetup }
-                throw WalletAPIError.server(statusCode: http.statusCode, code: envelope.error.code, message: envelope.error.message)
+                if envelope.error.code == "FAMILY_NOT_SETUP" {
+                    throw WalletAPIError.familyNotSetup.carrying(diagnostic)
+                }
+                throw WalletAPIError.server(
+                    statusCode: http.statusCode,
+                    code: envelope.error.code,
+                    message: envelope.error.message
+                ).carrying(diagnostic)
             }
-            throw WalletAPIError.server(statusCode: http.statusCode, code: "HTTP_\(http.statusCode)", message: "The server did not accept this request.")
+            throw WalletAPIError.server(
+                statusCode: http.statusCode,
+                code: "HTTP_\(http.statusCode)",
+                message: "The server did not accept this request."
+            ).carrying(diagnostic)
         }
         return data
+    }
+
+    private func record(_ diagnostic: TransportDiagnostic) -> WalletAPIError {
+        .transportFailure(diagnostic)
     }
 
     private func updateCachedChildNickname(from snapshot: WalletSnapshot) {

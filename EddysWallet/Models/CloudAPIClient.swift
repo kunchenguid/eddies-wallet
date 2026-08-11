@@ -8,7 +8,6 @@ public final class CloudAPIClient: ParentAuthenticator {
     private let baseURL: URL
     private let sessionStore: any SessionStore
     private let transport: any HTTPTransport
-
     public init(baseURL: URL = APIConfiguration.productionBaseURL, sessionStore: (any SessionStore)? = nil, transport: any HTTPTransport = URLSessionTransport()) {
         self.baseURL = baseURL
         self.sessionStore = sessionStore ?? KeychainSessionStore()
@@ -165,7 +164,7 @@ public final class CloudAPIClient: ParentAuthenticator {
     }
 
     private static func refusal(for error: WalletAPIError) -> CloudLegacyActivationRefusal {
-        switch error {
+        switch error.operationError {
         case .unauthorized, .noSession:
             return .authenticationRequired
         case .cloudEntitlementRequired:
@@ -295,29 +294,58 @@ public final class CloudAPIClient: ParentAuthenticator {
                 request.setValue("Bearer \(stored.token)", forHTTPHeaderField: "Authorization")
             }
         }
+        let stopwatch = TransportDiagnostic.Stopwatch()
         do {
             let (data, response) = try await transport.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw WalletAPIError.invalidResponse("The server returned an invalid HTTP response.") }
+            let diagnostic = TransportDiagnostic.httpFailure(
+                status: http.statusCode,
+                path: path,
+                elapsedMilliseconds: stopwatch.elapsedMilliseconds
+            )
             if http.statusCode == pendingStatusCode {
-                throw WalletAPIError.server(statusCode: http.statusCode, code: "VERIFICATION_PENDING", message: "The Cloud service is still verifying this purchase.")
+                throw WalletAPIError.server(
+                    statusCode: http.statusCode,
+                    code: "VERIFICATION_PENDING",
+                    message: "The Cloud service is still verifying this purchase."
+                ).carrying(diagnostic)
             }
             guard (200..<300).contains(http.statusCode) else {
-                if http.statusCode == 401 { sessionStore.clear(); throw WalletAPIError.unauthorized }
+                if http.statusCode == 401 {
+                    sessionStore.clear()
+                    throw WalletAPIError.unauthorized.carrying(diagnostic)
+                }
                 let envelope = try? JSONDecoder().decode(CloudErrorEnvelope.self, from: data)
                 if http.statusCode == 409, envelope?.error.code == "REVISION_CONFLICT" {
-                    throw WalletAPIError.revisionConflict(currentRevision: envelope?.error.details?.currentRevision ?? envelope?.error.currentRevision ?? 0)
+                    throw WalletAPIError.revisionConflict(
+                        currentRevision: envelope?.error.details?.currentRevision ?? envelope?.error.currentRevision ?? 0
+                    ).carrying(diagnostic)
                 }
                 if http.statusCode == 428 {
-                    throw WalletAPIError.revisionRequired
+                    throw WalletAPIError.revisionRequired.carrying(diagnostic)
                 }
                 if http.statusCode == 403, envelope?.error.code == "CLOUD_ENTITLEMENT_REQUIRED" {
-                    throw WalletAPIError.cloudEntitlementRequired
+                    throw WalletAPIError.cloudEntitlementRequired.carrying(diagnostic)
                 }
-                throw WalletAPIError.server(statusCode: http.statusCode, code: envelope?.error.code ?? "HTTP_\(http.statusCode)", message: envelope?.error.message ?? "The Cloud service did not accept this request.")
+                throw WalletAPIError.server(
+                    statusCode: http.statusCode,
+                    code: envelope?.error.code ?? "HTTP_\(http.statusCode)",
+                    message: envelope?.error.message ?? "The Cloud service did not accept this request."
+                ).carrying(diagnostic)
             }
             return CloudHTTPResponse(data: data, http: http)
         } catch let error as WalletAPIError { throw error
-        } catch { throw WalletAPIError.network("Cloud is unavailable right now. Your wallet is still available on this device.") }
+        } catch {
+            // The real error is preserved rather than flattened: what the
+            // transport reported is the only evidence of why a request that
+            // never reached a response failed.
+            let diagnostic = TransportDiagnostic.transportFailure(
+                error,
+                path: path,
+                elapsedMilliseconds: stopwatch.elapsedMilliseconds
+            )
+            throw WalletAPIError.transportFailure(diagnostic)
+        }
     }
 
     private static func int64(_ value: Any?) -> Int64? {
