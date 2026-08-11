@@ -807,6 +807,12 @@ public final class WalletStore: ObservableObject {
 
     // MARK: - Wallet data
 
+    /// The child-role refresh behind the kid home's `GET /v1/child-view` pull
+    /// fully preserves and classifies its attempt-bound transport diagnostic,
+    /// including cancellation, before publishing the parent-only readout.
+    /// Mutation completion in `submit`, `setAllowance`, and
+    /// `updateChildProfile` does not yet guarantee a kid status after a failed
+    /// HTTP answer; that known inconsistency is deferred to a tracked follow-up.
     public func refresh() async {
         guard isSignedIn else { return }
         guard repository.hasConfiguredKid else {
@@ -839,13 +845,11 @@ public final class WalletStore: ObservableObject {
             sessionExpired = false
             await convergeLegacyDeviceOntoCloud(generation: generation)
         } catch let error as WalletAPIError {
-            // The newest read's own failure is the one worth reporting, so the
-            // readout is only updated by a read that may still publish. What it
-            // shows then survives a later successful read: a parent reporting
-            // an intermittent failure needs it after the wallet recovers.
-            if canPublish(attempt, generation: generation, role: requestedRole) {
-                publishOperationDiagnostic(for: error)
-            }
+            guard canPublish(attempt, generation: generation, role: requestedRole), !isCancellation(error) else { return }
+            // The newest read's own failure is the one worth reporting. What
+            // the readout shows then survives a later successful read: a parent
+            // reporting an intermittent failure needs it after recovery.
+            publishOperationDiagnostic(for: error)
             switch error.operationError {
             case .familyNotSetup:
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }

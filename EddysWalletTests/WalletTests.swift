@@ -440,6 +440,35 @@ final class WalletTests: XCTestCase {
         }
     }
 
+    func testCancelledCloudReconciliationRefreshPublishesNoStateChange() async throws {
+        let diagnostic = TransportDiagnostic.transportFailure(
+            URLError(.cancelled),
+            path: "/v1/cloud/changes",
+            elapsedMilliseconds: 1
+        )
+        for operationError in [
+            WalletAPIError.cloudMutationAwaitingReconciliation,
+            WalletAPIError.cloudAcceptedAwaitingReplica,
+        ] {
+            let repository = FailingRefreshRepository(
+                snapshot: .fixture(),
+                error: operationError.carrying(diagnostic)
+            )
+            let store = makeConfiguredStore(repository: repository)
+            let publishedSnapshot = store.snapshot
+            let publishedAuthority = store.authorityState
+
+            _ = try await repository.updateChildProfile(ChildProfileUpdate(nickname: "Maya"))
+            await store.refresh()
+
+            XCTAssertEqual(store.snapshot, publishedSnapshot)
+            XCTAssertEqual(store.authorityState, publishedAuthority)
+            XCTAssertEqual(store.connection, .reached)
+            XCTAssertNil(store.errorMessage)
+            XCTAssertNil(store.latestTransportDiagnostic)
+        }
+    }
+
     func testRecoveryRefusesAnyOtherAppleAccount() async {
         let provider = FakeAppleSignInProvider(appleUserID: "intruder", failsIdentityCheck: true)
         let pinStore = InMemoryParentPINStore(pin: "1234")
