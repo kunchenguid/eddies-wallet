@@ -1,8 +1,17 @@
 name: Monitor App Store review status
 
+# The exact cycle comes from the single canonical EDDIES_REVIEW_MONITOR_CYCLE
+# repository variable that the App Review submit handoff writes only after Apple
+# accepts a submission. The retiring ASC_REVIEW_MONITOR_VERSION/BUILD pair is
+# still read so the migration can be verified before the pair is cleared; see
+# docs/app-store-review-monitor.md.
+#
+# The cadence is four-hourly and off the top of the hour: App Review states move
+# in hours, not minutes, and a quieter schedule keeps the notification worth
+# reading.
 on:
   schedule:
-    - cron: "17,47 * * * *"
+    - cron: "41 */4 * * *"
   workflow_dispatch:
     inputs:
       version:
@@ -38,6 +47,7 @@ jobs:
         id: cycle
         env:
           EVENT_NAME: ${{ github.event_name }}
+          SCHEDULED_CYCLE: ${{ vars.EDDIES_REVIEW_MONITOR_CYCLE }}
           SCHEDULED_VERSION: ${{ vars.ASC_REVIEW_MONITOR_VERSION }}
           SCHEDULED_BUILD: ${{ vars.ASC_REVIEW_MONITOR_BUILD }}
           INPUT_VERSION: ${{ inputs.version }}

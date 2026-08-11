@@ -62,7 +62,15 @@ JOURNAL_RECONCILIATIONS = frozenset(
 )
 
 
-class AppReviewError(RuntimeError):
+class BoundedError(RuntimeError):
+    """Base for every bounded, nonsecret failure this pipeline is allowed to print.
+
+    Anything not derived from this is treated as an unexpected fault whose text
+    may carry an Apple payload, a header, or a credential, and is never printed.
+    """
+
+
+class AppReviewError(BoundedError):
     """A bounded, nonsecret deterministic-core failure."""
 
     def __init__(self, code: str, message: str):

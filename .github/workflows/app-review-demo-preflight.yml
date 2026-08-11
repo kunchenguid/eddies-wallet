@@ -1,0 +1,64 @@
+name: App Review reviewer-path preflight
+
+# Eddie's Wallet has no shared reviewer account: Apple's reviewer signs in with
+# their own Apple Account and buys a Cloud plan through Apple's review or sandbox
+# purchase flow. This workflow therefore proves the public route that reviewer
+# will walk is actually open for the exact approved candidate, and emits bounded
+# nonsecret evidence that app-review-submit.yml requires and re-binds.
+#
+# It is entirely read-only: the shared release App Store Connect credential is
+# used through the structurally GET-only client, and the production service is
+# read unauthenticated. tools/app-review/demo_preflight.py imports neither the
+# mutation boundary nor the submission engine.
+#
+# The one functional proof a runner cannot perform - native Sign in with Apple
+# and a real StoreKit purchase - stays an attended pre-submission acceptance
+# gate. See docs/app-review.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact marketing version with a captain-approved manifest, for example 0.2.0
+        required: true
+        type: string
+      confirm:
+        description: Repeat the exact same version to confirm
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eddies-app-review-submission
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    name: Prove the public reviewer path is live
+    if: github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pin the manifest-approved commit
+        env:
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+        run: .github/scripts/pin_app_review_manifest.sh
+
+      - name: Read App Store Connect and the public service, then emit evidence
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+          EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
+        run: python3 tools/app-review/demo_preflight.py

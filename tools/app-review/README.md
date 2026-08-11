@@ -1,20 +1,53 @@
-# App Review deterministic core
+# App Review pipeline
 
-This directory contains Phase 1 of the Eddie's Wallet App Review design: pure, credential-free modules and fake-boundary tests. It does not contain a workflow, credential lookup, network transport, App Store Connect mutation, or submission path.
+Eddie's Wallet submits one captain-approved App Store version through three
+manual workflows and a scheduled monitor. `docs/app-review.md` is the operating
+guide - the gate, the order of dispatches, and what stays attended. This file
+owns the module boundaries.
 
-Run the deterministic suite locally:
+Run the deterministic suites locally:
 
 ```sh
 python3 test/app-review-core-test.py
+python3 test/app-review-pipeline-test.py
+python3 test/app-review-lanes-test.py
 ```
 
-`core.py` owns these contracts:
+None of them reads a credential, contacts a network endpoint, or touches App
+Store Connect. `test/release-checks.sh` runs all three.
 
-- A self-binding, content-bound manifest for the exact iOS candidate, reviewed listing text, screenshot bytes and order, Cloud IAP review assets, and nonsecret App Review notes.
-- The captain-approved reviewer path: `demoAccountRequired=false`, reviewer-owned Sign in with Apple, a reviewer-created device-local parent PIN, and Apple's review/sandbox purchase flow. Password demo-account fields are intentionally outside the schema.
-- Trusted repository, default-branch, manual-dispatch, and optional captain-actor assertions for future workflows. The later mutation job must also use the captain-only `app-store-submission` protected Environment.
-- An injected GET-only App Store Connect read client. The type exposes no generic request or mutation method and refuses when its read capability is missing or unauthorized.
-- Exact manifest versus authoritative live read-state reconciliation, with no latest-version fallback.
-- A deduplicated GitHub issue journal abstraction. It keys records by app, version, manifest binding hash, and manifest-approved commit, then restores one mutable nonsecret state comment on rerun.
+## Modules
 
-Phase 2 owns real GitHub Actions workflows, concrete authenticated GET and issue boundaries, protected-Environment wiring, and any later mutation lane. Do not add a password-based reviewer account or a submission fallback here.
+| Module | Owns |
+| --- | --- |
+| `core.py` | The credential-free deterministic core: manifest schema and self-binding hashes, reviewed-content hashing, trusted-context assertions, the GET-only App Store Connect client type, exact manifest-versus-live reconciliation, and the durable GitHub issue journal. It has no environment, credential, network, or mutation path. |
+| `runtime.py` | The dispatch gate every entrypoint applies first: trusted repository, default branch, manual dispatch, the double-confirm version, the manifest-approved commit the workflow pinned, and loading the approved manifest. |
+| `content.py` | The two byte-level bindings: recomputing every approved image's bytes from the pinned commit, and normalizing live App Store Connect state into the exact document shape `core` reconciles. |
+| `asc_read.py` | The GET-only App Store Connect boundary - credential loading, JWT signing, URL safety, pagination. It can construct no other method. |
+| `asc_write.py` | The single mutation-capable boundary. POST and PATCH only, one method per exact resource change, no DELETE and no upload. |
+| `github_api.py` | The durable issue-record boundary on `GITHUB_TOKEN`, and the `EDDIES_REVIEW_MONITOR_CYCLE` handoff on its own least-privilege token. |
+| `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by submission. |
+| `submission.py` | The idempotent submission engine: align to the manifest, reconcile authoritatively, resume or create one review submission, submit, read Apple back. |
+| `prepare.py`, `demo_preflight.py`, `submit.py` | The workflow entrypoints. |
+
+## The mutation lane
+
+`asc_write.py` is imported only by `submission.py`, and `submission.py` is
+imported only inside `submit.py`'s `submit` mode. `prepare.py` and
+`demo_preflight.py` therefore cannot load a mutation capability at all, and
+`test/app-review-lanes-test.py` proves it by importing them in a fresh
+interpreter and inspecting the loaded modules. The workflow half of the same
+boundary - which job's step may map which secret - is proven against a parsed
+model of the workflows in the same suite.
+
+## What this pipeline deliberately does not do
+
+- It never creates listing copy, screenshots, in-app purchase records, App
+  Review contact details, or the App Store version itself. Those are attended
+  App Store Connect work; the engine can only observe them and refuse.
+- It never uses a protected GitHub Environment. The gate is the captain-approved
+  manifest merged on `main` plus the captain's double-confirm dispatch.
+- It never adds a password-based reviewer account or a demo credential. The
+  reviewer signs in with their own Apple Account and buys a Cloud plan through
+  Apple's review or sandbox flow, so those fields are outside the schema.
+- It never releases. The manifest may only choose `MANUAL` or `AFTER_APPROVAL`.
