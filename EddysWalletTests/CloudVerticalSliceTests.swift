@@ -1210,22 +1210,35 @@ final class CloudVerticalSliceTests: XCTestCase {
 
     /// A 200 whose body this app cannot read is still a wallet that answered.
     /// Calling that offline - or hard to reach - is the same false claim.
-    func testACloudAnswerThatCannotBeReadIsNeverCalledOfflineOrUnreachable() async throws {
-        let (cloud, transport, lineage) = try await writableCloud()
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+    func testACloudAnswerThatCannotBeReadClearsAnEarlierOfflineClassification() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        let acceptedSnapshot = cloud.snapshot()
+        let acceptedRevision = cloud.localReplica.cloudRevision
+        transport.failEverything = true
         let store = kidStore(repository: cloud)
-        await waitUntilFirstReadSettles(store, transport)
+        await waitUntil("the genuinely offline read settles") {
+            transport.requests.contains { $0.url?.path == "/v1/cloud/changes" }
+                && !store.isLoading
+                && store.connection == .deviceOffline
+        }
 
+        XCTAssertEqual(kidStatusMessage(store), KidCopy.offlineBanner(lastUpdated: store.snapshot.lastUpdated))
+        XCTAssertFalse(cloud.isReadyForRuntimeMutations)
+
+        transport.failEverything = false
         transport.stub("GET", "/v1/cloud/changes", Data(#"{"household":{"lineageId":"#.utf8))
         await store.refresh()
 
         XCTAssertEqual(store.connection, .reached, "a body arrived, so the service was reached")
+        XCTAssertEqual(store.latestTransportDiagnostic?.category, .unreadableResponse)
+        XCTAssertEqual(store.latestTransportDiagnostic?.httpStatus, 200)
+        XCTAssertEqual(store.latestTransportDiagnostic?.route, "/v1/cloud/changes")
         XCTAssertNotNil(store.errorMessage, "the parent still learns the read did not land")
         XCTAssertEqual(kidStatusMessage(store), KidCopy.couldNotUpdateBanner(lastUpdated: store.snapshot.lastUpdated))
         XCTAssertNotEqual(kidStatusMessage(store), KidCopy.offlineBanner(lastUpdated: store.snapshot.lastUpdated))
         XCTAssertNotEqual(kidStatusMessage(store), KidCopy.cannotReachBanner(lastUpdated: store.snapshot.lastUpdated))
-        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "the last accepted wallet stays on screen")
-        XCTAssertEqual(cloud.localReplica.cloudRevision, 2, "an unreadable answer changes no accepted state")
+        XCTAssertEqual(store.snapshot, acceptedSnapshot, "the last accepted wallet stays on screen")
+        XCTAssertEqual(cloud.localReplica.cloudRevision, acceptedRevision, "an unreadable answer changes no accepted state")
         XCTAssertFalse(cloud.isReadyForRuntimeMutations, "no write until a current read is confirmed again")
     }
 

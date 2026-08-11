@@ -22,7 +22,7 @@ public enum WalletConnection: String, Equatable, Sendable, CaseIterable {
     public var reachedAuthority: Bool { self == .reached }
 }
 
-/// The privacy-safe shape of one failed wallet request.
+/// The privacy-safe shape of one wallet request that could not be used.
 ///
 /// The client used to collapse every error `URLSession` threw into a single
 /// "the network is unavailable" message, so a timeout, a TLS failure, a DNS
@@ -72,6 +72,8 @@ public struct TransportDiagnostic: Equatable, Sendable {
         case cancelled
         /// A response arrived and carried a failing HTTP status.
         case httpStatus
+        /// A successful response arrived, but its body could not be decoded.
+        case unreadableResponse
 
         /// What this failure proves about reaching the wallet's authority.
         ///
@@ -83,7 +85,7 @@ public struct TransportDiagnostic: Equatable, Sendable {
                 .deviceOffline
             case .cancelled:
                 nil
-            case .httpStatus:
+            case .httpStatus, .unreadableResponse:
                 // A status is an answer: the service was reached and replied.
                 .reached
             case .timedOut, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
@@ -116,6 +118,7 @@ public struct TransportDiagnostic: Equatable, Sendable {
             case .otherFailure: "The request failed for a reason outside the network layer."
             case .cancelled: "The request was stopped before it finished."
             case .httpStatus: "The service answered, and the answer was a failure."
+            case .unreadableResponse: "The service answered, but this app could not read the answer."
             }
         }
 
@@ -244,6 +247,26 @@ public struct TransportDiagnostic: Equatable, Sendable {
     ) -> TransportDiagnostic {
         TransportDiagnostic(
             category: .httpStatus,
+            code: nil,
+            hasUnderlyingError: false,
+            route: route(forPath: path),
+            httpStatus: status,
+            elapsedMilliseconds: elapsedMilliseconds,
+            timestamp: timestamp
+        )
+    }
+
+    /// Records a successful response whose body could not be decoded. The
+    /// status is the whole response evidence retained here; the body is never
+    /// stored.
+    public static func unreadableResponse(
+        status: Int,
+        path: String,
+        elapsedMilliseconds: Int,
+        timestamp: Date = .now
+    ) -> TransportDiagnostic {
+        TransportDiagnostic(
+            category: .unreadableResponse,
             code: nil,
             hasUnderlyingError: false,
             route: route(forPath: path),
