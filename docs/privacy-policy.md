@@ -1,6 +1,6 @@
 # Eddie's Wallet privacy policy
 
-Last reviewed against the code: 2026-08-08.
+Last reviewed against the code: 2026-08-11.
 
 This policy is published at https://eddies-wallet.kunchenguid.com/. Future revisions will update the "Last reviewed against the code" date on this page.
 
@@ -56,7 +56,16 @@ Where it lives depends on how the app is used:
 
 Wallet data is never included in analytics, notifications, or crash reports, because the app sends none.
 
-### 5. Purchases (StoreKit)
+### 5. Connection details
+
+When a service request fails, the app keeps a privacy-safe description of that attempt in memory so it can describe the connection honestly and help a parent report the problem.
+
+- It keeps only the failure category and numeric code, whether the system attached an underlying error (yes or no, never the error itself), a fixed route template, the HTTP status if the service answered, how long the attempt took, and when it ended.
+- It never keeps the full URL or query, request or response body, raw error details, account or session information, or child, family, or wallet data. Identifiers in request paths are replaced with `{id}`, and an unknown path is fully redacted.
+- The child sees only a calm status message. The exact details are available only in the Parent area after a request has failed.
+- The details are not persisted and the app never transmits them automatically. They leave the device only if a parent deliberately uses **Copy details** and shares the copied text.
+
+### 6. Purchases (StoreKit)
 
 The optional Cloud subscription is an Apple auto-renewable subscription. Apple, not this app, processes the payment.
 
