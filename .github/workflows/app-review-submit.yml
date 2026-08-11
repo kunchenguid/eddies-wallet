@@ -1,0 +1,124 @@
+name: App Review submission
+
+# Trusted default-branch submission of one captain-approved Eddie's Wallet App
+# Store version. The automation can only submit what the captain already
+# approved: tools/app-review/manifests/<version>.json binds the exact version,
+# build, source commit, release behavior, listing copy, screenshot bytes, Cloud
+# in-app purchase review assets, and App Review notes by content hash, and every
+# job refuses a manifest whose binding hash or reviewed bytes do not match.
+#
+# The gate is deliberately SSHHIP-shaped and uses NO GitHub Environment:
+#   1. the captain merges the content-bound manifest on main,
+#   2. the captain dispatches this workflow manually and types the version twice,
+#   3. fresh readiness evidence from app-review-demo-preflight.yml must bind the
+#      same candidate, and
+#   4. the mutation-capable App Store Connect credential exists only inside the
+#      submit job's one mutating step.
+#
+# Credential lanes, deliberately separated by job:
+#   verify - no App Store Connect credential and no variable token. The verify
+#            lane refuses to start if an App Store Connect credential is present.
+#   submit - the only job with mutation-capable App Store Connect credentials and
+#            the only job with the least-privilege repository-variable token used
+#            for the EDDIES_REVIEW_MONITOR_CYCLE handoff after Apple accepts.
+#
+# Submission is not release: the approved manifest may only choose MANUAL or
+# AFTER_APPROVAL release behavior.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact marketing version with a captain-approved manifest, for example 0.2.0
+        required: true
+        type: string
+      confirm:
+        description: Repeat the exact same version to confirm
+        required: true
+        type: string
+      mode:
+        description: verify performs no App Store mutation; submit runs the bound submission
+        required: true
+        default: verify
+        type: choice
+        options:
+          - verify
+          - submit
+      evidence:
+        description: Base64 readiness evidence from a fresh app-review-demo-preflight run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eddies-app-review-submission
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify the manifest binding and readiness evidence
+    if: github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pin the manifest-approved commit
+        env:
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+        run: .github/scripts/pin_app_review_manifest.sh
+
+      - name: Refuse anything the captain did not approve
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+          EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
+          EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
+        run: python3 tools/app-review/submit.py verify
+
+  submit:
+    name: Submit the captain-approved candidate
+    needs: verify
+    if: >-
+      github.repository == 'kunchenguid/eddies-wallet' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.mode == 'submit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pin the manifest-approved commit
+        env:
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+        run: .github/scripts/pin_app_review_manifest.sh
+
+      # This is the only step in the repository that holds a mutation-capable
+      # App Store Connect credential together with the monitor variable token.
+      - name: Reconcile, submit idempotently, and hand off only after acceptance
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN: ${{ secrets.EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+          EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
+          EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
+        run: python3 tools/app-review/submit.py submit

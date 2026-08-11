@@ -1,0 +1,95 @@
+name: App Review preparation
+
+# Trusted default-branch preparation for one captain-approved Eddie's Wallet App
+# Review candidate. This workflow performs no App Store Connect mutation at all.
+#
+# Credential lanes, deliberately separated by job:
+#   verify    - no App Store Connect credential of any kind. tools/app-review's
+#               verify lane refuses to start if one is present, so the manifest,
+#               double-confirm, and reviewed bytes are all decided before any
+#               Apple capability exists.
+#   preflight - the read lane. It reuses the shared release App Store Connect
+#               credential through the deterministic core's structurally GET-only
+#               client, which has no mutation method to call.
+#
+# No GitHub Environment is used anywhere in the App Review pipeline. The gate is
+# the captain-approved manifest merged on main plus the captain's explicit
+# double-confirm dispatch of app-review-submit.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact marketing version with a captain-approved manifest, for example 0.2.0
+        required: true
+        type: string
+      confirm:
+        description: Repeat the exact same version to confirm
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eddies-app-review-submission
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify the captain-approved manifest
+    if: github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pin the manifest-approved commit
+        env:
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+        run: .github/scripts/pin_app_review_manifest.sh
+
+      - name: Verify the binding and open the durable recovery record
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+          EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
+        run: python3 tools/app-review/prepare.py verify
+
+  preflight:
+    name: Read-only App Store Connect preflight
+    needs: verify
+    if: github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pin the manifest-approved commit
+        env:
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+        run: .github/scripts/pin_app_review_manifest.sh
+
+      - name: Reconcile the approved manifest against authoritative Apple state
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+          EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
+        run: python3 tools/app-review/prepare.py preflight

@@ -39,7 +39,7 @@ forbid_grep() {
   fi
 }
 
-WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-store-review-status.yml)
+WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-store-review-status.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml)
 
 # --- Workflow syntax -------------------------------------------------------
 
@@ -287,6 +287,52 @@ if python3 test/app-review-core-test.py >/dev/null; then
 else
   fail "App Review deterministic core fake-boundary tests"
 fi
+
+# The App Review workflow layer. The pipeline suite drives the real entrypoint
+# logic against a fake App Store Connect; the lane suite parses the workflows
+# into a model and proves the credential lanes and trust boundaries. Neither
+# reads a credential or contacts anything.
+if python3 test/app-review-pipeline-test.py >/dev/null 2>&1; then
+  pass "App Review pipeline fake-boundary tests"
+else
+  fail "App Review pipeline fake-boundary tests"
+fi
+if python3 test/app-review-lanes-test.py >/dev/null 2>&1; then
+  pass "App Review workflow credential-lane tests"
+else
+  fail "App Review workflow credential-lane tests"
+fi
+
+# The submission gate is the captain-approved manifest plus a double-confirm
+# manual dispatch. It deliberately uses no protected GitHub Environment, so an
+# `environment:` key appearing here would silently reshape the captain's gate.
+APP_REVIEW_WORKFLOWS=(.github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml)
+for workflow in "${APP_REVIEW_WORKFLOWS[@]}"; do
+  forbid_grep '^[[:space:]]*environment:' "$workflow" "App Review gate uses no GitHub Environment ($workflow)"
+  require_grep "^  group: eddies-app-review-submission$" "$workflow" "App Review runs serialize on one group ($workflow)"
+  require_grep 'pin_app_review_manifest\.sh' "$workflow" "App Review run pins the manifest-approved commit ($workflow)"
+  for forbidden in 'pull_request' 'workflow_run' 'repository_dispatch' '^  push:' '^  schedule:'; do
+    forbid_grep "$forbidden" "$workflow" "App Review workflow excludes untrusted trigger ($forbidden in $workflow)"
+  done
+done
+# app-review-lanes-test.py owns the per-step credential-lane model; these are
+# the coarse whole-file invariants that must hold however the jobs are shaped.
+require_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-submit.yml "submit hands off the monitor cycle with its own least-privilege token"
+forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-prepare.yml "preparation never receives the monitor variable token"
+forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-demo-preflight.yml "the readiness preflight never receives the monitor variable token"
+forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/prepare.py "preparation contains no Apple submission path"
+forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/demo_preflight.py "the readiness preflight contains no Apple submission path"
+if [ -x .github/scripts/pin_app_review_manifest.sh ]; then
+  pass "App Review manifest pin script is executable"
+else
+  fail "App Review manifest pin script is executable"
+fi
+forbid_grep 'curl|wget|PRIVATE_KEY|APP_STORE_CONNECT' .github/scripts/pin_app_review_manifest.sh "the manifest pin handles no credential and contacts nothing"
+
+# The review monitor consumes the single canonical cycle variable the submit
+# handoff writes, on an off-top-of-hour four-hour cadence.
+require_grep 'vars\.EDDIES_REVIEW_MONITOR_CYCLE' "$REVIEW_WORKFLOW" "review monitor reads the canonical cycle variable"
+require_grep '^    - cron: "[1-9][0-9]? \*/4 \* \* \*"$' "$REVIEW_WORKFLOW" "review monitor polls four-hourly off the top of the hour"
 
 # --- Export options --------------------------------------------------------
 
