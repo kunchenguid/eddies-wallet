@@ -105,7 +105,7 @@ jobs:
               -destination "platform=iOS Simulator,id={{UDID}}" \
               -derivedDataPath "$DERIVED_DATA_PATH"
 
-      - name: Tests
+      - name: Unit tests
         run: |
           ./test/sim.sh --device "iPhone 17 Pro" --device "iPhone 17" -- \
             xcodebuild test \
@@ -114,14 +114,15 @@ jobs:
               -configuration "$CONFIGURATION" \
               -destination "platform=iOS Simulator,id={{UDID}}" \
               -derivedDataPath "$DERIVED_DATA_PATH" \
-              -resultBundlePath TestResults.xcresult
+              -only-testing:EddysWalletTests \
+              -resultBundlePath TestResults-unit.xcresult
 
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: test-results
-          path: TestResults.xcresult
+          name: test-results-unit
+          path: TestResults-unit.xcresult
           retention-days: 14
           if-no-files-found: ignore
 
@@ -140,3 +141,85 @@ jobs:
             -derivedDataPath "$DERIVED_DATA_PATH" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
+
+  xcode-ui:
+    name: Xcode UI tests (${{ matrix.name }})
+    if: >-
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'eddies-wallet-v')) ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/eddies-wallet-v')) ||
+      (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'eddies-wallet-v'))
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The previous single invocation timed out after 30 minutes. Keep
+          # each full class independently bounded beneath sim.sh's command cap.
+          - name: behavior
+            test_filter: EddysWalletUITests/EddysWalletUITests
+            artifact: ui-behavior
+          - name: evidence
+            test_filter: EddysWalletUITests/EvidenceCaptureUITests
+            artifact: ui-evidence
+
+    env:
+      PROJECT_PATH: EddysWallet.xcodeproj
+      SCHEME: EddysWallet
+      CONFIGURATION: Debug
+      DERIVED_DATA_PATH: .build/DerivedData
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.tag_name || github.event.release.tag_name || '' }}
+
+      - name: Select Xcode 26
+        run: |
+          XCODE_APP=$(python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def version_key(path):
+              match = re.search(r"Xcode_(\d+(?:\.\d+)*)", path.name)
+              if not match:
+                  return ()
+              return tuple(int(part) for part in match.group(1).split("."))
+
+          apps = sorted(Path("/Applications").glob("Xcode_26*.app"), key=version_key)
+          if not apps:
+              raise SystemExit("No Xcode 26 installation found on this runner")
+          print(apps[-1])
+          PY
+          )
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iPhoneSimulator SDK: $(xcrun --sdk iphonesimulator --show-sdk-version)"
+
+      # Each matrix job gets its own run-scoped simulator and teardown. The UI
+      # classes execute in parallel, while sim.sh still disables Xcode's own
+      # unbounded worker fan-out inside each managed simulator.
+      - name: UI tests
+        run: |
+          ./test/sim.sh --device "iPhone 17 Pro" --device "iPhone 17" -- \
+            xcodebuild test \
+              -project "$PROJECT_PATH" \
+              -scheme "$SCHEME" \
+              -configuration "$CONFIGURATION" \
+              -destination "platform=iOS Simulator,id={{UDID}}" \
+              -derivedDataPath "$DERIVED_DATA_PATH" \
+              -only-testing:${{ matrix.test_filter }} \
+              -resultBundlePath TestResults-${{ matrix.artifact }}.xcresult
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: test-results-${{ matrix.artifact }}
+          path: TestResults-${{ matrix.artifact }}.xcresult
+          retention-days: 14
+          if-no-files-found: ignore
