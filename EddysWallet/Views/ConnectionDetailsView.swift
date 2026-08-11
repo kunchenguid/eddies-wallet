@@ -3,8 +3,10 @@ import UIKit
 
 /// Parent-only readout of the last request this device could not complete.
 ///
-/// The kid home says only what a kid needs ("hard to reach right now"); the
-/// exact failure lives here, behind the parent PIN, so a parent who is
+/// The kid home says only what a kid needs, and only what the read proved
+/// ("hard to reach right now" for an authority that was never reached, and no
+/// reachability claim at all once the wallet answered); the exact failure
+/// lives here, behind the parent PIN, so a parent who is
 /// reporting a problem can say what actually happened instead of "it didn't
 /// work". It renders exactly `TransportDiagnostic.displayRows` - a failure
 /// class, its numeric code, whether an underlying error existed, the route

@@ -113,8 +113,13 @@ final class TransportDiagnosticTests: XCTestCase {
 
         XCTAssertEqual(store.connection, .reached)
         XCTAssertNotNil(store.errorMessage)
-        XCTAssertEqual(kidStatusMessage(store), KidCopy.cannotReachBanner(lastUpdated: store.snapshot.lastUpdated))
+        XCTAssertEqual(kidStatusMessage(store), KidCopy.couldNotUpdateBanner(lastUpdated: store.snapshot.lastUpdated))
         XCTAssertNotEqual(kidStatusMessage(store), KidCopy.offlineBanner(lastUpdated: store.snapshot.lastUpdated))
+        XCTAssertNotEqual(
+            kidStatusMessage(store),
+            KidCopy.cannotReachBanner(lastUpdated: store.snapshot.lastUpdated),
+            "a service that answered was reached, so no wording may call it hard to reach"
+        )
         XCTAssertEqual(store.latestTransportDiagnostic?.httpStatus, 500)
     }
 
@@ -128,7 +133,7 @@ final class TransportDiagnosticTests: XCTestCase {
         await refreshAndSettle(store, transport)
 
         XCTAssertEqual(store.connection, .reached)
-        XCTAssertEqual(kidStatusMessage(store), KidCopy.cannotReachBanner(lastUpdated: store.snapshot.lastUpdated))
+        XCTAssertEqual(kidStatusMessage(store), KidCopy.couldNotUpdateBanner(lastUpdated: store.snapshot.lastUpdated))
         XCTAssertNotEqual(kidStatusMessage(store), KidCopy.offlineBanner(lastUpdated: store.snapshot.lastUpdated))
         XCTAssertEqual(store.latestTransportDiagnostic?.httpStatus, 500)
     }

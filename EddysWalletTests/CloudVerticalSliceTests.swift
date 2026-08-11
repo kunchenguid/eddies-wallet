@@ -501,7 +501,7 @@ final class CloudVerticalSliceTests: XCTestCase {
                 hasError: store.errorMessage != nil,
                 lastUpdated: store.snapshot.lastUpdated
             ),
-            KidCopy.cannotReachBanner(lastUpdated: store.snapshot.lastUpdated)
+            KidCopy.couldNotUpdateBanner(lastUpdated: store.snapshot.lastUpdated)
         )
     }
 
@@ -1127,6 +1127,76 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.revision, 4)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_200)
         XCTAssertEqual(cloud.localReplica.cloudRevision, 4)
+    }
+
+    /// The reported defect, reproduced: every Cloud request answered 200, and
+    /// the kid home said "You're offline".
+    ///
+    /// Kid-home reads overlap by design, and the service can answer a
+    /// later-started read from an older snapshot than one that already landed.
+    /// That answer used to pass the read-generation test, reach the replica,
+    /// be refused there for regressing the accepted revision, and arrive on the
+    /// kid home as a connection failure - over the newer wallet that had
+    /// already overtaken it.
+    func testAnOvertakenCloudAnswerIsBenignAndNeverReadsAsAConnectionProblem() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let store = kidStore(repository: cloud)
+        await waitUntilFirstReadSettles(store, transport)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 4, balanceCents: 1_200, entryID: "newer-entry")
+        )
+        transport.enqueue(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "overtaken-entry")
+        )
+        transport.suspend("GET", "/v1/cloud/changes")
+        transport.suspend("GET", "/v1/cloud/changes")
+
+        let newer = Task { await store.refresh() }
+        await transport.waitUntilSuspended(count: 1)
+        let overtaken = Task { await store.refresh() }
+        await transport.waitUntilSuspended(count: 2)
+
+        transport.resumeSuspendedRequest()
+        await waitUntil("the newer revision is accepted") { cloud.revision == 4 }
+        transport.resumeSuspendedRequest()
+        await newer.value
+        await overtaken.value
+
+        XCTAssertEqual(cloud.revision, 4, "the accepted revision never regresses")
+        XCTAssertEqual(cloud.localReplica.cloudRevision, 4)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_200)
+        XCTAssertTrue(cloud.isReadyForRuntimeMutations, "the newer read was a genuinely current one")
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_200, "the kid is shown the newer wallet")
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertNil(store.errorMessage, "an overtaken answer is nobody's failure")
+        XCTAssertNil(kidStatusMessage(store), "nothing to tell the kid: this is the current wallet")
+    }
+
+    /// A 200 whose body this app cannot read is still a wallet that answered.
+    /// Calling that offline - or hard to reach - is the same false claim.
+    func testACloudAnswerThatCannotBeReadIsNeverCalledOfflineOrUnreachable() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let store = kidStore(repository: cloud)
+        await waitUntilFirstReadSettles(store, transport)
+
+        transport.stub("GET", "/v1/cloud/changes", Data(#"{"household":{"lineageId":"#.utf8))
+        await store.refresh()
+
+        XCTAssertEqual(store.connection, .reached, "a body arrived, so the service was reached")
+        XCTAssertNotNil(store.errorMessage, "the parent still learns the read did not land")
+        XCTAssertEqual(kidStatusMessage(store), KidCopy.couldNotUpdateBanner(lastUpdated: store.snapshot.lastUpdated))
+        XCTAssertNotEqual(kidStatusMessage(store), KidCopy.offlineBanner(lastUpdated: store.snapshot.lastUpdated))
+        XCTAssertNotEqual(kidStatusMessage(store), KidCopy.cannotReachBanner(lastUpdated: store.snapshot.lastUpdated))
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "the last accepted wallet stays on screen")
+        XCTAssertEqual(cloud.localReplica.cloudRevision, 2, "an unreadable answer changes no accepted state")
+        XCTAssertFalse(cloud.isReadyForRuntimeMutations, "no write until a current read is confirmed again")
     }
 
     func testRelaunchAndFailedRefreshCannotWriteFromAStaleReplica() async throws {
@@ -1796,6 +1866,39 @@ final class CloudVerticalSliceTests: XCTestCase {
         store.openParentGate()
         for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
         return store
+    }
+
+    /// The kid home's own store: signed in and never elevated, so what it
+    /// publishes is exactly what the child is shown.
+    private func kidStore(repository: any WalletRepository) -> WalletStore {
+        WalletStore(
+            repository: repository,
+            appleSignInProvider: SliceSignInProvider(),
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
+            cloudCoordinator: nil
+        )
+    }
+
+    /// The kid home's own status derivation, driven from published state.
+    private func kidStatusMessage(_ store: WalletStore) -> String? {
+        KidCopy.statusBanner(
+            sessionExpired: store.sessionExpired,
+            connection: store.connection,
+            hasError: store.errorMessage != nil,
+            lastUpdated: store.snapshot.lastUpdated
+        )
+    }
+
+    /// Waits out the read `WalletStore.init` starts, so a test's own reads are
+    /// the only ones left in flight. Waiting on the spinner alone would race
+    /// that read's start; a recorded request proves it began.
+    private func waitUntilFirstReadSettles(_ store: WalletStore, _ transport: RoutingTransport) async {
+        await waitUntil("the store's first Cloud read to settle") {
+            transport.requests.contains { $0.url?.path == "/v1/cloud/changes" } && !store.isLoading
+        }
+        XCTAssertNil(store.errorMessage, "the first read is expected to succeed before the race begins")
     }
 
     private func waitUntil(_ description: String, condition: @escaping @MainActor () -> Bool) async {
@@ -2891,9 +2994,13 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
         var droppedResponseKeys: Set<String> = []
         var timedOutKeys: Set<String> = []
         var timedOutAfterSuspensionKeys: Set<String> = []
-        var suspendedKey: String?
-        var suspendedRequestContinuation: CheckedContinuation<Void, Never>?
-        var suspensionObservedContinuation: CheckedContinuation<Void, Never>?
+        /// One entry per request still to be held, consumed in arrival order,
+        /// so a test can put two overlapping reads in flight at once.
+        var suspendedKeys: [String] = []
+        /// Held requests in arrival order; `resumeSuspendedRequest` releases
+        /// the oldest, which is what lets a test choose completion order.
+        var suspendedRequests: [CheckedContinuation<Void, Never>] = []
+        var suspensionObservers: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     }
 
     private let lock = NSLock()
@@ -2935,27 +3042,35 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
         _ = withState { $0.timedOutAfterSuspensionKeys.insert("\(method) \(path)") }
     }
 
+    /// Holds one matching request. Calling it twice holds the next two, in the
+    /// order they arrive.
     func suspend(_ method: String, _ path: String) {
-        withState { $0.suspendedKey = "\(method) \(path)" }
+        withState { $0.suspendedKeys.append("\(method) \(path)") }
     }
 
-    func waitUntilSuspended() async {
+    /// Waits until at least `count` requests are held, so a test can establish
+    /// which overlapping read arrived first before releasing either.
+    func waitUntilSuspended(count: Int = 1) async {
         await withCheckedContinuation { continuation in
             let alreadySuspended = withState { state -> Bool in
-                if state.suspendedRequestContinuation != nil { return true }
-                state.suspensionObservedContinuation = continuation
+                if state.suspendedRequests.count >= count { return true }
+                state.suspensionObservers.append((count: count, continuation: continuation))
                 return false
             }
             if alreadySuspended { continuation.resume() }
         }
     }
 
+    /// Releases the oldest held request. Any request still expected but not yet
+    /// arrived stops being held, exactly as the single-suspension form did.
     func resumeSuspendedRequest() {
         let suspended: CheckedContinuation<Void, Never>? = withState { state in
-            state.suspendedKey = nil
-            let suspended = state.suspendedRequestContinuation
-            state.suspendedRequestContinuation = nil
-            return suspended
+            guard !state.suspendedRequests.isEmpty else {
+                state.suspendedKeys = []
+                return nil
+            }
+            if state.suspendedRequests.count == 1 { state.suspendedKeys = [] }
+            return state.suspendedRequests.removeFirst()
         }
         suspended?.resume()
     }
@@ -2989,8 +3104,9 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
                 queued.removeFirst()
                 state.stubs[key] = queued
             }
-            let suspending = key == state.suspendedKey
-            if suspending { state.suspendedKey = nil }
+            let suspending = state.suspendedKeys.firstIndex(of: key).map { index in
+                state.suspendedKeys.remove(at: index)
+            } != nil
             return .respond(stub, suspending: suspending)
         }
 
@@ -3002,13 +3118,14 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
         case .respond(let stub, let suspending):
             if suspending {
                 await withCheckedContinuation { continuation in
-                    let observer: CheckedContinuation<Void, Never>? = withState { state in
-                        state.suspendedRequestContinuation = continuation
-                        let observer = state.suspensionObservedContinuation
-                        state.suspensionObservedContinuation = nil
-                        return observer
+                    let observers: [CheckedContinuation<Void, Never>] = withState { state in
+                        state.suspendedRequests.append(continuation)
+                        let held = state.suspendedRequests.count
+                        let ready = state.suspensionObservers.filter { $0.count <= held }
+                        state.suspensionObservers.removeAll { $0.count <= held }
+                        return ready.map(\.continuation)
                     }
-                    observer?.resume()
+                    observers.forEach { $0.resume() }
                 }
                 if withState({ $0.timedOutAfterSuspensionKeys.remove(key) != nil }) {
                     throw URLError(.timedOut)

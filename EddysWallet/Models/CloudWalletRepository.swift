@@ -19,6 +19,12 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private var activeMutation: PendingCloudMutation?
     private var nextReadGeneration = 0
     private var lastAppliedReadGeneration = 0
+    /// The server revision of the newest read this instance actually applied,
+    /// or `nil` while the persisted replica is still unconfirmed. It is
+    /// deliberately not `revision`, which starts at the persisted value: a
+    /// server answer older than a revision no read has confirmed in this
+    /// process is an unexplained regression, not a race, and stays an error.
+    private var lastAppliedRevision: Int64?
     private var mutationLifecycleGeneration = 0
     private var activeSettlement: ActiveSettlement?
     /// A persisted replica is readable immediately, but a new process may not
@@ -86,6 +92,10 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             }
             let readGeneration = beginRead()
             let changes = try await client.changes(afterRevision: revision)
+            // A read this device has already overtaken is not a failure: it
+            // answered, and it says less than what is already accepted. It
+            // publishes nothing and reports the newer wallet it arrived behind.
+            guard !isObsolete(changes, readGeneration: readGeneration) else { return snapshot() }
             try apply(changes, merging: true, readGeneration: readGeneration)
             return snapshot()
         } catch {
@@ -571,6 +581,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         )
         lastAppliedReadGeneration = readGeneration
         revision = replicaPayload.household.revision
+        lastAppliedRevision = replicaPayload.household.revision
         isReadyForRuntimeMutations = true
         if observed {
             activeMutation = nil
@@ -583,6 +594,27 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private func beginRead() -> Int {
         nextReadGeneration += 1
         return nextReadGeneration
+    }
+
+    /// Whether an arriving Cloud answer has already been overtaken.
+    ///
+    /// Reads overlap by design - the store starts one, the kid home starts
+    /// another, and a pull starts a third - and the service may answer a
+    /// later-started request from an older snapshot than one that already
+    /// landed. Ordering reads only by when they started cannot see that: the
+    /// later request wins the generation test, reaches the replica, and is
+    /// refused there for regressing the accepted revision. Nothing was wrong
+    /// with the request, the connection, or the answer, so publication is
+    /// ordered by observed revision as well, and an overtaken answer becomes a
+    /// benign no-op instead of a failure the kid home would have to explain.
+    ///
+    /// The opposite ordering - a read that *started* earlier arriving after a
+    /// later one applied - is a retired read, and `apply` still refuses it as
+    /// cancelled. Neither case may reach the replica, whose monotonic revision
+    /// guard remains the last defence for accepted state.
+    private func isObsolete(_ replicaPayload: CloudReplica, readGeneration: Int) -> Bool {
+        guard readGeneration >= lastAppliedReadGeneration, let lastAppliedRevision else { return false }
+        return replicaPayload.household.revision < lastAppliedRevision
     }
 
     private func storeRejection(_ error: WalletAPIError, in mutation: inout PendingCloudMutation) {

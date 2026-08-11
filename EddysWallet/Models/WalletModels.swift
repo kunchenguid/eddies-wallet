@@ -120,6 +120,14 @@ public enum KidCopy {
         "Your wallet is hard to reach right now - this is what it looked like at \(asOf(lastUpdated))."
     }
 
+    /// Said when the wallet answered but the newest read could not be used: a
+    /// reply this app could not read, or a failure the service itself
+    /// reported. The wallet was reached, so claiming any connection trouble
+    /// would be as untrue as calling it offline.
+    public static func couldNotUpdateBanner(lastUpdated: Date) -> String {
+        "Your wallet couldn't update just now - this is what it looked like at \(asOf(lastUpdated))."
+    }
+
     /// The one status line the kid home shows, in the order the kid needs it:
     /// a wallet that needs a grown-up first, then what this device could
     /// reach, then any other trouble the newest read reported.
@@ -133,7 +141,7 @@ public enum KidCopy {
         switch connection {
         case .deviceOffline: return offlineBanner(lastUpdated: lastUpdated)
         case .serviceUnreachable: return cannotReachBanner(lastUpdated: lastUpdated)
-        case .reached: return hasError ? cannotReachBanner(lastUpdated: lastUpdated) : nil
+        case .reached: return hasError ? couldNotUpdateBanner(lastUpdated: lastUpdated) : nil
         }
     }
 
