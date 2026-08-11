@@ -1424,6 +1424,17 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(store.cloudSubscriptionStore?.recoveryEvidence.lastCapabilityRead, .notPermitted)
     }
 
+    // Guideline 3.1.2: the purchase surface must link both documents. These
+    // are the exact `URL` values the plans card's `Link` controls open, so a
+    // wrong host or path here is the same failure a reviewer would hit
+    // tapping the link - not a copy of source text.
+    func testCloudPlansLegalLinksPointAtTheRequiredDestinations() {
+        XCTAssertEqual(CloudStatusView.termsOfUseURL, URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"))
+        XCTAssertEqual(CloudStatusView.privacyPolicyURL, URL(string: "https://eddies-wallet.kunchenguid.com/"))
+        XCTAssertTrue(CloudStatusView.autoRenewDisclosure.localizedCaseInsensitiveContains("renew"))
+        XCTAssertTrue(CloudStatusView.autoRenewDisclosure.localizedCaseInsensitiveContains("cancel"))
+    }
+
     func testDifferentAppleAccountFailsBeforeCloudSessionOrRequests() async throws {
         let local = try await localWalletWithHistory()
         let sessions = InMemorySessionStore()

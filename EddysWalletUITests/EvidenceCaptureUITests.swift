@@ -78,6 +78,39 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }
 
+    func testCloudPlansLegalLinks() throws {
+        let app = launch("cloud-plans-available")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+
+        let monthly = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"]
+        for _ in 0..<8 where !monthly.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(monthly.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"].exists)
+        XCTAssertTrue(app.buttons["cloud-restore-button"].exists)
+        capture("cloud-plans-offers")
+
+        let disclosure = app.staticTexts["cloud-auto-renew-disclosure"]
+        for _ in 0..<8 where !disclosure.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(disclosure.waitForExistence(timeout: 5))
+        XCTAssertTrue(disclosure.label.localizedCaseInsensitiveContains("renew"))
+        XCTAssertTrue(disclosure.label.localizedCaseInsensitiveContains("cancel"))
+
+        let terms = app.descendants(matching: .any)["cloud-terms-link"]
+        let privacy = app.descendants(matching: .any)["cloud-privacy-link"]
+        for _ in 0..<8 where !terms.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(terms.waitForExistence(timeout: 5))
+        XCTAssertTrue(terms.isHittable)
+        XCTAssertTrue(privacy.isHittable)
+        capture("cloud-plans-legal-links")
+    }
+
     func testFirstRunSetupTour() throws {
         let app = launch("first-run")
 

@@ -36,12 +36,12 @@ The uploaded builds are TestFlight artifacts, not App Store candidates: a build 
 
 Three review-preparation items cannot be completed truthfully from this repository:
 
-- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. A finalized privacy policy is committed here and set to publish at https://eddies-wallet.kunchenguid.com/ via GitHub Pages (`site/` and `.github/workflows/pages.yml`); enabling Pages and entering that URL in the version record remain captain actions with no committed-here surface.
+- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. The finalized privacy policy is published at https://eddies-wallet.kunchenguid.com/ via GitHub Pages (`site/` and `.github/workflows/pages.yml`); entering that URL in the version record remains a captain action with no committed-here surface.
 
 - **App Privacy (data collection) answers** have no public API surface; they are entered in the App Store Connect console.
 - **App Review contact details** (name, email, phone) are the captain's real contact information. They must never be invented, and no synthetic value belongs in that field.
 
-Guideline 3.1.2 also requires the in-app purchase surface itself to show subscription title, length, and price alongside links to the privacy policy and the terms of use. `CloudStatusView` shows title, price, and period today; the privacy policy link now has a published destination (https://eddies-wallet.kunchenguid.com/), while the terms-of-use link remains blocked on the captain's decision about that destination.
+Guideline 3.1.2 also requires the in-app purchase surface itself to show subscription title, length, and price alongside links to the privacy policy and the terms of use, plus the auto-renewal disclosure. `CloudStatusView`'s plans card shows all of it: title, price, and period per plan; an auto-renewal disclosure; and functional links to the privacy policy (https://eddies-wallet.kunchenguid.com/) and the terms of use, which is Apple's Standard EULA (https://www.apple.com/legal/internet-services/itunes/dev/stdeula/) since the app ships no custom EULA.
 
 The notification URL points at the private backend route `POST /v1/app-store/notifications`. A live Sandbox notification has reached that route, passed the backend's App Store verification, and been persisted.
 
