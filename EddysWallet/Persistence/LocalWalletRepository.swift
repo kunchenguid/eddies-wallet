@@ -285,16 +285,10 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         resolving mutation: PendingCloudMutation? = nil,
         applicationLease: Int
     ) throws -> Bool {
-        guard applicationLease == cloudHandoffGeneration else {
-            throw WalletAPIError.cancelled
-        }
-        guard replica.household.isCloudAuthoritative, let lineageID = replica.household.lineageID else {
-            throw WalletAPIError.invalidResponse("The Cloud wallet did not report a usable household.")
-        }
-        if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
-        if let confirmedLineageID = cloudAuthorityLineageID, confirmedLineageID != lineageID {
-            throw WalletAPIError.invalidResponse("This Cloud wallet belongs to a different wallet history.")
-        }
+        let lineageID = try validateCloudReplicaAuthority(
+            replica,
+            applicationLease: applicationLease
+        )
         var metadata = aggregate?.metadata ?? LocalWalletMetadata(lineageID: lineageID)
         if metadata.authority == "cloud",
            metadata.confirmedCloudLineageID == lineageID,
@@ -318,6 +312,23 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         }
         try persist(LocalWalletAggregate(metadata: metadata, snapshot: snapshot))
         return observed
+    }
+
+    func validateCloudReplicaAuthority(
+        _ replica: CloudReplica,
+        applicationLease: Int
+    ) throws -> UUID {
+        guard applicationLease == cloudHandoffGeneration else {
+            throw WalletAPIError.cancelled
+        }
+        guard replica.household.isCloudAuthoritative, let lineageID = replica.household.lineageID else {
+            throw WalletAPIError.invalidResponse("The Cloud wallet did not report a usable household.")
+        }
+        if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
+        if let confirmedLineageID = cloudAuthorityLineageID, confirmedLineageID != lineageID {
+            throw WalletAPIError.invalidResponse("This Cloud wallet belongs to a different wallet history.")
+        }
+        return lineageID
     }
 
     /// The complete local household as an upload manifest. Loans are rebuilt

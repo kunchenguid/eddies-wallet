@@ -1178,6 +1178,36 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertNil(kidStatusMessage(store), "nothing to tell the kid: this is the current wallet")
     }
 
+    func testAnOlderResponseFromAnotherLineageIsNotTreatedAsBenign() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 4, balanceCents: 1_200)
+        )
+        _ = try await cloud.refresh(for: .parent)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: UUID(), revision: 3, balanceCents: 1_000)
+        )
+
+        do {
+            _ = try await cloud.refresh(for: .parent)
+            XCTFail("a different wallet history must not be accepted as an overtaken response")
+        } catch let error as WalletAPIError {
+            guard case .invalidResponse = error else {
+                return XCTFail("expected an invalid Cloud response, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(cloud.revision, 4)
+        XCTAssertEqual(cloud.localReplica.cloudRevision, 4)
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_200)
+        XCTAssertFalse(cloud.isReadyForRuntimeMutations)
+    }
+
     /// A 200 whose body this app cannot read is still a wallet that answered.
     /// Calling that offline - or hard to reach - is the same false claim.
     func testACloudAnswerThatCannotBeReadIsNeverCalledOfflineOrUnreachable() async throws {

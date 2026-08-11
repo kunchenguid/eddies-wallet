@@ -95,7 +95,13 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             // A read this device has already overtaken is not a failure: it
             // answered, and it says less than what is already accepted. It
             // publishes nothing and reports the newer wallet it arrived behind.
-            guard !isObsolete(changes, readGeneration: readGeneration) else { return snapshot() }
+            if isObsolete(changes, readGeneration: readGeneration) {
+                try replica.validateCloudReplicaAuthority(
+                    changes,
+                    applicationLease: replicaApplicationLease
+                )
+                return snapshot()
+            }
             try apply(changes, merging: true, readGeneration: readGeneration)
             return snapshot()
         } catch {
