@@ -312,7 +312,9 @@ final class APIRepositoryTests: XCTestCase {
             _ = try await repository.refresh(for: .parent)
             XCTFail("Unauthorized responses must fail")
         } catch let error as WalletAPIError {
-            XCTAssertEqual(error, .unauthorized)
+            XCTAssertEqual(error.operationError, .unauthorized)
+            XCTAssertEqual(error.transportDiagnostic?.httpStatus, 401)
+            XCTAssertEqual(error.transportDiagnostic?.route, "/v1/wallet")
         }
         XCTAssertNil(sessions.session)
         XCTAssertFalse(repository.isAuthenticated)

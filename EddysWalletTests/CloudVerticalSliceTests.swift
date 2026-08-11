@@ -554,8 +554,10 @@ final class CloudVerticalSliceTests: XCTestCase {
                 WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "durably-rejected-key")
             )
             XCTFail("the service explicitly rejected the command")
-        } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cloudEntitlementRequired)
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error.operationError, .cloudEntitlementRequired)
+            XCTAssertEqual(error.transportDiagnostic?.httpStatus, 403)
+            XCTAssertEqual(error.transportDiagnostic?.route, "/v1/wallet/deposits")
         }
 
         let relaunchedLocal = try LocalWalletRepository(persistence: persistence)
