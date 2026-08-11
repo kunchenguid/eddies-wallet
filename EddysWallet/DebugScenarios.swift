@@ -81,7 +81,15 @@ enum DebugLaunchScenario {
         case "offline":
             let repository = ScriptedWalletRepository(
                 snapshot: snapshot(legacyCachedSnapshot(), environment: environment),
-                refreshError: .network("The network is unavailable. The accepted balance was not changed.")
+                refreshError: scriptedTransportFailure(URLError(.notConnectedToInternet))
+            )
+            return store(repository: repository)
+        case "cannot-reach":
+            // The other half of the honest split: a device that is online and
+            // still cannot get an answer. It must never read as offline.
+            let repository = ScriptedWalletRepository(
+                snapshot: snapshot(legacyCachedSnapshot(), environment: environment),
+                refreshError: scriptedTransportFailure(URLError(.timedOut))
             )
             return store(repository: repository)
         case "expired":
@@ -377,8 +385,17 @@ final class ReconnectingWalletRepository: WalletRepository {
     func clearSession() throws { try inner.clearSession() }
 
     private func unreachable() -> WalletAPIError {
-        .network("The network is unavailable. The accepted balance was not changed.")
+        scriptedTransportFailure(URLError(.notConnectedToInternet))
     }
+}
+
+/// Builds a scripted failure through the same preservation path a real request
+/// uses, so a scenario reproduces exactly the state a real failure produces -
+/// including what the Parent area's connection readout would show.
+private func scriptedTransportFailure(_ error: URLError, path: String = "/v1/child-view") -> WalletAPIError {
+    .transportFailure(
+        TransportDiagnostic.transportFailure(error, path: path, elapsedMilliseconds: 12)
+    )
 }
 
 @MainActor

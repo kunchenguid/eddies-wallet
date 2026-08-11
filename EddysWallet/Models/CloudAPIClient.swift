@@ -8,6 +8,10 @@ public final class CloudAPIClient: ParentAuthenticator {
     private let baseURL: URL
     private let sessionStore: any SessionStore
     private let transport: any HTTPTransport
+    /// The privacy-safe shape of the most recent request that did not succeed,
+    /// cleared as soon as one does. `CloudWalletRepository` surfaces it for the
+    /// parent readout.
+    public private(set) var latestTransportDiagnostic: TransportDiagnostic?
 
     public init(baseURL: URL = APIConfiguration.productionBaseURL, sessionStore: (any SessionStore)? = nil, transport: any HTTPTransport = URLSessionTransport()) {
         self.baseURL = baseURL
@@ -295,9 +299,20 @@ public final class CloudAPIClient: ParentAuthenticator {
                 request.setValue("Bearer \(stored.token)", forHTTPHeaderField: "Authorization")
             }
         }
+        let stopwatch = TransportDiagnostic.Stopwatch()
         do {
             let (data, response) = try await transport.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw WalletAPIError.invalidResponse("The server returned an invalid HTTP response.") }
+            // A status is an answer, so it keeps its own typed error below. The
+            // diagnostic is still recorded, because the parent-facing readout
+            // has to be able to show a failing status too.
+            latestTransportDiagnostic = (200..<300).contains(http.statusCode)
+                ? nil
+                : TransportDiagnostic.httpFailure(
+                    status: http.statusCode,
+                    path: path,
+                    elapsedMilliseconds: stopwatch.elapsedMilliseconds
+                )
             if http.statusCode == pendingStatusCode {
                 throw WalletAPIError.server(statusCode: http.statusCode, code: "VERIFICATION_PENDING", message: "The Cloud service is still verifying this purchase.")
             }
@@ -317,7 +332,18 @@ public final class CloudAPIClient: ParentAuthenticator {
             }
             return CloudHTTPResponse(data: data, http: http)
         } catch let error as WalletAPIError { throw error
-        } catch { throw WalletAPIError.network("Cloud is unavailable right now. Your wallet is still available on this device.") }
+        } catch {
+            // The real error is preserved rather than flattened: what the
+            // transport reported is the only evidence of why a request that
+            // never reached a response failed.
+            let diagnostic = TransportDiagnostic.transportFailure(
+                error,
+                path: path,
+                elapsedMilliseconds: stopwatch.elapsedMilliseconds
+            )
+            latestTransportDiagnostic = diagnostic
+            throw WalletAPIError.transportFailure(diagnostic)
+        }
     }
 
     private static func int64(_ value: Any?) -> Int64? {

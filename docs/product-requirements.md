@@ -194,7 +194,7 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 ### Journey E: offline and session recovery
 
 1. The free one-device wallet remains fully usable without network access. Reads and parent actions use protected local authority, never use a service session, and show accepted actions as **Recorded** without introducing a **Waiting to sync** state.
-2. A service-authoritative wallet shown offline keeps its last accepted snapshot with a **Last updated** time, but that snapshot is read-only.
+2. A service-authoritative wallet that could not reach its service keeps its last accepted snapshot with a **Last updated** time, but that snapshot is read-only. Only a device that itself reports no usable network is described as **offline**; a service the app could not reach over a working connection reads differently, and an attempt cancelled before it finished says nothing at all. The failure's technical detail is never shown to the child: it is available to a parent inside the Parent area, in a form that carries no account, session, or wallet information.
 3. A service-authoritative wallet starts no money, allowance, or profile mutation while known offline or until a successful server read has confirmed the persisted replica revision. If connectivity is lost after an exact request has been protected and transport has started, the action is clearly marked **Waiting to sync** without changing the accepted balance.
 4. On reconnect, the client reconciles only that protected request with the same body, expected revision, and idempotency key. The service either accepts it once or explicitly rejects it with a plain-language reason. A rejected command never changes the accepted balance.
 5. An allowance or profile form may retain unsaved input while it remains open, but it must not create an offline rule, profile change, or queued mutation.
@@ -245,7 +245,7 @@ The child's wallet is the app's home screen. The Parent area presents the parent
 1. The child's accepted balance under the plain label **Your allowance balance** (no stacked pretend/virtual/nonredeemable hero disclaimer).
 2. Recent Activity directly on the wallet, or a friendly ready-state message while the wallet is still empty. There is no separate Recent Activity navigation item in the MVP.
 3. The open-loan card and read-only loan details when applicable, in plain relational language.
-4. Last-updated or stale status for a service-authoritative wallet when offline, in calm child wording.
+4. Last-updated or stale status for a service-authoritative wallet that could not reach its service, in calm child wording.
 5. The Parent door, visually secondary to the child content.
 
 The kid home must not include a child request button, money action button, edit control, delete control, approval control, sign-out, or any other parent control.

@@ -773,7 +773,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.snapshot().activities.filter { $0.remoteID == "background-entry" }.count, 1)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_000)
         XCTAssertFalse(store.snapshot.isStale)
-        XCTAssertFalse(store.isOffline)
+        XCTAssertEqual(store.connection, .reached)
         XCTAssertTrue(store.authorityState.isCloudAuthority)
     }
 
@@ -802,7 +802,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(cloud.hasUnsettledMutation)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
-        XCTAssertFalse(store.isOffline)
+        XCTAssertEqual(store.connection, .reached)
         XCTAssertFalse(store.snapshot.isStale)
         XCTAssertTrue(store.authorityState.isCloudAuthority)
     }
@@ -1136,9 +1136,9 @@ final class CloudVerticalSliceTests: XCTestCase {
         let store = elevatedStore(repository: cloud, coordinator: nil)
         transport.failEverything = true
         await store.refresh()
-        await waitUntil("the newest overlapping Cloud read reports the outage") { store.isOffline }
+        await waitUntil("the newest overlapping Cloud read reports the outage") { store.connection == .deviceOffline }
 
-        XCTAssertTrue(store.isOffline)
+        XCTAssertEqual(store.connection, .deviceOffline)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
         XCTAssertTrue(cloud.hasValidReplica)
         XCTAssertFalse(cloud.isReadyForRuntimeMutations)
@@ -1307,8 +1307,8 @@ final class CloudVerticalSliceTests: XCTestCase {
 
         let store = elevatedStore(repository: cloud, coordinator: coordinator)
         await store.refresh()
-        await waitUntil("the newest overlapping Cloud read reports the outage") { store.isOffline }
-        XCTAssertTrue(store.isOffline)
+        await waitUntil("the newest overlapping Cloud read reports the outage") { store.connection == .deviceOffline }
+        XCTAssertEqual(store.connection, .deviceOffline)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750, "the last accepted Cloud state stays readable offline")
         if case .cloudOffline = store.authorityState {} else {
             XCTFail("an offline Cloud wallet is presented as offline, not as local authority: \(store.authorityState)")

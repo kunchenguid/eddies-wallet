@@ -46,6 +46,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     public var supportsRuntimeMutations: Bool { true }
     public var localReplica: LocalWalletRepository { replica }
     public var hasValidReplica: Bool { replica.hasAcceptedCloudReplica(lineageID: lineageID) }
+    public var latestTransportDiagnostic: TransportDiagnostic? { client.latestTransportDiagnostic }
     public var hasUnsettledMutation: Bool { activeMutation != nil }
     var unsettledMutationPhase: CloudMutationPhase? { activeMutation?.phase }
     var unsettledMutationMessage: String? { activeMutation?.waitingMessage }
@@ -528,7 +529,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 && code != "COMMAND_IN_PROGRESS"
                 && (400..<500).contains(statusCode)
         case .noSession, .unauthorized, .familyNotSetup, .identityMismatch,
-             .invalidConfiguration, .network, .invalidResponse, .cancelled, .timedOut,
+             .invalidConfiguration, .network, .transportFailure, .invalidResponse,
+             .cancelled, .timedOut,
              .cloudMutationAwaitingReconciliation, .cloudAcceptedAwaitingReplica:
             false
         }

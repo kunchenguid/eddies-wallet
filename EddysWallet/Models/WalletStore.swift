@@ -183,10 +183,19 @@ public final class WalletStore: ObservableObject {
     /// stays up until its Done action deliberately returns to Welcome.
     @Published public private(set) var hasDeletedAccount = false
     /// Parent-facing error text. Rendered only on parent surfaces; the kid
-    /// home derives calm kid wording from `isOffline`/`sessionExpired`.
+    /// home derives calm kid wording from `connection`/`sessionExpired`.
     @Published public private(set) var errorMessage: String?
     @Published public private(set) var gateErrorMessage: String?
-    @Published public private(set) var isOffline = false
+    /// What the newest read could reach. Only a device that genuinely reported
+    /// no usable network reads as offline: a timeout, TLS, DNS, refused, or
+    /// dropped connection is a service this app could not reach, and calling
+    /// that "offline" would be false and would hide the real failure.
+    @Published public private(set) var connection: WalletConnection = .reached
+    /// The privacy-safe shape of the most recent failed request, for the
+    /// parent-only connection readout. It never carries account, session,
+    /// wallet, or raw error content, never persists, and leaves this device
+    /// only when a parent deliberately copies it.
+    @Published public private(set) var latestTransportDiagnostic: TransportDiagnostic?
     @Published public private(set) var sessionExpired = false
     /// Set once after first-run setup so the Parent area can spotlight the
     /// first deposit/allowance jobs before handing the device to the kid.
@@ -576,7 +585,7 @@ public final class WalletStore: ObservableObject {
         existingWalletNotice = nil
         needsSetup = false
         isSignedIn = true
-        isOffline = false
+        connection = .reached
         sessionExpired = false
         errorMessage = nil
         authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
@@ -614,7 +623,7 @@ public final class WalletStore: ObservableObject {
         var converged = viewRole == .child ? cloud.childSnapshot() : cloud.snapshot()
         converged.pendingEvents += refusedLegacyActions
         snapshot = converged
-        isOffline = false
+        connection = .reached
         needsCloudReview = false
         cloudEntitlement = cloudCoordinator.entitlement
         cloudMessage = cloudCoordinator.message
@@ -826,10 +835,18 @@ public final class WalletStore: ObservableObject {
                 authorityState = .local(lineageID: lineageID)
             }
             errorMessage = nil
-            isOffline = false
+            connection = .reached
             sessionExpired = false
             await convergeLegacyDeviceOntoCloud(generation: generation)
         } catch let error as WalletAPIError {
+            // The newest read's own failure is the one worth reporting, so the
+            // readout is only updated by a read that may still publish. What it
+            // shows then survives a later successful read: a parent reporting
+            // an intermittent failure needs it after the wallet recovers.
+            if canPublish(attempt, generation: generation, role: requestedRole),
+               let diagnostic = transportDiagnostic(for: error) {
+                latestTransportDiagnostic = diagnostic
+            }
             switch error {
             case .familyNotSetup:
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
@@ -851,13 +868,26 @@ public final class WalletStore: ObservableObject {
                     if elevation != .none { deElevate() }
                 }
             case .network:
+                // A failure with no preserved transport shape proves only that
+                // the authority was not reached, never that the device is
+                // offline, so it is reported as exactly that much.
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
-                isOffline = true
-                if let cloud = repository as? CloudWalletRepository {
-                    authorityState = .cloudOffline(lineageID: cloud.lineageID, revision: cloud.revision)
+                publishUnreachedAuthority(.serviceUnreachable, error: error, role: requestedRole)
+            case let .transportFailure(diagnostic):
+                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
+                switch diagnostic.connection {
+                case .deviceOffline:
+                    publishUnreachedAuthority(.deviceOffline, error: error, role: requestedRole)
+                case .serviceUnreachable, .reached:
+                    // Nothing was thrown after a response arrived, so the most
+                    // any such failure proves is an authority not reached.
+                    publishUnreachedAuthority(.serviceUnreachable, error: error, role: requestedRole)
+                case nil:
+                    // A cancelled attempt observed no answer at all. It says
+                    // nothing about this family's connection and must never
+                    // reach them as an offline claim.
+                    break
                 }
-                errorMessage = userMessage(for: error)
-                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .revisionConflict, .revisionRequired:
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 needsCloudReview = true
@@ -865,7 +895,7 @@ public final class WalletStore: ObservableObject {
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudAcceptedAwaitingReplica:
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
-                isOffline = false
+                connection = .reached
                 if let cloud = repository as? CloudWalletRepository {
                     authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
                 }
@@ -873,7 +903,7 @@ public final class WalletStore: ObservableObject {
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudMutationAwaitingReconciliation:
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
-                isOffline = false
+                connection = .reached
                 if let cloud = repository as? CloudWalletRepository {
                     authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
                 }
@@ -899,6 +929,30 @@ public final class WalletStore: ObservableObject {
             errorMessage = "The wallet could not be updated. Your last accepted balance is still shown."
             snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
         }
+    }
+
+    /// The failed attempt's own shape. A preserved transport failure carries
+    /// it, so it is bound to exactly this attempt; a failing HTTP status is
+    /// answered with its own typed error, so only the repository that made the
+    /// request still holds the shape of it.
+    private func transportDiagnostic(for error: WalletAPIError) -> TransportDiagnostic? {
+        if case let .transportFailure(diagnostic) = error { return diagnostic }
+        return repository.latestTransportDiagnostic
+    }
+
+    /// Publishes a read that could not reach its authority, saying only what
+    /// the transport actually proved. The last accepted wallet stays on screen.
+    private func publishUnreachedAuthority(
+        _ connection: WalletConnection,
+        error: WalletAPIError,
+        role: UserRole
+    ) {
+        self.connection = connection
+        if let cloud = repository as? CloudWalletRepository {
+            authorityState = .cloudOffline(lineageID: cloud.lineageID, revision: cloud.revision)
+        }
+        errorMessage = userMessage(for: error)
+        snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
     }
 
     /// Whether this read may still write what it saw into published state.
@@ -1083,14 +1137,14 @@ public final class WalletStore: ObservableObject {
             )
             return .rejected(event)
         }
-        if repository is CloudWalletRepository, isOffline || needsCloudReview {
+        if repository is CloudWalletRepository, !connection.reachedAuthority || needsCloudReview {
             return .rejected(WalletEvent(
                 type: activityType(for: command.kind),
                 amountCents: max(command.amountCents, 0),
                 reason: command.reason,
                 syncState: .rejected,
                 explanation: "This new action was not sent.",
-                rejectionReason: isOffline
+                rejectionReason: !connection.reachedAuthority
                     ? "Reconnect and refresh the Cloud wallet before recording a new action."
                     : "Review the latest Cloud balance before recording a new action."
             ))
@@ -1186,7 +1240,8 @@ public final class WalletStore: ObservableObject {
             ? "Signed out. This \(DeviceCopy.deviceNoun)'s wallet is erased, but cleanup could not be fully confirmed."
             : nil
         sessionExpired = false
-        isOffline = false
+        connection = .reached
+        latestTransportDiagnostic = nil
         showsFirstActionsHandoff = false
         clearPINFailureState()
         deElevate()
@@ -1341,7 +1396,8 @@ public final class WalletStore: ObservableObject {
         snapshot = .empty()
         errorMessage = nil
         sessionExpired = false
-        isOffline = false
+        connection = .reached
+        latestTransportDiagnostic = nil
         needsCloudReview = false
         latestParentMutationOutcome = nil
         showsFirstActionsHandoff = false
@@ -1453,7 +1509,7 @@ public final class WalletStore: ObservableObject {
         return hasValidCloudReplica
             && hasCurrentRevision
             && !hasUnsettledCloudMutation
-            && !isOffline
+            && connection.reachedAuthority
             && !needsCloudReview
             && !cloudEntitlement.permitsLocalContinuation
     }
@@ -1579,7 +1635,7 @@ public final class WalletStore: ObservableObject {
         do {
             snapshot = try await cloud.refresh(for: .parent)
             authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
-            isOffline = false
+            connection = .reached
             cloudMessage = nil
             return true
         } catch {

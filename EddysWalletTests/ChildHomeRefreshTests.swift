@@ -31,11 +31,11 @@ final class ChildHomeRefreshTests: XCTestCase {
         await pull.value
 
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, freshBalanceCents)
-        XCTAssertFalse(store.isOffline)
+        XCTAssertEqual(store.connection, .reached)
 
-        repository.fail(read: 1, with: .network("The network is unavailable. The accepted balance was not changed."))
+        repository.fail(read: 1, with: unreachableAuthority())
 
-        let relabelled = await waitUntil { store.isOffline || store.errorMessage != nil }
+        let relabelled = await waitUntil { !store.connection.reachedAuthority || store.errorMessage != nil }
         XCTAssertFalse(relabelled, "a stalled older read must not relabel a newer, successful read as offline")
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, freshBalanceCents)
         XCTAssertFalse(store.snapshot.isStale)
@@ -49,16 +49,16 @@ final class ChildHomeRefreshTests: XCTestCase {
         let pull = Task { await store.refresh() }
         await expect("pull-to-refresh issues its own read") { repository.startedReads == 2 }
 
-        repository.fail(read: 1, with: .network("The network is unavailable. The accepted balance was not changed."))
+        repository.fail(read: 1, with: unreachableAuthority())
 
-        let relabelled = await waitUntil(timeout: 0.5) { store.isOffline || store.errorMessage != nil }
+        let relabelled = await waitUntil(timeout: 0.5) { !store.connection.reachedAuthority || store.errorMessage != nil }
         XCTAssertFalse(relabelled, "an older failure must not publish while a newer read is still in flight")
         XCTAssertTrue(store.isLoading)
 
         repository.finish(read: 2, with: freshSnapshot())
         await pull.value
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, freshBalanceCents)
-        XCTAssertFalse(store.isOffline)
+        XCTAssertEqual(store.connection, .reached)
     }
 
     /// The reverse case, so the rule above cannot be satisfied by simply
@@ -78,10 +78,10 @@ final class ChildHomeRefreshTests: XCTestCase {
         }
         XCTAssertFalse(publishedOlderRead, "an older success must not publish while the newest read is in flight")
 
-        repository.fail(read: 2, with: .network("The network is unavailable. The accepted balance was not changed."))
+        repository.fail(read: 2, with: unreachableAuthority())
         await pull.value
 
-        XCTAssertTrue(store.isOffline, "the newest read could not reach its authority, so the kid home is offline")
+        XCTAssertEqual(store.connection, .deviceOffline, "the newest read reported a device with no network, so the kid home is offline")
         XCTAssertNotNil(store.errorMessage)
     }
 
@@ -121,8 +121,8 @@ final class ChildHomeRefreshTests: XCTestCase {
         let store = makeStore(repository)
 
         await expect("the store reads the wallet at launch") { repository.startedReads == 1 }
-        repository.fail(read: 1, with: .network("The network is unavailable. The accepted balance was not changed."))
-        await expect("a genuinely unreachable authority reports offline") { store.isOffline }
+        repository.fail(read: 1, with: unreachableAuthority())
+        await expect("a genuinely offline device reports offline") { store.connection == .deviceOffline }
         let staleTimestamp = store.snapshot.lastUpdated
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, cachedBalanceCents)
 
@@ -132,7 +132,7 @@ final class ChildHomeRefreshTests: XCTestCase {
         repository.finish(read: 2, with: freshSnapshot())
         await pull.value
 
-        XCTAssertFalse(store.isOffline)
+        XCTAssertEqual(store.connection, .reached)
         XCTAssertNil(store.errorMessage)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, freshBalanceCents)
         XCTAssertFalse(store.snapshot.isStale)
@@ -147,9 +147,9 @@ final class ChildHomeRefreshTests: XCTestCase {
         let store = makeStore(repository)
 
         await expect("the store reads the wallet at launch") { repository.startedReads == 1 }
-        repository.fail(read: 1, with: .network("The network is unavailable. The accepted balance was not changed."))
+        repository.fail(read: 1, with: unreachableAuthority())
 
-        await expect("an unreachable authority is reported as offline") { store.isOffline }
+        await expect("a genuinely offline device is reported as offline") { store.connection == .deviceOffline }
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, cachedBalanceCents)
         XCTAssertFalse(store.sessionExpired)
     }
@@ -164,15 +164,15 @@ final class ChildHomeRefreshTests: XCTestCase {
         let store = makeStore(repository)
 
         await expect("the store reads the wallet at launch") { repository.startedReads == 1 }
-        repository.fail(read: 1, with: .network("The network is unavailable. The accepted balance was not changed."))
-        await expect("an unreachable authority is reported as offline") { store.isOffline }
+        repository.fail(read: 1, with: unreachableAuthority())
+        await expect("a genuinely offline device is reported as offline") { store.connection == .deviceOffline }
 
         store.handleAppBackgrounded()
         store.handleAppForegrounded()
 
         await expect("returning to the foreground re-reads the wallet") { repository.startedReads == 2 }
         repository.finish(read: 2, with: freshSnapshot())
-        await expect("the re-read clears the offline presentation") { store.isOffline == false }
+        await expect("the re-read clears the offline presentation") { store.connection == .reached }
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, freshBalanceCents)
     }
 
@@ -200,6 +200,18 @@ final class ChildHomeRefreshTests: XCTestCase {
             initiallySignedIn: true,
             pinStore: InMemoryParentPINStore(pin: "1234"),
             identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent")
+        )
+    }
+
+    /// A read that genuinely could not reach its authority, preserved the way
+    /// a real transport failure is: the device itself reported no network.
+    private func unreachableAuthority() -> WalletAPIError {
+        .transportFailure(
+            TransportDiagnostic.transportFailure(
+                URLError(.notConnectedToInternet),
+                path: "/v1/child-view",
+                elapsedMilliseconds: 1
+            )
         )
     }
 

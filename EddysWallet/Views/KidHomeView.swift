@@ -82,15 +82,16 @@ struct KidHomeView: View {
     }
 
     /// Calm, kid-worded status line. Technical wording ("accepted balance",
-    /// "sync", "session") never appears on this screen.
+    /// "sync", "session") never appears on this screen, and the raw failure
+    /// behind it stays in the Parent area. `KidCopy` owns the wording so the
+    /// same derivation can be driven directly in tests.
     private var kidStatusMessage: String? {
-        if store.sessionExpired {
-            return KidCopy.sessionBanner
-        }
-        if store.isOffline || store.errorMessage != nil {
-            return KidCopy.offlineBanner(lastUpdated: store.snapshot.lastUpdated)
-        }
-        return nil
+        KidCopy.statusBanner(
+            sessionExpired: store.sessionExpired,
+            connection: store.connection,
+            hasError: store.errorMessage != nil,
+            lastUpdated: store.snapshot.lastUpdated
+        )
     }
 
     private func kidStatusBanner(_ message: String) -> some View {
@@ -100,6 +101,7 @@ struct KidHomeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(EW.Space.three)
             .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+            .accessibilityIdentifier("kid-status-banner")
     }
 
     private var heroBalanceCard: some View {

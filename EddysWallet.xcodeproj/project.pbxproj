@@ -53,6 +53,9 @@
 		30100000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20A000000000000000000001 /* Assets.xcassets */; };
 		3010000000000000000000F1 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 20E0000000000000000000F1 /* Fixtures */; };
 		30100000000000000000000B /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B000000000000000000001 /* WalletTests.swift */; };
+		3010000000000000000000AA /* TransportDiagnostic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2090000000000000000000AA /* TransportDiagnostic.swift */; };
+		3010000000000000000000AB /* ConnectionDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2090000000000000000000AB /* ConnectionDetailsView.swift */; };
+		30100000000000000000002F /* TransportDiagnosticTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000009 /* TransportDiagnosticTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -107,6 +110,9 @@
 		212000000000000000000001 /* EddysWalletUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		210000000000000000000001 /* EddysWallet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EddysWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		211000000000000000000001 /* EddysWalletTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		2090000000000000000000AA /* TransportDiagnostic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportDiagnostic.swift; sourceTree = "<group>"; };
+		2090000000000000000000AB /* ConnectionDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionDetailsView.swift; sourceTree = "<group>"; };
+		20E000000000000000000009 /* TransportDiagnosticTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportDiagnosticTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -163,6 +169,7 @@
 				2090000000000000000000A4 /* CloudReplicaMapping.swift */,
 				204000000000000000000005 /* CloudAPIClient.swift */,
 				2090000000000000000000A6 /* CloudRecoveryEvidence.swift */,
+				2090000000000000000000AA /* TransportDiagnostic.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -211,6 +218,7 @@
 				2090000000000000000000A5 /* CloudDiagnosticsView.swift */,
 				2090000000000000000000A7 /* CloudRecoveryEvidenceView.swift */,
 				20F00000000000000000000A /* DeleteAccountView.swift */,
+				2090000000000000000000AB /* ConnectionDetailsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -228,6 +236,7 @@
 				20E000000000000000000006 /* FirstRunExistingWalletTests.swift */,
 				20E000000000000000000007 /* ChildHomeRefreshTests.swift */,
 				20E000000000000000000008 /* AccountDeletionTests.swift */,
+				20E000000000000000000009 /* TransportDiagnosticTests.swift */,
 				20E0000000000000000000F1 /* Fixtures */,
 			);
 			path = EddysWalletTests;
@@ -386,6 +395,8 @@
 				3010000000000000000000A4 /* CloudReplicaMapping.swift in Sources */,
 				3010000000000000000000A5 /* CloudDiagnosticsView.swift in Sources */,
 				3010000000000000000000A6 /* CloudRecoveryEvidence.swift in Sources */,
+				3010000000000000000000AA /* TransportDiagnostic.swift in Sources */,
+				3010000000000000000000AB /* ConnectionDetailsView.swift in Sources */,
 				3010000000000000000000A7 /* CloudRecoveryEvidenceView.swift in Sources */,
 				3010000000000000000000A8 /* ExistingWalletView.swift in Sources */,
 				301000000000000000000021 /* CloudAPIClient.swift in Sources */,
@@ -411,6 +422,7 @@
 				30100000000000000000002B /* CloudVerticalSliceTests.swift in Sources */,
 				30100000000000000000002C /* FirstRunExistingWalletTests.swift in Sources */,
 				30100000000000000000002D /* ChildHomeRefreshTests.swift in Sources */,
+				30100000000000000000002F /* TransportDiagnosticTests.swift in Sources */,
 				30100000000000000000002E /* AccountDeletionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -60,6 +60,12 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
     case identityMismatch
     case server(statusCode: Int, code: String, message: String)
     case network(String)
+    /// A wallet request that never produced a usable answer, carrying the
+    /// privacy-safe shape of what actually failed. Every error thrown by the
+    /// transport arrives here instead of being flattened into `.network`, so
+    /// the app can tell a genuinely offline device from an unreachable
+    /// service, and a parent can report the real failure.
+    case transportFailure(TransportDiagnostic)
     case invalidResponse(String)
     case invalidConfiguration
     case revisionConflict(currentRevision: Int64)
@@ -78,6 +84,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         case .identityMismatch: "That is not the Apple account that manages this wallet."
         case let .server(_, _, message): message
         case let .network(message): message
+        case let .transportFailure(diagnostic): diagnostic.parentMessage
         case let .invalidResponse(message): message
         case .invalidConfiguration: "The production API URL is not configured correctly."
         case .revisionConflict: "This wallet changed on another device. Review the latest balance before recording this action."
@@ -658,6 +665,9 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
     private var rejectedEvents: [WalletEvent] = []
     private var reportedFamilyAuthority: String?
     private var lifecycleGeneration = 0
+    /// The shape of the most recent request that did not succeed. Cleared as
+    /// soon as one does, so it never describes an attempt that is already over.
+    public private(set) var latestTransportDiagnostic: TransportDiagnostic?
 
     public init(
         baseURL: URL = APIConfiguration.productionBaseURL,
@@ -758,15 +768,24 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         } catch let error as WalletAPIError {
             switch error {
             case .network, .invalidResponse:
-                if role == .child, requestedGeneration == lifecycleGeneration {
-                    currentChild.isStale = true
-                    cache.save(currentChild)
+                markCachedChildStale(role: role, generation: requestedGeneration)
+            case let .transportFailure(diagnostic):
+                // A cancelled attempt observed nothing, so it cannot claim the
+                // cached wallet is out of date either.
+                if diagnostic.connection != nil {
+                    markCachedChildStale(role: role, generation: requestedGeneration)
                 }
             default:
                 break
             }
             throw error
         }
+    }
+
+    private func markCachedChildStale(role: UserRole, generation: Int) {
+        guard role == .child, generation == lifecycleGeneration else { return }
+        currentChild.isStale = true
+        cache.save(currentChild)
     }
 
     public func activity(limit: Int = 50) async throws -> [WalletEvent] {
@@ -907,7 +926,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
                 let event = makeLocalEvent(for: command, state: .rejected, message: "This action was not recorded. Review the latest balance before recording it again.", rejectionReason: error.localizedDescription)
                 rejectedEvents.insert(event, at: 0)
                 return .rejected(event)
-            case .server, .network, .invalidResponse, .invalidConfiguration:
+            case .server, .network, .transportFailure, .invalidResponse, .invalidConfiguration:
                 pendingCommands[command.idempotencyKey] = command
                 try savePendingCommands(generation: generation)
                 return .pending(makeLocalEvent(for: command, state: .pending, message: "This parent action is waiting to sync. It is not included in the accepted balance."))
@@ -1065,17 +1084,35 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
             request.setValue("Bearer \(session.token)", forHTTPHeaderField: "Authorization")
         }
 
+        let stopwatch = TransportDiagnostic.Stopwatch()
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await transport.data(for: request)
         } catch {
-            throw WalletAPIError.network("The network is unavailable. The accepted balance was not changed.")
+            // The real error is preserved rather than flattened: what the
+            // transport reported is the only evidence of why a request that
+            // never reached a response failed.
+            throw record(
+                TransportDiagnostic.transportFailure(
+                    error,
+                    path: path,
+                    elapsedMilliseconds: stopwatch.elapsedMilliseconds
+                )
+            )
         }
         guard let http = response as? HTTPURLResponse else {
             throw WalletAPIError.invalidResponse("The server returned an invalid HTTP response.")
         }
         guard (200..<300).contains(http.statusCode) else {
+            // A status is an answer, so it keeps its own typed error. The
+            // diagnostic is still recorded, because the parent-facing readout
+            // has to be able to show a failing status too.
+            latestTransportDiagnostic = TransportDiagnostic.httpFailure(
+                status: http.statusCode,
+                path: path,
+                elapsedMilliseconds: stopwatch.elapsedMilliseconds
+            )
             if http.statusCode == 401 {
                 sessionStore.clear()
                 throw WalletAPIError.unauthorized
@@ -1086,7 +1123,16 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
             }
             throw WalletAPIError.server(statusCode: http.statusCode, code: "HTTP_\(http.statusCode)", message: "The server did not accept this request.")
         }
+        latestTransportDiagnostic = nil
         return data
+    }
+
+    /// Keeps the failure the parent-facing readout will show, and returns the
+    /// error that carries the same diagnostic to the caller, so the two can
+    /// never describe different attempts.
+    private func record(_ diagnostic: TransportDiagnostic) -> WalletAPIError {
+        latestTransportDiagnostic = diagnostic
+        return .transportFailure(diagnostic)
     }
 
     private func updateCachedChildNickname(from snapshot: WalletSnapshot) {

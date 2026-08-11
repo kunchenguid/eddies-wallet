@@ -1,4 +1,5 @@
 import AuthenticationServices
+import Foundation
 import XCTest
 @testable import EddysWallet
 
@@ -35,12 +36,12 @@ final class WalletTests: XCTestCase {
 
         await store.refresh()
         XCTAssertTrue(store.hasRejectedCloudMutationCleanup)
-        XCTAssertFalse(store.isOffline)
+        XCTAssertEqual(store.connection, .reached)
         XCTAssertTrue(store.authorityState.isCloudAuthority)
 
         for _ in 0..<4 where store.hasRejectedCloudMutationCleanup {
             await store.refresh()
-            XCTAssertFalse(store.isOffline)
+            XCTAssertEqual(store.connection, .reached)
         }
         XCTAssertFalse(store.hasRejectedCloudMutationCleanup)
         XCTAssertFalse(store.hasUnsettledCloudMutation)
@@ -487,14 +488,20 @@ final class WalletTests: XCTestCase {
     func testOfflineRefreshKeepsSnapshotAndSetsKidOfflineState() async {
         let repository = FailingRefreshRepository(
             snapshot: .fixture(),
-            error: .network("The network is unavailable. The accepted balance was not changed.")
+            error: .transportFailure(
+                TransportDiagnostic.transportFailure(
+                    URLError(.notConnectedToInternet),
+                    path: "/v1/child-view",
+                    elapsedMilliseconds: 1
+                )
+            )
         )
         let store = makeConfiguredStore(repository: repository)
         let cachedBalance = store.snapshot.acceptedBalanceCents
 
         await store.refresh()
 
-        XCTAssertTrue(store.isOffline)
+        XCTAssertEqual(store.connection, .deviceOffline)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, cachedBalance)
         XCTAssertNotNil(store.errorMessage, "Parent surfaces keep the precise message")
     }
