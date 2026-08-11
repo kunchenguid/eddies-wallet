@@ -395,7 +395,7 @@ public final class WalletStore: ObservableObject {
                 await routeFirstRun(identity: outcome.identity)
             }
         } catch {
-            if case WalletAPIError.cancelled = error {
+            if isCancellation(error) {
                 errorMessage = nil
             } else {
                 errorMessage = userMessage(for: error)
@@ -722,7 +722,7 @@ public final class WalletStore: ObservableObject {
             }
         } catch {
             guard elevation == .gate else { return }
-            if case WalletAPIError.cancelled = error {
+            if isCancellation(error) {
                 gateErrorMessage = nil
             } else {
                 gateErrorMessage = userMessage(for: error)
@@ -900,7 +900,7 @@ public final class WalletStore: ObservableObject {
                         authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
                     }
                 }
-                errorMessage = nil
+                errorMessage = error.transportDiagnostic == nil ? nil : userMessage(for: error)
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudMutationAwaitingReconciliation:
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
@@ -910,7 +910,7 @@ public final class WalletStore: ObservableObject {
                         authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
                     }
                 }
-                errorMessage = nil
+                errorMessage = error.transportDiagnostic == nil ? nil : userMessage(for: error)
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .cancelled:
                 // A Cloud read still in flight when the parent signed this
@@ -928,10 +928,16 @@ public final class WalletStore: ObservableObject {
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             }
         } catch {
-            guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
+            guard canPublish(attempt, generation: generation, role: requestedRole), !isCancellation(error) else { return }
             errorMessage = "The wallet could not be updated. Your last accepted balance is still shown."
             snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
         }
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        guard let walletError = error as? WalletAPIError else { return false }
+        return walletError.operationError == .cancelled || walletError.transportDiagnostic?.category == .cancelled
     }
 
     private func publishOperationDiagnostic(

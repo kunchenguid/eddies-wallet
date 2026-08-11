@@ -476,6 +476,35 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 750)
     }
 
+    func testReconciliationHTTPFailureKeepsKidStatusAndWaitingWallet() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntil("the Parent-area read settles") { !store.isLoading }
+        transport.stub("POST", "/v1/wallet/deposits", Data("{}".utf8), status: 500)
+
+        guard case .pending = await store.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "http-waiting-key")
+        ) else {
+            return XCTFail("an HTTP failure cannot resolve an ambiguous Cloud mutation")
+        }
+
+        await store.refresh()
+
+        XCTAssertTrue(cloud.hasUnsettledMutation)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertEqual(store.latestTransportDiagnostic?.httpStatus, 500)
+        XCTAssertEqual(
+            KidCopy.statusBanner(
+                sessionExpired: store.sessionExpired,
+                connection: store.connection,
+                hasError: store.errorMessage != nil,
+                lastUpdated: store.snapshot.lastUpdated
+            ),
+            KidCopy.cannotReachBanner(lastUpdated: store.snapshot.lastUpdated)
+        )
+    }
+
     func testAcceptedProfileWriteWithFailedRereadIsDistinctFromRejection() async throws {
         let (cloud, transport, _) = try await writableCloud()
         transport.stub("PUT", "/v1/child", CloudSliceFixtures.profileAccepted(revision: 3), status: 200)
