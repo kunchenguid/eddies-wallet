@@ -125,14 +125,14 @@ public final class CloudAPIClient: ParentAuthenticator {
     /// own operation id and aggregate digest, and the idempotency key is stable
     /// across retries so an interrupted upload replays instead of duplicating.
     public func importHousehold(_ manifest: CloudImportManifest, idempotencyKey: String) async throws -> CloudHousehold {
-        let data = try await sendData(
+        let response = try await sendData(
             path: "/v1/cloud/household/import",
             method: "POST",
             body: manifest.requestBody,
             session: .required,
             idempotencyKey: idempotencyKey
         )
-        return try data.decoded(HouseholdEnvelope.self).household
+        return try response.decoded(HouseholdEnvelope.self).household
     }
 
     public func legacyContext() async throws -> CloudLegacyContext {
@@ -157,7 +157,7 @@ public final class CloudAPIClient: ParentAuthenticator {
                 idempotencyKey: idempotencyKey,
                 expectedRevision: revision
             )
-            return try response.data.decoded(HouseholdEnvelope.self).household
+            return try response.decoded(HouseholdEnvelope.self).household
         } catch let error as WalletAPIError {
             throw CloudLegacyActivationError(refusal: Self.refusal(for: error), underlying: error)
         }
@@ -241,7 +241,7 @@ public final class CloudAPIClient: ParentAuthenticator {
         case presentedWhenAvailable
     }
 
-    private func send(path: String, method: String, body: [String: Any]?, session: SessionPresentation, idempotencyKey: String? = nil, pendingStatusCode: Int? = nil) async throws -> Data {
+    private func send(path: String, method: String, body: [String: Any]?, session: SessionPresentation, idempotencyKey: String? = nil, pendingStatusCode: Int? = nil) async throws -> CloudHTTPResponse {
         let data = body.map { try? JSONSerialization.data(withJSONObject: $0) } ?? nil
         return try await sendData(path: path, method: method, body: data, session: session, idempotencyKey: idempotencyKey, pendingStatusCode: pendingStatusCode)
     }
@@ -253,7 +253,7 @@ public final class CloudAPIClient: ParentAuthenticator {
         session: SessionPresentation,
         idempotencyKey: String? = nil,
         pendingStatusCode: Int? = nil
-    ) async throws -> Data {
+    ) async throws -> CloudHTTPResponse {
         try await sendResponse(
             path: path,
             method: method,
@@ -261,7 +261,7 @@ public final class CloudAPIClient: ParentAuthenticator {
             session: session,
             idempotencyKey: idempotencyKey,
             pendingStatusCode: pendingStatusCode
-        ).data
+        )
     }
 
     private func sendResponse(
@@ -333,7 +333,12 @@ public final class CloudAPIClient: ParentAuthenticator {
                     message: envelope?.error.message ?? "The Cloud service did not accept this request."
                 ).carrying(diagnostic)
             }
-            return CloudHTTPResponse(data: data, http: http)
+            return CloudHTTPResponse(
+                data: data,
+                http: http,
+                path: path,
+                elapsedMilliseconds: stopwatch.elapsedMilliseconds
+            )
         } catch let error as WalletAPIError { throw error
         } catch {
             // The real error is preserved rather than flattened: what the
@@ -367,6 +372,22 @@ public final class CloudAPIClient: ParentAuthenticator {
 private struct CloudHTTPResponse {
     let data: Data
     let http: HTTPURLResponse
+    let path: String
+    let elapsedMilliseconds: Int
+
+    func decoded<T: Decodable>(_ type: T.Type) throws -> T {
+        do {
+            return try data.decoded(type)
+        } catch let error as WalletAPIError {
+            throw error.carrying(
+                .unreadableResponse(
+                    status: http.statusCode,
+                    path: path,
+                    elapsedMilliseconds: elapsedMilliseconds
+                )
+            )
+        }
+    }
 }
 
 private struct AccountDeletionResponse: Decodable {

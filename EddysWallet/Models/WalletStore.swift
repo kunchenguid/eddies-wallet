@@ -807,9 +807,11 @@ public final class WalletStore: ObservableObject {
 
     // MARK: - Wallet data
 
-    /// The child-role refresh behind the kid home's `GET /v1/child-view` pull
-    /// fully preserves and classifies its attempt-bound transport diagnostic,
-    /// including cancellation, before publishing the parent-only readout.
+    /// The child-role refresh behind the kid home's pull preserves and
+    /// classifies its attempt-bound transport diagnostic, including
+    /// cancellation, before publishing the parent-only readout. Legacy service
+    /// authority reads `/v1/child-view`; Cloud authority reads
+    /// `/v1/cloud/changes`.
     /// Mutation completion in `submit`, `setAllowance`, and
     /// `updateChildProfile` does not yet guarantee a kid status after a failed
     /// HTTP answer; that known inconsistency is deferred to a tracked follow-up.
