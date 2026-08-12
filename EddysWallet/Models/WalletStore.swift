@@ -1141,6 +1141,13 @@ public final class WalletStore: ObservableObject {
                 latestParentMutationOutcome = .waitingForCloud
                 snapshot = repository.snapshot()
                 errorMessage = nil
+            case .revisionConflict, .revisionRequired:
+                latestParentMutationOutcome = .notRecorded
+                errorMessage = userMessage(for: error)
+                if repository is CloudWalletRepository {
+                    raiseCloudReview(for: error)
+                    Task { [weak self] in await self?.refresh() }
+                }
             default:
                 latestParentMutationOutcome = .notRecorded
                 errorMessage = userMessage(for: error)
@@ -1639,15 +1646,7 @@ public final class WalletStore: ObservableObject {
         // area retires the request: only a balance the parent is still on
         // screen to see may end a review.
         guard hadReview, elevation == .active, let review = cloudReview else { return }
-        guard let cloud = repository as? CloudWalletRepository else {
-            // Only the Cloud path can raise a review; a review outliving its
-            // Cloud repository has nothing left to compare and simply ends.
-            cloudReview = nil
-            return
-        }
-        if cloud.isReadyForRuntimeMutations, cloud.revision >= review.floorRevision {
-            cloudReview = nil
-        }
+        if canClearCloudReview(review) { cloudReview = nil }
     }
     public var hasValidCloudReplica: Bool {
         #if DEBUG
@@ -1786,13 +1785,16 @@ public final class WalletStore: ObservableObject {
     /// review, so until the accepted revision catches up the notice stands.
     public func acknowledgeCloudReview() {
         guard let review = cloudReview else { return }
-        guard let cloud = repository as? CloudWalletRepository else {
-            cloudReview = nil
-            return
-        }
-        if cloud.isReadyForRuntimeMutations, cloud.revision >= review.floorRevision {
-            cloudReview = nil
-        }
+        if canClearCloudReview(review) { cloudReview = nil }
+    }
+
+    private func canClearCloudReview(_ review: CloudReviewPending) -> Bool {
+        guard let cloud = repository as? CloudWalletRepository,
+              cloud.isReadyForRuntimeMutations,
+              cloud.revision >= review.floorRevision,
+              let publishedRevision = authorityState.revision,
+              publishedRevision >= review.floorRevision else { return false }
+        return true
     }
 
     private func adoptCoordinatorState() async {
