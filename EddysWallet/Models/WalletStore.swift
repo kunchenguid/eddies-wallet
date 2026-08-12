@@ -256,6 +256,7 @@ public final class WalletStore: ObservableObject {
     /// one. A read that observed nothing settles nothing, so it leaves this
     /// armed rather than ending a review nobody was shown the balance for.
     private var endsReviewOnNextSettledRead = false
+    private var reviewAcceptedReadBoundary: Int?
     /// Set while the scene is out of the foreground, so the return can re-read
     /// the wallet that `handleAppBackgrounded()` retired.
     private var didLeaveForeground = false
@@ -844,9 +845,7 @@ public final class WalletStore: ObservableObject {
                 ? (requestedRole == .child ? repository.childSnapshot() : repository.snapshot())
                 : refreshed
             needsSetup = false
-            if endsReviewOnNextSettledRead {
-                // The parent asked to review, and this is the balance they are
-                // now looking at.
+            if endsReviewOnNextSettledRead, canEndCloudReview() {
                 endCloudReview()
             }
             if let cloud = repository as? CloudWalletRepository {
@@ -907,7 +906,7 @@ public final class WalletStore: ObservableObject {
                 }
             case .revisionConflict, .revisionRequired:
                 guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
-                needsCloudReview = true
+                beginCloudReview()
                 errorMessage = userMessage(for: error)
                 snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudAcceptedAwaitingReplica:
@@ -1206,13 +1205,13 @@ public final class WalletStore: ObservableObject {
                elevation == .active {
                 // Another device moved first: nothing was recorded here, and the
                 // parent reviews the refreshed balance before retrying.
-                needsCloudReview = true
+                beginCloudReview()
                 Task { [weak self] in await self?.refresh() }
             }
             if case .revisionRequired = operationError,
                generation == refreshGeneration,
                elevation == .active {
-                needsCloudReview = true
+                beginCloudReview()
                 Task { [weak self] in await self?.refresh() }
             }
             if case .cloudEntitlementRequired = operationError,
@@ -1739,11 +1738,25 @@ public final class WalletStore: ObservableObject {
     }
 
     public func acknowledgeCloudReview() {
-        endCloudReview()
+        if canEndCloudReview() {
+            endCloudReview()
+        }
+    }
+
+    private func beginCloudReview() {
+        needsCloudReview = true
+        reviewAcceptedReadBoundary = (repository as? CloudWalletRepository)?.acceptedReadCompletionGeneration
+    }
+
+    private func canEndCloudReview() -> Bool {
+        guard let cloud = repository as? CloudWalletRepository,
+              let boundary = reviewAcceptedReadBoundary else { return false }
+        return cloud.acceptedReadCompletionGeneration > boundary
     }
 
     private func endCloudReview() {
         endsReviewOnNextSettledRead = false
+        reviewAcceptedReadBoundary = nil
         needsCloudReview = false
     }
 

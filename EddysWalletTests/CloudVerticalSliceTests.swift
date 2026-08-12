@@ -1530,6 +1530,52 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(store.canStartParentMutation)
     }
 
+    func testPreConflictReadCannotEndReviewAfterConflictBoundary() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let store = syncedParentStore(cloud, lineage: lineage)
+        await waitUntilFirstReadSettles(store, transport)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2)
+        )
+        transport.enqueue(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "post-conflict")
+        )
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
+        transport.suspend("GET", "/v1/cloud/changes")
+        transport.suspend("GET", "/v1/cloud/changes")
+        transport.suspend("GET", "/v1/cloud/changes")
+
+        let preConflictRead = Task { await store.refresh() }
+        await transport.waitUntilSuspended(count: 1)
+        _ = await store.submit(WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "pre-conflict-key"))
+        await transport.waitUntilSuspended(count: 2)
+        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
+
+        let recovery = Task { await store.clearParentMutationBlock() }
+        await transport.waitUntilSuspended(count: 3)
+
+        transport.resumeSuspendedRequest()
+        await preConflictRead.value
+        XCTAssertTrue(store.needsCloudReview)
+        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
+
+        transport.resumeSuspendedRequest()
+        await waitUntil("the post-conflict read ends review") { store.parentMutationBlock == nil }
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_000)
+        XCTAssertFalse(store.needsCloudReview)
+        XCTAssertTrue(store.canStartParentMutation)
+
+        recovery.cancel()
+        transport.resumeSuspendedRequest()
+        await recovery.value
+    }
+
     private func assertSyncClaimAgreesWithTheWriteGuard(
         _ store: WalletStore,
         _ state: String,
