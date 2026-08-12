@@ -1340,6 +1340,44 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertNil(kidStatusMessage(store), "the kid home stays silent for a cancelled read too")
     }
 
+    func testCancelledNewerPullDoesNotSuppressOlderAcceptedCloudRead() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let store = syncedParentStore(cloud, lineage: lineage)
+        await waitUntilFirstReadSettles(store, transport)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 4, balanceCents: 1_200, entryID: "accepted-overlap")
+        )
+        transport.enqueue(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "cancelled-overlap")
+        )
+        transport.suspend("GET", "/v1/cloud/changes")
+        transport.suspend("GET", "/v1/cloud/changes")
+
+        let acceptedRead = Task { await store.refresh() }
+        await transport.waitUntilSuspended(count: 1)
+        let cancelledPull = Task { await store.refresh() }
+        await transport.waitUntilSuspended(count: 2)
+        cancelledPull.cancel()
+
+        transport.resumeSuspendedRequest()
+        await acceptedRead.value
+        transport.resumeSuspendedRequest()
+        await cancelledPull.value
+
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_200)
+        XCTAssertEqual(cloud.revision, 4)
+        XCTAssertTrue(cloud.isReadyForRuntimeMutations)
+        XCTAssertTrue(store.canStartParentMutation)
+        XCTAssertTrue(store.isSyncedWithCloud)
+        XCTAssertNil(store.parentMutationBlock)
+    }
+
     /// The safety half of the same guard: a read that did observe something and
     /// still could not confirm this replica must keep blocking a protected
     /// write. Only an attempt that saw nothing is treated as having happened

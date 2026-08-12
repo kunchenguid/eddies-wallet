@@ -839,7 +839,7 @@ public final class WalletStore: ObservableObject {
         }
         do {
             let refreshed = try await repository.refresh(for: requestedRole)
-            guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
+            guard canPublishSuccessfulRead(attempt, generation: generation, role: requestedRole) else { return }
             snapshot = refreshed
             needsSetup = false
             if endsReviewOnNextSettledRead {
@@ -994,10 +994,15 @@ public final class WalletStore: ObservableObject {
         snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
     }
 
-    /// Whether this read may still write what it saw into published state.
-    /// A read is superseded when parent elevation moved underneath it, or when
-    /// another read started later: the wallet on screen must always be the
-    /// newest observation, never whichever request happened to finish last.
+    private func canPublishSuccessfulRead(_ attempt: Int, generation: Int, role: UserRole) -> Bool {
+        guard generation == refreshGeneration, role == viewRole else { return false }
+        if repository is CloudWalletRepository { return true }
+        return attempt == refreshAttempts
+    }
+
+    /// Whether a failed read may still write what it saw into published state.
+    /// A failure is superseded when parent elevation moved underneath it, or
+    /// when another read started later.
     private func canPublish(_ attempt: Int, generation: Int, role: UserRole) -> Bool {
         guard generation == refreshGeneration, role == viewRole else { return false }
         return attempt == refreshAttempts
