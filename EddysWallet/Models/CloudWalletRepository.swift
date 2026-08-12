@@ -384,9 +384,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             }
             if let expectedDueDate = command.dueDate {
                 let calendar = Calendar.current
-                guard let nextDueDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:)),
-                      calendar.isDate(nextDueDate, inSameDayAs: expectedDueDate),
-                      calendar.startOfDay(for: nextDueDate) < calendar.startOfDay(for: .now) else {
+                guard rule.nextDueDate == CloudDayFormat.string(from: expectedDueDate),
+                      calendar.startOfDay(for: expectedDueDate) < calendar.startOfDay(for: .now) else {
                     throw WalletAPIError.invalidResponse("The missed allowance schedule changed. Review the remaining weeks before paying them out.")
                 }
             }
@@ -415,21 +414,23 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     /// A failed read clears the cached occurrence instead of leaving a stale
     /// guessed backlog visible.
     private func refreshAllowanceSchedule() async throws {
-        let requestedRevision = revision
-        do {
-            let schedule = try await client.allowanceSchedule()
-            guard revision == requestedRevision, confirmedRevision == requestedRevision else {
+        try await serializedRead { [self] in
+            let requestedRevision = revision
+            do {
+                let schedule = try await client.allowanceSchedule()
+                guard revision == requestedRevision, confirmedRevision == requestedRevision else {
+                    allowanceScheduleRevision = nil
+                    throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(requestedRevision)
+                }
+                allowanceSchedule = schedule.allowanceRule
+                allowanceScheduleRevision = requestedRevision
+            } catch {
                 allowanceScheduleRevision = nil
-                throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(requestedRevision)
+                if revision == requestedRevision, confirmedRevision == requestedRevision {
+                    confirmedRevision = nil
+                }
+                throw error
             }
-            allowanceSchedule = schedule.allowanceRule
-            allowanceScheduleRevision = requestedRevision
-        } catch {
-            allowanceScheduleRevision = nil
-            if revision == requestedRevision, confirmedRevision == requestedRevision {
-                confirmedRevision = nil
-            }
-            throw error
         }
     }
 

@@ -16,6 +16,7 @@ struct ParentAreaView: View {
     @State private var isShowingConnectionDetails = false
     @State private var isConfirmingSignOut = false
     @State private var isConfirmingRecordAllMissedAllowance = false
+    @State private var confirmedMissedAllowancePayouts: AllowanceMissedPayouts?
     @State private var recordAllMissedAllowanceOutcome: AllowanceRecordAllOutcome?
 
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
@@ -169,16 +170,23 @@ struct ParentAreaView: View {
             }
         }
         .confirmationDialog(
-            "Pay out \(missedAllowancePayouts.count) missed allowance weeks?",
+            "Pay out \(confirmedMissedAllowancePayouts?.count ?? 0) missed allowance weeks?",
             isPresented: $isConfirmingRecordAllMissedAllowance,
             titleVisibility: .visible
         ) {
             Button("Pay out all") {
-                Task { recordAllMissedAllowanceOutcome = await store.recordAllMissedAllowance() }
+                guard let confirmedMissedAllowancePayouts else { return }
+                self.confirmedMissedAllowancePayouts = nil
+                Task {
+                    recordAllMissedAllowanceOutcome = await store.recordAllMissedAllowance(confirmedMissedAllowancePayouts)
+                }
             }
-            Button("Not now", role: .cancel) {}
+            Button("Not now", role: .cancel) {
+                confirmedMissedAllowancePayouts = nil
+            }
         } message: {
-            Text("This will add \(missedAllowancePayouts.count) separate allowance entries totaling \(Money(cents: missedAllowancePayouts.totalCents).display). Today's allowance will not be paid out.")
+            let confirmed = confirmedMissedAllowancePayouts ?? AllowanceMissedPayouts(occurrences: [])
+            Text("This will add \(confirmed.count) separate allowance entries totaling \(Money(cents: confirmed.totalCents).display). Today's allowance will not be paid out.")
         }
         .alert(recordAllMissedAllowanceAlertTitle, isPresented: Binding(
             get: { recordAllMissedAllowanceOutcome != nil },
@@ -422,6 +430,7 @@ struct ParentAreaView: View {
                 tint: EW.Color.gold700,
                 isEnabled: store.canStartParentMutation && !store.isRecordingMissedAllowance
             ) {
+                confirmedMissedAllowancePayouts = missedAllowancePayouts
                 isConfirmingRecordAllMissedAllowance = true
             }
             .accessibilityIdentifier("record-all-missed-allowance")
@@ -434,6 +443,7 @@ struct ParentAreaView: View {
     private var recordAllMissedAllowanceAlertTitle: String {
         switch recordAllMissedAllowanceOutcome {
         case .recorded: "Missed allowances paid out"
+        case .awaitingCloud: "Cloud is confirming the payout"
         case .partial: "Some missed allowances were paid out"
         case .noMissed, nil: "No missed allowances"
         }
@@ -443,6 +453,12 @@ struct ParentAreaView: View {
         switch recordAllMissedAllowanceOutcome {
         case .recorded(let count, let totalCents):
             "Paid out \(count) separate allowance entries totaling \(Money(cents: totalCents).display)."
+        case .awaitingCloud(let recordedCount, let recordedTotalCents):
+            if recordedCount == 0 {
+                "Cloud has the payout request. Refresh to confirm the latest allowance schedule before paying out anything else."
+            } else {
+                "Paid out \(recordedCount) allowance entries totaling \(Money(cents: recordedTotalCents).display). Cloud is confirming the next payout. Refresh before paying out anything else."
+            }
         case .partial(let recordedCount, let recordedTotalCents, let remaining):
             "Paid out \(recordedCount) allowance entries totaling \(Money(cents: recordedTotalCents).display). \(remaining.count) missed weeks remain and can be paid out after reviewing the latest wallet."
         case .noMissed:

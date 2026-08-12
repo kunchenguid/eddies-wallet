@@ -1108,11 +1108,13 @@ public final class WalletStore: ObservableObject {
     /// guards. If the sequence is interrupted, accepted entries have already
     /// advanced the schedule atomically and only the untouched suffix remains
     /// eligible for a later deliberate parent action.
-    public func recordAllMissedAllowance() async -> AllowanceRecordAllOutcome {
+    public func recordAllMissedAllowance(
+        _ confirmedPayouts: AllowanceMissedPayouts? = nil
+    ) async -> AllowanceRecordAllOutcome {
         guard elevation == .active, !isRecordingMissedAllowance else {
             return .partial(recordedCount: 0, recordedTotalCents: 0, remaining: missedAllowancePayouts)
         }
-        let initial = missedAllowancePayouts
+        let initial = confirmedPayouts ?? missedAllowancePayouts
         guard !initial.isEmpty else { return .noMissed }
 
         isRecordingMissedAllowance = true
@@ -1132,9 +1134,24 @@ public final class WalletStore: ObservableObject {
                 amountCents: occurrence.amountCents,
                 dueDate: occurrence.dueDate
             ))
-            guard case .accepted = result else { break }
-            recordedCount += 1
-            recordedTotalCents += occurrence.amountCents
+            switch result {
+            case .accepted:
+                recordedCount += 1
+                recordedTotalCents += occurrence.amountCents
+            case .pending, .acceptedAwaitingReplica:
+                return .awaitingCloud(
+                    recordedCount: recordedCount,
+                    recordedTotalCents: recordedTotalCents
+                )
+            case .rejected:
+                return .partial(
+                    recordedCount: recordedCount,
+                    recordedTotalCents: recordedTotalCents,
+                    remaining: AllowanceMissedPayouts(
+                        occurrences: Array(initial.occurrences.dropFirst(recordedCount))
+                    )
+                )
+            }
         }
 
         if recordedCount == initial.count {
