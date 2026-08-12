@@ -90,7 +90,7 @@ struct CloudStatusView: View {
                     .font(EW.Font.caption)
                     .foregroundStyle(EW.Color.green700)
                     .accessibilityIdentifier("cloud-syncing-note")
-            } else if isCloudOn, store.authorityState.isCloudAuthority, let block = store.parentMutationBlock {
+            } else if store.authorityState.isCloudAuthority, let block = store.parentMutationBlock {
                 Label(Self.notSyncedNote(block, deviceNoun: DeviceCopy.deviceNoun), systemImage: "exclamationmark.circle.fill")
                     .font(EW.Font.caption)
                     .foregroundStyle(EW.Color.gold700)

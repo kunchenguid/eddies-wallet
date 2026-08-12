@@ -1415,6 +1415,21 @@ final class CloudVerticalSliceTests: XCTestCase {
         await waitUntilFirstReadSettles(store, transport)
         assertSyncClaimAgreesWithTheWriteGuard(store, "a healthy synced wallet")
 
+        for entitlement in [CloudEntitlementState.expired, .revoked] {
+            store.applyDebugCloudState(
+                authority: .cloud(lineageID: lineage, revision: 2),
+                entitlement: entitlement
+            )
+            XCTAssertFalse(store.isSyncedWithCloud)
+            XCTAssertFalse(store.canStartParentMutation)
+            XCTAssertEqual(store.parentMutationBlock, .planInactive)
+            assertSyncClaimAgreesWithTheWriteGuard(store, "an inactive Cloud plan")
+        }
+        store.applyDebugCloudState(
+            authority: .cloud(lineageID: lineage, revision: 2),
+            entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true)
+        )
+
         transport.failEverything = true
         await store.refresh()
         await waitUntil("the unreachable read settles") { store.connection == .deviceOffline }

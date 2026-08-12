@@ -1543,9 +1543,9 @@ public final class WalletStore: ObservableObject {
         (repository as? any CloudMutationStatusProviding)?.unsettledMutationMessage
     }
     /// Whether this device is, right now, in sync with the Cloud wallet: Cloud
-    /// holds the authority, this device has a valid replica whose revision a
-    /// successful read confirmed, it reached that authority, nothing it sent is
-    /// unresolved, and no review is outstanding.
+    /// holds the authority, its plan is active, this device has a valid replica
+    /// whose revision a successful read confirmed, it reached that authority,
+    /// nothing it sent is unresolved, and no review is outstanding.
     ///
     /// This is the whole evidence a "syncing with Cloud" claim needs, and it is
     /// deliberately the same evidence a protected write needs, so the claim can
@@ -1560,13 +1560,15 @@ public final class WalletStore: ObservableObject {
             && !hasUnsettledCloudMutation
             && connection.reachedAuthority
             && !needsCloudReview
+            && !cloudEntitlement.permitsLocalContinuation
     }
     /// Free local authority is always usable. Cloud starts a new mutation only
-    /// from a connected, reviewed replica with no unresolved request.
+    /// while the shared sync fact confirms an active plan, connected and
+    /// reviewed replica, and no unresolved request.
     public var canStartParentMutation: Bool {
         guard canModifyWallet else { return false }
         guard authorityState.isCloudAuthority else { return true }
-        return isSyncedWithCloud && !cloudEntitlement.permitsLocalContinuation
+        return isSyncedWithCloud
     }
     /// Exactly why a protected parent write is blocked, or `nil` when nothing
     /// is blocking one. It is the single derivation the parent surface reads,
