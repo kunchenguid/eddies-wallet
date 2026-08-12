@@ -455,16 +455,16 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     /// A failed read clears the cached occurrence instead of leaving a stale
     /// guessed backlog visible.
     private func refreshAllowanceSchedule(reservingMutationSlot: Bool = true) async throws {
-        if reservingMutationSlot {
-            guard activeMutation == nil, !isPreparingMutation else {
-                throw WalletAPIError.cloudMutationAwaitingReconciliation
-            }
-            isPreparingMutation = true
-        }
-        defer {
-            if reservingMutationSlot { isPreparingMutation = false }
-        }
         try await serializedRead { [self] in
+            if reservingMutationSlot {
+                guard activeMutation == nil, !isPreparingMutation else {
+                    throw WalletAPIError.cloudMutationAwaitingReconciliation
+                }
+                isPreparingMutation = true
+            }
+            defer {
+                if reservingMutationSlot { isPreparingMutation = false }
+            }
             let requestedRevision = revision
             do {
                 let schedule = try await client.allowanceSchedule()
