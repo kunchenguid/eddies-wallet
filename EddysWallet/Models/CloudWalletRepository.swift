@@ -252,11 +252,20 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         try stage(mutation)
         switch try await settle(mutation) {
         case .observed(let event):
-            if command.kind == .allowance {
-                try? await refreshAllowanceSchedule()
-            }
             guard let event else {
                 return .acceptedAwaitingReplica(try pendingEvent(for: mutation, phase: .acceptedAwaitingReplica))
+            }
+            if command.kind == .allowance {
+                do {
+                    try await refreshAllowanceSchedule()
+                } catch let error as WalletAPIError {
+                    return .acceptedScheduleUnavailable(event, error: error)
+                } catch {
+                    return .acceptedScheduleUnavailable(
+                        event,
+                        error: .invalidResponse("Cloud accepted the allowance payout, but the latest allowance schedule could not be loaded.")
+                    )
+                }
             }
             return .accepted(event)
         case .waiting(_, let diagnostic):

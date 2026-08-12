@@ -872,6 +872,43 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(transport.committedMutationCount, 2)
     }
 
+    func testCloudRecordAllReportsAcceptedPrefixWhenScheduleRefreshFails() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -14, to: calendar.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "schedule-failure-1"))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "schedule-failure-o-1"))
+        transport.enqueue("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "schedule-failure-o-1"))
+        transport.enqueue("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "schedule-failure-o-1"))
+        transport.enqueue("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
+        transport.stub(
+            "POST",
+            "/v1/allowance-rule/a-1/occurrences/schedule-failure-o-1/record",
+            CloudSliceFixtures.depositAccepted(revision: 3, entryID: "schedule-failure-1"),
+            status: 201
+        )
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilParentReadSettles(store, transport)
+        let confirmed = store.missedAllowancePayouts
+
+        let outcome = await store.recordAllMissedAllowance(confirmed)
+
+        XCTAssertEqual(outcome, .scheduleUnavailable(recordedCount: 1, recordedTotalCents: 500))
+        XCTAssertEqual(store.snapshot.activities.filter { $0.remoteID == "schedule-failure-1" }.count, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertTrue(store.missedAllowancePayouts.isEmpty)
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertEqual(store.errorMessage, "The allowance was paid out, but the latest allowance schedule could not be loaded. Refresh before paying out another week.")
+    }
+
     func testParentBootstrapPublishesAuthoritativeAllowanceSchedule() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()

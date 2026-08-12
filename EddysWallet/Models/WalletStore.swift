@@ -1141,6 +1141,13 @@ public final class WalletStore: ObservableObject {
             case .accepted:
                 recordedCount += 1
                 recordedTotalCents += occurrence.amountCents
+            case .acceptedScheduleUnavailable:
+                recordedCount += 1
+                recordedTotalCents += occurrence.amountCents
+                return .scheduleUnavailable(
+                    recordedCount: recordedCount,
+                    recordedTotalCents: recordedTotalCents
+                )
             case .pending, .acceptedAwaitingReplica:
                 return .awaitingCloud(
                     recordedCount: recordedCount,
@@ -1295,9 +1302,14 @@ public final class WalletStore: ObservableObject {
         do {
             let result = try await repository.submit(command)
             if generation == refreshGeneration, elevation == .active {
-                publishOperationDiagnostic(preferredDiagnostic: result.transportDiagnostic)
+                if case .acceptedScheduleUnavailable(_, let error) = result {
+                    publishOperationDiagnostic(for: error)
+                    errorMessage = "The allowance was paid out, but the latest allowance schedule could not be loaded. Refresh before paying out another week."
+                } else {
+                    publishOperationDiagnostic(preferredDiagnostic: result.transportDiagnostic)
+                    errorMessage = nil
+                }
                 snapshot = repository.snapshot()
-                errorMessage = nil
             }
             return result
         } catch let error as WalletAPIError {

@@ -360,6 +360,7 @@ public enum AllowanceRecordAllOutcome: Equatable, Sendable {
     case noMissed
     case recorded(count: Int, totalCents: Int)
     case awaitingCloud(recordedCount: Int, recordedTotalCents: Int)
+    case scheduleUnavailable(recordedCount: Int, recordedTotalCents: Int)
     case reviewRequired(recordedCount: Int, recordedTotalCents: Int)
     /// The accepted prefix is durable. The remaining occurrences have not
     /// been recorded and can be explicitly settled in a later parent action.
@@ -612,12 +613,15 @@ public struct LoanDetail: Sendable {
 
 public enum CommandResult: Sendable {
     case accepted(WalletEvent)
+    case acceptedScheduleUnavailable(WalletEvent, error: WalletAPIError)
     case pending(WalletEvent, diagnostic: TransportDiagnostic? = nil)
     case acceptedAwaitingReplica(WalletEvent, diagnostic: TransportDiagnostic? = nil)
     case rejected(WalletEvent)
 
     public var transportDiagnostic: TransportDiagnostic? {
         switch self {
+        case .acceptedScheduleUnavailable(_, let error):
+            error.transportDiagnostic
         case .pending(_, let diagnostic), .acceptedAwaitingReplica(_, let diagnostic):
             diagnostic
         case .accepted, .rejected:

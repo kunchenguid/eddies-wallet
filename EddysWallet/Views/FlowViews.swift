@@ -308,6 +308,9 @@ struct MoneyFlowView: View {
             resultMessage = kind == .allowance
                 ? "This virtual allowance was paid out and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
                 : "This virtual money event was accepted and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
+        case .acceptedScheduleUnavailable:
+            resultState = .recorded
+            resultMessage = "This virtual allowance was paid out, but Cloud could not load the latest allowance schedule. Refresh before paying out another week."
         case .pending(let event, _):
             resultState = .pending
             resultMessage = event.explanation

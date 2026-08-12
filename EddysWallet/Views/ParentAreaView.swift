@@ -444,6 +444,7 @@ struct ParentAreaView: View {
         switch recordAllMissedAllowanceOutcome {
         case .recorded: "Missed allowances paid out"
         case .awaitingCloud: "Cloud is confirming the payout"
+        case .scheduleUnavailable: "Refresh the allowance schedule"
         case .reviewRequired: "Review the latest allowance"
         case .partial: "Some missed allowances were paid out"
         case .noMissed, nil: "No missed allowances"
@@ -460,6 +461,8 @@ struct ParentAreaView: View {
             } else {
                 "Paid out \(recordedCount) allowance entries totaling \(Money(cents: recordedTotalCents).display). Cloud is confirming the next payout. Refresh before paying out anything else."
             }
+        case .scheduleUnavailable(let recordedCount, let recordedTotalCents):
+            "Paid out \(recordedCount) allowance entries totaling \(Money(cents: recordedTotalCents).display). Cloud could not load the latest allowance schedule. Refresh before paying out anything else."
         case .reviewRequired(let recordedCount, let recordedTotalCents):
             if recordedCount == 0 {
                 "The allowance schedule changed. Review the latest wallet before paying out missed weeks."
