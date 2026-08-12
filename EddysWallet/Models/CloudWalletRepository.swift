@@ -35,9 +35,10 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private var activeSettlement: ActiveSettlement?
     /// A persisted replica is readable immediately, but a new process may not
     /// write from it until one successful server read confirms its revision.
-    /// Derived, not stored: readiness is exactly "the newest settled read
-    /// confirmed the accepted replica", so no code path can leave the flag
-    /// and the fact it stands for pointing different ways.
+    /// Derived, not stored: readiness is exactly "the accepted replica's
+    /// revision remains confirmed". A benign overtaken answer changes nothing;
+    /// a meaningful failed read withdraws confirmation, so no separate flag can
+    /// drift away from the fact it represents.
     public var isReadyForRuntimeMutations: Bool {
         confirmedRevision != nil && confirmedRevision == revision
     }

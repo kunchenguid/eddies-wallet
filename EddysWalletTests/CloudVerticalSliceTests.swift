@@ -1383,6 +1383,9 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.resumeSuspendedRequest()
         await older.value
         await pull.value
+        await waitUntil("the cancelled caller's store-owned read publishes") {
+            store.snapshot.acceptedBalanceCents == 1_000 && !store.isLoading
+        }
 
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_000, "the newest read still published the fresh wallet")
         XCTAssertEqual(cloud.revision, 3)
@@ -1735,9 +1738,12 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertNil(store.parentMutationBlock, "the block's own control recovers without leaving the screen")
         XCTAssertTrue(store.canStartParentMutation)
 
+        let readCount = transport.requests.filter { $0.url?.path == "/v1/cloud/changes" }.count
         transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
         _ = await store.submit(WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "review-key"))
-        await waitUntil("the conflict's own reread settles") { !store.isLoading }
+        await waitUntil("the conflict's own reread settles") {
+            transport.requests.filter { $0.url?.path == "/v1/cloud/changes" }.count > readCount && !store.isLoading
+        }
         XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
 
         // The 409 named revision 7, so only a wallet at or past it counts as

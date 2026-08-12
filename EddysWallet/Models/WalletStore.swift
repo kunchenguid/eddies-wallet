@@ -209,11 +209,10 @@ public final class WalletStore: ObservableObject {
     @Published public private(set) var cloudMessage: String?
     /// Set when the Cloud service refused a change against this device's
     /// revision, so the parent reviews the latest accepted balance before
-    /// retrying. The pending review carries the one fact that may end it: the
-    /// lowest accepted revision that counts as "the latest balance". Because
-    /// the accepted revision is monotonic, no read - however delayed, stale,
-    /// or reordered - can end a review against a balance from before the
-    /// refusal: such a balance is below the floor by definition.
+    /// retrying. The pending review carries the lowest revision that can count
+    /// as "the latest balance". Clearance also requires a ready repository and
+    /// a published Cloud balance at or past that floor, so repository progress
+    /// hidden behind a newer read cannot re-enable writes over stale UI.
     @Published public private(set) var cloudReview: CloudReviewPending?
     /// Whether a parent review is outstanding. Derived, never stored apart
     /// from the review itself.
@@ -1011,12 +1010,10 @@ public final class WalletStore: ObservableObject {
     }
 
     /// Records that the Cloud service refused a change against this device's
-    /// revision, with the floor the review must reach. A 409 names the
-    /// revision the service already holds, so the floor is at least that and
-    /// always past what this device had; a refused precondition proves no
-    /// newer revision exists, so reconfirming the accepted wallet is enough.
-    /// Floors only ever rise: a second refusal cannot lower what an earlier
-    /// one already proved.
+    /// revision, with the floor the review must reach. A 409 uses the greater
+    /// of the service's current revision and one past the refused expected
+    /// revision; a 428 uses the refused expected revision. Floors only ever
+    /// rise: a second refusal cannot lower what an earlier one already proved.
     private func raiseCloudReview(for error: WalletAPIError) {
         let accepted = (repository as? CloudWalletRepository)?.revision ?? 0
         let refused = error.refusedExpectedRevision ?? accepted
@@ -1626,15 +1623,13 @@ public final class WalletStore: ObservableObject {
     /// the parent can see next to the block itself.
     ///
     /// It reads the latest wallet, and ends an outstanding review only when
-    /// the balance now on the parent's screen is provably at or past the
-    /// revision the refusal named - the review's floor. The decision is a
-    /// value comparison against the monotonic accepted revision, made right
-    /// here after the awaited read settles, so no delayed continuation, no
-    /// stale in-flight read, and no reordered arrival can end a review
-    /// against a pre-conflict balance: such a balance sits below the floor by
-    /// definition. A read that fails, or lands a balance still below the
-    /// floor, leaves the block and its reason exactly as they were, with the
-    /// same control still offered.
+    /// the repository is ready and both its accepted revision and the Cloud
+    /// revision published on the parent's screen are at or past the review's
+    /// floor. These are value comparisons made after the awaited read settles,
+    /// so repository progress hidden behind a newer read cannot end review
+    /// against a pre-conflict balance. A read that fails, lands below the
+    /// floor, or does not publish leaves the block and its reason exactly as
+    /// they were, with the same control still offered.
     ///
     /// Unlike a pull-to-refresh, this read is not owned by a gesture, so
     /// nothing cancels it out from under the parent.
@@ -1779,10 +1774,10 @@ public final class WalletStore: ObservableObject {
         }
     }
 
-    /// The review notice's own dismissal. Like the block's recovery, it ends
-    /// the review only against a balance that has provably reached the floor
-    /// the refusal named: acknowledging a stale balance would defeat the
-    /// review, so until the accepted revision catches up the notice stands.
+    /// The review notice's own dismissal. Like the block's recovery, it uses
+    /// the shared clearance boundary: the repository must be ready, and both
+    /// its accepted revision and the published Cloud revision must have
+    /// reached the refusal's floor.
     public func acknowledgeCloudReview() {
         guard let review = cloudReview else { return }
         if canClearCloudReview(review) { cloudReview = nil }
