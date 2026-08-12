@@ -116,6 +116,26 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertTrue(repository.snapshot().activities.isEmpty)
     }
 
+    func testLocalAllowanceRejectsAFutureScheduledOccurrence() async throws {
+        let repository = try LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let futureDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: .now)))
+        _ = try await repository.setAllowance(
+            AllowanceRuleCommand(amountCents: 500, weekday: calendar.component(.weekday, from: futureDate) - 1, startDate: futureDate)
+        )
+
+        let result = try await repository.submit(WalletCommand(kind: .allowance, amountCents: 500))
+
+        guard case .rejected(let event) = result else {
+            return XCTFail("a future allowance occurrence must be rejected")
+        }
+        XCTAssertEqual(event.rejectionReason, "There is no scheduled allowance occurrence to record.")
+        XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 0)
+        XCTAssertTrue(repository.snapshot().activities.isEmpty)
+        XCTAssertEqual(repository.snapshot().allowance?.nextDate, futureDate)
+    }
+
     func testChangedScheduleRequiresReviewWithoutClaimingConfirmedWeeksRemain() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))

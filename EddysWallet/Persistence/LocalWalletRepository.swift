@@ -160,6 +160,9 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
                 return .rejected(rejected(command, "There is no scheduled allowance occurrence to record."))
             }
             let calendar = Calendar.current
+            guard calendar.startOfDay(for: plan.nextDate) <= calendar.startOfDay(for: .now) else {
+                return .rejected(rejected(command, "There is no scheduled allowance occurrence to record."))
+            }
             guard command.amountCents == plan.amountCents else {
                 return .rejected(rejected(command, "The allowance amount no longer matches the weekly plan."))
             }
