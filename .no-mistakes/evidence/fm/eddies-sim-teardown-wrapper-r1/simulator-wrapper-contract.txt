@@ -1,8 +1,0 @@
-PASS headless boundary rejects Simulator.app before device setup
-PASS managed boundary rejects a foreign simulator UDID and tears down its own device
-sim: creating run-scoped simulator EddiesWallet-simrun-61245-5361742041756720382031363a31393a35302032303236-2395919137 (com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro / com.apple.CoreSimulator.SimRuntime.iOS-26-4) in the default device set
-sim: booted 11111111-2222-3333-4444-555555555555
-sim: tearing down run-scoped simulator EddiesWallet-simrun-61245-5361742041756720382031363a31393a35302032303236-2395919137 (11111111-2222-3333-4444-555555555555)
-PASS wrapper substituted its unique UDID and forced one test worker
-PASS wrapper booted and deleted only its exact run-scoped device
-sim-usage: ALL PASS
