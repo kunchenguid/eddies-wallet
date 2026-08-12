@@ -10,6 +10,10 @@ import Foundation
 enum DebugLaunchScenario {
     static let owningParentAppleUserID = "uitest-owning-parent"
 
+    static var disablesAnimations: Bool {
+        ProcessInfo.processInfo.environment["EW_UITEST_DISABLE_ANIMATIONS"] == "1"
+    }
+
     /// Opt-in entry points to the internal diagnostics surfaces (StoreKit
     /// resolution, Cloud recovery evidence). Absent - the default, and the only
     /// possibility in Release - the app offers no path into them at all, so a
@@ -259,15 +263,16 @@ enum DebugLaunchScenario {
             // `EW_UITEST_CLOUD_READ_DELAY_SECONDS` holds each `changes` read
             // open for a realistic round trip so a read can still be in flight
             // when the surface that started it goes away, and
-            // `EW_UITEST_CLOUD_OFFLINE_WINDOW_SECONDS` fails every read started
-            // inside that window so a parent area with a valid replica can be
-            // driven into a genuine block and back out of it.
+            // `EW_UITEST_CLOUD_FAILED_READS` fails exactly that many changes
+            // reads after bootstrap, so a parent area with a valid replica can
+            // be driven into a genuine block and back out of it without making
+            // the scenario depend on simulator launch or automation timing.
             guard let replica = try? LocalWalletRepository(inMemory: true) else { return nil }
             let lineage = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
             let transport = SyntheticCloudTransport(
                 lineageID: lineage,
                 readDelay: seconds(environment["EW_UITEST_CLOUD_READ_DELAY_SECONDS"], default: 0.6),
-                offlineWindow: seconds(environment["EW_UITEST_CLOUD_OFFLINE_WINDOW_SECONDS"])
+                failedReads: count(environment["EW_UITEST_CLOUD_FAILED_READS"])
             )
             let cloud = CloudWalletRepository(
                 client: CloudAPIClient(
@@ -309,6 +314,11 @@ enum DebugLaunchScenario {
     /// renders as "Cloud is on through Dec 31, 4000", which reads as a defect
     /// in every review screenshot the scenarios produce.
     private static let syntheticCloudAccessUntil = Date(timeIntervalSinceNow: 60 * 60 * 24 * 365)
+
+    private static func count(_ raw: String?) -> Int {
+        guard let raw, let value = Int(raw), value > 0 else { return 0 }
+        return value
+    }
 
     private static func seconds(_ raw: String?) -> TimeInterval {
         guard let raw, let value = TimeInterval(raw), value > 0 else { return 0 }
@@ -458,15 +468,14 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
 
     private let lineageID: UUID
     private let readDelay: TimeInterval
-    private let offlineWindow: TimeInterval
-    private let launchedAt = Date()
     private let lock = NSLock()
     private var readCount = 0
+    private var failedReadsRemaining: Int
 
-    init(lineageID: UUID, readDelay: TimeInterval, offlineWindow: TimeInterval = 0) {
+    init(lineageID: UUID, readDelay: TimeInterval, failedReads: Int = 0) {
         self.lineageID = lineageID
         self.readDelay = readDelay
-        self.offlineWindow = offlineWindow
+        self.failedReadsRemaining = failedReads
     }
 
     /// How many `/v1/cloud/changes` reads this transport has been asked for.
@@ -484,13 +493,14 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
         case "/v1/cloud/changes":
             lock.lock()
             readCount += 1
+            let shouldFail = failedReadsRemaining > 0
+            if shouldFail { failedReadsRemaining -= 1 }
             lock.unlock()
             // The bootstrap at launch always lands, so the device keeps a valid
-            // replica; only later reads go unreachable. That is the reachable
-            // shape of a current-replica-but-blocked parent area.
-            if Date().timeIntervalSince(launchedAt) < offlineWindow {
-                throw URLError(.notConnectedToInternet)
-            }
+            // replica; only the requested number of later reads go unreachable.
+            // Counting requests rather than wall-clock time keeps this state
+            // deterministic even when simulator automation attaches slowly.
+            if shouldFail { throw URLError(.notConnectedToInternet) }
             if readDelay > 0 {
                 do {
                     try await Task.sleep(nanoseconds: UInt64(readDelay * 1_000_000_000))
