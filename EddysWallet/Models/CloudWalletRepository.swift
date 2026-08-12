@@ -113,14 +113,12 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             let reconciledMutation = activeMutation
             switch try await settle(reconciledMutation) {
             case .observed:
-                guard role == .parent, reconciledMutationNeedsSchedule(reconciledMutation) else {
-                    return snapshot()
-                }
+                guard role == .parent, hasAllowancePlan else { return snapshot() }
                 do {
                     try await refreshAllowanceSchedule()
-                } catch let error as WalletAPIError {
+                } catch let error as WalletAPIError where reconciledMutationNeedsSchedule(reconciledMutation) {
                     throw WalletAPIError.cloudAcceptedScheduleUnavailable.carrying(error.transportDiagnostic)
-                } catch {
+                } catch where reconciledMutationNeedsSchedule(reconciledMutation) {
                     throw WalletAPIError.cloudAcceptedScheduleUnavailable
                 }
                 return snapshot()
@@ -267,7 +265,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             }
             if command.kind == .allowance {
                 do {
-                    try await refreshAllowanceSchedule()
+                    try await refreshAllowanceSchedule(reservingMutationSlot: false)
                 } catch let error as WalletAPIError {
                     return .acceptedScheduleUnavailable(event, error: error)
                 } catch {
@@ -402,17 +400,22 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             path = "/v1/loans/\(pathComponent(loanID))/repayments"
             body = ["amountCents": command.amountCents]
         case .allowance:
-            try await refreshAllowanceSchedule()
+            try await refreshAllowanceSchedule(reservingMutationSlot: false)
             guard let rule = allowanceSchedule, let occurrenceID = rule.nextOccurrenceID else {
                 throw WalletAPIError.server(statusCode: 409, code: "ALLOWANCE_NOT_SCHEDULED", message: "There is no scheduled allowance occurrence to record.")
             }
             guard command.amountCents == rule.amountCents else {
                 throw WalletAPIError.invalidResponse("The allowance amount changed. Review the current schedule before recording it.")
             }
+            let calendar = Calendar.current
+            let today = calendar.startOfDay(for: .now)
+            guard let nextDueDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:)),
+                  calendar.startOfDay(for: nextDueDate) <= today else {
+                throw WalletAPIError.invalidResponse("The next allowance occurrence is not due yet.")
+            }
             if let expectedDueDate = command.dueDate {
-                let calendar = Calendar.current
                 guard rule.nextDueDate == CloudDayFormat.string(from: expectedDueDate),
-                      calendar.startOfDay(for: expectedDueDate) < calendar.startOfDay(for: .now) else {
+                      calendar.startOfDay(for: expectedDueDate) < today else {
                     throw WalletAPIError.invalidResponse("The missed allowance schedule changed. Review the remaining weeks before paying them out.")
                 }
             }
@@ -451,7 +454,16 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     /// accepted wallet data or weakens the revision proof a Cloud write needs.
     /// A failed read clears the cached occurrence instead of leaving a stale
     /// guessed backlog visible.
-    private func refreshAllowanceSchedule() async throws {
+    private func refreshAllowanceSchedule(reservingMutationSlot: Bool = true) async throws {
+        if reservingMutationSlot {
+            guard activeMutation == nil, !isPreparingMutation else {
+                throw WalletAPIError.cloudMutationAwaitingReconciliation
+            }
+            isPreparingMutation = true
+        }
+        defer {
+            if reservingMutationSlot { isPreparingMutation = false }
+        }
         try await serializedRead { [self] in
             let requestedRevision = revision
             do {

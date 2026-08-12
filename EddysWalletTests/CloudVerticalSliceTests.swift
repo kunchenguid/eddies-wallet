@@ -953,6 +953,41 @@ final class CloudVerticalSliceTests: XCTestCase {
         )
     }
 
+    func testReconciledDepositRefreshesActiveAllowanceSchedule() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let missedDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: calendar.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "reconciled-deposit"), status: 201)
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.depositChangesWithAllowance(
+            lineage: lineage,
+            revision: 3,
+            balanceCents: 1_000,
+            entryID: "reconciled-deposit"
+        ))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(
+            dueDate: missedDate,
+            occurrenceID: "missed-after-deposit"
+        ))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        transport.dropNextResponse("GET", "/v1/cloud/changes")
+
+        guard case .acceptedAwaitingReplica = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "reconciled-deposit-key")
+        ) else {
+            return XCTFail("the lost observation must remain unresolved")
+        }
+
+        let snapshot = try await cloud.refresh(for: .parent)
+
+        XCTAssertEqual(snapshot.allowance?.nextOccurrenceID, "missed-after-deposit")
+        XCTAssertEqual(snapshot.allowance?.missedPayouts(calendar: calendar).count, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
     func testParentBootstrapPublishesAuthoritativeAllowanceSchedule() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
@@ -1019,6 +1054,31 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(cloud.isReadyForRuntimeMutations)
     }
 
+    func testParentScheduleReadReservesTheSingleMutationSlot() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let missedDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "refresh-occurrence"))
+        transport.suspend("GET", "/v1/allowance-rule")
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let refresh = Task { try await cloud.refresh(for: .parent) }
+        await transport.waitUntilSuspended()
+        let competing = try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 100))
+
+        guard case .rejected = competing else {
+            return XCTFail("a schedule read must reserve the mutation slot")
+        }
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/wallet/deposits" })
+        transport.resumeSuspendedRequest()
+        let snapshot = try await refresh.value
+        XCTAssertEqual(snapshot.allowance?.nextOccurrenceID, "refresh-occurrence")
+    }
+
     func testAllowancePreparationReservesTheSingleMutationSlot() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
         let missedDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: .now)))
@@ -1059,6 +1119,27 @@ final class CloudVerticalSliceTests: XCTestCase {
                 return XCTFail("the changed due occurrence should require review")
             }
         }
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testOrdinaryAllowanceCannotRecordAFutureOccurrence() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        let futureDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: 7, to: Calendar.current.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(
+            dueDate: futureDate,
+            occurrenceID: "future-occurrence"
+        ))
+
+        do {
+            _ = try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500))
+            XCTFail("an ordinary payout must not record a future occurrence")
+        } catch let error as WalletAPIError {
+            guard case .invalidResponse = error.operationError else {
+                return XCTFail("a future occurrence should require review")
+            }
+        }
+
         XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })
         XCTAssertFalse(cloud.hasUnsettledMutation)
     }
@@ -3892,6 +3973,24 @@ enum CloudSliceFixtures {
 
     static func bootstrapWithAllowance(lineage: UUID) -> Data {
         let source = String(decoding: bootstrap(lineage: lineage), as: UTF8.self)
+        return Data(source.replacingOccurrences(
+            of: "\"allowanceRule\":null",
+            with: "\"allowanceRule\":{\"id\":\"a-1\",\"amountCents\":500,\"cadence\":\"weekly\",\"weekday\":5,\"startDate\":\"2026-07-01\",\"endDate\":null,\"active\":true}"
+        ).utf8)
+    }
+
+    static func depositChangesWithAllowance(
+        lineage: UUID,
+        revision: Int64,
+        balanceCents: Int,
+        entryID: String
+    ) -> Data {
+        let source = String(decoding: changes(
+            lineage: lineage,
+            revision: revision,
+            balanceCents: balanceCents,
+            entryID: entryID
+        ), as: UTF8.self)
         return Data(source.replacingOccurrences(
             of: "\"allowanceRule\":null",
             with: "\"allowanceRule\":{\"id\":\"a-1\",\"amountCents\":500,\"cadence\":\"weekly\",\"weekday\":5,\"startDate\":\"2026-07-01\",\"endDate\":null,\"active\":true}"
