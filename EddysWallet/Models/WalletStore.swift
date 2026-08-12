@@ -207,9 +207,16 @@ public final class WalletStore: ObservableObject {
     /// the two StoreKit products are both ready.
     @Published public private(set) var cloudPlans: [CloudPlan] = []
     @Published public private(set) var cloudMessage: String?
-    /// Set when another device moved the Cloud household first, so the parent
-    /// reviews the latest accepted balance before retrying.
-    @Published public private(set) var needsCloudReview = false
+    /// Set when the Cloud service refused a change against this device's
+    /// revision, so the parent reviews the latest accepted balance before
+    /// retrying. The pending review carries the lowest revision that can count
+    /// as "the latest balance". Clearance also requires a ready repository and
+    /// a published Cloud balance at or past that floor, so repository progress
+    /// hidden behind a newer read cannot re-enable writes over stale UI.
+    @Published public private(set) var cloudReview: CloudReviewPending?
+    /// Whether a parent review is outstanding. Derived, never stored apart
+    /// from the review itself.
+    public var needsCloudReview: Bool { cloudReview != nil }
     /// Last result for profile and allowance mutations, which do not create a
     /// ledger event but still need truthful accepted/waiting/rejected copy.
     @Published public private(set) var latestParentMutationOutcome: ParentMutationOutcome?
@@ -248,17 +255,15 @@ public final class WalletStore: ObservableObject {
     /// Refreshes overlap by design: this store's own launch read, the kid
     /// home's `.task`, returning from the Parent area, coming back to the
     /// foreground, and every pull-to-refresh can all be in flight together.
-    /// Non-Cloud publication is newest-attempt-wins. Cloud publication instead
-    /// reads the repository's current accepted snapshot, whose own generations
-    /// and revisions decide which overlapping answer became authoritative.
-    private var refreshAttempts = 0
-    /// Set while a parent has asked to review the latest balance from a block's
-    /// own control. It remains armed until the store publishes a repository-
-    /// accepted read completed after `reviewAcceptedReadBoundary`; no-answer
-    /// reads, failures, and delayed pre-boundary reads cannot end the review.
-    private var endsReviewOnNextSettledRead = false
-    /// Repository-accepted completion generation captured when review begins.
-    private var reviewAcceptedReadBoundary: Int?
+    /// Each read is stamped in the order it started, and only the newest
+    /// read of the current generation may publish, so a slow one can never
+    /// land last and overwrite what a newer read already showed. The reads
+    /// themselves are owned by this store and always settle: a caller that
+    /// stops waiting - SwiftUI ends the task behind every `.refreshable` -
+    /// cancels only its own waiting, never the read or its publication, so
+    /// no gesture can kill the newest read and leave an older one silenced
+    /// with no publisher left.
+    private var newestReadID = 0
     /// Set while the scene is out of the foreground, so the return can re-read
     /// the wallet that `handleAppBackgrounded()` retired.
     private var didLeaveForeground = false
@@ -632,7 +637,7 @@ public final class WalletStore: ObservableObject {
         converged.pendingEvents += refusedLegacyActions
         snapshot = converged
         connection = .reached
-        endCloudReview()
+        cloudReview = nil
         cloudEntitlement = cloudCoordinator.entitlement
         cloudMessage = cloudCoordinator.message
     }
@@ -830,26 +835,55 @@ public final class WalletStore: ObservableObject {
             if authorityState == .unconfigured { authorityState = .localSetup }
             return
         }
-        let requestedRole = viewRole
+        let completion = startOwnedRead()
+        for await _ in completion {}
+    }
+
+    /// Starts one read this store owns. The returned completion stream lets a
+    /// caller wait without owning the read: cancellation ends iteration
+    /// promptly but does not cancel the task producing the completion. The
+    /// read still settles, and if it is the newest one it still publishes, so
+    /// no gesture can retire the newest read and leave the wallet with no
+    /// publisher.
+    private func startOwnedRead() -> AsyncStream<Void> {
+        newestReadID += 1
+        let id = newestReadID
         let generation = refreshGeneration
-        refreshAttempts += 1
-        let attempt = refreshAttempts
+        let role = viewRole
         isLoading = true
-        defer {
-            // Only the newest attempt owns the spinner: an older read finishing
-            // underneath it must not report the wallet as settled.
-            if generation == refreshGeneration, attempt == refreshAttempts { isLoading = false }
+        let completion = AsyncStream<Void>.makeStream()
+        Task { @MainActor in
+            await self.performRead(id: id, generation: generation, role: role)
+            completion.continuation.finish()
         }
+        return completion.stream
+    }
+
+    private func performRead(id: Int, generation: Int, role: UserRole) async {
+        let outcome: Result<WalletSnapshot, Error>
         do {
-            let refreshed = try await repository.refresh(for: requestedRole)
-            guard canPublishSuccessfulRead(attempt, generation: generation, role: requestedRole) else { return }
+            outcome = .success(try await repository.refresh(for: role))
+        } catch {
+            outcome = .failure(error)
+        }
+        // The one publication guard, in the one place a read settles: only the
+        // newest read of the current generation speaks. An older read settling
+        // underneath it publishes nothing - its data, if any, already advanced
+        // the repository, and the newest read republishes repository state.
+        // Everything below runs synchronously on the main actor, so no other
+        // read can interleave with a publication that has begun.
+        guard id == newestReadID, generation == refreshGeneration, role == viewRole else { return }
+        isLoading = false
+        switch outcome {
+        case .success(let refreshed):
+            // For Cloud the repository is the accepted authority and another
+            // accepted read - a mutation settlement's own reread - may have
+            // advanced it after this read returned, so publication re-reads
+            // its current snapshot instead of a value captured earlier.
             snapshot = repository is CloudWalletRepository
-                ? (requestedRole == .child ? repository.childSnapshot() : repository.snapshot())
+                ? (role == .child ? repository.childSnapshot() : repository.snapshot())
                 : refreshed
             needsSetup = false
-            if endsReviewOnNextSettledRead, canEndCloudReview() {
-                endCloudReview()
-            }
             if let cloud = repository as? CloudWalletRepository {
                 authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
             } else if let local = repository as? LocalWalletRepository, let lineageID = local.lineageID {
@@ -859,19 +893,17 @@ public final class WalletStore: ObservableObject {
             connection = .reached
             sessionExpired = false
             await convergeLegacyDeviceOntoCloud(generation: generation)
-        } catch let error as WalletAPIError {
-            guard canPublish(attempt, generation: generation, role: requestedRole), !isCancellation(error) else { return }
+        case .failure(let error as WalletAPIError):
+            guard !isCancellation(error) else { return }
             // The newest read's own failure is the one worth reporting. What
             // the readout shows then survives a later successful read: a parent
             // reporting an intermittent failure needs it after recovery.
             publishOperationDiagnostic(for: error)
             switch error.operationError {
             case .familyNotSetup:
-                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 needsSetup = true
                 errorMessage = nil
             case .unauthorized, .noSession:
-                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 if repository.hasConfiguredKid {
                     sessionExpired = true
                     errorMessage = "Your parent session expired. Sign in with Apple again."
@@ -889,17 +921,15 @@ public final class WalletStore: ObservableObject {
                 // A failure with no preserved transport shape proves only that
                 // the authority was not reached, never that the device is
                 // offline, so it is reported as exactly that much.
-                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
-                publishUnreachedAuthority(.serviceUnreachable, error: error, role: requestedRole)
+                publishUnreachedAuthority(.serviceUnreachable, error: error, role: role)
             case let .transportFailure(diagnostic):
-                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 switch diagnostic.connection {
                 case .deviceOffline:
-                    publishUnreachedAuthority(.deviceOffline, error: error, role: requestedRole)
+                    publishUnreachedAuthority(.deviceOffline, error: error, role: role)
                 case .serviceUnreachable, .reached:
                     // Nothing was thrown after a response arrived, so the most
                     // any such failure proves is an authority not reached.
-                    publishUnreachedAuthority(.serviceUnreachable, error: error, role: requestedRole)
+                    publishUnreachedAuthority(.serviceUnreachable, error: error, role: role)
                 case nil:
                     // A cancelled attempt observed no answer at all. It says
                     // nothing about this family's connection and must never
@@ -907,12 +937,10 @@ public final class WalletStore: ObservableObject {
                     break
                 }
             case .revisionConflict, .revisionRequired:
-                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
-                beginCloudReview()
+                raiseCloudReview(for: error)
                 errorMessage = userMessage(for: error)
-                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
-            case .cloudAcceptedAwaitingReplica:
-                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
+                snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
+            case .cloudAcceptedAwaitingReplica, .cloudMutationAwaitingReconciliation:
                 if error.transportDiagnostic == nil {
                     connection = .reached
                     if let cloud = repository as? CloudWalletRepository {
@@ -920,17 +948,7 @@ public final class WalletStore: ObservableObject {
                     }
                 }
                 errorMessage = error.transportDiagnostic == nil ? nil : userMessage(for: error)
-                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
-            case .cloudMutationAwaitingReconciliation:
-                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
-                if error.transportDiagnostic == nil {
-                    connection = .reached
-                    if let cloud = repository as? CloudWalletRepository {
-                        authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
-                    }
-                }
-                errorMessage = error.transportDiagnostic == nil ? nil : userMessage(for: error)
-                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
+                snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
             case .cancelled:
                 // A Cloud read still in flight when the parent signed this
                 // device out of Cloud, or kept it going locally, comes back
@@ -942,14 +960,13 @@ public final class WalletStore: ObservableObject {
                 // above all no emptied balance over the parent's wallet.
                 break
             default:
-                guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
                 errorMessage = userMessage(for: error)
-                snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
+                snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
             }
-        } catch {
-            guard canPublish(attempt, generation: generation, role: requestedRole), !isCancellation(error) else { return }
+        case .failure(let error):
+            guard !isCancellation(error) else { return }
             errorMessage = "The wallet could not be updated. Your last accepted balance is still shown."
-            snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
+            snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
         }
     }
 
@@ -992,18 +1009,22 @@ public final class WalletStore: ObservableObject {
         snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
     }
 
-    private func canPublishSuccessfulRead(_ attempt: Int, generation: Int, role: UserRole) -> Bool {
-        guard generation == refreshGeneration, role == viewRole else { return false }
-        if repository is CloudWalletRepository { return true }
-        return attempt == refreshAttempts
-    }
-
-    /// Whether a failed read may still write what it saw into published state.
-    /// A failure is superseded when parent elevation moved underneath it, or
-    /// when another read started later.
-    private func canPublish(_ attempt: Int, generation: Int, role: UserRole) -> Bool {
-        guard generation == refreshGeneration, role == viewRole else { return false }
-        return attempt == refreshAttempts
+    /// Records that the Cloud service refused a change against this device's
+    /// revision, with the floor the review must reach. A 409 uses the greater
+    /// of the service's current revision and one past the refused expected
+    /// revision; a 428 uses the refused expected revision. Floors only ever
+    /// rise: a second refusal cannot lower what an earlier one already proved.
+    private func raiseCloudReview(for error: WalletAPIError) {
+        let accepted = (repository as? CloudWalletRepository)?.revision ?? 0
+        let refused = error.refusedExpectedRevision ?? accepted
+        let floor: Int64
+        if case .revisionConflict(let currentRevision) = error.operationError {
+            let revisionAfterRefused = refused == .max ? Int64.max : refused + 1
+            floor = max(currentRevision, revisionAfterRefused)
+        } else {
+            floor = refused
+        }
+        cloudReview = CloudReviewPending(floorRevision: max(floor, cloudReview?.floorRevision ?? 0))
     }
 
     public func setupParent(_ setup: ParentSetup, pin: String, confirmation: String) async -> Bool {
@@ -1117,6 +1138,13 @@ public final class WalletStore: ObservableObject {
                 latestParentMutationOutcome = .waitingForCloud
                 snapshot = repository.snapshot()
                 errorMessage = nil
+            case .revisionConflict, .revisionRequired:
+                latestParentMutationOutcome = .notRecorded
+                errorMessage = userMessage(for: error)
+                if repository is CloudWalletRepository {
+                    raiseCloudReview(for: error)
+                    Task { [weak self] in await self?.refresh() }
+                }
             default:
                 latestParentMutationOutcome = .notRecorded
                 errorMessage = userMessage(for: error)
@@ -1207,13 +1235,13 @@ public final class WalletStore: ObservableObject {
                elevation == .active {
                 // Another device moved first: nothing was recorded here, and the
                 // parent reviews the refreshed balance before retrying.
-                beginCloudReview()
+                raiseCloudReview(for: error)
                 Task { [weak self] in await self?.refresh() }
             }
             if case .revisionRequired = operationError,
                generation == refreshGeneration,
                elevation == .active {
-                beginCloudReview()
+                raiseCloudReview(for: error)
                 Task { [weak self] in await self?.refresh() }
             }
             if case .cloudEntitlementRequired = operationError,
@@ -1438,7 +1466,7 @@ public final class WalletStore: ObservableObject {
         sessionExpired = false
         connection = .reached
         latestTransportDiagnostic = nil
-        endCloudReview()
+        cloudReview = nil
         latestParentMutationOutcome = nil
         showsFirstActionsHandoff = false
         clearPINFailureState()
@@ -1594,18 +1622,26 @@ public final class WalletStore: ObservableObject {
     /// The one in-app way out of a blocked parent state, started from a control
     /// the parent can see next to the block itself.
     ///
-    /// It reads the latest wallet, and ends an outstanding review only after
-    /// publishing a repository-accepted read completed beyond the boundary
-    /// captured when review began. A delayed pre-boundary read cannot end the
-    /// review, and a read that fails leaves the block and its reason exactly as
-    /// they were. The qualifying read need not be this one: a reread the
-    /// rejection itself started can already be in flight and apply afterward.
+    /// It reads the latest wallet, and ends an outstanding review only when
+    /// the repository is ready and both its accepted revision and the Cloud
+    /// revision published on the parent's screen are at or past the review's
+    /// floor. These are value comparisons made after the awaited read settles,
+    /// so repository progress hidden behind a newer read cannot end review
+    /// against a pre-conflict balance. A read that fails, lands below the
+    /// floor, or does not publish leaves the block and its reason exactly as
+    /// they were, with the same control still offered.
     ///
     /// Unlike a pull-to-refresh, this read is not owned by a gesture, so
     /// nothing cancels it out from under the parent.
     public func clearParentMutationBlock() async {
-        endsReviewOnNextSettledRead = needsCloudReview
+        let hadReview = needsCloudReview
         await refresh()
+        // The floor is re-read after the awaited read settles, so a refusal
+        // that raised it in the meantime is respected, and leaving the Parent
+        // area retires the request: only a balance the parent is still on
+        // screen to see may end a review.
+        guard hadReview, elevation == .active, let review = cloudReview else { return }
+        if canClearCloudReview(review) { cloudReview = nil }
     }
     public var hasValidCloudReplica: Bool {
         #if DEBUG
@@ -1697,7 +1733,7 @@ public final class WalletStore: ObservableObject {
         repository = cloud.localReplica
         authorityState = cloud.localReplica.lineageID.map { .local(lineageID: $0) } ?? .localSetup
         snapshot = repository.snapshot()
-        endCloudReview()
+        cloudReview = nil
         cloudMessage = nil
         return true
     }
@@ -1720,7 +1756,7 @@ public final class WalletStore: ObservableObject {
         snapshot = repository.snapshot()
         cloudEntitlement = .none
         purchaseAttempt = .idle
-        endCloudReview()
+        cloudReview = nil
         cloudMessage = "This device signed out of Cloud. The wallet still works here and nothing was deleted."
         return true
     }
@@ -1738,27 +1774,22 @@ public final class WalletStore: ObservableObject {
         }
     }
 
+    /// The review notice's own dismissal. Like the block's recovery, it uses
+    /// the shared clearance boundary: the repository must be ready, and both
+    /// its accepted revision and the published Cloud revision must have
+    /// reached the refusal's floor.
     public func acknowledgeCloudReview() {
-        if canEndCloudReview() {
-            endCloudReview()
-        }
+        guard let review = cloudReview else { return }
+        if canClearCloudReview(review) { cloudReview = nil }
     }
 
-    private func beginCloudReview() {
-        needsCloudReview = true
-        reviewAcceptedReadBoundary = (repository as? CloudWalletRepository)?.acceptedReadCompletionGeneration
-    }
-
-    private func canEndCloudReview() -> Bool {
+    private func canClearCloudReview(_ review: CloudReviewPending) -> Bool {
         guard let cloud = repository as? CloudWalletRepository,
-              let boundary = reviewAcceptedReadBoundary else { return false }
-        return cloud.acceptedReadCompletionGeneration > boundary
-    }
-
-    private func endCloudReview() {
-        endsReviewOnNextSettledRead = false
-        reviewAcceptedReadBoundary = nil
-        needsCloudReview = false
+              cloud.isReadyForRuntimeMutations,
+              cloud.revision >= review.floorRevision,
+              let publishedRevision = authorityState.revision,
+              publishedRevision >= review.floorRevision else { return false }
+        return true
     }
 
     private func adoptCoordinatorState() async {
@@ -1929,9 +1960,6 @@ public final class WalletStore: ObservableObject {
 
     private func deElevate() {
         refreshGeneration += 1
-        // Leaving retires the parent's own request to review: only a balance
-        // they are still on screen to see may end one.
-        endsReviewOnNextSettledRead = false
         elevation = .none
         gateRoute = .pinEntry
         pin = ""

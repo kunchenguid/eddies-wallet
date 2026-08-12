@@ -104,8 +104,9 @@ public enum ParentMutationBlock: Equatable, Sendable, CaseIterable {
 
     /// What pressing the block's own control does.
     public enum Recovery: Equatable, Sendable {
-        /// Read the latest wallet. An outstanding review ends only after a
-        /// post-boundary repository-accepted read is published.
+        /// Read the latest wallet. An outstanding review ends only when the
+        /// repository is ready and both its accepted revision and the store's
+        /// published Cloud revision have reached the refusal's floor.
         case readLatest
         /// The one block no read can lift. The way out is the Cloud plan
         /// surface further down the same screen, so the control goes there.
@@ -125,6 +126,24 @@ public enum ParentMutationBlock: Equatable, Sendable, CaseIterable {
         case .planInactive: "See Cloud plan"
         case .replicaUnavailable, .authorityUnreached, .revisionUnconfirmed: "Refresh now"
         }
+    }
+}
+
+/// A pending parent review raised when Cloud refuses a money, allowance, or
+/// child-profile change against this device's revision.
+///
+/// `floorRevision` is the lowest accepted revision that can count as the
+/// latest balance for this review. A 409 uses the greater of the service's
+/// current revision and one past the refused expected revision; a 428 uses the
+/// refused expected revision. Reaching this floor is necessary but not enough
+/// to clear review: the repository must also be ready and the store must have
+/// published a Cloud balance at or past the floor. These value checks make a
+/// pre-refusal balance ineligible regardless of read timing or ordering.
+public struct CloudReviewPending: Equatable, Sendable {
+    public let floorRevision: Int64
+
+    public init(floorRevision: Int64) {
+        self.floorRevision = floorRevision
     }
 }
 
@@ -541,6 +560,7 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
     var rejectionStatusCode: Int?
     var rejectionCode: String?
     var rejectionMessage: String?
+    var rejectionCurrentRevision: Int64?
 
     init(
         kind: CloudMutationKind,
@@ -570,6 +590,7 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
         self.rejectionStatusCode = nil
         self.rejectionCode = nil
         self.rejectionMessage = nil
+        self.rejectionCurrentRevision = nil
     }
 
     var waitingMessage: String {

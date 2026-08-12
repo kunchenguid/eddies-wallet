@@ -8,6 +8,9 @@ struct EddysWalletApp: App {
 
     init() {
         #if DEBUG
+        if DebugLaunchScenario.disablesAnimations {
+            UIView.setAnimationsEnabled(false)
+        }
         if let scenarioStore = DebugLaunchScenario.makeStore() {
             _store = StateObject(wrappedValue: scenarioStore)
             return

@@ -71,6 +71,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
     case invalidConfiguration
     case revisionConflict(currentRevision: Int64)
     case revisionRequired
+    indirect case cloudRevisionRefusal(WalletAPIError, expectedRevision: Int64)
     case cloudEntitlementRequired
     case cloudMutationAwaitingReconciliation
     case cloudAcceptedAwaitingReplica
@@ -91,6 +92,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         case .invalidConfiguration: "The production API URL is not configured correctly."
         case .revisionConflict: "This wallet changed on another device. Review the latest balance before recording this action."
         case .revisionRequired: "This wallet needs the latest Cloud balance before recording this action."
+        case .cloudRevisionRefusal(let error, _): error.localizedDescription
         case .cloudEntitlementRequired: "Cloud ended, so this action was not recorded. This wallet still works on this device."
         case .cloudMutationAwaitingReconciliation: "Cloud has not confirmed the previous change yet. Reconnect and check it before recording another change."
         case .cloudAcceptedAwaitingReplica: "Cloud accepted this change. This device is waiting to see the updated wallet. Do not record it again."
@@ -101,6 +103,8 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         switch self {
         case .transportFailure(let diagnostic), .requestFailure(_, let diagnostic):
             diagnostic
+        case .cloudRevisionRefusal(let error, _):
+            error.transportDiagnostic
         default:
             nil
         }
@@ -108,8 +112,24 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
 
     var operationError: WalletAPIError {
         switch self {
-        case .requestFailure(let error, _): error.operationError
+        case .requestFailure(let error, _), .cloudRevisionRefusal(let error, _): error.operationError
         default: self
+        }
+    }
+
+    var refusedExpectedRevision: Int64? {
+        if case .cloudRevisionRefusal(_, let expectedRevision) = self {
+            return expectedRevision
+        }
+        return nil
+    }
+
+    func anchoredToRefusedRevision(_ expectedRevision: Int64) -> WalletAPIError {
+        switch operationError {
+        case .revisionConflict, .revisionRequired:
+            .cloudRevisionRefusal(self, expectedRevision: expectedRevision)
+        default:
+            self
         }
     }
 
@@ -939,7 +959,9 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
                 try requireCurrentLifecycle(generation)
                 rejectedEvents.insert(event, at: 0)
                 return .rejected(event)
-            case .cancelled, .timedOut, .familyNotSetup, .identityMismatch, .revisionRequired, .cloudEntitlementRequired, .cloudMutationAwaitingReconciliation, .cloudAcceptedAwaitingReplica:
+            case .cancelled, .timedOut, .familyNotSetup, .identityMismatch, .revisionRequired,
+                 .cloudRevisionRefusal, .cloudEntitlementRequired,
+                 .cloudMutationAwaitingReconciliation, .cloudAcceptedAwaitingReplica:
                 throw error
             case .revisionConflict:
                 let event = makeLocalEvent(for: command, state: .rejected, message: "This action was not recorded. Review the latest balance before recording it again.", rejectionReason: error.localizedDescription)

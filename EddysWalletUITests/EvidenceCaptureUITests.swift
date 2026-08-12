@@ -30,6 +30,10 @@ final class EvidenceCaptureUITests: XCTestCase {
     private func launch(_ scenario: String, environment: [String: String] = [:], arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["EW_UITEST_SCENARIO"] = scenario
+        // Evidence captures need settled end states, not transition frames.
+        // Disabling app animations also prevents XCTest from spending its
+        // one-minute quiescence fallback on a stuck sheet transition.
+        app.launchEnvironment["EW_UITEST_DISABLE_ANIMATIONS"] = "1"
         for (key, value) in environment {
             app.launchEnvironment[key] = value
         }
@@ -583,7 +587,7 @@ final class EvidenceCaptureUITests: XCTestCase {
             "cloud-live-parent",
             environment: [
                 "EW_UITEST_CLOUD_READ_DELAY_SECONDS": "0",
-                "EW_UITEST_CLOUD_OFFLINE_WINDOW_SECONDS": "16"
+                "EW_UITEST_CLOUD_FAILED_READS": "1"
             ]
         )
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 20))
@@ -600,7 +604,6 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["cloud-syncing-note"].exists)
         capture("parent-cloud-card-agrees-with-the-block")
 
-        Thread.sleep(forTimeInterval: 18)
         let recovery = app.buttons["cloud-mutation-block-recovery"]
         for _ in 0..<8 where !recovery.isHittable { app.swipeDown() }
         XCTAssertTrue(recovery.isHittable)

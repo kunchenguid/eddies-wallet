@@ -943,7 +943,7 @@ final class EddysWalletUITests: XCTestCase {
             "cloud-live-parent",
             environment: [
                 "EW_UITEST_CLOUD_READ_DELAY_SECONDS": "0",
-                "EW_UITEST_CLOUD_OFFLINE_WINDOW_SECONDS": "16"
+                "EW_UITEST_CLOUD_FAILED_READS": "1"
             ]
         )
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 20))
@@ -964,8 +964,8 @@ final class EddysWalletUITests: XCTestCase {
         for _ in 0..<6 where !recovery.isHittable { app.swipeUp() }
         XCTAssertTrue(recovery.isHittable, "and that control must be reachable, not hidden under the fold")
 
-        // Wait out the synthetic outage, then take the way out the block offers.
-        Thread.sleep(forTimeInterval: 18)
+        // The synthetic transport failed the launch read only, so the block's
+        // own recovery control now gets a reachable authority.
         recovery.tap()
 
         XCTAssertTrue(
