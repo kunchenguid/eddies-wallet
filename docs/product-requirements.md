@@ -270,7 +270,7 @@ Flow:
 3. Review a sentence such as “Add US$10.00 virtual dollars every Friday starting August 1.”
 4. Save the rule behind the parent PIN.
 5. Show the earliest current or future expected date and distinguish the rule from an actual allowance entry. A past missed date must not be repeated as the next allowance summary.
-6. **Pay out allowance** settles the next occurrence one at a time after a deliberate parent action. It must not claim that an allowance was paid out until the event is accepted.
+6. **Pay out allowance** settles the next occurrence one at a time after it is due; it must never pay a future occurrence. It must not claim that an allowance was paid out until the event is accepted.
 7. An unrecorded weekly occurrence due strictly before today is missed. Show every currently missed occurrence, **N missed weeks**, and **Owed total** in both free-local and Cloud modes. An occurrence due today remains the ordinary single payout and is not part of the missed set.
 8. **Pay out missed allowance** asks the parent to confirm the initially visible missed set, including its entry count and total, then **Pay out all** settles that fixed set sequentially as separate allowance entries. It never expands the batch to include a newly due occurrence. Accepted weeks remain durable after interruption, while the untouched weeks remain visible and payable later without duplicates.
 

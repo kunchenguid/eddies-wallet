@@ -419,10 +419,11 @@ final class EvidenceCaptureUITests: XCTestCase {
         unlockParentArea(app)
         capture("parent-missed-allowance-initial")
         let recordAll = app.buttons["Pay out missed allowance"]
-        for _ in 0..<3 where !recordAll.exists {
+        for _ in 0..<3 where !recordAll.isHittable {
             app.swipeUp()
         }
         XCTAssertTrue(recordAll.waitForExistence(timeout: 5))
+        XCTAssertTrue(recordAll.isHittable)
         capture("parent-missed-allowance")
 
         recordAll.tap()
