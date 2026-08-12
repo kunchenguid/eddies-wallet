@@ -360,6 +360,7 @@ public enum AllowanceRecordAllOutcome: Equatable, Sendable {
     case noMissed
     case recorded(count: Int, totalCents: Int)
     case awaitingCloud(recordedCount: Int, recordedTotalCents: Int)
+    case reviewRequired(recordedCount: Int, recordedTotalCents: Int)
     /// The accepted prefix is durable. The remaining occurrences have not
     /// been recorded and can be explicitly settled in a later parent action.
     case partial(recordedCount: Int, recordedTotalCents: Int, remaining: AllowanceMissedPayouts)

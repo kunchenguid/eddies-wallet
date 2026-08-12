@@ -1127,7 +1127,10 @@ public final class WalletStore: ObservableObject {
             // edit, single record, or Cloud revision change leaves the rest
             // for an explicit next parent action.
             guard missedAllowancePayouts.occurrences.first == occurrence else {
-                break
+                return .reviewRequired(
+                    recordedCount: recordedCount,
+                    recordedTotalCents: recordedTotalCents
+                )
             }
             let result = await submit(WalletCommand(
                 kind: .allowance,
@@ -1144,24 +1147,22 @@ public final class WalletStore: ObservableObject {
                     recordedTotalCents: recordedTotalCents
                 )
             case .rejected:
+                let current = missedAllowancePayouts
+                guard current.occurrences.first == occurrence else {
+                    return .reviewRequired(
+                        recordedCount: recordedCount,
+                        recordedTotalCents: recordedTotalCents
+                    )
+                }
                 return .partial(
                     recordedCount: recordedCount,
                     recordedTotalCents: recordedTotalCents,
-                    remaining: AllowanceMissedPayouts(
-                        occurrences: Array(initial.occurrences.dropFirst(recordedCount))
-                    )
+                    remaining: current
                 )
             }
         }
 
-        if recordedCount == initial.count {
-            return .recorded(count: recordedCount, totalCents: recordedTotalCents)
-        }
-        return .partial(
-            recordedCount: recordedCount,
-            recordedTotalCents: recordedTotalCents,
-            remaining: AllowanceMissedPayouts(occurrences: Array(initial.occurrences.dropFirst(recordedCount)))
-        )
+        return .recorded(count: recordedCount, totalCents: recordedTotalCents)
     }
 
     @discardableResult
@@ -1336,6 +1337,7 @@ public final class WalletStore: ObservableObject {
                 rejectionReason: userMessage(for: error)
             )
             if generation == refreshGeneration, elevation == .active {
+                snapshot = repository.snapshot()
                 errorMessage = userMessage(for: error)
             }
             return .rejected(event)

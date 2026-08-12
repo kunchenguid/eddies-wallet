@@ -293,7 +293,15 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             idempotencyKey: command.idempotencyKey,
             expectedRevision: revision
         )
-        return try await performNonMoneyMutation(mutation)
+        _ = try await performNonMoneyMutation(mutation)
+        do {
+            try await refreshAllowanceSchedule()
+            return snapshot()
+        } catch let error as WalletAPIError {
+            throw WalletAPIError.cloudAcceptedAwaitingReplica.carrying(error.transportDiagnostic)
+        } catch {
+            throw WalletAPIError.cloudAcceptedAwaitingReplica
+        }
     }
 
     public func setup(_: ParentSetup) async throws -> WalletSnapshot {
