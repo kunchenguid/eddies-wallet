@@ -868,6 +868,137 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Checking with Cloud"].exists)
     }
 
+    /// The reported 0.1.14 defect, driven end to end through the real
+    /// `CloudWalletRepository`: from a healthy synced parent area, one ordinary
+    /// pull-to-refresh left every money action disabled behind the generic
+    /// "Reconnect and review the latest Cloud wallet" notice - beside a green
+    /// "syncing with Cloud" line, with no error and nothing on screen to clear
+    /// it. SwiftUI ends a pull-to-refresh task, which killed the read in
+    /// flight; a read that observed nothing must not take write access away.
+    func testParentPullToRefreshKeepsAHealthySyncedParentAreaWritable() throws {
+        let app = launch("cloud-live-parent", environment: ["EW_UITEST_CLOUD_READ_DELAY_SECONDS": "1.5"])
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 20))
+        openParentArea(in: app)
+
+        let deposit = app.buttons["Add deposit"]
+        let notice = app.descendants(matching: .any)["cloud-mutation-controls-notice"]
+        XCTAssertTrue(deposit.waitForExistence(timeout: 15))
+        XCTAssertTrue(deposit.isEnabled, "a healthy synced Cloud wallet starts writable")
+        XCTAssertFalse(notice.exists, "nothing is blocking a write before the pull")
+
+        pullToRefreshParentArea(in: app)
+        // The pull's own read has to have started and settled before the state
+        // it left behind can be judged.
+        Thread.sleep(forTimeInterval: 4)
+
+        XCTAssertFalse(
+            notice.exists,
+            "a parent pull-to-refresh must not raise the reconnect/review block"
+        )
+        for title in parentActionTitles {
+            let action = app.buttons[title]
+            XCTAssertTrue(action.exists, "\(title) must stay in the parent area")
+            XCTAssertTrue(action.isEnabled, "\(title) must stay usable after a plain refresh")
+        }
+        let syncingNote = app.descendants(matching: .any)["cloud-syncing-note"]
+        for _ in 0..<8 where !syncingNote.exists { app.swipeUp() }
+        XCTAssertTrue(syncingNote.exists, "the wallet is still in sync, so the green line stays")
+    }
+
+    /// The kid home's own pull, on the same real Cloud repository: a read that
+    /// ends without an answer still tells the child nothing. This is the
+    /// behavior PR #64 shipped, held against the parent-side fix.
+    func testKidHomePullToRefreshOnCloudStaysSilentWhenItsReadIsCutShort() throws {
+        let app = launch("cloud-live-parent", environment: ["EW_UITEST_CLOUD_READ_DELAY_SECONDS": "1.5"])
+        let balance = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "US$7.50")).firstMatch
+        XCTAssertTrue(balance.waitForExistence(timeout: 20), "the Cloud wallet reaches the kid home")
+
+        let scrollView = app.scrollViews.firstMatch
+        XCTAssertTrue(scrollView.waitForExistence(timeout: 5))
+        scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+            .press(
+                forDuration: 0.05,
+                thenDragTo: scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0.6
+            )
+        Thread.sleep(forTimeInterval: 4)
+
+        for claim in ["You're offline", "Your wallet is hard to reach", "Your wallet couldn't update"] {
+            XCTAssertFalse(
+                app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", claim)).firstMatch.exists,
+                "a pull whose read observed nothing must not tell the child \(claim)"
+            )
+        }
+        XCTAssertTrue(balance.exists, "and the accepted wallet stays on screen")
+    }
+
+    /// A genuinely blocked parent - a valid Cloud replica this device cannot
+    /// currently confirm - must be able to get out without leaving the screen.
+    /// The confirmed dead end was exactly this state: the generic notice named
+    /// nothing to do, and the Cloud card's `Got it` appears for a pending
+    /// review alone, so only relaunching the app recovered.
+    func testABlockedParentAreaCarriesItsOwnWayOut() throws {
+        let app = launch(
+            "cloud-live-parent",
+            environment: [
+                "EW_UITEST_CLOUD_READ_DELAY_SECONDS": "0",
+                "EW_UITEST_CLOUD_OFFLINE_WINDOW_SECONDS": "16"
+            ]
+        )
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 20))
+        openParentArea(in: app)
+
+        let notice = app.descendants(matching: .any)["cloud-mutation-controls-notice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 15), "an unreachable authority blocks a protected write")
+        let deposit = app.buttons["Add deposit"]
+        XCTAssertTrue(deposit.waitForExistence(timeout: 5))
+        XCTAssertFalse(deposit.isEnabled, "the write-safety block itself is preserved")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["cloud-syncing-note"].exists,
+            "a device that has not reached Cloud is never shown as syncing"
+        )
+
+        let recovery = app.buttons["cloud-mutation-block-recovery"]
+        XCTAssertTrue(recovery.waitForExistence(timeout: 5), "the block must carry its own control")
+        for _ in 0..<6 where !recovery.isHittable { app.swipeUp() }
+        XCTAssertTrue(recovery.isHittable, "and that control must be reachable, not hidden under the fold")
+
+        // Wait out the synthetic outage, then take the way out the block offers.
+        Thread.sleep(forTimeInterval: 18)
+        recovery.tap()
+
+        XCTAssertTrue(
+            deposit.waitForExistence(timeout: 15) && waitUntilEnabled(deposit, timeout: 15),
+            "the block's own control must restore the parent's money actions"
+        )
+        XCTAssertFalse(notice.exists, "and clear the block it was shown on")
+    }
+
+    private func waitUntilEnabled(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.isEnabled { return true }
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        return element.isEnabled
+    }
+
+    /// The parent area's own pull-to-refresh, driven as a person performs it.
+    /// The kid home sits underneath the elevation cover with a scroll view of
+    /// its own, so the gesture is addressed to the parent surface by identifier.
+    private func pullToRefreshParentArea(in app: XCUIApplication) {
+        let scrollView = app.scrollViews["parent-area-scroll"]
+        XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "the parent area must own a pull-to-refresh surface")
+        scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+            .press(
+                forDuration: 0.05,
+                thenDragTo: scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0.6
+            )
+    }
+
     // Report criterion 2 (P3): backgrounding drops elevation; foregrounding
     // shows the kid home again.
     func testBackgroundingDropsParentElevation() throws {

@@ -19,6 +19,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private var activeMutation: PendingCloudMutation?
     private var nextReadGeneration = 0
     private var lastAppliedReadGeneration = 0
+    private var minimumAcceptedReadGeneration = 0
+    public private(set) var acceptedReadCompletionGeneration = 0
     /// The server revision of the newest read this instance actually applied,
     /// or `nil` while the persisted replica is still unconfirmed. It is
     /// deliberately not `revision`, which starts at the persisted value: a
@@ -92,6 +94,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             }
             let readGeneration = beginRead()
             let changes = try await client.changes(afterRevision: revision)
+            guard readGeneration >= minimumAcceptedReadGeneration else {
+                throw WalletAPIError.cancelled
+            }
             // A lower-revision answer this device may have overtaken is not a
             // failure once its authority is validated. It publishes nothing
             // and reports the newer wallet it arrived behind.
@@ -105,11 +110,46 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             try apply(changes, merging: true, readGeneration: readGeneration)
             return snapshot()
         } catch {
-            if lastAppliedReadGeneration < attemptedReadGeneration {
+            if let walletError = error as? WalletAPIError {
+                prepareForCloudReview(ifNeeded: walletError)
+            }
+            if lastAppliedReadGeneration < attemptedReadGeneration, observedAnAnswer(error) {
                 isReadyForRuntimeMutations = false
             }
             throw error
         }
+    }
+
+    /// Whether a failed read learned anything about the accepted replica.
+    ///
+    /// Write readiness records that one successful read confirmed this
+    /// replica's revision in this process. Only a read that actually observed
+    /// something - an unreachable authority, an unreadable answer, a wrong
+    /// lineage, a conflict - can call that confirmation into question, and it
+    /// still does. A read that observed no answer at all cannot: a
+    /// pull-to-refresh SwiftUI ends, a read retired by a newer one, and a read
+    /// refused by the Cloud-to-local hand-off lease all report exactly nothing
+    /// about whether the confirmed revision is still current.
+    ///
+    /// Withdrawing readiness for those was the whole 0.1.14 parent-area defect.
+    /// SwiftUI ends the task behind a pull-to-refresh, so an ordinary parent
+    /// pull killed its own read in flight; readiness was dropped here while
+    /// `WalletStore.refresh` correctly published nothing for an attempt that
+    /// observed nothing. The parent was left with every money action disabled
+    /// beside a green "syncing with Cloud" line, no error, and - because no
+    /// review was actually pending - no way to clear it.
+    ///
+    /// This is the same rule the legacy repository already applies to its
+    /// cached child view, which will not mark a wallet stale on a cancelled
+    /// attempt either. Write safety is untouched: the write itself still
+    /// carries the confirmed revision as `If-Match`, so a replica that has
+    /// silently fallen behind is refused by the service and routed into review.
+    private func observedAnAnswer(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        guard let walletError = error as? WalletAPIError else { return true }
+        if walletError.operationError == .cancelled { return false }
+        if let diagnostic = walletError.transportDiagnostic { return diagnostic.connection != nil }
+        return true
     }
 
     public func bootstrap() async throws -> WalletSnapshot {
@@ -161,7 +201,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             return .rejected(blockedEvent(for: command))
         }
         guard client.hasSession else { throw WalletAPIError.noSession }
-        guard isReadyForRuntimeMutations else { throw WalletAPIError.revisionRequired }
+        try requireRuntimeMutationReadiness()
         let mutation = try await moneyMutation(for: command)
         try stage(mutation)
         switch try await settle(mutation) {
@@ -316,7 +356,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private func performNonMoneyMutation(_ mutation: PendingCloudMutation) async throws -> WalletSnapshot {
         guard activeMutation == nil else { throw WalletAPIError.cloudMutationAwaitingReconciliation }
         guard client.hasSession else { throw WalletAPIError.noSession }
-        guard isReadyForRuntimeMutations else { throw WalletAPIError.revisionRequired }
+        try requireRuntimeMutationReadiness()
         guard hasValidReplica else {
             throw WalletAPIError.invalidResponse("Reconnect before changing this Cloud wallet.")
         }
@@ -389,6 +429,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         var mutation = original
         if mutation.phase == .rejected {
             let rejection = rejectionError(from: mutation)
+            prepareForCloudReview(ifNeeded: rejection)
             do {
                 try clear(mutation)
             } catch {
@@ -439,11 +480,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                     return .waiting(.cancelled, nil)
                 }
                 if isDefinitiveRejection(rejection) {
-                    if case .revisionConflict = rejection.operationError {
-                        isReadyForRuntimeMutations = false
-                    } else if case .revisionRequired = rejection.operationError {
-                        isReadyForRuntimeMutations = false
-                    }
+                    prepareForCloudReview(ifNeeded: rejection)
                     do {
                         try clear(mutation)
                     } catch {
@@ -576,7 +613,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         resolving mutation: PendingCloudMutation? = nil,
         readGeneration: Int
     ) throws -> Bool {
-        guard readGeneration >= lastAppliedReadGeneration else {
+        guard readGeneration >= minimumAcceptedReadGeneration,
+              readGeneration >= lastAppliedReadGeneration else {
             throw WalletAPIError.cancelled
         }
         let observed = try replica.applyCloudReplica(
@@ -586,6 +624,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             applicationLease: replicaApplicationLease
         )
         lastAppliedReadGeneration = readGeneration
+        acceptedReadCompletionGeneration += 1
         revision = replicaPayload.household.revision
         lastAppliedRevision = replicaPayload.household.revision
         isReadyForRuntimeMutations = true
@@ -600,6 +639,23 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private func beginRead() -> Int {
         nextReadGeneration += 1
         return nextReadGeneration
+    }
+
+    private func requireRuntimeMutationReadiness() throws {
+        guard isReadyForRuntimeMutations else {
+            prepareForCloudReview(ifNeeded: .revisionRequired)
+            throw WalletAPIError.revisionRequired
+        }
+    }
+
+    private func prepareForCloudReview(ifNeeded error: WalletAPIError) {
+        switch error.operationError {
+        case .revisionConflict, .revisionRequired:
+            isReadyForRuntimeMutations = false
+            minimumAcceptedReadGeneration = max(minimumAcceptedReadGeneration, nextReadGeneration + 1)
+        default:
+            break
+        }
     }
 
     /// Whether an arriving Cloud answer has already been overtaken.

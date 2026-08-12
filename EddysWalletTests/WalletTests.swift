@@ -6,13 +6,31 @@ import XCTest
 @MainActor
 final class WalletTests: XCTestCase {
     func testRejectedCleanupAllowanceAccessibilityCopyIsLocalAndTerminal() {
-        let hint = ParentAreaView.allowanceAccessibilityHint(
-            canStartParentMutation: false,
-            hasRejectedCloudMutationCleanup: true
-        )
+        let hint = ParentAreaView.allowanceAccessibilityHint(block: .rejectedCleanup)
         XCTAssertEqual(hint, "Finish local cleanup before changing the allowance")
         for forbidden in ["reconnect", "checking", "pending", "accepted", "network"] {
             XCTAssertFalse(hint.localizedCaseInsensitiveContains(forbidden))
+        }
+    }
+
+    /// A block that has nothing to do with reachability must never reach a
+    /// parent - by sight or by VoiceOver - as a claim that this device is
+    /// disconnected. That conflation is what made the 0.1.14 parent block
+    /// unreadable and unactionable.
+    func testOnlyAnUnreachedAuthorityIsDescribedAsAConnectionProblem() {
+        for block in ParentMutationBlock.allCases {
+            let hint = ParentAreaView.allowanceAccessibilityHint(block: block)
+            let message = block.message(deviceNoun: "iPhone")
+            XCTAssertFalse(hint.isEmpty)
+            XCTAssertFalse(block.recoveryActionTitle.isEmpty, "every block owes the parent a control to press")
+            guard block != .authorityUnreached, block != .replicaUnavailable else { continue }
+            for claim in ["reconnect", "offline", "connection"] {
+                XCTAssertFalse(
+                    message.localizedCaseInsensitiveContains(claim),
+                    "\(block) says nothing about reaching Cloud, so it must not say \(claim)"
+                )
+                XCTAssertFalse(hint.localizedCaseInsensitiveContains(claim), "\(block) hint must not say \(claim)")
+            }
         }
     }
 

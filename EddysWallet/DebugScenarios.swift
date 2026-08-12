@@ -74,7 +74,7 @@ enum DebugLaunchScenario {
             return store(
                 repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)),
                 authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
-                entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: true,
                 accountDeletionService: ScriptedAccountDeletionService()
             )
@@ -172,33 +172,33 @@ enum DebugLaunchScenario {
         case "cloud-offline-grace":
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .cloudOfflineGrace(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7), entitlement: .active(accessUntil: .distantPast, autoRenewEnabled: true))
         case "device-conflict":
-            return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 8), purchase: .activationConflict, entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true))
+            return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 8), purchase: .activationConflict, entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true))
         case "cloud-write-recorded":
             return store(
                 repository: ScriptedWalletRepository(snapshot: snapshot(.fixture(), environment: environment)),
                 authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
-                entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: true
             )
         case "cloud-write-waiting":
             return store(
                 repository: ScriptedWalletRepository(snapshot: snapshot(.fixture(), environment: environment), mutationMode: .waiting),
                 authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
-                entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: true
             )
         case "cloud-write-accepted-waiting":
             return store(
                 repository: ScriptedWalletRepository(snapshot: snapshot(.fixture(), environment: environment), mutationMode: .acceptedWaiting),
                 authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
-                entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: true
             )
         case "cloud-write-rejected":
             return store(
                 repository: ScriptedWalletRepository(snapshot: snapshot(.fixture(), environment: environment), mutationMode: .rejected),
                 authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
-                entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: true
             )
         case "cloud-rejected-cleanup":
@@ -211,21 +211,21 @@ enum DebugLaunchScenario {
                     rejectedCleanupFailures: 4
                 ),
                 authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
-                entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: true
             )
         case "cloud-profile-accepted-waiting":
             return store(
                 repository: ScriptedWalletRepository(snapshot: snapshot(.fixture(), environment: environment), mutationMode: .profileAcceptedWaiting),
                 authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
-                entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: true
             )
         case "cloud-reconnect":
             return store(
                 repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)),
                 authority: .cloudOffline(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
-                entitlement: .active(accessUntil: .distantFuture, autoRenewEnabled: true),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: false
             )
         case "reconnecting":
@@ -249,6 +249,44 @@ enum DebugLaunchScenario {
                     offlineWindowSeconds: seconds(environment["EW_UITEST_OFFLINE_WINDOW_SECONDS"])
                 )
             )
+        case "cloud-live-parent":
+            // The only scenario that composes the real `CloudWalletRepository`
+            // over a synthetic in-process transport, so a UI test can drive the
+            // production Cloud read path - bootstrap, `/v1/cloud/changes`,
+            // replica application, and write readiness - instead of a scripted
+            // repository that can only pose as one. It is what makes the
+            // current-replica-but-blocked states reachable end to end.
+            // `EW_UITEST_CLOUD_READ_DELAY_SECONDS` holds each `changes` read
+            // open for a realistic round trip so a read can still be in flight
+            // when the surface that started it goes away, and
+            // `EW_UITEST_CLOUD_OFFLINE_WINDOW_SECONDS` fails every read started
+            // inside that window so a parent area with a valid replica can be
+            // driven into a genuine block and back out of it.
+            guard let replica = try? LocalWalletRepository(inMemory: true) else { return nil }
+            let lineage = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
+            let transport = SyntheticCloudTransport(
+                lineageID: lineage,
+                readDelay: seconds(environment["EW_UITEST_CLOUD_READ_DELAY_SECONDS"], default: 0.6),
+                offlineWindow: seconds(environment["EW_UITEST_CLOUD_OFFLINE_WINDOW_SECONDS"])
+            )
+            let cloud = CloudWalletRepository(
+                client: CloudAPIClient(
+                    baseURL: SyntheticCloudTransport.baseURL,
+                    sessionStore: InMemorySessionStore(
+                        session: AuthSession(token: "uitest-session", expiresAt: .distantFuture)
+                    ),
+                    transport: transport
+                ),
+                replica: replica,
+                lineageID: lineage,
+                revision: 0,
+                requiresBootstrap: true
+            )
+            return store(
+                repository: cloud,
+                authority: .cloud(lineageID: lineage, revision: 2),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true)
+            )
         case "legacy":
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .legacyService)
         default:
@@ -267,8 +305,19 @@ enum DebugLaunchScenario {
         return copy
     }
 
+    /// A plausible renewal date for synthetic Cloud states. `.distantFuture`
+    /// renders as "Cloud is on through Dec 31, 4000", which reads as a defect
+    /// in every review screenshot the scenarios produce.
+    private static let syntheticCloudAccessUntil = Date(timeIntervalSinceNow: 60 * 60 * 24 * 365)
+
     private static func seconds(_ raw: String?) -> TimeInterval {
         guard let raw, let value = TimeInterval(raw), value > 0 else { return 0 }
+        return value
+    }
+
+    private static func seconds(_ raw: String?, default fallback: TimeInterval) -> TimeInterval {
+        guard let raw else { return fallback }
+        guard let value = TimeInterval(raw), value >= 0 else { return fallback }
         return value
     }
 
@@ -386,6 +435,100 @@ final class ReconnectingWalletRepository: WalletRepository {
 
     private func unreachable() -> WalletAPIError {
         scriptedTransportFailure(URLError(.notConnectedToInternet))
+    }
+}
+
+/// The Cloud read contract, answered in process from synthetic fixture data.
+///
+/// It exists so a UI test can run the real `CloudWalletRepository` and
+/// `CloudAPIClient` - the production read, apply, and write-readiness path -
+/// with no network, account, or service. Only the wire is synthetic.
+///
+/// `readDelay` holds every `/v1/cloud/changes` answer open for a realistic
+/// round trip, and the wait is cancellation-aware in exactly the way
+/// `URLSession.data(for:)` is: a cancelled surrounding task ends the request
+/// with `URLError.cancelled` rather than an answer. That is what lets a test
+/// reproduce a read that was still in flight when the screen that started it
+/// went away.
+///
+/// `data(for:)` is nonisolated and the store starts unstructured reads, so
+/// every stored property is guarded by one lock.
+final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
+    static let baseURL = URL(string: "https://synthetic-cloud.invalid")!
+
+    private let lineageID: UUID
+    private let readDelay: TimeInterval
+    private let offlineWindow: TimeInterval
+    private let launchedAt = Date()
+    private let lock = NSLock()
+    private var readCount = 0
+
+    init(lineageID: UUID, readDelay: TimeInterval, offlineWindow: TimeInterval = 0) {
+        self.lineageID = lineageID
+        self.readDelay = readDelay
+        self.offlineWindow = offlineWindow
+    }
+
+    /// How many `/v1/cloud/changes` reads this transport has been asked for.
+    var reads: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return readCount
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let path = request.url?.path ?? ""
+        switch path {
+        case "/v1/cloud/bootstrap":
+            return try respond(Self.replica(lineageID: lineageID), to: request)
+        case "/v1/cloud/changes":
+            lock.lock()
+            readCount += 1
+            lock.unlock()
+            // The bootstrap at launch always lands, so the device keeps a valid
+            // replica; only later reads go unreachable. That is the reachable
+            // shape of a current-replica-but-blocked parent area.
+            if Date().timeIntervalSince(launchedAt) < offlineWindow {
+                throw URLError(.notConnectedToInternet)
+            }
+            if readDelay > 0 {
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(readDelay * 1_000_000_000))
+                } catch {
+                    // Exactly what URLSession reports for a request whose task
+                    // was cancelled before an answer arrived.
+                    throw URLError(.cancelled)
+                }
+            }
+            return try respond(Self.replica(lineageID: lineageID), to: request)
+        default:
+            return try respond(Data("{}".utf8), to: request, status: 501)
+        }
+    }
+
+    private func respond(_ body: Data, to request: URLRequest, status: Int = 200) throws -> (Data, URLResponse) {
+        guard let url = request.url,
+              let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil) else {
+            throw URLError(.badServerResponse)
+        }
+        return (body, response)
+    }
+
+    /// One settled household at revision 2: two accepted entries, balance
+    /// US$7.50, no loans and no allowance rule. A `changes` read answers the
+    /// same accepted revision, which is what a healthy wallet with nothing new
+    /// actually returns.
+    private static func replica(lineageID: UUID) -> Data {
+        Data("""
+        {"household":{"lineageId":"\(lineageID.uuidString.lowercased())","authority":"cloud","revision":2},
+         "family":{"id":"f-1","name":"Eddie's family"},
+         "child":{"id":"c-1","nickname":"Eddie","avatarUrl":null},
+         "wallet":{"id":"w-1","balanceCents":750},
+         "entries":[
+           {"id":"c1111111-1111-4111-8111-111111111111","type":"deposit","direction":"credit","amountCents":1000,"balanceBeforeCents":0,"balanceAfterCents":1000,"reason":"chores","loanId":null,"recordedAt":"2026-07-24T10:00:00.000Z","acceptedRevision":1},
+           {"id":"c2222222-2222-4222-8222-222222222222","type":"withdrawal","direction":"debit","amountCents":250,"balanceBeforeCents":1000,"balanceAfterCents":750,"reason":"sticker book","loanId":null,"recordedAt":"2026-07-25T10:00:00.000Z","acceptedRevision":2}],
+         "loans":[],"allowanceRule":null,"nextCursor":null}
+        """.utf8)
     }
 }
 
