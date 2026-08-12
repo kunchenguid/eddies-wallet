@@ -80,11 +80,22 @@ struct CloudStatusView: View {
             if store.needsCloudReview {
                 reviewNotice
             }
-            if isCloudOn, store.authorityState.isCloudAuthority, store.hasValidCloudReplica {
+            // The green line is gated on the same evidence a protected write
+            // needs, so it can never appear beside a blocked money control.
+            // Reading only "an active plan, Cloud authority, and some stored
+            // replica" as "syncing" is what let 0.1.14 claim this device was in
+            // sync while every parent action was disabled behind a block.
+            if isCloudOn, store.isSyncedWithCloud {
                 Label("This \(DeviceCopy.deviceNoun) is syncing with Cloud.", systemImage: "checkmark.circle.fill")
                     .font(EW.Font.caption)
                     .foregroundStyle(EW.Color.green700)
                     .accessibilityIdentifier("cloud-syncing-note")
+            } else if isCloudOn, store.authorityState.isCloudAuthority, let block = store.parentMutationBlock {
+                Label(Self.notSyncedNote(block, deviceNoun: DeviceCopy.deviceNoun), systemImage: "exclamationmark.circle.fill")
+                    .font(EW.Font.caption)
+                    .foregroundStyle(EW.Color.gold700)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("cloud-not-syncing-note")
             }
             if store.canContinueLocallyAfterCloud {
                 Button("Keep using this \(DeviceCopy.deviceNoun)") {
@@ -386,6 +397,28 @@ struct CloudStatusView: View {
             .font(EW.Font.caption)
             .foregroundStyle(EW.Color.primaryActive)
             .frame(minHeight: 44, alignment: .leading)
+        }
+    }
+
+    /// The Cloud card states the current sync fact only. What to do about it,
+    /// and the control that does it, belong on the block itself in the Parent
+    /// actions section, so a parent is never sent hunting between cards.
+    private static func notSyncedNote(_ block: ParentMutationBlock, deviceNoun: String) -> String {
+        switch block {
+        case .rejectedCleanup:
+            "This \(deviceNoun) has local cleanup to finish before it syncs again."
+        case .unsettledMutation:
+            "This \(deviceNoun) is waiting for Cloud to confirm its last change."
+        case .replicaUnavailable:
+            "This \(deviceNoun) does not have the Cloud wallet yet."
+        case .planInactive:
+            "This \(deviceNoun) is not syncing: the Cloud plan is not active."
+        case .awaitingReview:
+            "This wallet changed somewhere else and is waiting to be reviewed."
+        case .authorityUnreached:
+            "This \(deviceNoun) has not reached Cloud."
+        case .revisionUnconfirmed:
+            "This \(deviceNoun) has not confirmed the latest Cloud wallet yet."
         }
     }
 

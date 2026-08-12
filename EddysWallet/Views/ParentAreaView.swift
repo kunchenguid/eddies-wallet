@@ -22,17 +22,19 @@ struct ParentAreaView: View {
         ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)
     }
 
-    static func allowanceAccessibilityHint(
-        canStartParentMutation: Bool,
-        hasRejectedCloudMutationCleanup: Bool
-    ) -> String {
-        if canStartParentMutation {
-            return "Opens allowance setup"
+    /// VoiceOver hears the same specific reason the block states, never a
+    /// blanket "reconnect" for a device that is already connected.
+    static func allowanceAccessibilityHint(block: ParentMutationBlock?) -> String {
+        guard let block else { return "Opens allowance setup" }
+        switch block {
+        case .rejectedCleanup: return "Finish local cleanup before changing the allowance"
+        case .unsettledMutation: return "Wait for Cloud to confirm the last change before changing the allowance"
+        case .replicaUnavailable: return "Reconnect to get the Cloud wallet before changing the allowance"
+        case .planInactive: return "The Cloud plan is not active, so the allowance cannot be changed"
+        case .awaitingReview: return "Review the latest balance before changing the allowance"
+        case .authorityUnreached: return "Reconnect before changing the allowance"
+        case .revisionUnconfirmed: return "Refresh the Cloud wallet before changing the allowance"
         }
-        if hasRejectedCloudMutationCleanup {
-            return "Finish local cleanup before changing the allowance"
-        }
-        return "Reconnect and finish checking the previous Cloud change first"
     }
 
     /// Shows the first-actions spotlight right after setup, and whenever the
@@ -47,76 +49,80 @@ struct ParentAreaView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: EW.Space.six) {
-                    if let errorMessage = store.errorMessage {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle")
-                            .font(EW.Font.caption)
-                            .foregroundStyle(EW.Color.red600)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(EW.Space.three)
-                            .background(EW.Color.dangerTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
-                    }
-
-                    if store.canShowWalletData {
-                        if showsHandoffCard {
-                            firstActionsCard
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: EW.Space.six) {
+                        if let errorMessage = store.errorMessage {
+                            Label(errorMessage, systemImage: "exclamationmark.triangle")
+                                .font(EW.Font.caption)
+                                .foregroundStyle(EW.Color.red600)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(EW.Space.three)
+                                .background(EW.Color.dangerTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
                         }
 
-                        walletCards
+                        if store.canShowWalletData {
+                            if showsHandoffCard {
+                                firstActionsCard
+                            }
 
-                        SectionHeader("Recent activity")
-                        if store.snapshot.activities.isEmpty {
-                            Text("Nothing recorded yet. Add a first deposit or set the weekly allowance.")
-                                .font(EW.Font.body)
-                                .foregroundStyle(EW.Color.textSecondary)
+                            walletCards
+
+                            SectionHeader("Recent activity")
+                            if store.snapshot.activities.isEmpty {
+                                Text("Nothing recorded yet. Add a first deposit or set the weekly allowance.")
+                                    .font(EW.Font.body)
+                                    .foregroundStyle(EW.Color.textSecondary)
+                            } else {
+                                ActivityListCard(events: store.snapshot.activities) { event in
+                                    selectedEvent = event
+                                }
+                            }
+
+                            if store.canModifyWallet {
+                                SectionHeader("Parent actions")
+                                if let block = store.parentMutationBlock {
+                                    mutationControlsNotice(block, scroll: scroll)
+                                }
+                                actionGrid
+                            }
                         } else {
-                            ActivityListCard(events: store.snapshot.activities) { event in
-                                selectedEvent = event
-                            }
+                            cloudReplicaUnavailableCard
                         }
 
-                        if store.canModifyWallet {
-                            SectionHeader("Parent actions")
-                            if !store.canStartParentMutation {
-                                mutationControlsNotice
-                            }
-                            actionGrid
+                        SectionHeader("Cloud")
+                            .id(Self.cloudSectionAnchor)
+                        CloudStatusView()
+
+                        SectionHeader("Settings")
+                        settingsCard
+
+                        SectionHeader("Account")
+                        accountCard
+                    }
+                    .padding(.horizontal, EW.Space.screenMargin)
+                    .padding(.top, EW.Space.five)
+                    .padding(.bottom, EW.Space.ten)
+                    .frame(maxWidth: 980)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .accessibilityIdentifier("parent-area-scroll")
+                .background(EW.Color.appBackground.ignoresSafeArea())
+                .navigationTitle("Parent area")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    if !store.isDeletingAccount && !store.hasDeletedAccount {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            doneButton
                         }
-                    } else {
-                        cloudReplicaUnavailableCard
-                    }
-
-                    SectionHeader("Cloud")
-                    CloudStatusView()
-
-                    SectionHeader("Settings")
-                    settingsCard
-
-                    SectionHeader("Account")
-                    accountCard
-                }
-                .padding(.horizontal, EW.Space.screenMargin)
-                .padding(.top, EW.Space.five)
-                .padding(.bottom, EW.Space.ten)
-                .frame(maxWidth: 980)
-                .frame(maxWidth: .infinity, alignment: .center)
-            }
-            .background(EW.Color.appBackground.ignoresSafeArea())
-            .navigationTitle("Parent area")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if !store.isDeletingAccount && !store.hasDeletedAccount {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        doneButton
                     }
                 }
-            }
-            .toolbarBackground(EW.Color.green900, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .refreshable {
-                await store.refresh()
+                .toolbarBackground(EW.Color.green900, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .refreshable {
+                    await store.refresh()
+                }
             }
         }
         .sheet(item: $selectedEvent) { event in
@@ -203,6 +209,9 @@ struct ParentAreaView: View {
         "Reconnect this \(deviceNoun) to show the Cloud wallet balance and activity."
     }
 
+    /// This card stands in for the whole wallet, so it is also the block for a
+    /// device with no usable replica - and it owes the same reachable way out
+    /// every other block carries.
     private var cloudReplicaUnavailableCard: some View {
         VStack(alignment: .leading, spacing: EW.Space.three) {
             Label("Cloud wallet unavailable", systemImage: "icloud.slash")
@@ -212,10 +221,19 @@ struct ParentAreaView: View {
                 .font(EW.Font.body)
                 .foregroundStyle(EW.Color.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Button(ParentMutationBlock.replicaUnavailable.recoveryActionTitle) {
+                Task { await store.clearParentMutationBlock() }
+            }
+            .buttonStyle(.plain)
+            .font(EW.Font.bodyBold)
+            .foregroundStyle(EW.Color.primaryActive)
+            .frame(minHeight: 44, alignment: .leading)
+            .disabled(store.isLoading)
+            .accessibilityIdentifier("cloud-mutation-block-recovery")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .ewCard(variant: .alt)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("parent-cloud-replica-unavailable")
     }
 
@@ -289,10 +307,7 @@ struct ParentAreaView: View {
                 .buttonStyle(.plain)
                 .disabled(!store.canStartParentMutation)
                 .opacity(store.canStartParentMutation ? 1 : 0.55)
-                .accessibilityHint(Self.allowanceAccessibilityHint(
-                    canStartParentMutation: store.canStartParentMutation,
-                    hasRejectedCloudMutationCleanup: store.hasRejectedCloudMutationCleanup
-                ))
+                .accessibilityHint(Self.allowanceAccessibilityHint(block: store.parentMutationBlock))
                 .accessibilityIdentifier("parent-allowance-card")
             } else {
                 allowanceCardContent
@@ -331,24 +346,78 @@ struct ParentAreaView: View {
         }
     }
 
-    private var mutationControlsNotice: some View {
-        HStack(alignment: .top, spacing: EW.Space.three) {
-            Image(systemName: store.hasRejectedCloudMutationCleanup ? "xmark.circle.fill" : (store.hasUnsettledCloudMutation ? "clock.fill" : "icloud.slash"))
-                .foregroundStyle(store.hasRejectedCloudMutationCleanup ? EW.Color.red600 : EW.Color.gold700)
-            Text(store.hasRejectedCloudMutationCleanup
-                 ? "This change was not recorded. Finish local cleanup before recording another action."
-                 : (store.unsettledCloudMutationMessage
-                    ?? "Reconnect and review the latest Cloud wallet before recording another change."))
-                .font(EW.Font.caption)
-                .foregroundStyle(EW.Color.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+    /// The block that disables the money controls, stated as the guard that is
+    /// actually holding and shipped with the control that clears it.
+    ///
+    /// The recovery is not optional garnish. Before it existed, a block whose
+    /// reason was not a pending review put the parent in a dead end: the
+    /// generic notice named nothing to do, and the Cloud card's `Got it`
+    /// - the only clear on the screen - is shown for a pending review alone.
+    /// Every case now answers with its own way out, on the block itself.
+    private func mutationControlsNotice(_ block: ParentMutationBlock, scroll: ScrollViewProxy) -> some View {
+        let isTerminal = block == .rejectedCleanup
+        return VStack(alignment: .leading, spacing: EW.Space.two) {
+            HStack(alignment: .top, spacing: EW.Space.three) {
+                Image(systemName: Self.noticeSymbol(block))
+                    .foregroundStyle(isTerminal ? EW.Color.red600 : EW.Color.gold700)
+                Text(Self.noticeMessage(block, unsettled: store.unsettledCloudMutationMessage))
+                    .font(EW.Font.caption)
+                    .foregroundStyle(EW.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button(block.recoveryActionTitle) {
+                switch block.recovery {
+                case .readLatest:
+                    Task { await store.clearParentMutationBlock() }
+                case .cloudPlan:
+                    withAnimation { scroll.scrollTo(Self.cloudSectionAnchor, anchor: .top) }
+                }
+            }
+            .buttonStyle(.plain)
+            .font(EW.Font.bodyBold)
+            .foregroundStyle(EW.Color.primaryActive)
+            .frame(minHeight: 44, alignment: .leading)
+            .disabled(store.isLoading)
+            .accessibilityIdentifier("cloud-mutation-block-recovery")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(EW.Space.three)
-        .background(store.hasRejectedCloudMutationCleanup ? EW.Color.dangerTint : EW.Color.goldTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+        .background(isTerminal ? EW.Color.dangerTint : EW.Color.goldTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+        // A container identifier alone would override the recovery control's
+        // own, and the control is the point of the notice.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("cloud-mutation-controls-notice")
     }
 
+    private static let cloudSectionAnchor = "parent-cloud-section"
+
+    /// An unresolved request describes itself best - it knows which phase it is
+    /// in. Every other block states its own reason.
+    private static func noticeMessage(_ block: ParentMutationBlock, unsettled: String?) -> String {
+        switch block {
+        case .rejectedCleanup, .unsettledMutation:
+            unsettled ?? block.message(deviceNoun: DeviceCopy.deviceNoun)
+        default:
+            block.message(deviceNoun: DeviceCopy.deviceNoun)
+        }
+    }
+
+    private static func noticeSymbol(_ block: ParentMutationBlock) -> String {
+        switch block {
+        case .rejectedCleanup: "xmark.circle.fill"
+        case .unsettledMutation: "clock.fill"
+        case .awaitingReview: "arrow.triangle.2.circlepath"
+        case .planInactive: "exclamationmark.icloud"
+        case .replicaUnavailable, .authorityUnreached, .revisionUnconfirmed: "icloud.slash"
+        }
+    }
+
+    /// A readout, not a place to act. The control that clears any of these
+    /// states lives on the block that disables the money controls, so there is
+    /// exactly one way out and it sits where the parent was stopped - never a
+    /// second copy of the same action on another card, which VoiceOver and a
+    /// tap target both read as ambiguous.
     private var syncStatusCard: some View {
         VStack(alignment: .leading, spacing: EW.Space.three) {
             Label(
@@ -367,13 +436,6 @@ struct ParentAreaView: View {
                         .font(EW.Font.caption)
                         .foregroundStyle(EW.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("Finish local cleanup") {
-                        Task { await store.refresh() }
-                    }
-                    .buttonStyle(.plain)
-                    .font(EW.Font.bodyBold)
-                    .foregroundStyle(EW.Color.primaryActive)
-                    .disabled(store.isLoading)
                 }
                 .accessibilityIdentifier("cloud-rejected-cleanup-status")
             } else if let message = store.unsettledCloudMutationMessage {
@@ -386,13 +448,6 @@ struct ParentAreaView: View {
                         .font(EW.Font.caption)
                         .foregroundStyle(EW.Color.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("Check again") {
-                        Task { await store.refresh() }
-                    }
-                    .buttonStyle(.plain)
-                    .font(EW.Font.bodyBold)
-                    .foregroundStyle(EW.Color.primaryActive)
-                    .disabled(store.isLoading)
                 }
                 .accessibilityIdentifier("cloud-mutation-status")
             }

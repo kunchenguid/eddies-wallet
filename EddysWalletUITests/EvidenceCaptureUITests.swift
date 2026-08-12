@@ -573,6 +573,50 @@ final class EvidenceCaptureUITests: XCTestCase {
         capture("captain-deposit-review-fully-visible")
     }
 
+    /// Labeled evidence for the parent write block: what a genuinely blocked
+    /// parent is told, that the Cloud card agrees with it instead of claiming
+    /// the device is syncing, and that the block's own control recovers.
+    /// Driven through the real `CloudWalletRepository` over a synthetic
+    /// in-process transport.
+    func testParentBlockAndRecoveryTour() throws {
+        let app = launch(
+            "cloud-live-parent",
+            environment: [
+                "EW_UITEST_CLOUD_READ_DELAY_SECONDS": "0",
+                "EW_UITEST_CLOUD_OFFLINE_WINDOW_SECONDS": "16"
+            ]
+        )
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 20))
+        unlockParentArea(app)
+
+        let notice = app.descendants(matching: .any)["cloud-mutation-controls-notice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 15))
+        for _ in 0..<6 where !app.buttons["cloud-mutation-block-recovery"].isHittable { app.swipeUp() }
+        capture("parent-block-names-its-reason-and-its-way-out")
+
+        let notSyncing = app.descendants(matching: .any)["cloud-not-syncing-note"]
+        for _ in 0..<8 where !notSyncing.exists { app.swipeUp() }
+        XCTAssertTrue(notSyncing.exists, "the Cloud card states the same fact the block does")
+        XCTAssertFalse(app.descendants(matching: .any)["cloud-syncing-note"].exists)
+        capture("parent-cloud-card-agrees-with-the-block")
+
+        Thread.sleep(forTimeInterval: 18)
+        let recovery = app.buttons["cloud-mutation-block-recovery"]
+        for _ in 0..<8 where !recovery.isHittable { app.swipeDown() }
+        XCTAssertTrue(recovery.isHittable)
+        recovery.tap()
+
+        XCTAssertTrue(app.staticTexts["Parent actions"].waitForExistence(timeout: 15))
+        let deposit = app.buttons["Add deposit"]
+        var recovered = false
+        for _ in 0..<40 where !recovered {
+            recovered = deposit.exists && deposit.isEnabled && !notice.exists
+            if !recovered { Thread.sleep(forTimeInterval: 0.5) }
+        }
+        XCTAssertTrue(recovered, "the block's own control must restore the parent's money actions")
+        capture("parent-block-cleared-from-the-block-itself")
+    }
+
     func testCloudWriteStateTour() throws {
         func openDepositResult(
             _ scenario: String,

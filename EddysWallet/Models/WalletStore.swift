@@ -251,6 +251,11 @@ public final class WalletStore: ObservableObject {
     /// Each read is stamped in the order it started so a slow one can never
     /// land last and overwrite what a newer read already published.
     private var refreshAttempts = 0
+    /// Set while a parent has asked to review the latest balance from a block's
+    /// own control, and cleared by the outcome of the next read that reports
+    /// one. A read that observed nothing settles nothing, so it leaves this
+    /// armed rather than ending a review nobody was shown the balance for.
+    private var endsReviewOnNextSettledRead = false
     /// Set while the scene is out of the foreground, so the return can re-read
     /// the wallet that `handleAppBackgrounded()` retired.
     private var didLeaveForeground = false
@@ -837,6 +842,12 @@ public final class WalletStore: ObservableObject {
             guard canPublish(attempt, generation: generation, role: requestedRole) else { return }
             snapshot = refreshed
             needsSetup = false
+            if endsReviewOnNextSettledRead {
+                // The parent asked to review, and this is the balance they are
+                // now looking at.
+                endsReviewOnNextSettledRead = false
+                needsCloudReview = false
+            }
             if let cloud = repository as? CloudWalletRepository {
                 authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
             } else if let local = repository as? LocalWalletRepository, let lineageID = local.lineageID {
@@ -848,6 +859,9 @@ public final class WalletStore: ObservableObject {
             await convergeLegacyDeviceOntoCloud(generation: generation)
         } catch let error as WalletAPIError {
             guard canPublish(attempt, generation: generation, role: requestedRole), !isCancellation(error) else { return }
+            // This read settled with a failure, so it showed the parent no
+            // balance to review. The review stands until one lands.
+            endsReviewOnNextSettledRead = false
             // The newest read's own failure is the one worth reporting. What
             // the readout shows then survives a later successful read: a parent
             // reporting an intermittent failure needs it after recovery.
@@ -935,6 +949,7 @@ public final class WalletStore: ObservableObject {
             }
         } catch {
             guard canPublish(attempt, generation: generation, role: requestedRole), !isCancellation(error) else { return }
+            endsReviewOnNextSettledRead = false
             errorMessage = "The wallet could not be updated. Your last accepted balance is still shown."
             snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
         }
@@ -1522,18 +1537,71 @@ public final class WalletStore: ObservableObject {
     public var unsettledCloudMutationMessage: String? {
         (repository as? any CloudMutationStatusProviding)?.unsettledMutationMessage
     }
-    /// Free local authority is always usable. Cloud starts a new mutation only
-    /// from a connected, reviewed replica with no unresolved request.
-    public var canStartParentMutation: Bool {
-        guard canModifyWallet else { return false }
-        guard authorityState.isCloudAuthority else { return true }
+    /// Whether this device is, right now, in sync with the Cloud wallet: Cloud
+    /// holds the authority, this device has a valid replica whose revision a
+    /// successful read confirmed, it reached that authority, nothing it sent is
+    /// unresolved, and no review is outstanding.
+    ///
+    /// This is the whole evidence a "syncing with Cloud" claim needs, and it is
+    /// deliberately the same evidence a protected write needs, so the claim can
+    /// never be shown beside a blocked money control. Presenting a narrower
+    /// fact - an active plan and a stored replica - as "syncing" is what let
+    /// 0.1.14 report a green sync state over five disabled parent actions.
+    public var isSyncedWithCloud: Bool {
+        guard authorityState.isCloudAuthority else { return false }
         let hasCurrentRevision = (repository as? CloudWalletRepository)?.isReadyForRuntimeMutations ?? true
         return hasValidCloudReplica
             && hasCurrentRevision
             && !hasUnsettledCloudMutation
             && connection.reachedAuthority
             && !needsCloudReview
-            && !cloudEntitlement.permitsLocalContinuation
+    }
+    /// Free local authority is always usable. Cloud starts a new mutation only
+    /// from a connected, reviewed replica with no unresolved request.
+    public var canStartParentMutation: Bool {
+        guard canModifyWallet else { return false }
+        guard authorityState.isCloudAuthority else { return true }
+        return isSyncedWithCloud && !cloudEntitlement.permitsLocalContinuation
+    }
+    /// Exactly why a protected parent write is blocked, or `nil` when nothing
+    /// is blocking one. It is the single derivation the parent surface reads,
+    /// so what a blocked parent is told always names the guard that is actually
+    /// holding, and every case ships with the way out (`clearParentMutationBlock`).
+    /// A generic "reconnect and review" for all of them is what made an
+    /// unreached authority, an unconfirmed revision, and a genuinely pending
+    /// review indistinguishable on screen.
+    public var parentMutationBlock: ParentMutationBlock? {
+        guard canModifyWallet else { return nil }
+        guard authorityState.isCloudAuthority else { return nil }
+        if hasRejectedCloudMutationCleanup { return .rejectedCleanup }
+        if hasUnsettledCloudMutation { return .unsettledMutation }
+        if !hasValidCloudReplica { return .replicaUnavailable }
+        if cloudEntitlement.permitsLocalContinuation { return .planInactive }
+        // An authority this device is not reaching comes before a review it
+        // cannot fetch the balance for: reconnecting is what has to happen
+        // first, and the review is still standing when it does.
+        if !connection.reachedAuthority { return .authorityUnreached }
+        if needsCloudReview { return .awaitingReview }
+        if (repository as? CloudWalletRepository)?.isReadyForRuntimeMutations == false { return .revisionUnconfirmed }
+        return nil
+    }
+
+    /// The one in-app way out of a blocked parent state, started from a control
+    /// the parent can see next to the block itself.
+    ///
+    /// It reads the latest wallet, and ends an outstanding review on the first
+    /// read that actually lands afterwards - the parent acknowledges the
+    /// balance now on their screen, never a stale one. A read that fails leaves
+    /// the block and its reason exactly as they were. The landing read need not
+    /// be this one: a reread the rejection itself started can still be in
+    /// flight, and it is the newest observation, so it is the one the parent
+    /// ends up looking at.
+    ///
+    /// Unlike a pull-to-refresh, this read is not owned by a gesture, so
+    /// nothing cancels it out from under the parent.
+    public func clearParentMutationBlock() async {
+        endsReviewOnNextSettledRead = needsCloudReview
+        await refresh()
     }
     public var hasValidCloudReplica: Bool {
         #if DEBUG
@@ -1838,6 +1906,9 @@ public final class WalletStore: ObservableObject {
 
     private func deElevate() {
         refreshGeneration += 1
+        // Leaving retires the parent's own request to review: only a balance
+        // they are still on screen to see may end one.
+        endsReviewOnNextSettledRead = false
         elevation = .none
         gateRoute = .pinEntry
         pin = ""

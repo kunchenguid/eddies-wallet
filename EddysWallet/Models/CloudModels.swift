@@ -57,6 +57,77 @@ public enum WalletRecoveryState: Equatable, Sendable {
     case storageUnavailable
 }
 
+/// Why a Cloud device may not start a protected parent write right now.
+///
+/// Each case is a distinct fact about this device, and each one carries the
+/// parent-facing reason and the label of the control that clears it, so a block
+/// can never reach a parent as an unattributed "something is wrong" with no way
+/// out. Presenting all of them as one generic reconnect-and-review line is what
+/// made a genuinely pending review indistinguishable from an unconfirmed
+/// revision in 0.1.14 - and left the parent hunting for a "Got it" that was
+/// only ever shown for the review case.
+public enum ParentMutationBlock: Equatable, Sendable, CaseIterable {
+    /// A refused request whose local cleanup has not finished on this device.
+    case rejectedCleanup
+    /// A request this device sent has no settled outcome yet.
+    case unsettledMutation
+    /// This device holds no usable Cloud replica.
+    case replicaUnavailable
+    /// The Cloud plan is not active, so this device may not write to Cloud.
+    case planInactive
+    /// The newest read did not reach the Cloud authority.
+    case authorityUnreached
+    /// The wallet moved on elsewhere and the parent has not looked yet.
+    case awaitingReview
+    /// No successful read has confirmed this device's replica revision yet.
+    case revisionUnconfirmed
+
+    /// What the parent is told, in the terms of the guard that is holding.
+    public func message(deviceNoun: String) -> String {
+        switch self {
+        case .rejectedCleanup:
+            "This change was not recorded. Finish local cleanup before recording another action."
+        case .unsettledMutation:
+            "Cloud has not confirmed this \(deviceNoun)'s last change yet. Check again before recording another one."
+        case .replicaUnavailable:
+            "This \(deviceNoun) does not have the Cloud wallet yet. Reconnect to get it before recording a change."
+        case .planInactive:
+            "The Cloud plan is not active, so this \(deviceNoun) cannot record changes to the Cloud wallet."
+        case .awaitingReview:
+            "This wallet changed somewhere else. Review the latest balance before recording another change."
+        case .authorityUnreached:
+            "This \(deviceNoun) has not reached Cloud. Reconnect before recording another change."
+        case .revisionUnconfirmed:
+            "This \(deviceNoun) has not confirmed the latest Cloud wallet yet. Refresh before recording another change."
+        }
+    }
+
+    /// What pressing the block's own control does.
+    public enum Recovery: Equatable, Sendable {
+        /// Read the latest wallet, and end an outstanding review once that read
+        /// has actually landed.
+        case readLatest
+        /// The one block no read can lift. The way out is the Cloud plan
+        /// surface further down the same screen, so the control goes there.
+        case cloudPlan
+    }
+
+    /// Every case has a recovery: a blocked parent must always have something
+    /// to press, on the block itself.
+    public var recovery: Recovery { self == .planInactive ? .cloudPlan : .readLatest }
+
+    /// The label of the control shown on the block itself.
+    public var recoveryActionTitle: String {
+        switch self {
+        case .rejectedCleanup: "Finish local cleanup"
+        case .unsettledMutation: "Check again"
+        case .awaitingReview: "Review latest"
+        case .planInactive: "See Cloud plan"
+        case .replicaUnavailable, .authorityUnreached, .revisionUnconfirmed: "Refresh now"
+        }
+    }
+}
+
 /// Why Cloud plans cannot be offered right now, at the granularity the parent
 /// copy branches on. The finer per-step outcome classes live in
 /// `CloudRecoveryEvidence`; this only separates a deliberate service answer
