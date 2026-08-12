@@ -637,12 +637,13 @@ public enum ParentMutationOutcome: Equatable, Sendable {
     case recorded
     case waitingForCloud
     case acceptedAwaitingReplica
+    case acceptedScheduleUnavailable
     case notRecorded
 
     public var syncState: SyncState {
         switch self {
         case .recorded: .recorded
-        case .waitingForCloud, .acceptedAwaitingReplica: .pending
+        case .waitingForCloud, .acceptedAwaitingReplica, .acceptedScheduleUnavailable: .pending
         case .notRecorded: .rejected
         }
     }
@@ -654,6 +655,8 @@ public enum ParentMutationOutcome: Equatable, Sendable {
             "Cloud has not confirmed this change yet. This device will retry the same protected request. Do not save it again."
         case .acceptedAwaitingReplica:
             "Cloud accepted this change. This device is waiting to see the updated wallet. Do not save it again."
+        case .acceptedScheduleUnavailable:
+            "Cloud accepted this change, but the latest allowance schedule could not be loaded. Refresh before paying out allowance."
         case .notRecorded:
             "This change was not recorded. Review the latest wallet before trying again."
         }

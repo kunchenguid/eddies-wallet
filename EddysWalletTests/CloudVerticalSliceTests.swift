@@ -1362,23 +1362,42 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(cloud.hasUnsettledMutation)
     }
 
-    func testAcceptedAllowanceRuleReportsUnavailableScheduleAsAccepted() async throws {
+    func testAcceptedAllowanceRuleReportsUnavailableScheduleAndRecovers() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntil("the Parent-area read settles") { !store.isLoading }
+        let nextDueDate = Date(timeIntervalSince1970: 1_800_000_000)
         transport.stub("PUT", "/v1/allowance-rule", CloudSliceFixtures.profileAccepted(revision: 3), status: 200)
         transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceRuleChanges(lineage: lineage, revision: 3))
         transport.stub("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
 
-        do {
-            _ = try await cloud.setAllowance(
-                AllowanceRuleCommand(amountCents: 600, weekday: 2, startDate: Date(timeIntervalSince1970: 1_800_000_000))
-            )
-            XCTFail("the unavailable schedule must remain visible as an incomplete accepted change")
-        } catch let error as WalletAPIError {
-            XCTAssertEqual(error.operationError, .cloudAcceptedAwaitingReplica)
-        }
+        let saved = await store.setAllowance(
+            AllowanceRuleCommand(amountCents: 600, weekday: 2, startDate: nextDueDate)
+        )
+
+        XCTAssertFalse(saved)
+        XCTAssertEqual(store.latestParentMutationOutcome, .acceptedScheduleUnavailable)
+        XCTAssertNil(store.errorMessage)
+        XCTAssertEqual(store.latestTransportDiagnostic?.route, "/v1/allowance-rule")
         XCTAssertEqual(cloud.snapshot().allowance?.amountCents, 600)
         XCTAssertNil(cloud.snapshot().allowance?.nextOccurrenceID)
         XCTAssertFalse(cloud.isReadyForRuntimeMutations)
+
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            CloudSliceFixtures.allowanceSchedule(
+                dueDate: nextDueDate,
+                occurrenceID: "recovered-rule-occurrence",
+                ruleID: "a-2",
+                amountCents: 600
+            )
+        )
+        await store.refresh()
+
+        XCTAssertNil(store.errorMessage)
+        XCTAssertEqual(store.snapshot.allowance?.nextOccurrenceID, "recovered-rule-occurrence")
+        XCTAssertTrue(cloud.isReadyForRuntimeMutations)
     }
 
     func testUnsettledMutationBlocksEveryCloudToLocalAuthorityHandoff() async throws {

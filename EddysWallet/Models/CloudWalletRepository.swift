@@ -307,9 +307,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             try await refreshAllowanceSchedule()
             return snapshot()
         } catch let error as WalletAPIError {
-            throw WalletAPIError.cloudAcceptedAwaitingReplica.carrying(error.transportDiagnostic)
+            throw WalletAPIError.cloudAcceptedScheduleUnavailable.carrying(error.transportDiagnostic)
         } catch {
-            throw WalletAPIError.cloudAcceptedAwaitingReplica
+            throw WalletAPIError.cloudAcceptedScheduleUnavailable
         }
     }
 
@@ -696,7 +696,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         case .noSession, .unauthorized, .familyNotSetup, .identityMismatch,
              .invalidConfiguration, .network, .transportFailure, .requestFailure,
              .cloudRevisionRefusal, .invalidResponse, .cancelled, .timedOut,
-             .cloudMutationAwaitingReconciliation, .cloudAcceptedAwaitingReplica:
+             .cloudMutationAwaitingReconciliation, .cloudAcceptedAwaitingReplica,
+             .cloudAcceptedScheduleUnavailable:
             false
         }
     }

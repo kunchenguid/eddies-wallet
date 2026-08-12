@@ -1220,6 +1220,10 @@ public final class WalletStore: ObservableObject {
                 latestParentMutationOutcome = .acceptedAwaitingReplica
                 snapshot = repository.snapshot()
                 errorMessage = nil
+            case .cloudAcceptedScheduleUnavailable:
+                latestParentMutationOutcome = .acceptedScheduleUnavailable
+                snapshot = repository.snapshot()
+                errorMessage = nil
             case .cloudMutationAwaitingReconciliation:
                 latestParentMutationOutcome = .waitingForCloud
                 snapshot = repository.snapshot()

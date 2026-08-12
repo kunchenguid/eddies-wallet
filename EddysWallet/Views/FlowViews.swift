@@ -381,10 +381,17 @@ struct AllowanceView: View {
                     }
                 }
             } actions: {
+                if store.latestParentMutationOutcome == .acceptedScheduleUnavailable, resultState != .recorded {
+                    Button("Refresh allowance schedule") {
+                        Task { await refreshAllowanceSchedule() }
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(store.isLoading)
+                }
                 Button("Review allowance") { showReview = true }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(Money.parse(amount) == nil)
-                    .opacity(Money.parse(amount) == nil ? 0.45 : 1)
+                    .disabled(Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded))
+                    .opacity(Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded) ? 0.45 : 1)
                 Button("Save as draft on this \(DeviceCopy.deviceNoun)") { showDraft = true }
                     .buttonStyle(SecondaryButtonStyle(compact: true))
                     .accessibilityIdentifier("allowance-save-draft")
@@ -409,7 +416,7 @@ struct AllowanceView: View {
                     switch outcome {
                     case .recorded:
                         resultMessage = "The weekly allowance plan was recorded. Its next occurrence is separate from an allowance event until your parent pays it out."
-                    case .waitingForCloud, .acceptedAwaitingReplica:
+                    case .waitingForCloud, .acceptedAwaitingReplica, .acceptedScheduleUnavailable:
                         resultMessage = outcome.message
                     case .notRecorded:
                         resultMessage = store.errorMessage ?? outcome.message
@@ -420,6 +427,16 @@ struct AllowanceView: View {
                 .ewDetailSheetPresentation()
             }
         }
+    }
+
+    private func refreshAllowanceSchedule() async {
+        await store.refresh()
+        guard store.errorMessage == nil, store.canStartParentMutation else {
+            resultMessage = store.errorMessage ?? ParentMutationOutcome.acceptedScheduleUnavailable.message
+            return
+        }
+        resultState = .recorded
+        resultMessage = "The weekly allowance plan was recorded. The latest allowance schedule is ready."
     }
 }
 
