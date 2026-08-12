@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.14](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.13...eddies-wallet-v0.1.14) (2026-08-12)
+
+
+### Features
+
+* **ci:** add the trusted App Review submission workflows ([#59](https://github.com/kunchenguid/eddies-wallet/issues/59)) ([a3c0204](https://github.com/kunchenguid/eddies-wallet/commit/a3c0204a9227532f429fc9177a0bef105f21a9ec))
+
+
+### Bug Fixes
+
+* add legal links to Cloud subscription plans ([#61](https://github.com/kunchenguid/eddies-wallet/issues/61)) ([9166e93](https://github.com/kunchenguid/eddies-wallet/commit/9166e93b45024452308768af92a96a6a7644ae52))
+* handle superseded Cloud refresh responses ([#64](https://github.com/kunchenguid/eddies-wallet/issues/64)) ([c0eefc5](https://github.com/kunchenguid/eddies-wallet/commit/c0eefc5af43022c54dd366b6b6c0adbc337f981f))
+* report wallet connection failures accurately ([#63](https://github.com/kunchenguid/eddies-wallet/issues/63)) ([7e2ae70](https://github.com/kunchenguid/eddies-wallet/commit/7e2ae7017fb973e66516dca570c5e658b4771e2f))
+
 ## [0.1.13](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.12...eddies-wallet-v0.1.13) (2026-08-10)
 
 
