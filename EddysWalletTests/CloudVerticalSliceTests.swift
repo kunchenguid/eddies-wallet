@@ -909,6 +909,50 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(store.errorMessage, "The allowance was paid out, but the latest allowance schedule could not be loaded. Refresh before paying out another week.")
     }
 
+    func testReconciledAllowancePayoutReportsUnavailableScheduleTruthfully() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let missedDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: calendar.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "reconciled-schedule-failure"))
+        transport.enqueue("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "reconciled-o-1"))
+        transport.enqueue("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "reconciled-o-1"))
+        transport.enqueue("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
+        transport.stub(
+            "POST",
+            "/v1/allowance-rule/a-1/occurrences/reconciled-o-1/record",
+            CloudSliceFixtures.depositAccepted(revision: 3, entryID: "reconciled-schedule-failure"),
+            status: 201
+        )
+        transport.dropNextResponse("GET", "/v1/cloud/changes")
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilParentReadSettles(store, transport)
+
+        guard case .acceptedAwaitingReplica = await store.submit(WalletCommand(
+            kind: .allowance,
+            amountCents: 500,
+            dueDate: missedDate
+        )) else {
+            return XCTFail("a lost observation must leave the accepted allowance awaiting reconciliation")
+        }
+
+        await store.refresh()
+
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.remoteID == "reconciled-schedule-failure" }.count, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertEqual(
+            store.errorMessage,
+            "Cloud accepted this change, but the latest allowance schedule could not be loaded. Refresh before paying out allowance."
+        )
+    }
+
     func testParentBootstrapPublishesAuthoritativeAllowanceSchedule() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()

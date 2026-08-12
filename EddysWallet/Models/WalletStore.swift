@@ -943,6 +943,12 @@ public final class WalletStore: ObservableObject {
                 raiseCloudReview(for: error)
                 errorMessage = userMessage(for: error)
                 snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
+            case .cloudAcceptedScheduleUnavailable:
+                if let cloud = repository as? CloudWalletRepository {
+                    authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+                }
+                errorMessage = userMessage(for: error)
+                snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudAcceptedAwaitingReplica, .cloudMutationAwaitingReconciliation:
                 if error.transportDiagnostic == nil {
                     connection = .reached

@@ -110,9 +110,19 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
 
     public func refresh(for role: UserRole) async throws -> WalletSnapshot {
         if let activeMutation {
-            switch try await settle(activeMutation) {
+            let reconciledMutation = activeMutation
+            switch try await settle(reconciledMutation) {
             case .observed:
-                if role == .parent { try await refreshAllowanceSchedule() }
+                guard role == .parent, reconciledMutationNeedsSchedule(reconciledMutation) else {
+                    return snapshot()
+                }
+                do {
+                    try await refreshAllowanceSchedule()
+                } catch let error as WalletAPIError {
+                    throw WalletAPIError.cloudAcceptedScheduleUnavailable.carrying(error.transportDiagnostic)
+                } catch {
+                    throw WalletAPIError.cloudAcceptedScheduleUnavailable
+                }
                 return snapshot()
             case .waiting(let error, let diagnostic):
                 switch error.operationError {
@@ -127,7 +137,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         }
         if requiresBootstrap {
             _ = try await bootstrap()
-            if role == .parent { try await refreshAllowanceSchedule() }
+            if role == .parent, hasAllowancePlan { try await refreshAllowanceSchedule() }
             return snapshot()
         }
         let refreshed = try await serializedRead { [self] in
@@ -151,7 +161,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 throw error
             }
         }
-        if role == .parent { try await refreshAllowanceSchedule() }
+        if role == .parent, hasAllowancePlan { try await refreshAllowanceSchedule() }
         _ = refreshed
         return snapshot()
     }
@@ -424,6 +434,17 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             amountCents: authoritativeAmountCents,
             reason: command.reason
         )
+    }
+
+    private var hasAllowancePlan: Bool {
+        replica.snapshot().allowance != nil
+    }
+
+    private func reconciledMutationNeedsSchedule(_ mutation: PendingCloudMutation) -> Bool {
+        switch mutation.kind {
+        case .recordAllowance, .setAllowance: true
+        default: false
+        }
     }
 
     /// A schedule read supplements parent presentation only. It never changes
