@@ -1274,7 +1274,10 @@ final class CloudVerticalSliceTests: XCTestCase {
             )
             XCTFail("a persisted replica must be refreshed before it can write")
         } catch {
-            XCTAssertEqual(error as? WalletAPIError, .revisionRequired)
+            XCTAssertEqual(
+                error as? WalletAPIError,
+                .cloudRevisionRefusal(.revisionRequired, expectedRevision: 2)
+            )
         }
         XCTAssertFalse(relaunched.hasUnsettledMutation)
         XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })

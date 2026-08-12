@@ -125,7 +125,12 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
     }
 
     func anchoredToRefusedRevision(_ expectedRevision: Int64) -> WalletAPIError {
-        .cloudRevisionRefusal(self, expectedRevision: expectedRevision)
+        switch operationError {
+        case .revisionConflict, .revisionRequired:
+            .cloudRevisionRefusal(self, expectedRevision: expectedRevision)
+        default:
+            self
+        }
     }
 
     func carrying(_ diagnostic: TransportDiagnostic?) -> WalletAPIError {
