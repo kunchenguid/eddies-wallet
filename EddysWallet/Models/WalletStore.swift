@@ -1127,7 +1127,11 @@ public final class WalletStore: ObservableObject {
             guard missedAllowancePayouts.occurrences.first == occurrence else {
                 break
             }
-            let result = await submit(WalletCommand(kind: .allowance, amountCents: occurrence.amountCents))
+            let result = await submit(WalletCommand(
+                kind: .allowance,
+                amountCents: occurrence.amountCents,
+                dueDate: occurrence.dueDate
+            ))
             guard case .accepted = result else { break }
             recordedCount += 1
             recordedTotalCents += occurrence.amountCents
@@ -1649,7 +1653,7 @@ public final class WalletStore: ObservableObject {
     /// while the shared sync fact confirms an active plan, connected and
     /// reviewed replica, and no unresolved request.
     public var canStartParentMutation: Bool {
-        guard canModifyWallet else { return false }
+        guard canModifyWallet, !isRecordingMissedAllowance else { return false }
         guard authorityState.isCloudAuthority else { return true }
         return isSyncedWithCloud
     }

@@ -794,6 +794,111 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }, ["\"rev-2\"", "\"rev-3\"", "\"rev-4\""])
     }
 
+    func testParentBootstrapPublishesAuthoritativeAllowanceSchedule() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let missedDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: calendar.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "bootstrap-missed"))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+
+        let snapshot = try await cloud.refresh(for: .parent)
+
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(snapshot.allowance?.nextDate)), missedDate)
+        XCTAssertEqual(snapshot.allowance?.nextOccurrenceID, "bootstrap-missed")
+        XCTAssertEqual(snapshot.allowance?.missedPayouts().count, 1)
+    }
+
+    func testParentRefreshReportsAllowanceScheduleFailure() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+
+        do {
+            _ = try await cloud.refresh(for: .parent)
+            XCTFail("a failed schedule read must not publish a healthy parent refresh")
+        } catch let error as WalletAPIError {
+            guard case .server(let statusCode, _, _) = error.operationError else {
+                return XCTFail("the schedule failure should preserve its server response")
+            }
+            XCTAssertEqual(statusCode, 503)
+            XCTAssertNil(cloud.snapshot().allowance?.nextOccurrenceID)
+        }
+    }
+
+    func testAllowancePreparationRejectsScheduleFromAnOvertakenRevision() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        let missedDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "stale-occurrence"))
+        transport.suspend("GET", "/v1/allowance-rule")
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceRuleChanges(lineage: lineage, revision: 3))
+
+        let submission = Task {
+            try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500, dueDate: missedDate))
+        }
+        await transport.waitUntilSuspended()
+        _ = try await cloud.refresh(for: .child)
+        transport.resumeSuspendedRequest()
+
+        do {
+            _ = try await submission.value
+            XCTFail("an overtaken schedule must not construct a mutation")
+        } catch let error as WalletAPIError {
+            XCTAssertEqual(error.operationError, .revisionRequired)
+        }
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testAllowancePreparationReservesTheSingleMutationSlot() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        let missedDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "reserved-occurrence"))
+        transport.suspend("GET", "/v1/allowance-rule")
+        transport.stub("POST", "/v1/allowance-rule/a-1/occurrences/reserved-occurrence/record", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "reserved-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "reserved-entry"))
+
+        let allowance = Task {
+            try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500, dueDate: missedDate))
+        }
+        await transport.waitUntilSuspended()
+        let competing = try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 100))
+        guard case .rejected = competing else {
+            return XCTFail("a competing mutation must be blocked while allowance preparation awaits")
+        }
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/wallet/deposits" })
+
+        transport.resumeSuspendedRequest()
+        guard case .accepted = try await allowance.value else {
+            return XCTFail("the reserved allowance mutation should still settle normally")
+        }
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testMissedAllowanceCommandCannotRecordTodayAfterScheduleChanges() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let previouslyMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: today))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "today"))
+
+        do {
+            _ = try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500, dueDate: previouslyMissed))
+            XCTFail("a batch-bound command must not record today's occurrence")
+        } catch let error as WalletAPIError {
+            guard case .invalidResponse = error.operationError else {
+                return XCTFail("the changed due occurrence should require review")
+            }
+        }
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
     func testScheduledAllowanceRejectsCallerAmountMismatchBeforeStaging() async throws {
         let (cloud, transport, _) = try await writableCloud()
         transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceDue)

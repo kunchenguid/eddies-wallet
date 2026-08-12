@@ -17,6 +17,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private let replicaApplicationLease: Int
     private var requiresBootstrap: Bool
     private var activeMutation: PendingCloudMutation?
+    private var isPreparingMutation = false
     /// The one revision a completed server read has vouched for in this
     /// process, or `nil` while nothing current has. Set by every applied read,
     /// left alone by a benign overtaken answer, and withdrawn by a settled
@@ -111,7 +112,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         if let activeMutation {
             switch try await settle(activeMutation) {
             case .observed:
-                if role == .parent { await refreshAllowanceSchedule() }
+                if role == .parent { try await refreshAllowanceSchedule() }
                 return snapshot()
             case .waiting(let error, let diagnostic):
                 switch error.operationError {
@@ -125,9 +126,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             }
         }
         if requiresBootstrap {
-            let snapshot = try await bootstrap()
-            if role == .parent { await refreshAllowanceSchedule() }
-            return snapshot
+            _ = try await bootstrap()
+            if role == .parent { try await refreshAllowanceSchedule() }
+            return snapshot()
         }
         let refreshed = try await serializedRead { [self] in
             do {
@@ -150,7 +151,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 throw error
             }
         }
-        if role == .parent { await refreshAllowanceSchedule() }
+        if role == .parent { try await refreshAllowanceSchedule() }
         _ = refreshed
         return snapshot()
     }
@@ -235,19 +236,24 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     }
 
     public func submit(_ command: WalletCommand) async throws -> CommandResult {
-        guard activeMutation == nil else {
+        guard activeMutation == nil, !isPreparingMutation else {
             return .rejected(blockedEvent(for: command))
         }
         guard client.hasSession else { throw WalletAPIError.noSession }
         guard isReadyForRuntimeMutations else {
             throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(revision)
         }
+        isPreparingMutation = true
+        defer { isPreparingMutation = false }
         let mutation = try await moneyMutation(for: command)
+        guard activeMutation == nil else {
+            return .rejected(blockedEvent(for: command))
+        }
         try stage(mutation)
         switch try await settle(mutation) {
         case .observed(let event):
             if command.kind == .allowance {
-                await refreshAllowanceSchedule()
+                try? await refreshAllowanceSchedule()
             }
             guard let event else {
                 return .acceptedAwaitingReplica(try pendingEvent(for: mutation, phase: .acceptedAwaitingReplica))
@@ -369,14 +375,20 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             path = "/v1/loans/\(pathComponent(loanID))/repayments"
             body = ["amountCents": command.amountCents]
         case .allowance:
-            let schedule = try await client.allowanceSchedule()
-            allowanceSchedule = schedule.allowanceRule
-            allowanceScheduleRevision = revision
-            guard let rule = schedule.allowanceRule, let occurrenceID = rule.nextOccurrenceID else {
+            try await refreshAllowanceSchedule()
+            guard let rule = allowanceSchedule, let occurrenceID = rule.nextOccurrenceID else {
                 throw WalletAPIError.server(statusCode: 409, code: "ALLOWANCE_NOT_SCHEDULED", message: "There is no scheduled allowance occurrence to record.")
             }
             guard command.amountCents == rule.amountCents else {
                 throw WalletAPIError.invalidResponse("The allowance amount changed. Review the current schedule before recording it.")
+            }
+            if let expectedDueDate = command.dueDate {
+                let calendar = Calendar.current
+                guard let nextDueDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:)),
+                      calendar.isDate(nextDueDate, inSameDayAs: expectedDueDate),
+                      calendar.startOfDay(for: nextDueDate) < calendar.startOfDay(for: .now) else {
+                    throw WalletAPIError.invalidResponse("The missed allowance schedule changed. Review the remaining weeks before paying them out.")
+                }
             }
             authoritativeAmountCents = rule.amountCents
             kind = .recordAllowance
@@ -402,19 +414,27 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     /// accepted wallet data or weakens the revision proof a Cloud write needs.
     /// A failed read clears the cached occurrence instead of leaving a stale
     /// guessed backlog visible.
-    private func refreshAllowanceSchedule() async {
+    private func refreshAllowanceSchedule() async throws {
+        let requestedRevision = revision
         do {
-            allowanceSchedule = try await client.allowanceSchedule().allowanceRule
-            allowanceScheduleRevision = revision
+            let schedule = try await client.allowanceSchedule()
+            guard revision == requestedRevision, confirmedRevision == requestedRevision else {
+                allowanceScheduleRevision = nil
+                throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(requestedRevision)
+            }
+            allowanceSchedule = schedule.allowanceRule
+            allowanceScheduleRevision = requestedRevision
         } catch {
-            // Keep a previously read value only as data, never as current
-            // presentation: `snapshot()` requires its revision to match.
             allowanceScheduleRevision = nil
+            if revision == requestedRevision, confirmedRevision == requestedRevision {
+                confirmedRevision = nil
+            }
+            throw error
         }
     }
 
     private func performNonMoneyMutation(_ mutation: PendingCloudMutation) async throws -> WalletSnapshot {
-        guard activeMutation == nil else { throw WalletAPIError.cloudMutationAwaitingReconciliation }
+        guard activeMutation == nil, !isPreparingMutation else { throw WalletAPIError.cloudMutationAwaitingReconciliation }
         guard client.hasSession else { throw WalletAPIError.noSession }
         guard isReadyForRuntimeMutations else {
             throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(mutation.expectedRevision)
