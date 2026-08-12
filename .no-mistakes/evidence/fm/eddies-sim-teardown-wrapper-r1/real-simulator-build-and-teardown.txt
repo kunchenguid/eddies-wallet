@@ -1,6 +1,0 @@
-sim: creating run-scoped simulator EddiesWallet-simrun-35376-5361742041756720382031363a31383a33342032303236-217105887 (com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro / com.apple.CoreSimulator.SimRuntime.iOS-26-4) in the default device set
-sim: booted 6255CA10-08B4-405C-BF42-BB5E3AA132AD
-** BUILD SUCCEEDED **
-sim: tearing down run-scoped simulator EddiesWallet-simrun-35376-5361742041756720382031363a31383a33342032303236-217105887 (6255CA10-08B4-405C-BF42-BB5E3AA132AD)
-VERIFIED source simulator absent after wrapper exit: 6255CA10-08B4-405C-BF42-BB5E3AA132AD
-VERIFIED run marker absent after wrapper exit: EddiesWallet-simrun-35376-5361742041756720382031363a31383a33342032303236-217105887

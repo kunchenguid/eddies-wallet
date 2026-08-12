@@ -1,3 +1,0 @@
-PRE-FIRST: accepted seed 0.0.0; configured first proposal=0.1.0; missing initial-version counterfactual=1.0.0
-POST-FIRST: accepted seed 0.1.0 matching CHANGELOG/tag lineage
-MISMATCH: rejected as expected: mismatched-seed: advanced manifest/version seed 9.9.9 must match latest released lineage 0.1.0 (known: 0.1.0)
