@@ -1336,10 +1336,16 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.suspend("GET", "/v1/cloud/changes")
         let pull = Task { await store.refresh() }
         await transport.waitUntilSuspended(count: 1)
+        let callerReturned = expectation(description: "the cancelled refresh caller returns")
+        Task {
+            await pull.value
+            callerReturned.fulfill()
+        }
         pull.cancel()
-        transport.resumeSuspendedRequest()
-        await pull.value
+        await fulfillment(of: [callerReturned], timeout: 1)
 
+        transport.resumeSuspendedRequest()
+        await waitUntil("the store-owned read still settles") { !store.isLoading }
         XCTAssertNil(store.parentMutationBlock, "a read that observed nothing must not take write access away")
         XCTAssertTrue(store.canStartParentMutation)
         XCTAssertTrue(store.isSyncedWithCloud, "and it must not change what the Cloud card claims either")
@@ -1434,6 +1440,46 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(store.needsCloudReview)
         XCTAssertNil(store.parentMutationBlock)
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_450, "the reviewed balance is the post-conflict one")
+        XCTAssertTrue(store.canStartParentMutation)
+    }
+
+    func testDelayedConflictUsesTheRefusedMutationRevisionForItsReviewFloor() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let store = syncedParentStore(cloud, lineage: lineage)
+        await waitUntilFirstReadSettles(store, transport)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 7, balanceCents: 1_450, entryID: "concurrent-winner")
+        )
+        transport.suspend("GET", "/v1/cloud/changes")
+        let concurrentRead = Task { await store.refresh() }
+        await transport.waitUntilSuspended(count: 1)
+
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
+        transport.suspend("POST", "/v1/wallet/deposits")
+        let submission = Task {
+            await store.submit(
+                WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "delayed-conflict-key")
+            )
+        }
+        await transport.waitUntilSuspended(count: 2)
+
+        transport.resumeSuspendedRequest()
+        await concurrentRead.value
+        XCTAssertEqual(cloud.revision, 7)
+
+        transport.resumeSuspendedRequest()
+        guard case .rejected = await submission.value else {
+            return XCTFail("the delayed mutation must be refused")
+        }
+        XCTAssertEqual(store.cloudReview?.floorRevision, 7)
+
+        await store.clearParentMutationBlock()
+        XCTAssertFalse(store.needsCloudReview, "revision 7 must clear the refusal of If-Match 2")
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_450)
         XCTAssertTrue(store.canStartParentMutation)
     }
 

@@ -560,6 +560,7 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
     var rejectionStatusCode: Int?
     var rejectionCode: String?
     var rejectionMessage: String?
+    var rejectionCurrentRevision: Int64?
 
     init(
         kind: CloudMutationKind,
@@ -589,6 +590,7 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
         self.rejectionStatusCode = nil
         self.rejectionCode = nil
         self.rejectionMessage = nil
+        self.rejectionCurrentRevision = nil
     }
 
     var waitingMessage: String {

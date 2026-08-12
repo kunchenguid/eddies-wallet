@@ -836,24 +836,28 @@ public final class WalletStore: ObservableObject {
             if authorityState == .unconfigured { authorityState = .localSetup }
             return
         }
-        await startOwnedRead().value
+        let completion = startOwnedRead()
+        for await _ in completion {}
     }
 
-    /// Starts one read this store owns. The caller may await the returned
-    /// task, but the read does not belong to the caller: a caller that is
-    /// cancelled - SwiftUI ends the task behind every `.refreshable` - stops
-    /// waiting and nothing else. The read still settles, and if it is the
-    /// newest one it still publishes, so no gesture can retire the newest
-    /// read and leave the wallet with no publisher.
-    private func startOwnedRead() -> Task<Void, Never> {
+    /// Starts one read this store owns. The returned completion stream lets a
+    /// caller wait without owning the read: cancellation ends iteration
+    /// promptly but does not cancel the task producing the completion. The
+    /// read still settles, and if it is the newest one it still publishes, so
+    /// no gesture can retire the newest read and leave the wallet with no
+    /// publisher.
+    private func startOwnedRead() -> AsyncStream<Void> {
         newestReadID += 1
         let id = newestReadID
         let generation = refreshGeneration
         let role = viewRole
         isLoading = true
-        return Task { @MainActor in
+        let completion = AsyncStream<Void>.makeStream()
+        Task { @MainActor in
             await self.performRead(id: id, generation: generation, role: role)
+            completion.continuation.finish()
         }
+        return completion.stream
     }
 
     private func performRead(id: Int, generation: Int, role: UserRole) async {
@@ -1015,11 +1019,13 @@ public final class WalletStore: ObservableObject {
     /// one already proved.
     private func raiseCloudReview(for error: WalletAPIError) {
         let accepted = (repository as? CloudWalletRepository)?.revision ?? 0
+        let refused = error.refusedExpectedRevision ?? accepted
         let floor: Int64
         if case .revisionConflict(let currentRevision) = error.operationError {
-            floor = max(currentRevision, accepted + 1)
+            let revisionAfterRefused = refused == .max ? Int64.max : refused + 1
+            floor = max(currentRevision, revisionAfterRefused)
         } else {
-            floor = accepted
+            floor = refused
         }
         cloudReview = CloudReviewPending(floorRevision: max(floor, cloudReview?.floorRevision ?? 0))
     }

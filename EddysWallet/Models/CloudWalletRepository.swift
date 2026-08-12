@@ -206,7 +206,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             return .rejected(blockedEvent(for: command))
         }
         guard client.hasSession else { throw WalletAPIError.noSession }
-        guard isReadyForRuntimeMutations else { throw WalletAPIError.revisionRequired }
+        guard isReadyForRuntimeMutations else {
+            throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(revision)
+        }
         let mutation = try await moneyMutation(for: command)
         try stage(mutation)
         switch try await settle(mutation) {
@@ -361,7 +363,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private func performNonMoneyMutation(_ mutation: PendingCloudMutation) async throws -> WalletSnapshot {
         guard activeMutation == nil else { throw WalletAPIError.cloudMutationAwaitingReconciliation }
         guard client.hasSession else { throw WalletAPIError.noSession }
-        guard isReadyForRuntimeMutations else { throw WalletAPIError.revisionRequired }
+        guard isReadyForRuntimeMutations else {
+            throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(mutation.expectedRevision)
+        }
         guard hasValidReplica else {
             throw WalletAPIError.invalidResponse("Reconnect before changing this Cloud wallet.")
         }
@@ -503,7 +507,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                             return .waiting(.cloudMutationAwaitingReconciliation, nil)
                         }
                     }
-                    throw rejection
+                    throw rejection.anchoredToRefusedRevision(mutation.expectedRevision)
                 }
                 return .waiting(rejection, diagnostic(for: rejection))
             } catch {
@@ -599,8 +603,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 && code != "COMMAND_IN_PROGRESS"
                 && (400..<500).contains(statusCode)
         case .noSession, .unauthorized, .familyNotSetup, .identityMismatch,
-             .invalidConfiguration, .network, .transportFailure, .requestFailure, .invalidResponse,
-             .cancelled, .timedOut,
+             .invalidConfiguration, .network, .transportFailure, .requestFailure,
+             .cloudRevisionRefusal, .invalidResponse, .cancelled, .timedOut,
              .cloudMutationAwaitingReconciliation, .cloudAcceptedAwaitingReplica:
             false
         }
@@ -657,9 +661,10 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
 
     private func storeRejection(_ error: WalletAPIError, in mutation: inout PendingCloudMutation) {
         switch error.operationError {
-        case .revisionConflict:
+        case .revisionConflict(let currentRevision):
             mutation.rejectionStatusCode = 409
             mutation.rejectionCode = "REVISION_CONFLICT"
+            mutation.rejectionCurrentRevision = currentRevision
             mutation.rejectionMessage = "The wallet changed elsewhere. Refresh and review before trying again."
         case .revisionRequired:
             mutation.rejectionStatusCode = 428
@@ -679,11 +684,20 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     }
 
     private func rejectionError(from mutation: PendingCloudMutation) -> WalletAPIError {
-        .server(
-            statusCode: mutation.rejectionStatusCode ?? 409,
-            code: mutation.rejectionCode ?? "COMMAND_REJECTED",
-            message: mutation.rejectionMessage ?? "Cloud did not record this change."
-        )
+        let rejection: WalletAPIError
+        switch mutation.rejectionCode {
+        case "REVISION_CONFLICT":
+            rejection = .revisionConflict(currentRevision: mutation.rejectionCurrentRevision ?? mutation.expectedRevision)
+        case "REVISION_REQUIRED":
+            rejection = .revisionRequired
+        default:
+            rejection = .server(
+                statusCode: mutation.rejectionStatusCode ?? 409,
+                code: mutation.rejectionCode ?? "COMMAND_REJECTED",
+                message: mutation.rejectionMessage ?? "Cloud did not record this change."
+            )
+        }
+        return rejection.anchoredToRefusedRevision(mutation.expectedRevision)
     }
 
     // MARK: - Presentation helpers
