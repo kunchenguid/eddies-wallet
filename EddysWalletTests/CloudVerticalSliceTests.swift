@@ -1099,34 +1099,46 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(relaunchedLocal.isCloudAuthority)
     }
 
-    func testReversedRefreshCompletionCannotRegressReplicaOrRevision() async throws {
+    /// Repository reads are serialized: a second read does not even start
+    /// until the first settles, so "an older read landing after a newer one"
+    /// is no longer a representable state, and whatever revisions the answers
+    /// carry, the accepted replica only ever moves forward.
+    func testSerializedReadsCannotReverseCompletionOrRegressTheReplica() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
-        transport.enqueue(
-            "GET",
-            "/v1/cloud/changes",
-            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "older-entry")
-        )
         transport.enqueue(
             "GET",
             "/v1/cloud/changes",
             CloudSliceFixtures.changes(lineage: lineage, revision: 4, balanceCents: 1_200, entryID: "newer-entry")
         )
+        transport.enqueue(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "older-entry")
+        )
         transport.suspend("GET", "/v1/cloud/changes")
 
-        let older = Task { try await cloud.refresh(for: .parent) }
+        let first = Task { try await cloud.refresh(for: .parent) }
         await transport.waitUntilSuspended()
-        _ = try await cloud.refresh(for: .parent)
+        let second = Task { try await cloud.refresh(for: .parent) }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(
+            transport.requests.filter { $0.url?.path == "/v1/cloud/changes" }.count,
+            1,
+            "the second read waits its turn instead of racing the first on the wire"
+        )
         transport.resumeSuspendedRequest()
 
-        do {
-            _ = try await older.value
-            XCTFail("the older response must lose the application generation race")
-        } catch {
-            XCTAssertEqual(error as? WalletAPIError, .cancelled)
-        }
+        let firstSnapshot = try await first.value
+        let secondSnapshot = try await second.value
+        XCTAssertEqual(firstSnapshot.acceptedBalanceCents, 1_200)
+        XCTAssertEqual(
+            secondSnapshot.acceptedBalanceCents, 1_200,
+            "an answer the accepted replica has overtaken is benign and reports the newer wallet"
+        )
         XCTAssertEqual(cloud.revision, 4)
         XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 1_200)
         XCTAssertEqual(cloud.localReplica.cloudRevision, 4)
+        XCTAssertTrue(cloud.isReadyForRuntimeMutations, "a benign overtaken answer takes nothing away")
     }
 
     /// The reported defect, reproduced: every Cloud request answered 200, and
@@ -1155,18 +1167,16 @@ final class CloudVerticalSliceTests: XCTestCase {
             CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "overtaken-entry")
         )
         transport.suspend("GET", "/v1/cloud/changes")
-        transport.suspend("GET", "/v1/cloud/changes")
 
         let newer = Task { await store.refresh() }
         await transport.waitUntilSuspended(count: 1)
+        // The later-started read queues behind the suspended one; the service
+        // answers it from an older snapshot once its turn comes.
         let overtaken = Task { await store.refresh() }
-        await transport.waitUntilSuspended(count: 2)
-
-        transport.resumeSuspendedRequest()
-        await waitUntil("the newer revision is accepted") { cloud.revision == 4 }
         transport.resumeSuspendedRequest()
         await newer.value
         await overtaken.value
+        await waitUntil("the newer revision is accepted") { cloud.revision == 4 }
 
         XCTAssertEqual(cloud.revision, 4, "the accepted revision never regresses")
         XCTAssertEqual(cloud.localReplica.cloudRevision, 4)
@@ -1340,7 +1350,13 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertNil(kidStatusMessage(store), "the kid home stays silent for a cancelled read too")
     }
 
-    func testCancelledNewerPullDoesNotSuppressOlderAcceptedCloudRead() async throws {
+    /// The first of the three 0.1.14-series races, now unrepresentable: a
+    /// newer pull whose caller stopped waiting used to take publication
+    /// ownership with it, leaving an older read's successful answer silenced
+    /// forever - a stale wallet with no publisher left. The store owns every
+    /// read: a cancelled caller stops waiting and nothing else, so the pull's
+    /// read still settles and, as the newest, still publishes.
+    func testACancelledNewerPullCannotSuppressWhatTheWalletWasTold() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
         transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
         let store = syncedParentStore(cloud, lineage: lineage)
@@ -1349,33 +1365,148 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.stub(
             "GET",
             "/v1/cloud/changes",
-            CloudSliceFixtures.changes(lineage: lineage, revision: 4, balanceCents: 1_200, entryID: "accepted-overlap")
-        )
-        transport.enqueue(
-            "GET",
-            "/v1/cloud/changes",
-            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "cancelled-overlap")
+            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "fresh-entry")
         )
         transport.suspend("GET", "/v1/cloud/changes")
-        transport.suspend("GET", "/v1/cloud/changes")
-
-        let acceptedRead = Task { await store.refresh() }
+        let older = Task { await store.refresh() }
         await transport.waitUntilSuspended(count: 1)
-        let cancelledPull = Task { await store.refresh() }
-        await transport.waitUntilSuspended(count: 2)
-        cancelledPull.cancel()
-
+        let pull = Task { await store.refresh() }
+        // SwiftUI ends the task behind a pull-to-refresh: the caller is gone
+        // before its read even reached the wire.
+        pull.cancel()
         transport.resumeSuspendedRequest()
-        await acceptedRead.value
-        transport.resumeSuspendedRequest()
-        await cancelledPull.value
+        await older.value
+        await pull.value
 
-        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_200)
-        XCTAssertEqual(cloud.revision, 4)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_000, "the newest read still published the fresh wallet")
+        XCTAssertEqual(cloud.revision, 3)
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertNil(store.errorMessage)
         XCTAssertTrue(cloud.isReadyForRuntimeMutations)
-        XCTAssertTrue(store.canStartParentMutation)
+        XCTAssertTrue(store.canStartParentMutation, "no gesture can take write access away with it")
         XCTAssertTrue(store.isSyncedWithCloud)
         XCTAssertNil(store.parentMutationBlock)
+        XCTAssertNil(kidStatusMessage(store), "nothing to tell the kid: this is the current wallet")
+    }
+
+    /// The third of the three 0.1.14-series races, now unrepresentable: a
+    /// read that began before a conflict - or a service still answering from
+    /// its pre-conflict snapshot - can never end the review the conflict
+    /// raised. A review ends only at or past the revision the refusal named,
+    /// and the accepted revision is monotonic, so a pre-conflict balance sits
+    /// below that floor by definition, however its read was delayed,
+    /// reordered, or repeated.
+    func testAPreConflictReadCanNeverEndTheReviewTheConflictRaised() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let store = syncedParentStore(cloud, lineage: lineage)
+        await waitUntilFirstReadSettles(store, transport)
+
+        // A pull is already in flight when the conflict arrives, and for a
+        // while the service keeps answering every read from its pre-conflict
+        // snapshot - while the 409 itself proves revision 7 exists.
+        transport.suspend("GET", "/v1/cloud/changes")
+        let preConflictPull = Task { await store.refresh() }
+        await transport.waitUntilSuspended(count: 1)
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
+        _ = await store.submit(WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "pre-conflict-key"))
+        XCTAssertTrue(store.needsCloudReview)
+        transport.resumeSuspendedRequest()
+        await preConflictPull.value
+        await waitUntil("the conflict's own reread settles") { !store.isLoading }
+
+        // The parent asks to review, but every read still lands revision 2.
+        // No balance at or past the conflict has been shown, so the review
+        // stands, with the same control still offered.
+        await store.clearParentMutationBlock()
+        XCTAssertTrue(store.needsCloudReview, "a pre-conflict balance must never end the review")
+        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
+        XCTAssertFalse(store.canStartParentMutation)
+        XCTAssertFalse(store.isSyncedWithCloud)
+
+        // Only the post-conflict wallet the refusal named can end it.
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 7, balanceCents: 1_450, entryID: "conflict-winner")
+        )
+        await store.clearParentMutationBlock()
+        XCTAssertFalse(store.needsCloudReview)
+        XCTAssertNil(store.parentMutationBlock)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_450, "the reviewed balance is the post-conflict one")
+        XCTAssertTrue(store.canStartParentMutation)
+    }
+
+    /// A recovery whose own read fails leaves the review standing - and leaves
+    /// the same control offered, so the parent is never dead-ended. The next
+    /// recovery that lands a balance at the review's floor ends it.
+    func testAFailedRecoveryLeavesTheReviewStandingWithItsControlStillOffered() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let store = syncedParentStore(cloud, lineage: lineage)
+        await waitUntilFirstReadSettles(store, transport)
+
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
+        _ = await store.submit(WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "overlapping-review-key"))
+        await waitUntil("the conflict's own reread settles") { !store.isLoading }
+        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
+
+        transport.failEverything = true
+        await store.clearParentMutationBlock()
+        XCTAssertTrue(store.needsCloudReview, "a failed read showed no balance to review")
+        XCTAssertNotNil(store.parentMutationBlock, "the block still names the guard that is holding")
+        XCTAssertEqual(store.parentMutationBlock?.recovery, .readLatest, "and keeps offering its own way out")
+        XCTAssertFalse(store.canStartParentMutation)
+
+        transport.failEverything = false
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 7, balanceCents: 1_450, entryID: "reviewed-entry")
+        )
+        await store.clearParentMutationBlock()
+        XCTAssertFalse(store.needsCloudReview)
+        XCTAssertNil(store.parentMutationBlock)
+        XCTAssertTrue(store.canStartParentMutation)
+    }
+
+    /// A write attempted from a replica no read has confirmed is refused before
+    /// transport and raises the review. A read that started before that
+    /// refusal cannot end it - no read ends a review by itself - and the
+    /// parent's own recovery, once a balance actually lands, does.
+    func testAWriteFromAnUnconfirmedReplicaRaisesAReviewOnlyItsRecoveryEnds() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let store = syncedParentStore(cloud, lineage: lineage)
+        await waitUntilFirstReadSettles(store, transport)
+
+        // An answer this device could not read withdraws the confirmation.
+        transport.stub("GET", "/v1/cloud/changes", Data(#"{"household":{"lineageId":"#.utf8))
+        await store.refresh()
+        XCTAssertFalse(cloud.isReadyForRuntimeMutations)
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertEqual(store.parentMutationBlock, .revisionUnconfirmed)
+
+        // A pull is in flight when the parent tries to record anyway.
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        transport.suspend("GET", "/v1/cloud/changes")
+        let preRefusalRead = Task { await store.refresh() }
+        await transport.waitUntilSuspended(count: 1)
+        _ = await store.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "readiness-review-key")
+        )
+        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" }, "nothing was sent from a stale replica")
+
+        transport.resumeSuspendedRequest()
+        await preRefusalRead.value
+        XCTAssertTrue(store.needsCloudReview, "a read that landed on its own ends no review")
+        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
+
+        await store.clearParentMutationBlock()
+        await waitUntil("the recovery's own read lands") { store.parentMutationBlock == nil }
+        XCTAssertFalse(store.needsCloudReview)
+        XCTAssertTrue(store.canStartParentMutation)
     }
 
     /// The safety half of the same guard: a read that did observe something and
@@ -1478,6 +1609,13 @@ final class CloudVerticalSliceTests: XCTestCase {
         await waitUntil("the conflict's own reread settles") { !store.isLoading }
         XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
 
+        // The 409 named revision 7, so only a wallet at or past it counts as
+        // "the latest balance" for this review.
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 7, balanceCents: 1_450, entryID: "conflict-winner")
+        )
         await store.clearParentMutationBlock()
         await waitUntil("the reviewed balance to land") { store.parentMutationBlock == nil }
         XCTAssertNil(store.parentMutationBlock, "reviewing the latest balance clears the review")
@@ -1504,130 +1642,6 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(store.needsCloudReview, "no read landed, so there is no reviewed balance to accept")
         XCTAssertFalse(store.canStartParentMutation)
         XCTAssertNotNil(store.parentMutationBlock)
-    }
-
-    func testAFailedOverlappingReadKeepsRecoveryArmedUntilABalanceLands() async throws {
-        let (cloud, transport, lineage) = try await writableCloud()
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
-        let store = syncedParentStore(cloud, lineage: lineage)
-        await waitUntilFirstReadSettles(store, transport)
-
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
-        transport.suspend("GET", "/v1/cloud/changes")
-        _ = await store.submit(WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "overlapping-review-key"))
-        await transport.waitUntilSuspended()
-        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
-
-        transport.failEverything = true
-        await store.clearParentMutationBlock()
-        XCTAssertTrue(store.needsCloudReview, "a failed read showed no balance to review")
-
-        transport.failEverything = false
-        transport.resumeSuspendedRequest()
-        await waitUntil("the earlier accepted read publishes") { store.parentMutationBlock == nil }
-        XCTAssertFalse(store.needsCloudReview)
-        XCTAssertTrue(store.canStartParentMutation)
-    }
-
-    func testPreConflictReadCannotEndReviewAfterConflictBoundary() async throws {
-        let (cloud, transport, lineage) = try await writableCloud()
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
-        let store = syncedParentStore(cloud, lineage: lineage)
-        await waitUntilFirstReadSettles(store, transport)
-
-        transport.stub(
-            "GET",
-            "/v1/cloud/changes",
-            CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2)
-        )
-        transport.enqueue(
-            "GET",
-            "/v1/cloud/changes",
-            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "post-conflict")
-        )
-        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
-        transport.suspend("GET", "/v1/cloud/changes")
-        transport.suspend("GET", "/v1/cloud/changes")
-        transport.suspend("GET", "/v1/cloud/changes")
-
-        let preConflictRead = Task { await store.refresh() }
-        await transport.waitUntilSuspended(count: 1)
-        _ = await store.submit(WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "pre-conflict-key"))
-        await transport.waitUntilSuspended(count: 2)
-        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
-
-        let recovery = Task { await store.clearParentMutationBlock() }
-        await transport.waitUntilSuspended(count: 3)
-
-        transport.resumeSuspendedRequest()
-        await preConflictRead.value
-        XCTAssertTrue(store.needsCloudReview)
-        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
-
-        transport.resumeSuspendedRequest()
-        await waitUntil("the post-conflict read ends review") { store.parentMutationBlock == nil }
-        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_000)
-        XCTAssertFalse(store.needsCloudReview)
-        XCTAssertTrue(store.canStartParentMutation)
-
-        recovery.cancel()
-        transport.resumeSuspendedRequest()
-        await recovery.value
-    }
-
-    func testReadinessRevisionRequiredRetiresPreReviewReads() async throws {
-        let (cloud, transport, lineage) = try await writableCloud()
-        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
-        let store = syncedParentStore(cloud, lineage: lineage)
-        await waitUntilFirstReadSettles(store, transport)
-
-        transport.stub(
-            "GET",
-            "/v1/cloud/changes",
-            CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2)
-        )
-        transport.enqueue("GET", "/v1/cloud/changes", Data(#"{"household":{"lineageId":"#.utf8))
-        transport.suspend("GET", "/v1/cloud/changes")
-
-        let preReviewRead = Task { await store.refresh() }
-        await transport.waitUntilSuspended()
-        await store.refresh()
-        XCTAssertFalse(cloud.isReadyForRuntimeMutations)
-        XCTAssertEqual(store.connection, .reached)
-        XCTAssertEqual(store.parentMutationBlock, .revisionUnconfirmed)
-
-        transport.stub(
-            "GET",
-            "/v1/cloud/changes",
-            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "post-review")
-        )
-        transport.suspend("GET", "/v1/cloud/changes")
-        transport.suspend("GET", "/v1/cloud/changes")
-
-        _ = await store.submit(
-            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "readiness-review-key")
-        )
-        await transport.waitUntilSuspended(count: 2)
-        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
-
-        let recovery = Task { await store.clearParentMutationBlock() }
-        await transport.waitUntilSuspended(count: 3)
-
-        transport.resumeSuspendedRequest()
-        await preReviewRead.value
-        XCTAssertTrue(store.needsCloudReview)
-        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
-
-        transport.resumeSuspendedRequest()
-        await waitUntil("the post-boundary read ends review") { store.parentMutationBlock == nil }
-        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_000)
-        XCTAssertFalse(store.needsCloudReview)
-        XCTAssertTrue(store.canStartParentMutation)
-
-        recovery.cancel()
-        transport.resumeSuspendedRequest()
-        await recovery.value
     }
 
     private func assertSyncClaimAgreesWithTheWriteGuard(

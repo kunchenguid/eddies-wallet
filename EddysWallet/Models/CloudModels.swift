@@ -104,8 +104,9 @@ public enum ParentMutationBlock: Equatable, Sendable, CaseIterable {
 
     /// What pressing the block's own control does.
     public enum Recovery: Equatable, Sendable {
-        /// Read the latest wallet. An outstanding review ends only after a
-        /// post-boundary repository-accepted read is published.
+        /// Read the latest wallet, and end an outstanding review once the
+        /// accepted revision has reached the review's floor - the revision
+        /// the refusal proved exists.
         case readLatest
         /// The one block no read can lift. The way out is the Cloud plan
         /// surface further down the same screen, so the control goes there.
@@ -125,6 +126,24 @@ public enum ParentMutationBlock: Equatable, Sendable, CaseIterable {
         case .planInactive: "See Cloud plan"
         case .replicaUnavailable, .authorityUnreached, .revisionUnconfirmed: "Refresh now"
         }
+    }
+}
+
+/// A pending parent review, raised when the Cloud service refused a change
+/// against this device's revision, carrying the one fact that may end it.
+///
+/// `floorRevision` is the lowest accepted revision that counts as "the latest
+/// balance" for this review. A 409 names the revision the service already
+/// holds, so the floor is at least that; a refused precondition proves no
+/// newer revision, so reconfirming the accepted one is enough. Because the
+/// accepted revision is monotonic, the floor makes it unrepresentable to end
+/// a review against a balance from before the refusal: that balance is below
+/// the floor by definition, no matter how its read was delayed or reordered.
+public struct CloudReviewPending: Equatable, Sendable {
+    public let floorRevision: Int64
+
+    public init(floorRevision: Int64) {
+        self.floorRevision = floorRevision
     }
 }
 
