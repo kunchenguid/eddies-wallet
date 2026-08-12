@@ -840,7 +840,9 @@ public final class WalletStore: ObservableObject {
         do {
             let refreshed = try await repository.refresh(for: requestedRole)
             guard canPublishSuccessfulRead(attempt, generation: generation, role: requestedRole) else { return }
-            snapshot = refreshed
+            snapshot = repository is CloudWalletRepository
+                ? (requestedRole == .child ? repository.childSnapshot() : repository.snapshot())
+                : refreshed
             needsSetup = false
             if endsReviewOnNextSettledRead {
                 // The parent asked to review, and this is the balance they are
