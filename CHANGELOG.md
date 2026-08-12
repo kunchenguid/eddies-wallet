@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.15](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.14...eddies-wallet-v0.1.15) (2026-08-12)
+
+
+### Bug Fixes
+
+* prevent parent refresh from blocking wallet actions ([#65](https://github.com/kunchenguid/eddies-wallet/issues/65)) ([8304022](https://github.com/kunchenguid/eddies-wallet/commit/83040224c147e3e086448b22df3658de78fc5ff4))
+
 ## [0.1.14](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.13...eddies-wallet-v0.1.14) (2026-08-12)
 
 
