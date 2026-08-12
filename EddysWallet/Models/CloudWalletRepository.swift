@@ -111,12 +111,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             return snapshot()
         } catch {
             if let walletError = error as? WalletAPIError {
-                switch walletError.operationError {
-                case .revisionConflict, .revisionRequired:
-                    retireReadsStartedBeforeReview()
-                default:
-                    break
-                }
+                prepareForCloudReview(ifNeeded: walletError)
             }
             if lastAppliedReadGeneration < attemptedReadGeneration, observedAnAnswer(error) {
                 isReadyForRuntimeMutations = false
@@ -206,7 +201,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             return .rejected(blockedEvent(for: command))
         }
         guard client.hasSession else { throw WalletAPIError.noSession }
-        guard isReadyForRuntimeMutations else { throw WalletAPIError.revisionRequired }
+        try requireRuntimeMutationReadiness()
         let mutation = try await moneyMutation(for: command)
         try stage(mutation)
         switch try await settle(mutation) {
@@ -361,7 +356,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private func performNonMoneyMutation(_ mutation: PendingCloudMutation) async throws -> WalletSnapshot {
         guard activeMutation == nil else { throw WalletAPIError.cloudMutationAwaitingReconciliation }
         guard client.hasSession else { throw WalletAPIError.noSession }
-        guard isReadyForRuntimeMutations else { throw WalletAPIError.revisionRequired }
+        try requireRuntimeMutationReadiness()
         guard hasValidReplica else {
             throw WalletAPIError.invalidResponse("Reconnect before changing this Cloud wallet.")
         }
@@ -434,6 +429,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         var mutation = original
         if mutation.phase == .rejected {
             let rejection = rejectionError(from: mutation)
+            prepareForCloudReview(ifNeeded: rejection)
             do {
                 try clear(mutation)
             } catch {
@@ -484,13 +480,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                     return .waiting(.cancelled, nil)
                 }
                 if isDefinitiveRejection(rejection) {
-                    if case .revisionConflict = rejection.operationError {
-                        isReadyForRuntimeMutations = false
-                        retireReadsStartedBeforeReview()
-                    } else if case .revisionRequired = rejection.operationError {
-                        isReadyForRuntimeMutations = false
-                        retireReadsStartedBeforeReview()
-                    }
+                    prepareForCloudReview(ifNeeded: rejection)
                     do {
                         try clear(mutation)
                     } catch {
@@ -651,8 +641,21 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         return nextReadGeneration
     }
 
-    private func retireReadsStartedBeforeReview() {
-        minimumAcceptedReadGeneration = max(minimumAcceptedReadGeneration, nextReadGeneration + 1)
+    private func requireRuntimeMutationReadiness() throws {
+        guard isReadyForRuntimeMutations else {
+            prepareForCloudReview(ifNeeded: .revisionRequired)
+            throw WalletAPIError.revisionRequired
+        }
+    }
+
+    private func prepareForCloudReview(ifNeeded error: WalletAPIError) {
+        switch error.operationError {
+        case .revisionConflict, .revisionRequired:
+            isReadyForRuntimeMutations = false
+            minimumAcceptedReadGeneration = max(minimumAcceptedReadGeneration, nextReadGeneration + 1)
+        default:
+            break
+        }
     }
 
     /// Whether an arriving Cloud answer has already been overtaken.

@@ -1576,6 +1576,60 @@ final class CloudVerticalSliceTests: XCTestCase {
         await recovery.value
     }
 
+    func testReadinessRevisionRequiredRetiresPreReviewReads() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let store = syncedParentStore(cloud, lineage: lineage)
+        await waitUntilFirstReadSettles(store, transport)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2)
+        )
+        transport.enqueue("GET", "/v1/cloud/changes", Data(#"{"household":{"lineageId":"#.utf8))
+        transport.suspend("GET", "/v1/cloud/changes")
+
+        let preReviewRead = Task { await store.refresh() }
+        await transport.waitUntilSuspended()
+        await store.refresh()
+        XCTAssertFalse(cloud.isReadyForRuntimeMutations)
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertEqual(store.parentMutationBlock, .revisionUnconfirmed)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.changes(lineage: lineage, revision: 3, balanceCents: 1_000, entryID: "post-review")
+        )
+        transport.suspend("GET", "/v1/cloud/changes")
+        transport.suspend("GET", "/v1/cloud/changes")
+
+        _ = await store.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "readiness-review-key")
+        )
+        await transport.waitUntilSuspended(count: 2)
+        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
+
+        let recovery = Task { await store.clearParentMutationBlock() }
+        await transport.waitUntilSuspended(count: 3)
+
+        transport.resumeSuspendedRequest()
+        await preReviewRead.value
+        XCTAssertTrue(store.needsCloudReview)
+        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
+
+        transport.resumeSuspendedRequest()
+        await waitUntil("the post-boundary read ends review") { store.parentMutationBlock == nil }
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_000)
+        XCTAssertFalse(store.needsCloudReview)
+        XCTAssertTrue(store.canStartParentMutation)
+
+        recovery.cancel()
+        transport.resumeSuspendedRequest()
+        await recovery.value
+    }
+
     private func assertSyncClaimAgreesWithTheWriteGuard(
         _ store: WalletStore,
         _ state: String,
