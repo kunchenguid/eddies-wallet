@@ -1506,6 +1506,30 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertNotNil(store.parentMutationBlock)
     }
 
+    func testAFailedOverlappingReadKeepsRecoveryArmedUntilABalanceLands() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        let store = syncedParentStore(cloud, lineage: lineage)
+        await waitUntilFirstReadSettles(store, transport)
+
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.revisionConflictError, status: 409)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.revisionChanges(lineage: lineage, revision: 2))
+        transport.suspend("GET", "/v1/cloud/changes")
+        _ = await store.submit(WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "overlapping-review-key"))
+        await transport.waitUntilSuspended()
+        XCTAssertEqual(store.parentMutationBlock, .awaitingReview)
+
+        transport.failEverything = true
+        await store.clearParentMutationBlock()
+        XCTAssertTrue(store.needsCloudReview, "a failed read showed no balance to review")
+
+        transport.failEverything = false
+        transport.resumeSuspendedRequest()
+        await waitUntil("the earlier accepted read publishes") { store.parentMutationBlock == nil }
+        XCTAssertFalse(store.needsCloudReview)
+        XCTAssertTrue(store.canStartParentMutation)
+    }
+
     private func assertSyncClaimAgreesWithTheWriteGuard(
         _ store: WalletStore,
         _ state: String,

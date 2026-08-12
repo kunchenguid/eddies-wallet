@@ -629,7 +629,7 @@ public final class WalletStore: ObservableObject {
         converged.pendingEvents += refusedLegacyActions
         snapshot = converged
         connection = .reached
-        needsCloudReview = false
+        endCloudReview()
         cloudEntitlement = cloudCoordinator.entitlement
         cloudMessage = cloudCoordinator.message
     }
@@ -847,8 +847,7 @@ public final class WalletStore: ObservableObject {
             if endsReviewOnNextSettledRead {
                 // The parent asked to review, and this is the balance they are
                 // now looking at.
-                endsReviewOnNextSettledRead = false
-                needsCloudReview = false
+                endCloudReview()
             }
             if let cloud = repository as? CloudWalletRepository {
                 authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
@@ -861,9 +860,6 @@ public final class WalletStore: ObservableObject {
             await convergeLegacyDeviceOntoCloud(generation: generation)
         } catch let error as WalletAPIError {
             guard canPublish(attempt, generation: generation, role: requestedRole), !isCancellation(error) else { return }
-            // This read settled with a failure, so it showed the parent no
-            // balance to review. The review stands until one lands.
-            endsReviewOnNextSettledRead = false
             // The newest read's own failure is the one worth reporting. What
             // the readout shows then survives a later successful read: a parent
             // reporting an intermittent failure needs it after recovery.
@@ -951,7 +947,6 @@ public final class WalletStore: ObservableObject {
             }
         } catch {
             guard canPublish(attempt, generation: generation, role: requestedRole), !isCancellation(error) else { return }
-            endsReviewOnNextSettledRead = false
             errorMessage = "The wallet could not be updated. Your last accepted balance is still shown."
             snapshot = requestedRole == .child ? repository.childSnapshot() : repository.snapshot()
         }
@@ -1442,7 +1437,7 @@ public final class WalletStore: ObservableObject {
         sessionExpired = false
         connection = .reached
         latestTransportDiagnostic = nil
-        needsCloudReview = false
+        endCloudReview()
         latestParentMutationOutcome = nil
         showsFirstActionsHandoff = false
         clearPINFailureState()
@@ -1702,7 +1697,7 @@ public final class WalletStore: ObservableObject {
         repository = cloud.localReplica
         authorityState = cloud.localReplica.lineageID.map { .local(lineageID: $0) } ?? .localSetup
         snapshot = repository.snapshot()
-        needsCloudReview = false
+        endCloudReview()
         cloudMessage = nil
         return true
     }
@@ -1725,7 +1720,7 @@ public final class WalletStore: ObservableObject {
         snapshot = repository.snapshot()
         cloudEntitlement = .none
         purchaseAttempt = .idle
-        needsCloudReview = false
+        endCloudReview()
         cloudMessage = "This device signed out of Cloud. The wallet still works here and nothing was deleted."
         return true
     }
@@ -1744,6 +1739,11 @@ public final class WalletStore: ObservableObject {
     }
 
     public func acknowledgeCloudReview() {
+        endCloudReview()
+    }
+
+    private func endCloudReview() {
+        endsReviewOnNextSettledRead = false
         needsCloudReview = false
     }
 
