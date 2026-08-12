@@ -840,6 +840,18 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
             current.acceptedBalanceCents += command.amountCents
         case .allowance:
             current.acceptedBalanceCents += command.amountCents
+            if let allowance = current.allowance {
+                current.allowance = AllowancePlan(
+                    remoteID: allowance.remoteID,
+                    amountCents: allowance.amountCents,
+                    cadence: allowance.cadence,
+                    weekday: allowance.weekday,
+                    nextDate: Calendar.current.date(byAdding: .day, value: 7, to: allowance.nextDate) ?? allowance.nextDate,
+                    endDate: allowance.endDate,
+                    nextOccurrenceID: allowance.nextOccurrenceID,
+                    syncState: allowance.syncState
+                )
+            }
         }
 
         let event = makeEvent(for: command, state: .recorded, explanation: explanation(for: command))
@@ -857,7 +869,15 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
         case .loan: .loan
         case .repayment: .repayment
         }
-        return WalletEvent(type: type, amountCents: command.amountCents, reason: command.reason, syncState: state, explanation: explanation, rejectionReason: rejectionReason)
+        return WalletEvent(
+            type: type,
+            amountCents: command.amountCents,
+            reason: command.reason,
+            date: command.kind == .allowance ? (command.dueDate ?? .now) : .now,
+            syncState: state,
+            explanation: explanation,
+            rejectionReason: rejectionReason
+        )
     }
 
     private func explanation(for command: WalletCommand) -> String {

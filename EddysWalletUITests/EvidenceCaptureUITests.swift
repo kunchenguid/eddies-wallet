@@ -428,8 +428,19 @@ final class EvidenceCaptureUITests: XCTestCase {
         recordAll.tap()
         XCTAssertTrue(app.staticTexts["Pay out 3 missed allowance weeks?"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["This will add 3 separate allowance entries totaling US$15.00. Today's allowance will not be paid out."].exists)
-        XCTAssertTrue(app.buttons["Pay out all"].exists)
+        let payOutAll = app.buttons["Pay out all"]
+        XCTAssertTrue(payOutAll.exists)
         capture("parent-missed-allowance-confirm")
+
+        payOutAll.tap()
+        XCTAssertTrue(app.staticTexts["Missed allowances paid out"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Paid out 3 separate allowance entries totaling US$15.00."].exists)
+        capture("parent-missed-allowance-recorded")
+
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.staticTexts["US$39.00"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.otherElements["missed-allowance-card"].exists)
+        capture("parent-missed-allowance-settled")
     }
 
     func testParentAreaTour() throws {
