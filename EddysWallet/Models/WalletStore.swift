@@ -220,6 +220,9 @@ public final class WalletStore: ObservableObject {
     /// Last result for profile and allowance mutations, which do not create a
     /// ledger event but still need truthful accepted/waiting/rejected copy.
     @Published public private(set) var latestParentMutationOutcome: ParentMutationOutcome?
+    /// True only while a deliberate parent record-all action is sequentially
+    /// settling the originally visible missed allowance occurrences.
+    @Published public private(set) var isRecordingMissedAllowance = false
     /// The first-run existing-wallet choice, when this parent's account already
     /// holds a wallet this device can recover. Non-nil only before setup.
     @Published public private(set) var existingWalletRecovery: ExistingWalletRecoveryState?
@@ -1084,6 +1087,60 @@ public final class WalletStore: ObservableObject {
             Task { [weak self] in await self?.refresh() }
             return false
         }
+    }
+
+    /// The parent-visible missed portion of the current allowance schedule.
+    /// A Cloud replica can render this only after `/v1/allowance-rule` has
+    /// supplied its real next occurrence; the replica's rule start date is not
+    /// a substitute for that server-owned fact.
+    public var missedAllowancePayouts: AllowanceMissedPayouts {
+        guard let allowance = snapshot.allowance else {
+            return AllowanceMissedPayouts(occurrences: [])
+        }
+        if repository is CloudWalletRepository, allowance.nextOccurrenceID == nil {
+            return AllowanceMissedPayouts(occurrences: [])
+        }
+        return allowance.missedPayouts()
+    }
+
+    /// Records the exact missed set a parent saw, one occurrence per command.
+    /// Each command uses the repository's normal idempotency and revision
+    /// guards. If the sequence is interrupted, accepted entries have already
+    /// advanced the schedule atomically and only the untouched suffix remains
+    /// eligible for a later deliberate parent action.
+    public func recordAllMissedAllowance() async -> AllowanceRecordAllOutcome {
+        guard elevation == .active, !isRecordingMissedAllowance else {
+            return .partial(recordedCount: 0, recordedTotalCents: 0, remaining: missedAllowancePayouts)
+        }
+        let initial = missedAllowancePayouts
+        guard !initial.isEmpty else { return .noMissed }
+
+        isRecordingMissedAllowance = true
+        defer { isRecordingMissedAllowance = false }
+        var recordedCount = 0
+        var recordedTotalCents = 0
+
+        for occurrence in initial.occurrences {
+            // Do not silently record a new or changed schedule. A concurrent
+            // edit, single record, or Cloud revision change leaves the rest
+            // for an explicit next parent action.
+            guard missedAllowancePayouts.occurrences.first == occurrence else {
+                break
+            }
+            let result = await submit(WalletCommand(kind: .allowance, amountCents: occurrence.amountCents))
+            guard case .accepted = result else { break }
+            recordedCount += 1
+            recordedTotalCents += occurrence.amountCents
+        }
+
+        if recordedCount == initial.count {
+            return .recorded(count: recordedCount, totalCents: recordedTotalCents)
+        }
+        return .partial(
+            recordedCount: recordedCount,
+            recordedTotalCents: recordedTotalCents,
+            remaining: AllowanceMissedPayouts(occurrences: Array(initial.occurrences.dropFirst(recordedCount)))
+        )
     }
 
     @discardableResult

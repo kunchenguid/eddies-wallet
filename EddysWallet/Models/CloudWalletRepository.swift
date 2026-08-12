@@ -33,6 +33,11 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private var lastQueuedRead: Task<Void, Never>?
     private var mutationLifecycleGeneration = 0
     private var activeSettlement: ActiveSettlement?
+    /// `/v1/cloud/changes` contains the rule but not its pending occurrence.
+    /// This service-authoritative read gives parent presentation the actual
+    /// earliest due week instead of inferring it from activity timestamps.
+    private var allowanceSchedule: CloudAllowanceSchedule.Rule?
+    private var allowanceScheduleRevision: Int64?
     /// A persisted replica is readable immediately, but a new process may not
     /// write from it until one successful server read confirms its revision.
     /// Derived, not stored: readiness is exactly "the accepted replica's
@@ -71,6 +76,21 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     public func snapshot() -> WalletSnapshot {
         guard hasValidReplica else { return .empty() }
         var snapshot = replica.snapshot()
+        if let plan = snapshot.allowance, let schedule = allowanceSchedule,
+           allowanceScheduleRevision == revision,
+           plan.remoteID == schedule.id, plan.amountCents == schedule.amountCents,
+           let nextDate = schedule.nextDueDate.flatMap(CloudDayFormat.date(from:)) {
+            snapshot.allowance = AllowancePlan(
+                remoteID: plan.remoteID,
+                amountCents: plan.amountCents,
+                cadence: plan.cadence,
+                weekday: plan.weekday,
+                nextDate: nextDate,
+                endDate: plan.endDate,
+                nextOccurrenceID: schedule.nextOccurrenceID,
+                syncState: plan.syncState
+            )
+        }
         if let pending = activeMutation?.pendingEvent() {
             snapshot.pendingEvents = [pending]
         }
@@ -78,13 +98,20 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     }
 
     public func childSnapshot() -> WalletSnapshot {
-        hasValidReplica ? replica.childSnapshot() : .empty()
+        guard hasValidReplica else { return .empty() }
+        // The schedule is read-only parent metadata, but keeping the same next
+        // occurrence in both snapshots prevents a parent elevation from
+        // momentarily falling back to the rule's original start date.
+        var snapshot = self.snapshot()
+        snapshot.pendingEvents = []
+        return snapshot
     }
 
-    public func refresh(for _: UserRole) async throws -> WalletSnapshot {
+    public func refresh(for role: UserRole) async throws -> WalletSnapshot {
         if let activeMutation {
             switch try await settle(activeMutation) {
             case .observed:
+                if role == .parent { await refreshAllowanceSchedule() }
                 return snapshot()
             case .waiting(let error, let diagnostic):
                 switch error.operationError {
@@ -98,9 +125,11 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             }
         }
         if requiresBootstrap {
-            return try await bootstrap()
+            let snapshot = try await bootstrap()
+            if role == .parent { await refreshAllowanceSchedule() }
+            return snapshot
         }
-        return try await serializedRead { [self] in
+        let refreshed = try await serializedRead { [self] in
             do {
                 let changes = try await client.changes(afterRevision: revision)
                 try apply(changes, merging: true)
@@ -121,6 +150,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 throw error
             }
         }
+        if role == .parent { await refreshAllowanceSchedule() }
+        _ = refreshed
+        return snapshot()
     }
 
     /// Whether a failed read learned anything about the accepted replica.
@@ -214,6 +246,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         try stage(mutation)
         switch try await settle(mutation) {
         case .observed(let event):
+            if command.kind == .allowance {
+                await refreshAllowanceSchedule()
+            }
             guard let event else {
                 return .acceptedAwaitingReplica(try pendingEvent(for: mutation, phase: .acceptedAwaitingReplica))
             }
@@ -335,6 +370,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             body = ["amountCents": command.amountCents]
         case .allowance:
             let schedule = try await client.allowanceSchedule()
+            allowanceSchedule = schedule.allowanceRule
+            allowanceScheduleRevision = revision
             guard let rule = schedule.allowanceRule, let occurrenceID = rule.nextOccurrenceID else {
                 throw WalletAPIError.server(statusCode: 409, code: "ALLOWANCE_NOT_SCHEDULED", message: "There is no scheduled allowance occurrence to record.")
             }
@@ -359,6 +396,21 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             amountCents: authoritativeAmountCents,
             reason: command.reason
         )
+    }
+
+    /// A schedule read supplements parent presentation only. It never changes
+    /// accepted wallet data or weakens the revision proof a Cloud write needs.
+    /// A failed read clears the cached occurrence instead of leaving a stale
+    /// guessed backlog visible.
+    private func refreshAllowanceSchedule() async {
+        do {
+            allowanceSchedule = try await client.allowanceSchedule().allowanceRule
+            allowanceScheduleRevision = revision
+        } catch {
+            // Keep a previously read value only as data, never as current
+            // presentation: `snapshot()` requires its revision to match.
+            allowanceScheduleRevision = nil
+        }
     }
 
     private func performNonMoneyMutation(_ mutation: PendingCloudMutation) async throws -> WalletSnapshot {

@@ -69,6 +69,20 @@ enum DebugLaunchScenario {
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)))
         case "configured-empty":
             return store(repository: MockWalletRepository(snapshot: emptySnapshot(environment: environment)))
+        case "allowance-missed":
+            let calendar = Calendar.current
+            let today = calendar.startOfDay(for: .now)
+            let firstMissed = calendar.date(byAdding: .day, value: -21, to: today) ?? today
+            var overdue = snapshot(.fixture(), environment: environment)
+            overdue.allowance = AllowancePlan(
+                remoteID: "debug-allowance",
+                amountCents: 500,
+                cadence: "every week",
+                weekday: calendar.component(.weekday, from: firstMissed) - 1,
+                nextDate: firstMissed,
+                nextOccurrenceID: "debug-allowance-occurrence"
+            )
+            return store(repository: MockWalletRepository(snapshot: overdue))
         case "delete-account":
             return store(
                 repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)),

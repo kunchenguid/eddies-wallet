@@ -720,6 +720,80 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(relaunched.snapshot().activities.filter { $0.remoteID == "accepted-after-waiting" }.count, 1)
     }
 
+    func testCloudRecordAllWalksOnlyPastDueAllowanceOccurrencesOneAtATime() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -21, to: today))
+        let secondMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstMissed))
+        let thirdMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: 14, to: firstMissed))
+        let changes = [
+            CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage),
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "allowance-1"),
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 4, balanceCents: 1_750, entryID: "allowance-2"),
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 5, balanceCents: 2_250, entryID: "allowance-3"),
+        ]
+        transport.stub("GET", "/v1/cloud/changes", changes[0])
+        for change in changes.dropFirst() { transport.enqueue("GET", "/v1/cloud/changes", change) }
+
+        let schedules = [
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: secondMissed, occurrenceID: "o-2"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: secondMissed, occurrenceID: "o-2"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: thirdMissed, occurrenceID: "o-3"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: thirdMissed, occurrenceID: "o-3"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "o-today"),
+        ]
+        transport.stub("GET", "/v1/allowance-rule", schedules[0])
+        for schedule in schedules.dropFirst() { transport.enqueue("GET", "/v1/allowance-rule", schedule) }
+        for (index, revision) in [Int64(3), 4, 5].enumerated() {
+            transport.stub(
+                "POST",
+                "/v1/allowance-rule/a-1/occurrences/o-\(index + 1)/record",
+                CloudSliceFixtures.depositAccepted(revision: revision, entryID: "allowance-\(index + 1)"),
+                status: 201
+            )
+        }
+
+        _ = try await cloud.refresh(for: .parent)
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(cloud.snapshot().allowance?.nextDate)), firstMissed)
+        XCTAssertEqual(cloud.snapshot().allowance?.missedPayouts().count, 3)
+        XCTAssertEqual(cloud.snapshot().allowance?.missedPayouts().totalCents, 1_500)
+        XCTAssertEqual(
+            calendar.startOfDay(for: try XCTUnwrap(cloud.snapshot().allowance?.nextCurrentOrFuturePayout(calendar: calendar))),
+            today
+        )
+
+        for occurrence in [firstMissed, secondMissed, thirdMissed] {
+            guard case .accepted = try await cloud.submit(
+                WalletCommand(kind: .allowance, amountCents: 500)
+            ) else {
+                return XCTFail("each Cloud overdue occurrence must settle as its own accepted entry")
+            }
+            XCTAssertGreaterThan(cloud.snapshot().acceptedBalanceCents, 750)
+            XCTAssertEqual(cloud.snapshot().allowance?.nextDate, calendar.date(byAdding: .day, value: 7, to: occurrence))
+        }
+        XCTAssertEqual(cloud.snapshot().acceptedBalanceCents, 2_250)
+        XCTAssertEqual(cloud.snapshot().activities.filter { $0.type == .allowance }.count, 3)
+        XCTAssertTrue(cloud.snapshot().allowance?.missedPayouts().isEmpty == true)
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(cloud.snapshot().allowance?.nextDate)), today)
+
+        let writes = transport.requests.filter { $0.httpMethod == "POST" }
+        XCTAssertEqual(writes.map { $0.url?.path }, [
+            "/v1/allowance-rule/a-1/occurrences/o-1/record",
+            "/v1/allowance-rule/a-1/occurrences/o-2/record",
+            "/v1/allowance-rule/a-1/occurrences/o-3/record",
+        ])
+        XCTAssertEqual(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }, ["\"rev-2\"", "\"rev-3\"", "\"rev-4\""])
+    }
+
     func testScheduledAllowanceRejectsCallerAmountMismatchBeforeStaging() async throws {
         let (cloud, transport, _) = try await writableCloud()
         transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceDue)
@@ -3384,6 +3458,30 @@ enum CloudSliceFixtures {
      "startDate":"2026-07-01","endDate":null,"active":true,
      "nextOccurrenceId":null,"nextDueDate":null}}
     """.utf8)
+
+    static func allowanceSchedule(dueDate: Date, occurrenceID: String) -> Data {
+        Data("""
+        {"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+         "startDate":"2026-07-01","endDate":null,"active":true,
+         "nextOccurrenceId":"\(occurrenceID)","nextDueDate":"\(CloudDayFormat.string(from: dueDate))"}}
+        """.utf8)
+    }
+
+    static func allowanceChanges(
+        lineage: UUID,
+        revision: Int64,
+        balanceCents: Int,
+        entryID: String
+    ) -> Data {
+        Data("""
+        {"household":{"lineageId":"\(lineage.uuidString.lowercased())","authority":"cloud","revision":\(revision)},
+         "family":{"id":"f-1","name":"Test Kid's family"},
+         "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+         "wallet":{"id":"w-1","balanceCents":\(balanceCents)},
+         "entries":[{"id":"\(entryID)","type":"allowance","direction":"credit","amountCents":500,"balanceBeforeCents":\(balanceCents - 500),"balanceAfterCents":\(balanceCents),"reason":null,"loanId":null,"recordedAt":"2026-08-01T12:00:00.000Z","acceptedRevision":\(revision)}],
+         "loans":[],"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,"startDate":"2026-07-01","endDate":null,"active":true}}
+        """.utf8)
+    }
 
     static func contextActive(lineage: UUID, revision: Int64) -> Data {
         Data("""

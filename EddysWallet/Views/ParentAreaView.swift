@@ -15,8 +15,14 @@ struct ParentAreaView: View {
     @State private var isShowingEditProfile = false
     @State private var isShowingConnectionDetails = false
     @State private var isConfirmingSignOut = false
+    @State private var isConfirmingRecordAllMissedAllowance = false
+    @State private var recordAllMissedAllowanceOutcome: AllowanceRecordAllOutcome?
 
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
+
+    private var missedAllowancePayouts: AllowanceMissedPayouts {
+        store.missedAllowancePayouts
+    }
 
     private var childWalletReference: String {
         ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)
@@ -67,6 +73,10 @@ struct ParentAreaView: View {
                             }
 
                             walletCards
+
+                            if !missedAllowancePayouts.isEmpty {
+                                missedAllowanceCard
+                            }
 
                             SectionHeader("Recent activity")
                             if store.snapshot.activities.isEmpty {
@@ -157,6 +167,26 @@ struct ParentAreaView: View {
                 ConnectionDetailsView(diagnostic: diagnostic)
                     .ewFormSheetPresentation()
             }
+        }
+        .confirmationDialog(
+            "Pay out \(missedAllowancePayouts.count) missed allowance weeks?",
+            isPresented: $isConfirmingRecordAllMissedAllowance,
+            titleVisibility: .visible
+        ) {
+            Button("Pay out all") {
+                Task { recordAllMissedAllowanceOutcome = await store.recordAllMissedAllowance() }
+            }
+            Button("Not now", role: .cancel) {}
+        } message: {
+            Text("This will add \(missedAllowancePayouts.count) separate allowance entries totaling \(Money(cents: missedAllowancePayouts.totalCents).display). Today's allowance will not be paid out.")
+        }
+        .alert(recordAllMissedAllowanceAlertTitle, isPresented: Binding(
+            get: { recordAllMissedAllowanceOutcome != nil },
+            set: { if !$0 { recordAllMissedAllowanceOutcome = nil } }
+        )) {
+            Button("Done") { recordAllMissedAllowanceOutcome = nil }
+        } message: {
+            Text(recordAllMissedAllowanceAlertMessage)
         }
     }
 
@@ -329,9 +359,11 @@ struct ParentAreaView: View {
                     Text("\(Money(cents: allowance.amountCents).display) \(allowance.cadence)")
                         .font(EW.Font.body)
                         .foregroundStyle(EW.Color.textSecondary)
-                    Text("Starting \(allowance.nextDate.formatted(.dateTime.month(.abbreviated).day()))")
-                        .font(EW.Font.caption)
-                        .foregroundStyle(EW.Color.textTertiary)
+                    if let nextDate = allowance.nextCurrentOrFuturePayout() {
+                        Text("Starting \(nextDate.formatted(.dateTime.month(.abbreviated).day()))")
+                            .font(EW.Font.caption)
+                            .foregroundStyle(EW.Color.textTertiary)
+                    }
                     if allowance.syncState != .recorded {
                         StatusPill(state: allowance.syncState)
                     }
@@ -343,6 +375,80 @@ struct ParentAreaView: View {
             }
             .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: EW.Space.two)
+        }
+    }
+
+    /// A parent-visible ledger of all already-past-due weekly occurrences.
+    /// The action deliberately settles only this list: today remains the
+    /// ordinary next allowance and is never auto-recorded by this control.
+    private var missedAllowanceCard: some View {
+        VStack(alignment: .leading, spacing: EW.Space.three) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("Missed allowance", systemImage: "calendar.badge.exclamationmark")
+                    .font(EW.Font.headingSmall)
+                    .foregroundStyle(EW.Color.textPrimary)
+                Spacer()
+                Text("\(missedAllowancePayouts.count) missed weeks")
+                    .font(EW.Font.caption)
+                    .foregroundStyle(EW.Color.textSecondary)
+            }
+            VStack(spacing: 0) {
+                ForEach(missedAllowancePayouts.occurrences) { occurrence in
+                    HStack {
+                        Text(occurrence.dueDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                            .font(EW.Font.body)
+                            .foregroundStyle(EW.Color.textPrimary)
+                        Spacer()
+                        MoneyAmount(cents: occurrence.amountCents, font: EW.Font.bodyBold)
+                    }
+                    .frame(minHeight: 44)
+                    if occurrence.id != missedAllowancePayouts.occurrences.last?.id {
+                        Divider().overlay(EW.Color.border)
+                    }
+                }
+            }
+            .padding(.horizontal, EW.Space.three)
+            .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+            HStack {
+                Text("Owed total")
+                    .font(EW.Font.bodyBold)
+                    .foregroundStyle(EW.Color.textPrimary)
+                Spacer()
+                MoneyAmount(cents: missedAllowancePayouts.totalCents, font: EW.Font.heading)
+            }
+            ActionButton(
+                title: "Pay out missed allowance",
+                icon: "gift.fill",
+                tint: EW.Color.gold700,
+                isEnabled: store.canStartParentMutation && !store.isRecordingMissedAllowance
+            ) {
+                isConfirmingRecordAllMissedAllowance = true
+            }
+            .accessibilityIdentifier("record-all-missed-allowance")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .ewCard(variant: .alt)
+        .accessibilityIdentifier("missed-allowance-card")
+    }
+
+    private var recordAllMissedAllowanceAlertTitle: String {
+        switch recordAllMissedAllowanceOutcome {
+        case .recorded: "Missed allowances paid out"
+        case .partial: "Some missed allowances were paid out"
+        case .noMissed, nil: "No missed allowances"
+        }
+    }
+
+    private var recordAllMissedAllowanceAlertMessage: String {
+        switch recordAllMissedAllowanceOutcome {
+        case .recorded(let count, let totalCents):
+            "Paid out \(count) separate allowance entries totaling \(Money(cents: totalCents).display)."
+        case .partial(let recordedCount, let recordedTotalCents, let remaining):
+            "Paid out \(recordedCount) allowance entries totaling \(Money(cents: recordedTotalCents).display). \(remaining.count) missed weeks remain and can be paid out after reviewing the latest wallet."
+        case .noMissed:
+            "There are no past-due allowance weeks to pay out."
+        case nil:
+            ""
         }
     }
 
@@ -523,7 +629,7 @@ struct ParentAreaView: View {
     }
 
     private var allowanceActionButton: some View {
-        ActionButton(title: "Record allowance", icon: "gift", tint: EW.Color.gold700, isEnabled: store.canStartParentMutation) { flow = .allowance }
+        ActionButton(title: "Pay out allowance", icon: "gift", tint: EW.Color.gold700, isEnabled: store.canStartParentMutation) { flow = .allowance }
     }
 
     private var settingsCard: some View {

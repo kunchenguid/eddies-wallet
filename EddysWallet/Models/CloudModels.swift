@@ -718,12 +718,18 @@ public struct CloudAllowanceSchedule: Codable, Equatable, Sendable {
     public struct Rule: Codable, Equatable, Sendable {
         public let id: String
         public let amountCents: Int
+        public let cadence: String
+        public let weekday: Int
+        public let startDate: String
+        public let endDate: String?
+        public let active: Bool
         public let nextOccurrenceID: String?
+        public let nextDueDate: String?
 
         private enum CodingKeys: String, CodingKey {
-            case id
-            case amountCents
+            case id, amountCents, cadence, weekday, startDate, endDate, active
             case nextOccurrenceID = "nextOccurrenceId"
+            case nextDueDate = "nextDueDate"
         }
     }
 

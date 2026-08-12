@@ -15,7 +15,7 @@ public enum MoneyFlowKind: String, Identifiable, CaseIterable {
         case .withdrawal: "Record withdrawal"
         case .loan: "Create loan"
         case .repayment: "Record repayment"
-        case .allowance: "Record allowance"
+        case .allowance: "Pay out allowance"
         }
     }
 
@@ -187,7 +187,7 @@ struct MoneyFlowView: View {
         SheetForm {
             VStack(alignment: .leading, spacing: EW.Space.five) {
                 VStack(alignment: .leading, spacing: EW.Space.three) {
-                    Label("Review before recording", systemImage: "checkmark.circle")
+                    Label(kind == .allowance ? "Review before paying out" : "Review before recording", systemImage: "checkmark.circle")
                         .font(EW.Font.heading)
                         .foregroundStyle(EW.Color.textPrimary)
                     reviewRow(label: "Event", value: kind.title)
@@ -212,7 +212,7 @@ struct MoneyFlowView: View {
                     .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
             }
         } actions: {
-            Button("Confirm \(kind.title.lowercased())") {
+            Button(kind == .allowance ? "Pay out allowance" : "Confirm \(kind.title.lowercased())") {
                 Task { await confirm() }
             }
             .buttonStyle(PrimaryButtonStyle())
@@ -275,7 +275,7 @@ struct MoneyFlowView: View {
         case .withdrawal: "Record virtual dollars as used from \(walletReference)."
         case .loan: "Give \(childReference) virtual dollars to use now and give back over time."
         case .repayment: "Record virtual dollars returned toward the open loan."
-        case .allowance: "Record this virtual allowance in \(walletReference)."
+        case .allowance: "Pay out this virtual allowance in \(walletReference)."
         }
     }
 
@@ -305,7 +305,9 @@ struct MoneyFlowView: View {
         switch result {
         case .accepted:
             resultState = .recorded
-            resultMessage = "This virtual money event was accepted and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
+            resultMessage = kind == .allowance
+                ? "This virtual allowance was paid out and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
+                : "This virtual money event was accepted and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
         case .pending(let event, _):
             resultState = .pending
             resultMessage = event.explanation
@@ -314,7 +316,9 @@ struct MoneyFlowView: View {
             resultMessage = event.explanation
         case .rejected(let event):
             resultState = .rejected
-            resultMessage = event.rejectionReason ?? "This action was not recorded and did not change the accepted balance."
+            resultMessage = event.rejectionReason ?? (kind == .allowance
+                ? "This allowance was not paid out and did not change the accepted balance."
+                : "This action was not recorded and did not change the accepted balance.")
         }
         isSubmitting = false
         step = .result
@@ -335,7 +339,7 @@ struct AllowanceView: View {
         NavigationStack {
             SheetForm {
                 VStack(alignment: .leading, spacing: EW.Space.five) {
-                    Text("Set one simple weekly plan for \(ChildProfileCopy.childReference(nickname: store.snapshot.configuredChildNickname)). A plan is separate from an allowance event until it is recorded.")
+                    Text("Set one simple weekly plan for \(ChildProfileCopy.childReference(nickname: store.snapshot.configuredChildNickname)). A plan is separate from an allowance event until it is paid out.")
                         .font(EW.Font.body)
                         .foregroundStyle(EW.Color.textSecondary)
                     VStack(alignment: .leading, spacing: EW.Space.three) {
@@ -401,7 +405,7 @@ struct AllowanceView: View {
                     resultState = outcome.syncState
                     switch outcome {
                     case .recorded:
-                        resultMessage = "The weekly allowance plan was recorded. Its next occurrence is separate from an allowance event until your parent records it."
+                        resultMessage = "The weekly allowance plan was recorded. Its next occurrence is separate from an allowance event until your parent pays it out."
                     case .waitingForCloud, .acceptedAwaitingReplica:
                         resultMessage = outcome.message
                     case .notRecorded:

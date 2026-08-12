@@ -21,6 +21,87 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertTrue(repository.snapshot().pendingEvents.isEmpty)
     }
 
+    func testLocalMissedAllowanceRecordAllSettlesOnlyPastWeeksAndLeavesTodayForTheSinglePath() async throws {
+        let repository = try LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -21, to: today))
+        _ = try await repository.setAllowance(
+            AllowanceRuleCommand(amountCents: 500, weekday: calendar.component(.weekday, from: firstMissed) - 1, startDate: firstMissed)
+        )
+        let store = WalletStore(
+            repository: repository,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner")
+        )
+        store.openParentGate()
+        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
+
+        XCTAssertEqual(store.missedAllowancePayouts.count, 3)
+        XCTAssertEqual(store.missedAllowancePayouts.totalCents, 1_500)
+        XCTAssertEqual(store.missedAllowancePayouts.occurrences.map(\.dueDate), [
+            firstMissed,
+            try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstMissed)),
+            try XCTUnwrap(calendar.date(byAdding: .day, value: 14, to: firstMissed)),
+        ])
+        XCTAssertEqual(
+            calendar.startOfDay(for: try XCTUnwrap(store.snapshot.allowance?.nextCurrentOrFuturePayout(calendar: calendar))),
+            today
+        )
+
+        let outcome = await store.recordAllMissedAllowance()
+        XCTAssertEqual(outcome, .recorded(count: 3, totalCents: 1_500))
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_500)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 3)
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(store.snapshot.allowance?.nextDate)), today)
+        XCTAssertTrue(store.missedAllowancePayouts.isEmpty)
+
+        let noOpBalance = store.snapshot.acceptedBalanceCents
+        let noOp = await store.recordAllMissedAllowance()
+        XCTAssertEqual(noOp, .noMissed)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, noOpBalance)
+    }
+
+    func testInterruptedLocalRecordAllKeepsAcceptedPrefixAndResumesWithoutDuplicates() async throws {
+        let persistence = ControllableLocalWalletPersistence()
+        let repository = try LocalWalletRepository(persistence: persistence)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -21, to: today))
+        _ = try await repository.setAllowance(
+            AllowanceRuleCommand(amountCents: 500, weekday: calendar.component(.weekday, from: firstMissed) - 1, startDate: firstMissed)
+        )
+        let store = WalletStore(
+            repository: repository,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner")
+        )
+        store.openParentGate()
+        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
+        persistence.failOnNextSaveNumber = persistence.saveCount + 2
+
+        let interrupted = await store.recordAllMissedAllowance()
+        guard case .partial(let recordedCount, let recordedTotalCents, let remaining) = interrupted else {
+            return XCTFail("a failed second save must leave a partial settlement")
+        }
+        XCTAssertEqual(recordedCount, 1)
+        XCTAssertEqual(recordedTotalCents, 500)
+        XCTAssertEqual(remaining.count, 2)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 500)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 1)
+        XCTAssertEqual(store.missedAllowancePayouts.count, 2)
+
+        let resumed = await store.recordAllMissedAllowance()
+        XCTAssertEqual(resumed, .recorded(count: 2, totalCents: 1_000))
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_500)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 3)
+        XCTAssertTrue(store.missedAllowancePayouts.isEmpty)
+    }
+
     func testLocalRejectedDebitNeverChangesAcceptedBalance() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
@@ -129,6 +210,7 @@ private final class ControllableLocalWalletPersistence: LocalWalletPersisting {
     var payload: Data?
     var saveError: Error?
     var eraseError: Error?
+    var failOnNextSaveNumber: Int?
     private(set) var saveCount = 0
 
     init(payload: Data? = nil) {
@@ -141,7 +223,12 @@ private final class ControllableLocalWalletPersistence: LocalWalletPersisting {
 
     func save(_ payload: Data) throws {
         if let saveError { throw saveError }
-        saveCount += 1
+        let nextSaveNumber = saveCount + 1
+        if failOnNextSaveNumber == nextSaveNumber {
+            failOnNextSaveNumber = nil
+            throw TestPersistenceError.failed
+        }
+        saveCount = nextSaveNumber
         self.payload = payload
     }
 

@@ -328,6 +328,42 @@ public struct Loan: Hashable, Codable, Sendable {
     }
 }
 
+public struct AllowanceOccurrence: Hashable, Identifiable, Sendable {
+    public let dueDate: Date
+    public let amountCents: Int
+
+    public var id: Date { dueDate }
+
+    public init(dueDate: Date, amountCents: Int) {
+        self.dueDate = dueDate
+        self.amountCents = amountCents
+    }
+}
+
+/// The scheduled weekly payouts a parent has not recorded yet. The schedule's
+/// next date is the first unrecorded occurrence, so walking forward from it is
+/// both the local and Cloud-authoritative record of which weeks remain due.
+/// This model never records anything itself - a parent action remains required.
+public struct AllowanceMissedPayouts: Hashable, Sendable {
+    public let occurrences: [AllowanceOccurrence]
+
+    public init(occurrences: [AllowanceOccurrence]) {
+        self.occurrences = occurrences
+    }
+
+    public var count: Int { occurrences.count }
+    public var totalCents: Int { occurrences.reduce(0) { $0 + $1.amountCents } }
+    public var isEmpty: Bool { occurrences.isEmpty }
+}
+
+public enum AllowanceRecordAllOutcome: Equatable, Sendable {
+    case noMissed
+    case recorded(count: Int, totalCents: Int)
+    /// The accepted prefix is durable. The remaining occurrences have not
+    /// been recorded and can be explicitly settled in a later parent action.
+    case partial(recordedCount: Int, recordedTotalCents: Int, remaining: AllowanceMissedPayouts)
+}
+
 public struct AllowancePlan: Hashable, Codable, Sendable {
     public let remoteID: String?
     public let amountCents: Int
@@ -356,6 +392,39 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         self.endDate = endDate
         self.nextOccurrenceID = nextOccurrenceID
         self.syncState = syncState
+    }
+
+    /// Past calendar days are missed. A payout due today stays the next
+    /// allowance, so recording every missed week never auto-records today's
+    /// allowance. `nextDate` is advanced only after an accepted allowance
+    /// entry, which makes each returned occurrence unrecorded exactly once.
+    public func missedPayouts(asOf now: Date = .now, calendar: Calendar = .current) -> AllowanceMissedPayouts {
+        let today = calendar.startOfDay(for: now)
+        let inclusiveEndDate = endDate.map { calendar.startOfDay(for: $0) }
+        var dueDate = calendar.startOfDay(for: nextDate)
+        var occurrences: [AllowanceOccurrence] = []
+
+        while dueDate < today, inclusiveEndDate.map({ dueDate <= $0 }) ?? true {
+            occurrences.append(AllowanceOccurrence(dueDate: dueDate, amountCents: amountCents))
+            guard let followingDate = calendar.date(byAdding: .day, value: 7, to: dueDate) else { break }
+            dueDate = followingDate
+        }
+        return AllowanceMissedPayouts(occurrences: occurrences)
+    }
+
+    /// The first still-current or future occurrence. This is intentionally
+    /// separate from `nextDate`, which is the earliest unrecorded occurrence
+    /// and can be a missed week while a parent catches up the schedule.
+    public func nextCurrentOrFuturePayout(asOf now: Date = .now, calendar: Calendar = .current) -> Date? {
+        let today = calendar.startOfDay(for: now)
+        let inclusiveEndDate = endDate.map { calendar.startOfDay(for: $0) }
+        var dueDate = calendar.startOfDay(for: nextDate)
+
+        while dueDate < today {
+            guard let followingDate = calendar.date(byAdding: .day, value: 7, to: dueDate) else { return nil }
+            dueDate = followingDate
+        }
+        return inclusiveEndDate.map { dueDate <= $0 ? dueDate : nil } ?? dueDate
     }
 }
 
