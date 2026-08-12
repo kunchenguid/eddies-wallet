@@ -248,14 +248,16 @@ public final class WalletStore: ObservableObject {
     /// Refreshes overlap by design: this store's own launch read, the kid
     /// home's `.task`, returning from the Parent area, coming back to the
     /// foreground, and every pull-to-refresh can all be in flight together.
-    /// Each read is stamped in the order it started so a slow one can never
-    /// land last and overwrite what a newer read already published.
+    /// Non-Cloud publication is newest-attempt-wins. Cloud publication instead
+    /// reads the repository's current accepted snapshot, whose own generations
+    /// and revisions decide which overlapping answer became authoritative.
     private var refreshAttempts = 0
     /// Set while a parent has asked to review the latest balance from a block's
-    /// own control, and cleared by the outcome of the next read that reports
-    /// one. A read that observed nothing settles nothing, so it leaves this
-    /// armed rather than ending a review nobody was shown the balance for.
+    /// own control. It remains armed until the store publishes a repository-
+    /// accepted read completed after `reviewAcceptedReadBoundary`; no-answer
+    /// reads, failures, and delayed pre-boundary reads cannot end the review.
     private var endsReviewOnNextSettledRead = false
+    /// Repository-accepted completion generation captured when review begins.
     private var reviewAcceptedReadBoundary: Int?
     /// Set while the scene is out of the foreground, so the return can re-read
     /// the wallet that `handleAppBackgrounded()` retired.
@@ -1592,13 +1594,12 @@ public final class WalletStore: ObservableObject {
     /// The one in-app way out of a blocked parent state, started from a control
     /// the parent can see next to the block itself.
     ///
-    /// It reads the latest wallet, and ends an outstanding review on the first
-    /// read that actually lands afterwards - the parent acknowledges the
-    /// balance now on their screen, never a stale one. A read that fails leaves
-    /// the block and its reason exactly as they were. The landing read need not
-    /// be this one: a reread the rejection itself started can still be in
-    /// flight, and it is the newest observation, so it is the one the parent
-    /// ends up looking at.
+    /// It reads the latest wallet, and ends an outstanding review only after
+    /// publishing a repository-accepted read completed beyond the boundary
+    /// captured when review began. A delayed pre-boundary read cannot end the
+    /// review, and a read that fails leaves the block and its reason exactly as
+    /// they were. The qualifying read need not be this one: a reread the
+    /// rejection itself started can already be in flight and apply afterward.
     ///
     /// Unlike a pull-to-refresh, this read is not owned by a gesture, so
     /// nothing cancels it out from under the parent.

@@ -104,8 +104,8 @@ public enum ParentMutationBlock: Equatable, Sendable, CaseIterable {
 
     /// What pressing the block's own control does.
     public enum Recovery: Equatable, Sendable {
-        /// Read the latest wallet, and end an outstanding review once that read
-        /// has actually landed.
+        /// Read the latest wallet. An outstanding review ends only after a
+        /// post-boundary repository-accepted read is published.
         case readLatest
         /// The one block no read can lift. The way out is the Cloud plan
         /// surface further down the same screen, so the control goes there.
