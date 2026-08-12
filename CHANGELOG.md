@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.16](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.15...eddies-wallet-v0.1.16) (2026-08-12)
+
+
+### Bug Fixes
+
+* make Cloud wallet reads and reviews race-safe ([#68](https://github.com/kunchenguid/eddies-wallet/issues/68)) ([40fc064](https://github.com/kunchenguid/eddies-wallet/commit/40fc0644cc8ac463b2227adc9cdff0ba6857ec52))
+
 ## [0.1.15](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.14...eddies-wallet-v0.1.15) (2026-08-12)
 
 
