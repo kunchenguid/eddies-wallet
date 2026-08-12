@@ -8,3 +8,4 @@ DerivedData/
 xcuserdata/
 __pycache__/
 .claude/settings.local.json
+.no-mistakes/evidence/
