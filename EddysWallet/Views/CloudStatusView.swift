@@ -307,6 +307,15 @@ struct CloudStatusView: View {
         }
     }
 
+    /// StoreKit always supplies a price. An empty price is only the debug
+    /// no-price capture seam, and must not render as a leading space.
+    private func planDetail(_ plan: CloudPlan) -> String {
+        [plan.displayPrice, plan.periodDescription]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
     @ViewBuilder private var purchaseStateCopy: some View {
         switch store.purchaseAttempt {
         case .pending:
@@ -346,7 +355,7 @@ struct CloudStatusView: View {
                             Text(plan.displayName)
                                 .font(EW.Font.bodyBold)
                                 .foregroundStyle(EW.Color.textPrimary)
-                            Text("\(plan.displayPrice) \(plan.periodDescription)")
+                            Text(planDetail(plan))
                                 .font(EW.Font.caption)
                                 .foregroundStyle(EW.Color.textSecondary)
                         }

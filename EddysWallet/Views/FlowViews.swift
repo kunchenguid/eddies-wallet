@@ -134,6 +134,11 @@ struct MoneyFlowView: View {
                     .font(EW.Font.body)
                     .foregroundStyle(EW.Color.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    #if DEBUG
+                    // Evidence capture taps this copy to resign the amount field
+                    // so iPad screenshots are not covered by the software keyboard.
+                    .onTapGesture { isAmountFocused = false }
+                    #endif
                 VStack(alignment: .leading, spacing: EW.Space.three) {
                     Text("Amount")
                         .font(EW.Font.captionUpper)
