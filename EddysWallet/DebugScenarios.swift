@@ -207,10 +207,15 @@ enum DebugLaunchScenario {
             // plans card - and its Guideline 3.1.2 legal links - render
             // deterministically for UI tests.
             let result = store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .local(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!))
-            result.applyDebugCloudPlans([
-                CloudPlan(id: "com.kunchenguid.eddieswallet.cloud.monthly", displayName: "Cloud monthly", displayPrice: "$2.99", periodDescription: "every month"),
-                CloudPlan(id: "com.kunchenguid.eddieswallet.cloud.annual", displayName: "Cloud annual", displayPrice: "$24.99", periodDescription: "every year")
-            ])
+            result.applyDebugCloudPlans(debugCloudPlans(includePrices: true))
+            return result
+        case "cloud-plans-no-price":
+            // Same populated plans surface as `cloud-plans-available`, but
+            // with StoreKit prices left blank so an App Store screenshot can
+            // be captured without a live price fetch and without baking a
+            // territory-specific price into the image.
+            let result = store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .local(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!))
+            result.applyDebugCloudPlans(debugCloudPlans(includePrices: false))
             return result
         case "cloud-offline-grace":
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .cloudOfflineGrace(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7), entitlement: .active(accessUntil: .distantPast, autoRenewEnabled: true))
@@ -353,6 +358,23 @@ enum DebugLaunchScenario {
     /// renders as "Cloud is on through Dec 31, 4000", which reads as a defect
     /// in every review screenshot the scenarios produce.
     private static let syntheticCloudAccessUntil = Date(timeIntervalSinceNow: 60 * 60 * 24 * 365)
+
+    private static func debugCloudPlans(includePrices: Bool) -> [CloudPlan] {
+        [
+            CloudPlan(
+                id: "com.kunchenguid.eddieswallet.cloud.monthly",
+                displayName: "Cloud monthly",
+                displayPrice: includePrices ? "$2.99" : "",
+                periodDescription: "every month"
+            ),
+            CloudPlan(
+                id: "com.kunchenguid.eddieswallet.cloud.annual",
+                displayName: "Cloud annual",
+                displayPrice: includePrices ? "$24.99" : "",
+                periodDescription: "every year"
+            )
+        ]
+    }
 
     private static func count(_ raw: String?) -> Int {
         guard let raw, let value = Int(raw), value > 0 else { return 0 }

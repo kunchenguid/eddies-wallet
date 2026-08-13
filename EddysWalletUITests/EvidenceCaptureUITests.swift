@@ -42,11 +42,13 @@ final class EvidenceCaptureUITests: XCTestCase {
         return app
     }
 
+    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
     private func capture(_ name: String) {
         guard let evidenceDirectory else { return }
         let screenshot = XCUIScreen.main.screenshot()
         try? FileManager.default.createDirectory(at: evidenceDirectory, withIntermediateDirectories: true)
-        let idiom = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        let idiom = isPad ? "ipad" : "iphone"
         let url = evidenceDirectory.appendingPathComponent("\(name)-\(idiom).png")
         try? screenshot.pngRepresentation.write(to: url)
     }
@@ -55,16 +57,94 @@ final class EvidenceCaptureUITests: XCTestCase {
         guard let evidenceDirectory else { return }
         let screenshot = element.screenshot()
         try? FileManager.default.createDirectory(at: evidenceDirectory, withIntermediateDirectories: true)
-        let idiom = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        let idiom = isPad ? "ipad" : "iphone"
         let url = evidenceDirectory.appendingPathComponent("\(name)-\(idiom).png")
         try? screenshot.pngRepresentation.write(to: url)
+    }
+
+    /// On iPad, `isHittable` can be true while the control is still clipped at
+    /// the viewport edge, so a full-screen capture misses the content the tour
+    /// meant to show. Scroll until the whole frame sits inside the window.
+    /// iPhone keeps the existing hittable contract so its captures do not shift.
+    @discardableResult
+    private func scrollIntoCaptureFrame(_ element: XCUIElement, in app: XCUIApplication) -> XCUIElement {
+        XCTAssertTrue(element.waitForExistence(timeout: 5), "expected \(element) to exist before scrolling it on screen")
+        let window = app.windows.firstMatch
+        let edge: CGFloat = isPad ? 32 : 0
+        for _ in 0..<12 {
+            let visible = window.frame.insetBy(dx: 0, dy: edge)
+            let frame = element.frame
+            if element.isHittable && (edge == 0 || visible.contains(frame)) {
+                return element
+            }
+            if frame.maxY > visible.maxY {
+                app.swipeUp()
+            } else if frame.minY < visible.minY {
+                app.swipeDown()
+            } else {
+                app.swipeUp()
+            }
+        }
+        if isPad {
+            XCTAssertTrue(
+                window.frame.insetBy(dx: 0, dy: edge).contains(element.frame),
+                "iPad capture requires \(element) fully on screen, not merely hittable"
+            )
+        } else {
+            XCTAssertTrue(element.isHittable, "expected \(element) to be hittable")
+        }
+        return element
+    }
+
+    /// iPad's software keyboard covers the form sheet and is captured into
+    /// App Store screenshots. Dismiss it only at call sites that have finished
+    /// typing - the autofocus evidence capture must keep the keyboard up.
+    private func dismissKeyboardForCapture(in app: XCUIApplication) {
+        guard isPad, app.keyboards.element.exists else { return }
+        XCTAssertTrue(
+            resignKeyboard(in: app),
+            "iPad money-flow captures must not include the software keyboard"
+        )
+    }
+
+    @discardableResult
+    private func resignKeyboard(in app: XCUIApplication) -> Bool {
+        // Tapping non-editable copy in the sheet resigns the amount field
+        // without focusing another field or dragging the sheet closed.
+        let introPrefixes = [
+            "Add pretend dollars",
+            "Record virtual dollars",
+            "Give ",
+            "Pay virtual dollars",
+            "Pay out this virtual allowance"
+        ]
+        for prefix in introPrefixes {
+            let intro = app.staticTexts.matching(
+                NSPredicate(format: "label BEGINSWITH %@", prefix)
+            ).firstMatch
+            if intro.exists {
+                intro.tap()
+                if app.keyboards.element.waitForNonExistence(timeout: 2) { return true }
+            }
+        }
+        let amountLabel = app.staticTexts["Amount"]
+        if amountLabel.exists {
+            amountLabel.tap()
+            if app.keyboards.element.waitForNonExistence(timeout: 2) { return true }
+        }
+        let hide = app.descendants(matching: .any)["Hide keyboard"]
+        if hide.isHittable {
+            hide.tap()
+            return app.keyboards.element.waitForNonExistence(timeout: 2)
+        }
+        return false
     }
 
     private func captureBrandPlacement(_ name: String) throws {
         guard let evidenceDirectory else { return }
         let screenshot = XCUIScreen.main.screenshot()
         try FileManager.default.createDirectory(at: evidenceDirectory, withIntermediateDirectories: true)
-        let idiom = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        let idiom = isPad ? "ipad" : "iphone"
         let url = evidenceDirectory.appendingPathComponent("\(idiom)-\(name).png")
         try screenshot.pngRepresentation.write(to: url, options: .atomic)
     }
@@ -119,31 +199,80 @@ final class EvidenceCaptureUITests: XCTestCase {
         unlockParentArea(app)
 
         let monthly = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"]
-        for _ in 0..<8 where !monthly.isHittable {
-            app.swipeUp()
-        }
-        XCTAssertTrue(monthly.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"].exists)
+        let annual = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"]
+        scrollIntoCaptureFrame(monthly, in: app)
+        scrollIntoCaptureFrame(annual, in: app)
         XCTAssertTrue(app.buttons["cloud-restore-button"].exists)
+        let offersVisible = app.windows.firstMatch.frame.insetBy(dx: 0, dy: isPad ? 32 : 0)
+        XCTAssertTrue(offersVisible.contains(monthly.frame), "monthly plan must be fully on screen for capture")
+        XCTAssertTrue(offersVisible.contains(annual.frame), "annual plan must be fully on screen for capture")
         capture("cloud-plans-offers")
 
         let disclosure = app.staticTexts["cloud-auto-renew-disclosure"]
-        for _ in 0..<8 where !disclosure.isHittable {
-            app.swipeUp()
-        }
-        XCTAssertTrue(disclosure.waitForExistence(timeout: 5))
+        scrollIntoCaptureFrame(disclosure, in: app)
         XCTAssertTrue(disclosure.label.localizedCaseInsensitiveContains("renew"))
         XCTAssertTrue(disclosure.label.localizedCaseInsensitiveContains("cancel"))
 
         let terms = app.descendants(matching: .any)["cloud-terms-link"]
         let privacy = app.descendants(matching: .any)["cloud-privacy-link"]
-        for _ in 0..<8 where !terms.isHittable {
-            app.swipeUp()
-        }
-        XCTAssertTrue(terms.waitForExistence(timeout: 5))
+        scrollIntoCaptureFrame(terms, in: app)
         XCTAssertTrue(terms.isHittable)
         XCTAssertTrue(privacy.isHittable)
         capture("cloud-plans-legal-links")
+    }
+
+    /// iPad capture bug 1: `isHittable` can be true while a plan row is still
+    /// clipped, so the screenshot misses the offer. After the capture scroll,
+    /// both plan rows must sit fully inside the window. This is also the
+    /// no-price Cloud plans capture: the same surface, without StoreKit prices.
+    func testIPadCaptureKeepsCloudPlansFullyOnScreenWithoutPrices() throws {
+        let app = launch("cloud-plans-no-price")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+
+        let monthly = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"]
+        let annual = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"]
+        scrollIntoCaptureFrame(monthly, in: app)
+        scrollIntoCaptureFrame(annual, in: app)
+
+        let visible = app.windows.firstMatch.frame.insetBy(dx: 0, dy: isPad ? 32 : 0)
+        XCTAssertTrue(visible.contains(monthly.frame), "monthly plan must be fully on screen for capture")
+        XCTAssertTrue(visible.contains(annual.frame), "annual plan must be fully on screen for capture")
+        XCTAssertTrue(monthly.label.localizedCaseInsensitiveContains("every month"))
+        XCTAssertTrue(annual.label.localizedCaseInsensitiveContains("every year"))
+        XCTAssertFalse(monthly.label.contains("$"), "no-price plans must not show a StoreKit price")
+        XCTAssertFalse(annual.label.contains("$"), "no-price plans must not show a StoreKit price")
+        XCTAssertFalse(monthly.label.contains("2.99"))
+        XCTAssertFalse(annual.label.contains("24.99"))
+        capture("cloud-plans-no-price")
+    }
+
+    /// iPad capture bug 2: the software keyboard covers the money-flow sheet.
+    /// After the amount is typed, capture dismisses it so Review sits fully
+    /// in the window. iPhone captures keep the keyboard, so that branch only
+    /// asserts the control remains on screen.
+    func testIPadMoneyFlowCaptureDropsTheSoftwareKeyboard() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+
+        app.buttons["Add deposit"].tap()
+        let amountField = app.textFields["Amount in virtual dollars"]
+        XCTAssertTrue(amountField.waitForExistence(timeout: 5))
+        amountField.tap()
+        amountField.typeText("5.25")
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5))
+        dismissKeyboardForCapture(in: app)
+
+        let review = app.buttons["Review"]
+        XCTAssertTrue(review.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.windows.firstMatch.frame.contains(review.frame),
+            "Review must be fully on screen once capture has settled the keyboard"
+        )
+        if isPad {
+            XCTAssertFalse(app.keyboards.element.exists)
+        }
     }
 
     func testFirstRunSetupTour() throws {
@@ -529,6 +658,8 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(amountField.waitForExistence(timeout: 5))
         amountField.tap()
         amountField.typeText("5.25")
+        dismissKeyboardForCapture(in: app)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(app.buttons["Review"].frame))
         capture("parent-deposit-amount")
         app.buttons["Review"].tap()
         if !app.staticTexts["Review before recording"].waitForExistence(timeout: 3) {
@@ -552,6 +683,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         withdrawalField.typeText("500")
         XCTAssertTrue(app.staticTexts["The amount is greater than the accepted balance."].waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons["Review"].isEnabled)
+        dismissKeyboardForCapture(in: app)
         capture("parent-withdrawal-blocked")
         app.buttons["Cancel"].tap()
 
@@ -738,6 +870,7 @@ final class EvidenceCaptureUITests: XCTestCase {
             XCTAssertTrue(amount.waitForExistence(timeout: 5))
             amount.tap()
             amount.typeText("1.25")
+            dismissKeyboardForCapture(in: app)
             app.buttons["Review"].tap()
             if !app.staticTexts["Review before recording"].waitForExistence(timeout: 3) {
                 app.buttons["Review"].tap()
