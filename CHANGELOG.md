@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.17](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.16...eddies-wallet-v0.1.17) (2026-08-13)
+
+
+### Features
+
+* add missed allowance payouts ([#71](https://github.com/kunchenguid/eddies-wallet/issues/71)) ([1c6c9d8](https://github.com/kunchenguid/eddies-wallet/commit/1c6c9d8c8f130c3f97ba7d45d152d60d58e9c19c))
+* add scheduled loan payments and catch-up ([#73](https://github.com/kunchenguid/eddies-wallet/issues/73)) ([3414ac2](https://github.com/kunchenguid/eddies-wallet/commit/3414ac2b4aea1c758ac11c4104887ff52c404a74))
+
 ## [0.1.16](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.15...eddies-wallet-v0.1.16) (2026-08-12)
 
 
