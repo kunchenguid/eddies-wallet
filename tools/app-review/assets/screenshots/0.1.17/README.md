@@ -20,3 +20,19 @@ Connect upload must use this same set.
 | `ipad-13-cloud-plans.png` | iPad 13" | Cloud plans |
 
 Do not replace a file in place. A later version gets its own directory.
+
+## Cloud subscription review screenshots
+
+These two `iap-review-cloud-plans-priced-*` files are the Cloud subscription
+REVIEW screenshots (priced offer with real prices $2.99/mo and $24.99/yr, and
+Guideline 3.1.2 Terms of Use + Privacy Policy links visible). They are distinct
+from the marketing `*-cloud-plans.png` listing shots above, which show no
+prices.
+
+| File | Device | Role |
+| --- | --- | --- |
+| `iap-review-cloud-plans-priced-iphone-6.9.png` | iPhone 6.9" (1320x2868) | Uploaded to App Store Connect on both Cloud monthly and Cloud annual. The 0.1.17 App Review manifest binds this file as `inAppPurchases[].reviewScreenshot` for both products. |
+| `iap-review-cloud-plans-priced-ipad-13.png` | iPad 13" (2064x2752) | Alternate capture. Committed for completeness; not currently uploaded to App Store Connect and not the file the manifest binds. |
+
+Byte-for-byte these must match what is uploaded to App Store Connect. Do not
+replace a file in place.
