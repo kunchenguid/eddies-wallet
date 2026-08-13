@@ -215,6 +215,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 wallet: page.wallet,
                 entries: entries,
                 loans: page.loans,
+                loanOccurrences: page.loanOccurrences,
                 allowanceRule: page.allowanceRule,
                 nextCursor: nil
             )
@@ -392,6 +393,61 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             path = "/v1/loans"
             body = ["principalCents": command.amountCents]
             if let dueDate = command.dueDate { body["dueDate"] = CloudDayFormat.string(from: dueDate) }
+            if let plan = command.installmentPlan {
+                guard plan.amountCents > 0 else {
+                    throw WalletAPIError.invalidResponse("Enter a payment amount greater than US$0.00.")
+                }
+                var schedule: [String: Any] = [
+                    "cadence": plan.cadence.rawValue,
+                    "amountCents": plan.amountCents,
+                ]
+                if let firstDueDate = plan.firstDueDate {
+                    schedule["firstDueDate"] = CloudDayFormat.string(from: firstDueDate)
+                }
+                body["schedule"] = schedule
+            }
+        case .loanInstallment:
+            // The replica carries the plan and its one scheduled occurrence
+            // durably, so the chain head needs no separate service read. The
+            // amount is entirely server-decided: an installment body names
+            // none, and the final one caps at the remaining balance.
+            let replicaLoan = replica.snapshot().loan
+            guard let loanID = replicaLoan?.remoteID, let loan = replicaLoan else {
+                throw WalletAPIError.server(statusCode: 409, code: "LOAN_NOT_FOUND", message: "There is no open loan to repay.")
+            }
+            guard let schedule = loan.schedule, let occurrenceID = schedule.nextOccurrenceID,
+                  let nextDueDate = schedule.nextDueDate else {
+                throw WalletAPIError.server(
+                    statusCode: 409,
+                    code: "LOAN_OCCURRENCE_NOT_SCHEDULED",
+                    message: "There is no scheduled loan payment to record."
+                )
+            }
+            let calendar = Calendar.current
+            let today = calendar.startOfDay(for: .now)
+            guard calendar.startOfDay(for: nextDueDate) <= today else {
+                throw WalletAPIError.invalidResponse("The next loan payment is not due yet.")
+            }
+            if let expectedDueDate = command.dueDate {
+                guard calendar.startOfDay(for: expectedDueDate) == calendar.startOfDay(for: nextDueDate),
+                      calendar.startOfDay(for: expectedDueDate) < today else {
+                    throw WalletAPIError.invalidResponse("The missed loan payments changed. Review the remaining payments before recording them.")
+                }
+            }
+            authoritativeAmountCents = Loan.installmentPaymentCents(
+                named: schedule.amountCents,
+                remainingCents: loan.remainingCents
+            )
+            guard authoritativeAmountCents > 0 else {
+                throw WalletAPIError.server(
+                    statusCode: 409,
+                    code: "LOAN_ALREADY_PAID",
+                    message: "The loan is already paid."
+                )
+            }
+            kind = .recordLoanInstallment
+            path = "/v1/loans/\(pathComponent(loanID))/occurrences/\(pathComponent(occurrenceID))/record"
+            body = [:]
         case .repayment:
             guard let loanID = replica.snapshot().loan?.remoteID else {
                 throw WalletAPIError.server(statusCode: 409, code: "LOAN_NOT_FOUND", message: "There is no open loan to repay.")
@@ -853,7 +909,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         case .deposit: .deposit
         case .withdrawal: .withdrawal
         case .loan: .loan
-        case .repayment: .repayment
+        case .repayment, .loanInstallment: .repayment
         }
     }
 

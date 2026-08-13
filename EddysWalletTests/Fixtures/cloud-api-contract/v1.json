@@ -211,6 +211,7 @@
       "method": "GET",
       "path": "/v1/cloud/bootstrap",
       "status": 200,
+      "note": "A loan's `schedule` is its durable installment plan - cadence, per-payment amount, and the anchor date every later due date is derived from - or null for a loan taken out without one. `loanOccurrences` are the durable payment occurrences across every loan of this wallet. Neither carries the next/missed projection: a replica must not embed \"today\". The client derives the reminder and the missed list on the device from the plan and its one scheduled occurrence.",
       "body": {
         "type": "object",
         "fields": {
@@ -246,7 +247,22 @@
               "dueDate": "string|null",
               "status": "string",
               "createdAt": "string",
-              "paidAt": "string|null"
+              "paidAt": "string|null",
+              "schedule": {
+                "type": "object|null",
+                "fields": { "cadence": "string", "amountCents": "number", "firstDueDate": "string" }
+              }
+            }
+          },
+          "loanOccurrences": {
+            "type": "object[]",
+            "fields": {
+              "id": "string",
+              "loanId": "string",
+              "dueOn": "string",
+              "status": "string",
+              "amountCents": "number|null",
+              "acceptedEntryId": "string|null"
             }
           },
           "allowanceRule": {

@@ -590,7 +590,18 @@ final class CloudContractTests: XCTestCase {
         // Bootstrap and household mutations.
         XCTAssertEqual(
             Set(try fields("cloudBootstrap").keys),
-            ["household", "family", "child", "wallet", "entries", "loans", "allowanceRule", "nextCursor"]
+            ["household", "family", "child", "wallet", "entries", "loans", "loanOccurrences", "allowanceRule", "nextCursor"]
+        )
+        // The replica carries the loan's durable plan and its occurrence rows,
+        // and deliberately no next/missed projection: those embed "today",
+        // which a durable fact must never do.
+        let bootstrapLoan = try XCTUnwrap((try fields("cloudBootstrap")["loans"] as? [String: Any])?["fields"] as? [String: Any])
+        let loanSchedule = try XCTUnwrap((bootstrapLoan["schedule"] as? [String: Any])?["fields"] as? [String: Any])
+        XCTAssertEqual(Set(loanSchedule.keys), ["cadence", "amountCents", "firstDueDate"])
+        let loanOccurrence = try XCTUnwrap((try fields("cloudBootstrap")["loanOccurrences"] as? [String: Any])?["fields"] as? [String: Any])
+        XCTAssertEqual(
+            Set(loanOccurrence.keys),
+            ["id", "loanId", "dueOn", "status", "amountCents", "acceptedEntryId"]
         )
         XCTAssertEqual(Set(try fields("cloudHouseholdMutation").keys), ["entry", "wallet", "revision"])
         let allowance = try fields("allowanceSchedule")

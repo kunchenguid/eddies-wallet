@@ -83,6 +83,31 @@ enum DebugLaunchScenario {
                 nextOccurrenceID: "debug-allowance-occurrence"
             )
             return store(repository: MockWalletRepository(snapshot: overdue))
+        case "loan-installments-missed":
+            // Three weekly payments already past due at the named US$4.00, on a
+            // loan with US$15.00 left. Catching up settles US$12.00, which
+            // leaves today's payment capped at the US$3.00 that actually
+            // remains - so the final-payment cap is visible to a parent, not
+            // only in a unit test.
+            let calendar = Calendar.current
+            let today = calendar.startOfDay(for: .now)
+            let firstMissed = calendar.date(byAdding: .day, value: -21, to: today) ?? today
+            var scheduled = snapshot(.fixture(), environment: environment)
+            scheduled.loan = Loan(
+                remoteID: "debug-loan",
+                originalCents: 2_000,
+                remainingCents: 1_500,
+                purpose: "Bike helmet",
+                schedule: LoanSchedule(
+                    cadence: .weekly,
+                    amountCents: 400,
+                    firstDueDate: firstMissed,
+                    occurrences: [
+                        LoanSchedule.Occurrence(id: "debug-loan-occurrence", dueDate: firstMissed, status: .scheduled)
+                    ]
+                )
+            )
+            return store(repository: MockWalletRepository(snapshot: scheduled))
         case "delete-account":
             return store(
                 repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)),
@@ -696,7 +721,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
         case .deposit: .deposit
         case .withdrawal: .withdrawal
         case .loan: .loan
-        case .repayment: .repayment
+        case .repayment, .loanInstallment: .repayment
         }
         return WalletEvent(
             type: type,

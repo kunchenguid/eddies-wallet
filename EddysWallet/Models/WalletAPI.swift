@@ -631,6 +631,14 @@ private struct EntryDTO: Decodable {
     let recordedAt: String
 }
 
+private struct LoanScheduleDTO: Decodable {
+    let cadence: String
+    let amountCents: FlexibleInt
+    let firstDueDate: String
+    let nextOccurrenceId: String?
+    let nextDueDate: String?
+}
+
 private struct LoanDTO: Decodable {
     let id: String
     let principalCents: FlexibleInt
@@ -640,6 +648,7 @@ private struct LoanDTO: Decodable {
     let status: String
     let createdAt: String
     let paidAt: String?
+    let schedule: LoanScheduleDTO?
 }
 
 private struct AllowanceDTO: Decodable {
@@ -1054,7 +1063,26 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
             var loanBody: [String: Any] = ["principalCents": command.amountCents]
             if let purpose = command.reason { loanBody["purpose"] = purpose }
             if let dueDate = command.dueDate { loanBody["dueDate"] = formatDate(dueDate) }
+            if let plan = command.installmentPlan {
+                guard plan.amountCents > 0 else {
+                    throw WalletAPIError.invalidResponse("Enter a payment amount greater than US$0.00.")
+                }
+                var schedule: [String: Any] = ["cadence": plan.cadence.rawValue, "amountCents": plan.amountCents]
+                if let firstDueDate = plan.firstDueDate { schedule["firstDueDate"] = formatDate(firstDueDate) }
+                loanBody["schedule"] = schedule
+            }
             endpoint = ("/v1/loans", loanBody)
+        case .loanInstallment:
+            guard let loan = current.loan, let loanID = loan.remoteID,
+                  let occurrenceID = loan.schedule?.nextOccurrenceID else {
+                throw WalletAPIError.server(statusCode: 409, code: "LOAN_OCCURRENCE_NOT_SCHEDULED", message: "There is no scheduled loan payment to record.")
+            }
+            // The installment amount is entirely server-decided, so the body
+            // names none and the final payment caps at the remaining balance.
+            endpoint = (
+                "/v1/loans/\(pathComponent(loanID))/occurrences/\(pathComponent(occurrenceID))/record",
+                optionalBody([:], reason: command.reason)
+            )
         case .repayment:
             guard let loanID = current.loan?.remoteID else {
                 throw WalletAPIError.server(statusCode: 409, code: "LOAN_NOT_FOUND", message: "There is no open loan to repay.")
@@ -1260,7 +1288,27 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
             originalCents: loan.principalCents.value,
             remainingCents: loan.outstandingCents.value,
             purpose: loan.purpose,
-            dueDate: parseDate(loan.dueDate)
+            dueDate: parseDate(loan.dueDate),
+            schedule: try loan.schedule.map(mapLoanSchedule)
+        )
+    }
+
+    /// Only the durable plan and the one occurrence waiting to be recorded are
+    /// taken from the service. The past-due picture itself is derived on the
+    /// device, so a reminder and a missed list mean the same thing on every
+    /// authority and never disagree about which day "today" is.
+    private func mapLoanSchedule(_ schedule: LoanScheduleDTO) throws -> LoanSchedule {
+        guard let cadence = LoanInstallmentCadence(rawValue: schedule.cadence),
+              schedule.amountCents.value > 0,
+              let firstDueDate = parseDate(schedule.firstDueDate) else {
+            throw WalletAPIError.invalidResponse("The server returned an invalid loan payment schedule.")
+        }
+        return LoanSchedule(
+            cadence: cadence,
+            amountCents: schedule.amountCents.value,
+            firstDueDate: firstDueDate,
+            nextDueDate: parseDate(schedule.nextDueDate),
+            nextOccurrenceID: schedule.nextOccurrenceId
         )
     }
 
@@ -1312,7 +1360,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         case .deposit: .deposit
         case .withdrawal: .withdrawal
         case .loan: .loan
-        case .repayment: .repayment
+        case .repayment, .loanInstallment: .repayment
         }
         return WalletEvent(
             id: UUID(uuidString: command.idempotencyKey) ?? UUID(),

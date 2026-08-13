@@ -444,6 +444,73 @@ final class EvidenceCaptureUITests: XCTestCase {
         capture("parent-missed-allowance-settled")
     }
 
+    func testMissedLoanPaymentsParentArea() throws {
+        let app = launch("loan-installments-missed")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+        capture("parent-loan-payments-initial")
+
+        let recordAll = app.buttons["Record all missed payments"]
+        for _ in 0..<3 where !recordAll.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(recordAll.waitForExistence(timeout: 5))
+        XCTAssertTrue(recordAll.isHittable)
+        // The reminder names the next payment; the list below it is only what
+        // is already past due.
+        XCTAssertTrue(app.staticTexts["Next payment"].exists)
+        XCTAssertTrue(app.staticTexts["Missed payments"].exists)
+        XCTAssertTrue(app.staticTexts["3 missed"].exists)
+        XCTAssertTrue(app.staticTexts["Owed now"].exists)
+        capture("parent-loan-payments")
+
+        recordAll.tap()
+        XCTAssertTrue(app.staticTexts["Record 3 missed loan payments?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["This records 3 separate repayments totaling US$12.00 toward the loan. The next payment is not included."].exists)
+        let recordAllConfirm = app.buttons["Record all"]
+        XCTAssertTrue(recordAllConfirm.exists)
+        // A dialog captured mid-presentation is a transition frame, not an end
+        // state, so wait until its action is actually usable.
+        waitUntilHittable(recordAllConfirm)
+        capture("parent-loan-payments-confirm")
+
+        recordAllConfirm.tap()
+        XCTAssertTrue(app.staticTexts["Missed payments recorded"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Recorded 3 separate repayments totaling US$12.00 toward the loan."].exists)
+        capture("parent-loan-payments-recorded")
+
+        app.buttons["Done"].tap()
+        // US$24.00 - US$12.00 recorded. The three missed payments are gone and
+        // the last payment is capped at the US$3.00 that is left to repay.
+        XCTAssertTrue(app.staticTexts["US$12.00"].waitForExistence(timeout: 5))
+        let recordThis = app.buttons["Record this payment"]
+        for _ in 0..<3 where !recordThis.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(recordThis.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Missed payments"].exists)
+        capture("parent-loan-payments-settled")
+
+        recordThis.tap()
+        XCTAssertTrue(app.staticTexts["Record this loan payment?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["This records US$3.00 toward the loan for the payment due \(todayLabel)."].exists)
+        waitUntilHittable(app.buttons["Record payment"])
+        capture("parent-loan-payment-single-confirm")
+    }
+
+    private func waitUntilHittable(_ element: XCUIElement, timeout: TimeInterval = 5) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !element.isHittable, Date() < deadline {
+            _ = XCUIApplication().wait(for: .runningForeground, timeout: 0.05)
+        }
+        XCTAssertTrue(element.isHittable, "expected \(element) to settle into a usable state")
+    }
+
+    /// The same short weekday/month/day the loan payment surfaces render.
+    private var todayLabel: String {
+        Date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+    }
+
     func testParentAreaTour() throws {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))

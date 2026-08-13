@@ -509,6 +509,7 @@ enum CloudMutationKind: String, Codable, Equatable, Sendable {
     case loan
     case repayment
     case recordAllowance
+    case recordLoanInstallment
     case setAllowance
     case childProfile
 
@@ -517,7 +518,7 @@ enum CloudMutationKind: String, Codable, Equatable, Sendable {
         case .deposit: .deposit
         case .withdrawal: .withdrawal
         case .loan: .loan
-        case .repayment: .repayment
+        case .repayment, .recordLoanInstallment: .repayment
         case .recordAllowance: .allowance
         case .setAllowance, .childProfile: nil
         }
@@ -684,6 +685,15 @@ public struct CloudReplica: Codable, Equatable, Sendable {
     }
 
     public struct CloudLoan: Codable, Equatable, Sendable {
+        /// The loan's durable installment plan, or `nil` for a loan taken out
+        /// without one. The replica deliberately carries no next/missed
+        /// projection: a durable fact must never embed "today".
+        public struct Schedule: Codable, Equatable, Sendable {
+            public let cadence: String
+            public let amountCents: Int
+            public let firstDueDate: String
+        }
+
         public let id: String
         public let principalCents: Int
         public let outstandingCents: Int
@@ -692,6 +702,26 @@ public struct CloudReplica: Codable, Equatable, Sendable {
         public let status: String
         public let createdAt: Date
         public let paidAt: Date?
+        public let schedule: Schedule?
+    }
+
+    /// Every durable payment occurrence across this wallet's loans. The one
+    /// whose status is `scheduled` is the occurrence a parent settles next, so
+    /// the replica alone is enough to render the reminder and walk the chain -
+    /// no separate service read is involved.
+    public struct CloudLoanOccurrence: Codable, Equatable, Sendable {
+        public let id: String
+        public let loanID: String
+        public let dueOn: String
+        public let status: String
+        public let amountCents: Int?
+        public let acceptedEntryID: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case id, dueOn, status, amountCents
+            case loanID = "loanId"
+            case acceptedEntryID = "acceptedEntryId"
+        }
     }
 
     public struct AllowanceRule: Codable, Equatable, Sendable {
@@ -710,6 +740,7 @@ public struct CloudReplica: Codable, Equatable, Sendable {
     public let wallet: Wallet?
     public let entries: [Entry]
     public let loans: [CloudLoan]
+    public let loanOccurrences: [CloudLoanOccurrence]?
     public let allowanceRule: AllowanceRule?
     public let nextCursor: String?
 }
@@ -743,6 +774,22 @@ public struct CloudAllowanceSchedule: Codable, Equatable, Sendable {
 /// `aggregateSha256` is verifiable on both sides.
 public struct CloudImportManifest: Equatable, Sendable {
     public struct Loan: Equatable, Sendable {
+        /// The durable installment plan of a scheduled loan. Omitted entirely
+        /// for a scheduleless loan, so a household with no plans uploads
+        /// exactly the aggregate - and therefore exactly the digest - it
+        /// uploaded before installments existed.
+        public struct Schedule: Equatable, Sendable {
+            public let cadence: String
+            public let amountCents: Int
+            public let firstDueDate: String
+
+            public init(cadence: String, amountCents: Int, firstDueDate: String) {
+                self.cadence = cadence
+                self.amountCents = amountCents
+                self.firstDueDate = firstDueDate
+            }
+        }
+
         public let id: UUID
         public let principalCents: Int
         public let outstandingCents: Int
@@ -751,6 +798,46 @@ public struct CloudImportManifest: Equatable, Sendable {
         public let status: String
         public let createdAt: Date
         public let paidAt: Date?
+        public let schedule: Schedule?
+
+        public init(
+            id: UUID,
+            principalCents: Int,
+            outstandingCents: Int,
+            purpose: String?,
+            dueDate: String?,
+            status: String,
+            createdAt: Date,
+            paidAt: Date?,
+            schedule: Schedule? = nil
+        ) {
+            self.id = id
+            self.principalCents = principalCents
+            self.outstandingCents = outstandingCents
+            self.purpose = purpose
+            self.dueDate = dueDate
+            self.status = status
+            self.createdAt = createdAt
+            self.paidAt = paidAt
+            self.schedule = schedule
+        }
+    }
+
+    /// One payment day of a scheduled loan, named the way the service names it
+    /// on import: a recorded payment points at the accepted repayment event
+    /// that settled it.
+    public struct LoanOccurrence: Equatable, Sendable {
+        public let loanID: UUID
+        public let dueOn: String
+        public let status: String
+        public let entryOperationID: UUID?
+
+        public init(loanID: UUID, dueOn: String, status: String, entryOperationID: UUID?) {
+            self.loanID = loanID
+            self.dueOn = dueOn
+            self.status = status
+            self.entryOperationID = entryOperationID
+        }
     }
 
     public struct Entry: Equatable, Sendable {
@@ -772,6 +859,10 @@ public struct CloudImportManifest: Equatable, Sendable {
     public let avatarURL: String?
     public let loans: [Loan]
     public let entries: [Entry]
+    /// Empty for a household with no scheduled loan. The key is then left out
+    /// of the hashed aggregate entirely, which is what keeps an unscheduled
+    /// upload byte-identical to the one this app has always produced.
+    public let loanOccurrences: [LoanOccurrence]
 
     public init(
         lineageID: UUID,
@@ -780,7 +871,8 @@ public struct CloudImportManifest: Equatable, Sendable {
         nickname: String,
         avatarURL: String? = nil,
         loans: [Loan],
-        entries: [Entry]
+        entries: [Entry],
+        loanOccurrences: [LoanOccurrence] = []
     ) {
         self.lineageID = lineageID
         self.operationID = operationID
@@ -789,6 +881,7 @@ public struct CloudImportManifest: Equatable, Sendable {
         self.avatarURL = avatarURL
         self.loans = loans
         self.entries = entries
+        self.loanOccurrences = loanOccurrences
     }
 }
 

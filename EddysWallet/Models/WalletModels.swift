@@ -300,31 +300,390 @@ public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
     }
 }
 
+/// How often a scheduled loan asks for its next payment. A loan created
+/// without a cadence has no schedule at all and keeps the one-shot repayment
+/// path, so this is never a default.
+public enum LoanInstallmentCadence: String, Hashable, Codable, Sendable, CaseIterable, Identifiable {
+    case weekly
+    case monthly
+
+    public var id: String { rawValue }
+
+    /// The payment date `index` steps after `anchor`.
+    ///
+    /// Monthly dates are always measured from the anchor rather than from the
+    /// previously produced date, so a plan taken out on the 31st stays on the
+    /// 31st instead of drifting down to the 28th after February. This matches
+    /// the service's own `installmentDueOn`, which is what makes a locally
+    /// derived date and a server-seeded occurrence name the same day.
+    public func dueDate(from anchor: Date, index: Int, calendar: Calendar = .current) -> Date? {
+        let start = calendar.startOfDay(for: anchor)
+        return switch self {
+        case .weekly: calendar.date(byAdding: .day, value: index * 7, to: start)
+        case .monthly: calendar.date(byAdding: .month, value: index, to: start)
+        }
+    }
+}
+
+/// The installment plan a parent names when they create a loan: how often, and
+/// how much each payment is. The last payment is not part of the plan - it is
+/// always whatever is left to repay.
+public struct LoanInstallmentPlan: Hashable, Codable, Sendable {
+    public let cadence: LoanInstallmentCadence
+    public let amountCents: Int
+    /// The first payment date. When a parent does not name one, the service
+    /// and the local repository both default it to one full cadence step after
+    /// today, so a loan handed over today is never already due.
+    public let firstDueDate: Date?
+
+    public init(cadence: LoanInstallmentCadence, amountCents: Int, firstDueDate: Date? = nil) {
+        self.cadence = cadence
+        self.amountCents = amountCents
+        self.firstDueDate = firstDueDate
+    }
+
+    /// One full cadence step after today, which is what the service uses when
+    /// a parent names no first payment date. A loan handed over today is then
+    /// never already due, and never already missed.
+    public static func defaultFirstDueDate(
+        cadence: LoanInstallmentCadence,
+        asOf now: Date = .now,
+        calendar: Calendar = .current
+    ) -> Date {
+        let today = calendar.startOfDay(for: now)
+        return cadence.dueDate(from: today, index: 1, calendar: calendar) ?? today
+    }
+}
+
+/// One payment on a loan's installment grid: the day it is due and what it
+/// actually settles. `amountCents` is already capped at what the loan still
+/// owes, so the last installment of a plan is smaller than the named amount
+/// whenever the balance no longer covers it.
+public struct LoanInstallment: Hashable, Identifiable, Sendable {
+    public let dueDate: Date
+    public let amountCents: Int
+
+    public var id: Date { dueDate }
+
+    public init(dueDate: Date, amountCents: Int) {
+        self.dueDate = dueDate
+        self.amountCents = amountCents
+    }
+}
+
+/// The installments of a scheduled loan whose day has already passed and that
+/// a parent has not recorded yet. Because each occurrence is capped at the
+/// balance remaining when it is settled, `totalCents` can never exceed what
+/// the loan still owes. This model never records anything itself - a parent
+/// action remains required.
+public struct LoanMissedInstallments: Hashable, Sendable {
+    public let installments: [LoanInstallment]
+
+    public init(installments: [LoanInstallment]) {
+        self.installments = installments
+    }
+
+    public var count: Int { installments.count }
+    public var totalCents: Int { installments.reduce(0) { $0 + $1.amountCents } }
+    public var isEmpty: Bool { installments.isEmpty }
+}
+
+public enum LoanRecordAllOutcome: Equatable, Sendable {
+    case noMissed
+    case recorded(count: Int, totalCents: Int)
+    case awaitingCloud(recordedCount: Int, recordedTotalCents: Int)
+    case reviewRequired(recordedCount: Int, recordedTotalCents: Int)
+    /// The accepted prefix is durable. The remaining installments have not
+    /// been recorded and can be explicitly settled in a later parent action.
+    case partial(recordedCount: Int, recordedTotalCents: Int, remaining: LoanMissedInstallments)
+}
+
+/// A loan's durable installment plan plus the one payment occurrence that is
+/// waiting to be recorded.
+///
+/// The plan itself (`cadence`, `amountCents`, `firstDueDate`) is a
+/// creation-time fact and never changes. `nextDueDate` is the earliest
+/// unrecorded occurrence and may be in the past while a parent catches up;
+/// it advances only alongside an accepted repayment, which is what makes each
+/// occurrence recordable exactly once. A settled loan carries no occurrence at
+/// all, so a paid-off loan never leaves a payment reminder standing.
+public struct LoanSchedule: Hashable, Codable, Sendable {
+    /// One payment day of a plan, in the same three states the service keeps.
+    /// `entryID` names the accepted repayment that settled a recorded payment,
+    /// which is what lets a one-time Cloud upload reproduce the very chain the
+    /// service would have built for itself.
+    public struct Occurrence: Hashable, Codable, Sendable, Identifiable {
+        public enum Status: String, Hashable, Codable, Sendable {
+            case scheduled
+            case recorded
+            case cancelled
+        }
+
+        public let id: String
+        public let dueDate: Date
+        public var status: Status
+        public var amountCents: Int?
+        public var entryID: UUID?
+
+        public init(
+            id: String,
+            dueDate: Date,
+            status: Status,
+            amountCents: Int? = nil,
+            entryID: UUID? = nil
+        ) {
+            self.id = id
+            self.dueDate = dueDate
+            self.status = status
+            self.amountCents = amountCents
+            self.entryID = entryID
+        }
+    }
+
+    public let cadence: LoanInstallmentCadence
+    public let amountCents: Int
+    public let firstDueDate: Date
+    /// Ordered by payment day, oldest first. At most one is ever `scheduled`,
+    /// which is the whole walkable chain head: an overdue span is settled by
+    /// recording that one and taking the next out of the result.
+    public var occurrences: [Occurrence]
+
+    /// The one payment waiting to be recorded, or `nil` for a settled loan.
+    public var nextOccurrence: Occurrence? {
+        occurrences.first { $0.status == .scheduled }
+    }
+
+    public var nextDueDate: Date? { nextOccurrence?.dueDate }
+    public var nextOccurrenceID: String? { nextOccurrence?.id }
+
+    public init(
+        cadence: LoanInstallmentCadence,
+        amountCents: Int,
+        firstDueDate: Date,
+        occurrences: [Occurrence]
+    ) {
+        self.cadence = cadence
+        self.amountCents = amountCents
+        self.firstDueDate = firstDueDate
+        self.occurrences = occurrences
+    }
+
+    /// Convenience for the authorities that publish only the chain head: a
+    /// service projection names the next occurrence directly and keeps its own
+    /// recorded rows.
+    public init(
+        cadence: LoanInstallmentCadence,
+        amountCents: Int,
+        firstDueDate: Date,
+        nextDueDate: Date?,
+        nextOccurrenceID: String?
+    ) {
+        self.init(
+            cadence: cadence,
+            amountCents: amountCents,
+            firstDueDate: firstDueDate,
+            occurrences: zip([nextDueDate].compactMap { $0 }, [nextOccurrenceID].compactMap { $0 })
+                .map { Occurrence(id: $1, dueDate: $0, status: .scheduled) }
+        )
+    }
+
+    /// What the service labels an installment a parent did not name.
+    public static let defaultInstallmentReason = "Loan payment"
+
+    /// A brand-new plan, seeded one occurrence ahead exactly as the service
+    /// seeds it at loan creation. Nothing is debited here.
+    public static func opening(
+        _ plan: LoanInstallmentPlan,
+        occurrenceID: String = UUID().uuidString,
+        asOf now: Date = .now,
+        calendar: Calendar = .current
+    ) -> LoanSchedule {
+        let firstDueDate = calendar.startOfDay(
+            for: plan.firstDueDate ?? LoanInstallmentPlan.defaultFirstDueDate(cadence: plan.cadence, asOf: now, calendar: calendar)
+        )
+        return LoanSchedule(
+            cadence: plan.cadence,
+            amountCents: plan.amountCents,
+            firstDueDate: firstDueDate,
+            occurrences: [Occurrence(id: occurrenceID, dueDate: firstDueDate, status: .scheduled)]
+        )
+    }
+
+    /// The installment index of `dueDate` on this plan's grid, or `nil` when
+    /// the date is not on the grid at all.
+    public func installmentIndex(of dueDate: Date, calendar: Calendar = .current) -> Int? {
+        let target = calendar.startOfDay(for: dueDate)
+        let anchor = calendar.startOfDay(for: firstDueDate)
+        guard target >= anchor else { return nil }
+        let index: Int
+        switch cadence {
+        case .weekly:
+            guard let days = calendar.dateComponents([.day], from: anchor, to: target).day, days % 7 == 0 else {
+                return nil
+            }
+            index = days / 7
+        case .monthly:
+            // Whole calendar months, ignoring day of month, so a clamped date
+            // such as February 28th on a plan anchored to the 31st still
+            // resolves to its own index instead of the previous one.
+            let anchorParts = calendar.dateComponents([.year, .month], from: anchor)
+            let targetParts = calendar.dateComponents([.year, .month], from: target)
+            guard let anchorYear = anchorParts.year, let anchorMonth = anchorParts.month,
+                  let targetYear = targetParts.year, let targetMonth = targetParts.month else { return nil }
+            index = (targetYear - anchorYear) * 12 + (targetMonth - anchorMonth)
+        }
+        guard index >= 0, cadence.dueDate(from: anchor, index: index, calendar: calendar) == target else { return nil }
+        return index
+    }
+
+    /// The payment date one cadence step after `dueDate`, measured from the
+    /// anchor. Returns `nil` when `dueDate` is not on this plan's grid.
+    public func dueDateAfter(_ dueDate: Date, calendar: Calendar = .current) -> Date? {
+        guard let index = installmentIndex(of: dueDate, calendar: calendar) else { return nil }
+        return cadence.dueDate(from: firstDueDate, index: index + 1, calendar: calendar)
+    }
+}
+
 public struct Loan: Hashable, Codable, Sendable {
     public let remoteID: String?
     public let originalCents: Int
     public var remainingCents: Int
     public let purpose: String?
     public let dueDate: Date?
+    /// `nil` for every loan taken out without an installment plan. Those loans
+    /// keep the one-shot repayment behavior they have always had and show no
+    /// reminder, so a schedule is strictly additive per loan.
+    public var schedule: LoanSchedule?
 
     public init(
         remoteID: String? = nil,
         originalCents: Int,
         remainingCents: Int,
         purpose: String? = nil,
-        dueDate: Date? = nil
+        dueDate: Date? = nil,
+        schedule: LoanSchedule? = nil
     ) {
         self.remoteID = remoteID
         self.originalCents = originalCents
         self.remainingCents = remainingCents
         self.purpose = purpose
         self.dueDate = dueDate
+        self.schedule = schedule
     }
 
     public var isPaid: Bool { remainingCents == 0 }
     public var progress: Double {
         guard originalCents > 0 else { return 0 }
         return Double(originalCents - remainingCents) / Double(originalCents)
+    }
+
+    /// What one installment settles against a given balance: the named amount,
+    /// or the rest of the loan. This is the whole final-payment cap, and it is
+    /// the only place the client decides an installment amount.
+    public static func installmentPaymentCents(named amountCents: Int, remainingCents: Int) -> Int {
+        max(0, min(amountCents, remainingCents))
+    }
+
+    /// The amount the next scheduled installment settles right now, or `nil`
+    /// when this loan has no occurrence waiting.
+    public var nextInstallmentPaymentCents: Int? {
+        guard let schedule, schedule.nextDueDate != nil, remainingCents > 0 else { return nil }
+        return Self.installmentPaymentCents(named: schedule.amountCents, remainingCents: remainingCents)
+    }
+
+    /// Payment days that have already passed and are still unrecorded.
+    ///
+    /// A payment due today stays the ordinary next installment, so a catch-up
+    /// never records today's payment. The walk carries the balance forward,
+    /// which caps each installment in turn and stops the moment the loan would
+    /// be settled - a long-abandoned plan can therefore never ask for more
+    /// than the loan still owes.
+    public func missedInstallments(asOf now: Date = .now, calendar: Calendar = .current) -> LoanMissedInstallments {
+        guard let schedule, var dueDate = schedule.nextDueDate.map({ calendar.startOfDay(for: $0) }) else {
+            return LoanMissedInstallments(installments: [])
+        }
+        let today = calendar.startOfDay(for: now)
+        var remaining = remainingCents
+        var installments: [LoanInstallment] = []
+
+        while dueDate < today, remaining > 0 {
+            let payment = Self.installmentPaymentCents(named: schedule.amountCents, remainingCents: remaining)
+            guard payment > 0 else { break }
+            installments.append(LoanInstallment(dueDate: dueDate, amountCents: payment))
+            remaining -= payment
+            guard remaining > 0, let followingDate = schedule.dueDateAfter(dueDate, calendar: calendar) else { break }
+            dueDate = calendar.startOfDay(for: followingDate)
+        }
+        return LoanMissedInstallments(installments: installments)
+    }
+
+    /// The first still-current or future payment, and what it would settle
+    /// once every missed payment before it has been recorded. This is
+    /// deliberately separate from `schedule.nextDueDate`, which is the earliest
+    /// unrecorded occurrence and can be a past day while a parent catches up.
+    public func nextCurrentOrFutureInstallment(
+        asOf now: Date = .now,
+        calendar: Calendar = .current
+    ) -> LoanInstallment? {
+        guard let schedule, var dueDate = schedule.nextDueDate.map({ calendar.startOfDay(for: $0) }) else {
+            return nil
+        }
+        let today = calendar.startOfDay(for: now)
+        var remaining = remainingCents - missedInstallments(asOf: now, calendar: calendar).totalCents
+        guard remaining > 0 else { return nil }
+
+        while dueDate < today {
+            guard let followingDate = schedule.dueDateAfter(dueDate, calendar: calendar) else { return nil }
+            dueDate = calendar.startOfDay(for: followingDate)
+        }
+        return LoanInstallment(
+            dueDate: dueDate,
+            amountCents: Self.installmentPaymentCents(named: schedule.amountCents, remainingCents: remaining)
+        )
+    }
+
+    /// This loan after one accepted installment, or `nil` when no occurrence
+    /// is due or `paymentCents` is not what the plan and the balance decide.
+    ///
+    /// The plan advances to its own next day, measured from the anchor. A
+    /// payment that clears the balance drops the occurrence entirely instead of
+    /// seeding another, so a settled loan never leaves a reminder standing and
+    /// the outstanding balance can never be driven below zero.
+    public func recordingInstallment(
+        paymentCents: Int,
+        nextOccurrenceID: String,
+        entryID: UUID? = nil,
+        calendar: Calendar = .current
+    ) -> Loan? {
+        guard var schedule, let occurrence = schedule.nextOccurrence, remainingCents > 0 else { return nil }
+        guard paymentCents == Self.installmentPaymentCents(named: schedule.amountCents, remainingCents: remainingCents) else {
+            return nil
+        }
+        guard let index = schedule.occurrences.firstIndex(where: { $0.id == occurrence.id }) else { return nil }
+        let remaining = remainingCents - paymentCents
+        schedule.occurrences[index].status = .recorded
+        schedule.occurrences[index].amountCents = paymentCents
+        schedule.occurrences[index].entryID = entryID
+        if remaining > 0 {
+            guard let followingDate = schedule.dueDateAfter(occurrence.dueDate, calendar: calendar) else { return nil }
+            schedule.occurrences.append(
+                LoanSchedule.Occurrence(id: nextOccurrenceID, dueDate: followingDate, status: .scheduled)
+            )
+        }
+        var settled = self
+        settled.remainingCents = remaining
+        settled.schedule = schedule
+        return settled
+    }
+
+    /// Retires any standing payment occurrence. A free-amount repayment that
+    /// clears the balance must leave no reminder behind, exactly as the service
+    /// cancels the pending occurrence in the same transaction.
+    public mutating func retireScheduleIfSettled() {
+        guard remainingCents == 0, var schedule,
+              let index = schedule.occurrences.firstIndex(where: { $0.status == .scheduled }) else { return }
+        schedule.occurrences[index].status = .cancelled
+        self.schedule = schedule
     }
 }
 
@@ -509,6 +868,11 @@ public enum WalletCommandKind: String, Sendable, Codable, Equatable {
     case withdrawal
     case loan
     case repayment
+    /// Settles one scheduled loan payment. Distinct from `repayment`, which is
+    /// the free-amount path a scheduleless loan has always used: an installment
+    /// names no amount at all, because the amount is whatever the plan and the
+    /// remaining balance decide.
+    case loanInstallment
 }
 
 public struct WalletCommand: Sendable, Codable, Equatable {
@@ -516,6 +880,8 @@ public struct WalletCommand: Sendable, Codable, Equatable {
     public let amountCents: Int
     public let reason: String?
     public let dueDate: Date?
+    /// Set only on a `loan` command whose parent chose an installment plan.
+    public let installmentPlan: LoanInstallmentPlan?
     public let idempotencyKey: String
 
     public init(
@@ -523,12 +889,14 @@ public struct WalletCommand: Sendable, Codable, Equatable {
         amountCents: Int,
         reason: String? = nil,
         dueDate: Date? = nil,
+        installmentPlan: LoanInstallmentPlan? = nil,
         idempotencyKey: String = UUID().uuidString
     ) {
         self.kind = kind
         self.amountCents = amountCents
         self.reason = reason
         self.dueDate = dueDate
+        self.installmentPlan = installmentPlan
         self.idempotencyKey = idempotencyKey
     }
 }
@@ -830,12 +1198,32 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
             }
             current.acceptedBalanceCents -= command.amountCents
             current.loan?.remainingCents -= command.amountCents
+            current.loan?.retireScheduleIfSettled()
+        case .loanInstallment:
+            guard let loan = current.loan, let payment = loan.nextInstallmentPaymentCents else {
+                return .rejected(makeEvent(for: command, state: .rejected, explanation: "This loan payment was not recorded.", rejectionReason: "There is no scheduled loan payment to record."))
+            }
+            guard payment <= current.acceptedBalanceCents else {
+                return .rejected(makeEvent(for: command, state: .rejected, explanation: "This loan payment was not recorded.", rejectionReason: "The payment is greater than the accepted balance."))
+            }
+            guard let settled = loan.recordingInstallment(paymentCents: payment, nextOccurrenceID: UUID().uuidString) else {
+                return .rejected(makeEvent(for: command, state: .rejected, explanation: "This loan payment was not recorded.", rejectionReason: "There is no scheduled loan payment to record."))
+            }
+            current.acceptedBalanceCents -= payment
+            current.loan = settled
+            return .accepted(recordInstallmentEvent(for: command, paymentCents: payment))
         case .loan:
             guard current.loan == nil || current.loan?.isPaid == true else {
                 return .rejected(makeEvent(for: command, state: .rejected, explanation: "This loan was not recorded.", rejectionReason: "Finish the open loan before creating another one."))
             }
             current.acceptedBalanceCents += command.amountCents
-            current.loan = Loan(originalCents: command.amountCents, remainingCents: command.amountCents, purpose: command.reason, dueDate: command.dueDate)
+            current.loan = Loan(
+                originalCents: command.amountCents,
+                remainingCents: command.amountCents,
+                purpose: command.reason,
+                dueDate: command.dueDate,
+                schedule: command.installmentPlan.map { LoanSchedule.opening($0) }
+            )
         case .deposit:
             current.acceptedBalanceCents += command.amountCents
         case .allowance:
@@ -861,13 +1249,30 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
         return .accepted(event)
     }
 
+    /// A recorded installment carries the amount the plan settled, not the
+    /// zero the command names, and is dated on the day it was due.
+    private func recordInstallmentEvent(for command: WalletCommand, paymentCents: Int) -> WalletEvent {
+        let event = WalletEvent(
+            type: .repayment,
+            amountCents: paymentCents,
+            reason: command.reason ?? LoanSchedule.defaultInstallmentReason,
+            date: command.dueDate ?? .now,
+            syncState: .recorded,
+            explanation: "Your parent recorded \(Money(cents: paymentCents).display) returned toward the loan."
+        )
+        current.activities.insert(event, at: 0)
+        current.lastUpdated = .now
+        current.isStale = false
+        return event
+    }
+
     private func makeEvent(for command: WalletCommand, state: SyncState, explanation: String, rejectionReason: String? = nil) -> WalletEvent {
         let type: ActivityType = switch command.kind {
         case .allowance: .allowance
         case .deposit: .deposit
         case .withdrawal: .withdrawal
         case .loan: .loan
-        case .repayment: .repayment
+        case .repayment, .loanInstallment: .repayment
         }
         return WalletEvent(
             type: type,
@@ -887,7 +1292,7 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
         case .deposit: return "Your parent added \(amount) to your wallet."
         case .withdrawal: return "Your parent recorded that \(amount) was used."
         case .loan: return "Your parent gave you \(amount) to use now and give back over time."
-        case .repayment: return "Your parent recorded \(amount) returned toward the loan."
+        case .repayment, .loanInstallment: return "Your parent recorded \(amount) returned toward the loan."
         }
     }
 }

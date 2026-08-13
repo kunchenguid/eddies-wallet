@@ -300,23 +300,34 @@ The child has no spending or withdrawal control. A withdrawal means the parent r
 
 ### 8.9 Loan and repayment flow
 
-The MVP loan model is parent-to-child, virtual, interest-free, and simple. It supports one open loan at a time for the child profile. The parent can optionally set a due date. Interest, fees, installments, and automatic repayment are out of scope.
+The MVP loan model is parent-to-child, virtual, interest-free, and simple. It supports one open loan at a time for the child profile. The parent can optionally set a due date, and can optionally give the loan a payment plan. Interest, fees, and automatic repayment are out of scope.
 
 **Create loan:**
 
 1. Parent opens the wallet and chooses **Create loan**.
-2. Parent enters principal, optional purpose, and optional due date.
-3. Review explains that the loan adds virtual dollars to the child's wallet and creates an amount to repay.
+2. Parent enters principal, optional purpose, optional due date, and an optional payment plan: a cadence of weekly or monthly plus the amount for each payment.
+3. Review explains that the loan adds virtual dollars to the child's wallet and creates an amount to repay, and restates the payment plan.
 4. Free-local authority records a valid loan immediately. Service authority records it only after service acceptance.
 5. The wallet shows a secondary loan card such as “US$10.00 left to repay.”
 
+**Payment plan and missed payments:**
+
+1. A loan created without a cadence has no plan. It shows no reminder and no payment list, and keeps the one-shot **Record repayment** path unchanged. A plan is chosen once, at loan creation.
+2. A scheduled loan shows **Next payment**: the earliest current or future payment day and what that payment settles. A past missed day is never shown as the next payment.
+3. The last payment of a plan is whatever is left to repay, so it is smaller than the named amount when the balance no longer covers it. A payment can never exceed the outstanding loan, and the outstanding amount can never fall below zero.
+4. An unrecorded payment day strictly before today is missed. Show every currently missed payment, **N missed**, and **Owed now** in both free-local and Cloud modes. **Owed now** is capped at the outstanding balance. A payment due today remains the ordinary single one and is not part of the missed set.
+5. **Record all missed payments** asks the parent to confirm the initially visible missed set, including its count and total, then **Record all** settles that fixed set sequentially as separate repayments. It never expands the batch to include a newly due payment. Recorded payments remain durable after interruption, while the untouched ones remain visible and recordable later without duplicates.
+6. A repayment that clears the balance retires the plan, so a settled loan never leaves a payment reminder standing.
+
 **Repay:**
 
-1. Parent opens the loan card and chooses **Record repayment**.
-2. Parent enters a partial or full repayment amount.
+1. Parent opens the loan card and chooses **Record repayment**, or, on a scheduled loan whose payment is due, **Record this payment**.
+2. Parent enters a partial or full repayment amount. A scheduled payment names no amount: the plan and the remaining balance decide it.
 3. The app shows the remaining principal after repayment and refuses an amount above the outstanding principal or available accepted wallet balance.
 4. Free-local authority records a valid repayment immediately. Service authority requires a current online replica and records it after acceptance is observed; an ambiguous submitted request remains **Waiting to sync**.
 5. A paid loan remains in history as **Paid** rather than disappearing.
+
+Every payment remains parent-triggered: there is no auto-debit, timer, background catch-up, scheduled job, or notification.
 
 **Child loan view:** The child can see the original loan, accepted repayments, and amount left to repay in plain language. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP. Parent loan details keep the virtual/nonredeemable notice.
 

@@ -223,6 +223,9 @@ public final class WalletStore: ObservableObject {
     /// True only while a deliberate parent record-all action is sequentially
     /// settling the originally visible missed allowance occurrences.
     @Published public private(set) var isRecordingMissedAllowance = false
+    /// True only while a deliberate parent catch-up is sequentially recording
+    /// the originally visible missed loan installments.
+    @Published public private(set) var isRecordingMissedLoanInstallments = false
     /// The first-run existing-wallet choice, when this parent's account already
     /// holds a wallet this device can recover. Non-nil only before setup.
     @Published public private(set) var existingWalletRecovery: ExistingWalletRecoveryState?
@@ -1178,6 +1181,85 @@ public final class WalletStore: ObservableObject {
         return .recorded(count: recordedCount, totalCents: recordedTotalCents)
     }
 
+    /// The loan installments a parent is behind on, or an empty list for a
+    /// loan taken out without a plan. Derived on the device from the loan's own
+    /// durable plan and its one waiting occurrence, so Cloud and local-only
+    /// agree on both which payments are late and what each one settles.
+    public var missedLoanInstallments: LoanMissedInstallments {
+        guard let loan = snapshot.loan, loan.schedule != nil else {
+            return LoanMissedInstallments(installments: [])
+        }
+        return loan.missedInstallments()
+    }
+
+    /// The next payment a scheduled loan is waiting for, and what it settles.
+    /// Today's payment is deliberately the ordinary single one, never part of
+    /// the missed batch.
+    public var nextLoanInstallment: LoanInstallment? {
+        snapshot.loan?.nextCurrentOrFutureInstallment()
+    }
+
+    /// Records the exact missed set a parent saw, one installment per command.
+    ///
+    /// Occurrences are seeded one ahead, so an overdue span exists only as a
+    /// chain: recording the earliest one is what makes the next past-due
+    /// payment appear. Each command carries the repository's normal idempotency
+    /// and revision guards, and each accepted payment advances the plan
+    /// atomically with its ledger entry. If the sequence is interrupted, the
+    /// accepted prefix is durable and only the untouched suffix stays missed
+    /// and re-settleable - no payment is ever recorded twice, and none can
+    /// exceed what the loan still owes.
+    public func recordAllMissedLoanInstallments(
+        _ confirmedInstallments: LoanMissedInstallments? = nil
+    ) async -> LoanRecordAllOutcome {
+        guard elevation == .active, !isRecordingMissedLoanInstallments else {
+            return .partial(recordedCount: 0, recordedTotalCents: 0, remaining: missedLoanInstallments)
+        }
+        let initial = confirmedInstallments ?? missedLoanInstallments
+        guard !initial.isEmpty else { return .noMissed }
+
+        isRecordingMissedLoanInstallments = true
+        defer { isRecordingMissedLoanInstallments = false }
+        var recordedCount = 0
+        var recordedTotalCents = 0
+
+        for installment in initial.installments {
+            // Do not silently record a changed plan. A concurrent single
+            // record, free-amount repayment, or Cloud revision change leaves
+            // the rest for an explicit next parent action.
+            guard missedLoanInstallments.installments.first == installment else {
+                return .reviewRequired(recordedCount: recordedCount, recordedTotalCents: recordedTotalCents)
+            }
+            let result = await submit(WalletCommand(
+                kind: .loanInstallment,
+                amountCents: installment.amountCents,
+                dueDate: installment.dueDate
+            ))
+            switch result {
+            case .accepted(let event):
+                recordedCount += 1
+                recordedTotalCents += event.amountCents
+            case .acceptedScheduleUnavailable(let event, _):
+                recordedCount += 1
+                recordedTotalCents += event.amountCents
+            case .pending, .acceptedAwaitingReplica:
+                return .awaitingCloud(recordedCount: recordedCount, recordedTotalCents: recordedTotalCents)
+            case .rejected:
+                let current = missedLoanInstallments
+                guard current.installments.first == installment else {
+                    return .reviewRequired(recordedCount: recordedCount, recordedTotalCents: recordedTotalCents)
+                }
+                return .partial(
+                    recordedCount: recordedCount,
+                    recordedTotalCents: recordedTotalCents,
+                    remaining: current
+                )
+            }
+        }
+
+        return .recorded(count: recordedCount, totalCents: recordedTotalCents)
+    }
+
     @discardableResult
     public func setAllowance(_ command: AllowanceRuleCommand) async -> Bool {
         guard elevation == .active else {
@@ -1694,7 +1776,7 @@ public final class WalletStore: ObservableObject {
     /// while the shared sync fact confirms an active plan, connected and
     /// reviewed replica, and no unresolved request.
     public var canStartParentMutation: Bool {
-        guard canModifyWallet, !isRecordingMissedAllowance else { return false }
+        guard canModifyWallet, !isRecordingMissedAllowance, !isRecordingMissedLoanInstallments else { return false }
         guard authorityState.isCloudAuthority else { return true }
         return isSyncedWithCloud
     }
@@ -2124,7 +2206,7 @@ public final class WalletStore: ObservableObject {
         case .deposit: .deposit
         case .withdrawal: .withdrawal
         case .loan: .loan
-        case .repayment: .repayment
+        case .repayment, .loanInstallment: .repayment
         }
     }
 }

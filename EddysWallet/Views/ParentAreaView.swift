@@ -18,11 +18,27 @@ struct ParentAreaView: View {
     @State private var isConfirmingRecordAllMissedAllowance = false
     @State private var confirmedMissedAllowancePayouts: AllowanceMissedPayouts?
     @State private var recordAllMissedAllowanceOutcome: AllowanceRecordAllOutcome?
+    @State private var isConfirmingRecordAllMissedLoanInstallments = false
+    @State private var confirmedMissedLoanInstallments: LoanMissedInstallments?
+    @State private var recordAllMissedLoanInstallmentsOutcome: LoanRecordAllOutcome?
+    @State private var isConfirmingRecordLoanInstallment = false
+    @State private var recordLoanInstallmentOutcome: SyncState?
 
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
 
     private var missedAllowancePayouts: AllowanceMissedPayouts {
         store.missedAllowancePayouts
+    }
+
+    private var missedLoanInstallments: LoanMissedInstallments {
+        store.missedLoanInstallments
+    }
+
+    /// Only a loan that was created with a plan has payment days at all. A
+    /// scheduleless loan keeps the one-shot repayment path and shows nothing
+    /// here.
+    private var hasScheduledLoan: Bool {
+        store.snapshot.loan.map { $0.schedule != nil && !$0.isPaid } ?? false
     }
 
     private var childWalletReference: String {
@@ -77,6 +93,10 @@ struct ParentAreaView: View {
 
                             if !missedAllowancePayouts.isEmpty {
                                 missedAllowanceCard
+                            }
+
+                            if hasScheduledLoan {
+                                loanPaymentsCard
                             }
 
                             SectionHeader("Recent activity")
@@ -195,6 +215,62 @@ struct ParentAreaView: View {
             Button("Done") { recordAllMissedAllowanceOutcome = nil }
         } message: {
             Text(recordAllMissedAllowanceAlertMessage)
+        }
+        .confirmationDialog(
+            "Record \(confirmedMissedLoanInstallments?.count ?? 0) missed loan payments?",
+            isPresented: $isConfirmingRecordAllMissedLoanInstallments,
+            titleVisibility: .visible
+        ) {
+            Button("Record all") {
+                guard let confirmedMissedLoanInstallments else { return }
+                self.confirmedMissedLoanInstallments = nil
+                Task {
+                    recordAllMissedLoanInstallmentsOutcome = await store.recordAllMissedLoanInstallments(confirmedMissedLoanInstallments)
+                }
+            }
+            Button("Not now", role: .cancel) {
+                confirmedMissedLoanInstallments = nil
+            }
+        } message: {
+            let confirmed = confirmedMissedLoanInstallments ?? LoanMissedInstallments(installments: [])
+            Text("This records \(confirmed.count) separate repayments totaling \(Money(cents: confirmed.totalCents).display) toward the loan. The next payment is not included.")
+        }
+        .alert(recordAllMissedLoanInstallmentsAlertTitle, isPresented: Binding(
+            get: { recordAllMissedLoanInstallmentsOutcome != nil },
+            set: { if !$0 { recordAllMissedLoanInstallmentsOutcome = nil } }
+        )) {
+            Button("Done") { recordAllMissedLoanInstallmentsOutcome = nil }
+        } message: {
+            Text(recordAllMissedLoanInstallmentsAlertMessage)
+        }
+        .confirmationDialog(
+            "Record this loan payment?",
+            isPresented: $isConfirmingRecordLoanInstallment,
+            titleVisibility: .visible
+        ) {
+            Button("Record payment") {
+                guard let next = store.nextLoanInstallment else { return }
+                Task {
+                    let result = await store.submit(WalletCommand(kind: .loanInstallment, amountCents: next.amountCents))
+                    recordLoanInstallmentOutcome = switch result {
+                    case .accepted, .acceptedScheduleUnavailable: SyncState.recorded
+                    case .pending, .acceptedAwaitingReplica: SyncState.pending
+                    case .rejected: SyncState.rejected
+                    }
+                }
+            }
+            Button("Not now", role: .cancel) {}
+        } message: {
+            let next = store.nextLoanInstallment
+            Text("This records \(Money(cents: next?.amountCents ?? 0).display) toward the loan for the payment due \(next.map { $0.dueDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()) } ?? "").")
+        }
+        .alert("Loan payment", isPresented: Binding(
+            get: { recordLoanInstallmentOutcome != nil },
+            set: { if !$0 { recordLoanInstallmentOutcome = nil } }
+        )) {
+            Button("Done") { recordLoanInstallmentOutcome = nil }
+        } message: {
+            Text(recordLoanInstallmentAlertMessage)
         }
     }
 
@@ -438,6 +514,157 @@ struct ParentAreaView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .ewCard(variant: .alt)
         .accessibilityIdentifier("missed-allowance-card")
+    }
+
+    /// The one place a parent settles a scheduled loan. The reminder names the
+    /// next payment and the day it is due; the missed list below it is every
+    /// payment day that has already passed. The two controls are deliberately
+    /// separate: the catch-up settles exactly the listed past-due payments, and
+    /// the next payment stays on its own single-record path so a tap can never
+    /// record a payment that is not owed yet.
+    private var loanPaymentsCard: some View {
+        VStack(alignment: .leading, spacing: EW.Space.three) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("Loan payments", systemImage: "calendar.badge.clock")
+                    .font(EW.Font.headingSmall)
+                    .foregroundStyle(EW.Color.textPrimary)
+                Spacer()
+                Text(loanCadenceDescription)
+                    .font(EW.Font.caption)
+                    .foregroundStyle(EW.Color.textSecondary)
+            }
+
+            if let next = store.nextLoanInstallment {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: EW.Space.one) {
+                        Text("Next payment")
+                            .font(EW.Font.captionUpper)
+                            .foregroundStyle(EW.Color.textTertiary)
+                        Text(next.dueDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                            .font(EW.Font.body)
+                            .foregroundStyle(EW.Color.textPrimary)
+                    }
+                    Spacer(minLength: EW.Space.four)
+                    MoneyAmount(cents: next.amountCents, font: EW.Font.heading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(EW.Space.three)
+                .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("loan-next-payment")
+            }
+
+            if !missedLoanInstallments.isEmpty {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Missed payments")
+                        .font(EW.Font.bodyBold)
+                        .foregroundStyle(EW.Color.textPrimary)
+                    Spacer()
+                    Text("\(missedLoanInstallments.count) missed")
+                        .font(EW.Font.caption)
+                        .foregroundStyle(EW.Color.textSecondary)
+                }
+                VStack(spacing: 0) {
+                    ForEach(missedLoanInstallments.installments) { installment in
+                        HStack {
+                            Text(installment.dueDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                                .font(EW.Font.body)
+                                .foregroundStyle(EW.Color.textPrimary)
+                            Spacer()
+                            MoneyAmount(cents: installment.amountCents, font: EW.Font.bodyBold)
+                        }
+                        .frame(minHeight: 44)
+                        if installment.id != missedLoanInstallments.installments.last?.id {
+                            Divider().overlay(EW.Color.border)
+                        }
+                    }
+                }
+                .padding(.horizontal, EW.Space.three)
+                .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                HStack {
+                    Text("Owed now")
+                        .font(EW.Font.bodyBold)
+                        .foregroundStyle(EW.Color.textPrimary)
+                    Spacer()
+                    MoneyAmount(cents: missedLoanInstallments.totalCents, font: EW.Font.heading)
+                }
+                ActionButton(
+                    title: "Record all missed payments",
+                    icon: "arrow.triangle.2.circlepath",
+                    tint: EW.Color.peach700,
+                    isEnabled: store.canStartParentMutation && !store.isRecordingMissedLoanInstallments
+                ) {
+                    confirmedMissedLoanInstallments = missedLoanInstallments
+                    isConfirmingRecordAllMissedLoanInstallments = true
+                }
+                .accessibilityIdentifier("record-all-missed-loan-payments")
+            } else if let next = store.nextLoanInstallment, next.dueDate <= Calendar.current.startOfDay(for: .now) {
+                ActionButton(
+                    title: "Record this payment",
+                    icon: "arrow.triangle.2.circlepath",
+                    tint: EW.Color.peach700,
+                    isEnabled: store.canStartParentMutation
+                ) {
+                    isConfirmingRecordLoanInstallment = true
+                }
+                .accessibilityIdentifier("record-loan-payment")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .ewCard(variant: .alt)
+        .accessibilityIdentifier("loan-payments-card")
+    }
+
+    private var loanCadenceDescription: String {
+        guard let schedule = store.snapshot.loan?.schedule else { return "" }
+        let amount = Money(cents: schedule.amountCents).display
+        return switch schedule.cadence {
+        case .weekly: "\(amount) every week"
+        case .monthly: "\(amount) every month"
+        }
+    }
+
+    private var recordAllMissedLoanInstallmentsAlertTitle: String {
+        switch recordAllMissedLoanInstallmentsOutcome {
+        case .recorded: "Missed payments recorded"
+        case .awaitingCloud: "Cloud is confirming the payment"
+        case .reviewRequired: "Review the latest loan"
+        case .partial: "Some missed payments were recorded"
+        case .noMissed, nil: "No missed payments"
+        }
+    }
+
+    private var recordAllMissedLoanInstallmentsAlertMessage: String {
+        switch recordAllMissedLoanInstallmentsOutcome {
+        case .recorded(let count, let totalCents):
+            "Recorded \(count) separate repayments totaling \(Money(cents: totalCents).display) toward the loan."
+        case .awaitingCloud(let recordedCount, let recordedTotalCents):
+            if recordedCount == 0 {
+                "Cloud has the payment request. Refresh to confirm the latest loan before recording anything else."
+            } else {
+                "Recorded \(recordedCount) repayments totaling \(Money(cents: recordedTotalCents).display). Cloud is confirming the next payment. Refresh before recording anything else."
+            }
+        case .reviewRequired(let recordedCount, let recordedTotalCents):
+            if recordedCount == 0 {
+                "The loan payments changed. Review the latest wallet before recording missed payments."
+            } else {
+                "Recorded \(recordedCount) repayments totaling \(Money(cents: recordedTotalCents).display). The loan payments changed. Review the latest wallet before recording more."
+            }
+        case .partial(let recordedCount, let recordedTotalCents, let remaining):
+            "Recorded \(recordedCount) repayments totaling \(Money(cents: recordedTotalCents).display). \(remaining.count) missed payments remain and can be recorded after reviewing the latest wallet."
+        case .noMissed:
+            "There are no past-due loan payments to record."
+        case nil:
+            ""
+        }
+    }
+
+    private var recordLoanInstallmentAlertMessage: String {
+        switch recordLoanInstallmentOutcome {
+        case .recorded: "This payment was recorded toward the loan."
+        case .pending: "Cloud has the payment request. Refresh before recording anything else."
+        case .rejected, .draft, nil: "This payment was not recorded and did not change the accepted balance."
+        }
     }
 
     private var recordAllMissedAllowanceAlertTitle: String {
