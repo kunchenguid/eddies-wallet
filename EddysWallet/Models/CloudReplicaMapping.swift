@@ -141,10 +141,13 @@ enum CloudReplicaMapper {
 /// Friday decoded as Thursday.
 enum CloudDayFormat {
     private static func formatter(calendar: Calendar) -> DateFormatter {
+        var gregorianCalendar = Calendar(identifier: .gregorian)
+        gregorianCalendar.timeZone = calendar.timeZone
+
         let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = gregorianCalendar
+        formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }

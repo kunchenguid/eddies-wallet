@@ -278,6 +278,27 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(post.url?.path, "/v1/wallet/deposits")
     }
 
+    func testCloudCalendarDaysKeepGregorianWireYearWithBuddhistDeviceCalendar() throws {
+        let timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var deviceCalendar = Calendar(identifier: .buddhist)
+        deviceCalendar.timeZone = timeZone
+        var gregorianCalendar = Calendar(identifier: .gregorian)
+        gregorianCalendar.timeZone = timeZone
+        let date = try XCTUnwrap(gregorianCalendar.date(from: DateComponents(
+            year: 2026,
+            month: 8,
+            day: 13,
+            hour: 12
+        )))
+
+        XCTAssertEqual(CloudDayFormat.string(from: date, calendar: deviceCalendar), "2026-08-13")
+        let decoded = try XCTUnwrap(CloudDayFormat.date(from: "2026-08-13", calendar: deviceCalendar))
+        XCTAssertEqual(
+            gregorianCalendar.dateComponents([.year, .month, .day], from: decoded),
+            DateComponents(year: 2026, month: 8, day: 13)
+        )
+    }
+
     func testLoanInstallmentAcceptsRepaymentEntryAndAdvancesSchedule() async throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
