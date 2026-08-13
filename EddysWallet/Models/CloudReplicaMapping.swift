@@ -140,17 +140,30 @@ enum CloudReplicaMapper {
 /// use the device calendar so a west-of-UTC family never sees its scheduled
 /// Friday decoded as Thursday.
 enum CloudDayFormat {
-    private static let formatter: DateFormatter = {
+    private static func formatter(calendar: Calendar) -> DateFormatter {
         let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
-    }()
+    }
 
-    static func date(from raw: String) -> Date? { formatter.date(from: raw) }
-    static func string(from date: Date) -> String { formatter.string(from: date) }
+    static func date(from raw: String) -> Date? {
+        date(from: raw, calendar: .current)
+    }
+
+    static func date(from raw: String, calendar: Calendar) -> Date? {
+        formatter(calendar: calendar).date(from: raw)
+    }
+
+    static func string(from date: Date) -> String {
+        string(from: date, calendar: .current)
+    }
+
+    static func string(from date: Date, calendar: Calendar) -> String {
+        formatter(calendar: calendar).string(from: date)
+    }
 }
 
 /// Rebuilds the complete accepted history as an upload manifest.

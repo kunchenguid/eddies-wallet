@@ -279,6 +279,8 @@ final class APIRepositoryTests: XCTestCase {
     }
 
     func testLoanInstallmentAcceptsRepaymentEntryAndAdvancesSchedule() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
         let notice = "Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."
         let snapshot = Data("""
         {
@@ -324,10 +326,21 @@ final class APIRepositoryTests: XCTestCase {
             sessionStore: InMemorySessionStore(session: validSession),
             transport: transport,
             cache: TestSnapshotCache(),
-            configuredKidStore: InMemoryConfiguredKidStore()
+            configuredKidStore: InMemoryConfiguredKidStore(),
+            calendar: calendar
         )
 
         _ = try await repository.refresh(for: .parent)
+        let initialSchedule = try XCTUnwrap(repository.snapshot().loan?.schedule)
+        XCTAssertEqual(
+            calendar.dateComponents([.year, .month, .day], from: initialSchedule.firstDueDate),
+            DateComponents(year: 2026, month: 1, day: 1)
+        )
+        XCTAssertEqual(
+            calendar.dateComponents([.year, .month, .day], from: try XCTUnwrap(initialSchedule.nextDueDate)),
+            DateComponents(year: 2026, month: 1, day: 1)
+        )
+
         let result = try await repository.submit(WalletCommand(
             kind: .loanInstallment,
             amountCents: 0,
@@ -341,6 +354,13 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(event.amountCents, 400)
         XCTAssertEqual(repository.snapshot().loan?.remainingCents, 600)
         XCTAssertEqual(repository.snapshot().loan?.schedule?.nextOccurrenceID, "occurrence-2")
+        XCTAssertEqual(
+            calendar.dateComponents(
+                [.year, .month, .day],
+                from: try XCTUnwrap(repository.snapshot().loan?.schedule?.nextDueDate)
+            ),
+            DateComponents(year: 2026, month: 1, day: 8)
+        )
         let post = try XCTUnwrap(transport.requests.last)
         XCTAssertEqual(post.url?.path, "/v1/loans/loan-1/occurrences/occurrence-1/record")
         XCTAssertEqual(post.value(forHTTPHeaderField: "Idempotency-Key"), "installment-key")

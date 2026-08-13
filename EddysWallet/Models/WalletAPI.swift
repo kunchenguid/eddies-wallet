@@ -713,6 +713,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
     private let cache: any WalletSnapshotCache
     private let configuredKidStore: any ConfiguredKidStore
     private let pendingStore: any PendingCommandStore
+    private let calendar: Calendar
     private var current: WalletSnapshot
     private var currentChild: WalletSnapshot
     private var pendingCommands: [String: WalletCommand]
@@ -725,7 +726,8 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         transport: any HTTPTransport = URLSessionTransport(),
         cache: (any WalletSnapshotCache)? = nil,
         configuredKidStore: (any ConfiguredKidStore)? = nil,
-        pendingStore: (any PendingCommandStore)? = nil
+        pendingStore: (any PendingCommandStore)? = nil,
+        calendar: Calendar = .current
     ) {
         self.baseURL = baseURL
         self.sessionStore = sessionStore ?? KeychainSessionStore()
@@ -733,6 +735,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         self.cache = cache ?? UserDefaultsWalletSnapshotCache()
         self.configuredKidStore = configuredKidStore ?? UserDefaultsConfiguredKidStore()
         self.pendingStore = pendingStore ?? (baseURL == APIConfiguration.productionBaseURL ? UserDefaultsPendingCommandStore() : InMemoryPendingCommandStore())
+        self.calendar = calendar
         let cachedChild = self.cache.load() ?? .empty()
         self.current = cachedChild
         self.currentChild = cachedChild
@@ -1068,7 +1071,9 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
                     throw WalletAPIError.invalidResponse("Enter a payment amount greater than US$0.00.")
                 }
                 var schedule: [String: Any] = ["cadence": plan.cadence.rawValue, "amountCents": plan.amountCents]
-                if let firstDueDate = plan.firstDueDate { schedule["firstDueDate"] = formatDate(firstDueDate) }
+                if let firstDueDate = plan.firstDueDate {
+                    schedule["firstDueDate"] = CloudDayFormat.string(from: firstDueDate, calendar: calendar)
+                }
                 loanBody["schedule"] = schedule
             }
             endpoint = ("/v1/loans", loanBody)
@@ -1300,14 +1305,16 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
     private func mapLoanSchedule(_ schedule: LoanScheduleDTO) throws -> LoanSchedule {
         guard let cadence = LoanInstallmentCadence(rawValue: schedule.cadence),
               schedule.amountCents.value > 0,
-              let firstDueDate = parseDate(schedule.firstDueDate) else {
+              let firstDueDate = CloudDayFormat.date(from: schedule.firstDueDate, calendar: calendar) else {
             throw WalletAPIError.invalidResponse("The server returned an invalid loan payment schedule.")
         }
         return LoanSchedule(
             cadence: cadence,
             amountCents: schedule.amountCents.value,
             firstDueDate: firstDueDate,
-            nextDueDate: parseDate(schedule.nextDueDate),
+            nextDueDate: schedule.nextDueDate.flatMap {
+                CloudDayFormat.date(from: $0, calendar: calendar)
+            },
             nextOccurrenceID: schedule.nextOccurrenceId
         )
     }
