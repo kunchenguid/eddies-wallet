@@ -8,7 +8,7 @@ import XCTest
 /// PIN 1234) - no real accounts, families, or services.
 final class EddysWalletUITests: XCTestCase {
     private let doorLabel = "Parent area. Asks for the parent PIN."
-    private let parentActionTitles = ["Add deposit", "Record withdrawal", "Create loan", "Record repayment", "Record allowance"]
+    private let parentActionTitles = ["Add deposit", "Record withdrawal", "Create loan", "Record repayment", "Pay out allowance"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -532,7 +532,7 @@ final class EddysWalletUITests: XCTestCase {
             "the draft control must name the device it is actually running on"
         )
         app.buttons["Review allowance"].tap()
-        assertActionIsReachable(app.buttons["Confirm allowance"], "the allowance confirm control", in: app)
+        assertActionIsReachable(app.buttons["Confirm allowance"], "the allowance confirmation control", in: app)
         app.buttons["Back"].tap()
         app.buttons["Close"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))

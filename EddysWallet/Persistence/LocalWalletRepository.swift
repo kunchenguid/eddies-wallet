@@ -150,7 +150,38 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             guard wallet.loan == nil || wallet.loan?.isPaid == true else { return .rejected(rejected(command, "Finish the open loan before creating another one.")) }
             wallet.acceptedBalanceCents += command.amountCents
             wallet.loan = Loan(remoteID: "local-loan", originalCents: command.amountCents, remainingCents: command.amountCents, purpose: command.reason, dueDate: command.dueDate)
-        case .deposit, .allowance:
+        case .deposit:
+            wallet.acceptedBalanceCents += command.amountCents
+        case .allowance:
+            // A local allowance is still one scheduled occurrence at a time.
+            // Advance only in the same atomic save as its ledger entry, so an
+            // interrupted record-all can resume at the first unrecorded week.
+            guard let plan = wallet.allowance else {
+                return .rejected(rejected(command, "There is no scheduled allowance occurrence to record."))
+            }
+            let calendar = Calendar.current
+            guard calendar.startOfDay(for: plan.nextDate) <= calendar.startOfDay(for: .now) else {
+                return .rejected(rejected(command, "There is no scheduled allowance occurrence to record."))
+            }
+            guard command.amountCents == plan.amountCents else {
+                return .rejected(rejected(command, "The allowance amount no longer matches the weekly plan."))
+            }
+            guard plan.endDate.map({ plan.nextDate <= $0 }) ?? true else {
+                return .rejected(rejected(command, "There is no scheduled allowance occurrence to record."))
+            }
+            guard let followingDate = calendar.date(byAdding: .day, value: 7, to: plan.nextDate) else {
+                return .rejected(rejected(command, "The next allowance occurrence could not be scheduled."))
+            }
+            wallet.allowance = AllowancePlan(
+                remoteID: plan.remoteID,
+                amountCents: plan.amountCents,
+                cadence: plan.cadence,
+                weekday: plan.weekday,
+                nextDate: followingDate,
+                endDate: plan.endDate,
+                nextOccurrenceID: UUID().uuidString,
+                syncState: plan.syncState
+            )
             wallet.acceptedBalanceCents += command.amountCents
         }
         let event = WalletEvent(id: UUID(uuidString: command.idempotencyKey) ?? UUID(), remoteID: command.idempotencyKey, type: activityType(command.kind), amountCents: command.amountCents, balanceBeforeCents: candidate.snapshot.acceptedBalanceCents, balanceAfterCents: wallet.acceptedBalanceCents, reason: command.reason, syncState: .recorded, explanation: explanation(command))

@@ -220,6 +220,9 @@ public final class WalletStore: ObservableObject {
     /// Last result for profile and allowance mutations, which do not create a
     /// ledger event but still need truthful accepted/waiting/rejected copy.
     @Published public private(set) var latestParentMutationOutcome: ParentMutationOutcome?
+    /// True only while a deliberate parent record-all action is sequentially
+    /// settling the originally visible missed allowance occurrences.
+    @Published public private(set) var isRecordingMissedAllowance = false
     /// The first-run existing-wallet choice, when this parent's account already
     /// holds a wallet this device can recover. Non-nil only before setup.
     @Published public private(set) var existingWalletRecovery: ExistingWalletRecoveryState?
@@ -940,6 +943,12 @@ public final class WalletStore: ObservableObject {
                 raiseCloudReview(for: error)
                 errorMessage = userMessage(for: error)
                 snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
+            case .cloudAcceptedScheduleUnavailable:
+                if let cloud = repository as? CloudWalletRepository {
+                    authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
+                }
+                errorMessage = userMessage(for: error)
+                snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
             case .cloudAcceptedAwaitingReplica, .cloudMutationAwaitingReconciliation:
                 if error.transportDiagnostic == nil {
                     connection = .reached
@@ -1086,6 +1095,89 @@ public final class WalletStore: ObservableObject {
         }
     }
 
+    /// The parent-visible missed portion of the current allowance schedule.
+    /// A Cloud replica can render this only after `/v1/allowance-rule` has
+    /// supplied its real next occurrence; the replica's rule start date is not
+    /// a substitute for that server-owned fact.
+    public var missedAllowancePayouts: AllowanceMissedPayouts {
+        guard let allowance = snapshot.allowance else {
+            return AllowanceMissedPayouts(occurrences: [])
+        }
+        if repository is CloudWalletRepository, allowance.nextOccurrenceID == nil {
+            return AllowanceMissedPayouts(occurrences: [])
+        }
+        return allowance.missedPayouts()
+    }
+
+    /// Records the exact missed set a parent saw, one occurrence per command.
+    /// Each command uses the repository's normal idempotency and revision
+    /// guards. If the sequence is interrupted, accepted entries have already
+    /// advanced the schedule atomically and only the untouched suffix remains
+    /// eligible for a later deliberate parent action.
+    public func recordAllMissedAllowance(
+        _ confirmedPayouts: AllowanceMissedPayouts? = nil
+    ) async -> AllowanceRecordAllOutcome {
+        guard elevation == .active, !isRecordingMissedAllowance else {
+            return .partial(recordedCount: 0, recordedTotalCents: 0, remaining: missedAllowancePayouts)
+        }
+        let initial = confirmedPayouts ?? missedAllowancePayouts
+        guard !initial.isEmpty else { return .noMissed }
+
+        isRecordingMissedAllowance = true
+        defer { isRecordingMissedAllowance = false }
+        var recordedCount = 0
+        var recordedTotalCents = 0
+
+        for occurrence in initial.occurrences {
+            // Do not silently record a new or changed schedule. A concurrent
+            // edit, single record, or Cloud revision change leaves the rest
+            // for an explicit next parent action.
+            guard missedAllowancePayouts.occurrences.first == occurrence else {
+                return .reviewRequired(
+                    recordedCount: recordedCount,
+                    recordedTotalCents: recordedTotalCents
+                )
+            }
+            let result = await submit(WalletCommand(
+                kind: .allowance,
+                amountCents: occurrence.amountCents,
+                dueDate: occurrence.dueDate
+            ))
+            switch result {
+            case .accepted:
+                recordedCount += 1
+                recordedTotalCents += occurrence.amountCents
+            case .acceptedScheduleUnavailable:
+                recordedCount += 1
+                recordedTotalCents += occurrence.amountCents
+                return .scheduleUnavailable(
+                    recordedCount: recordedCount,
+                    recordedTotalCents: recordedTotalCents
+                )
+            case .pending, .acceptedAwaitingReplica:
+                return .awaitingCloud(
+                    recordedCount: recordedCount,
+                    recordedTotalCents: recordedTotalCents
+                )
+            case .rejected:
+                let current = missedAllowancePayouts
+                guard current.occurrences.first == occurrence else {
+                    return .reviewRequired(
+                        recordedCount: recordedCount,
+                        recordedTotalCents: recordedTotalCents
+                    )
+                }
+                return .partial(
+                    recordedCount: recordedCount,
+                    recordedTotalCents: recordedTotalCents,
+                    remaining: current
+                )
+            }
+        }
+
+        return .recorded(count: recordedCount, totalCents: recordedTotalCents)
+    }
+
     @discardableResult
     public func setAllowance(_ command: AllowanceRuleCommand) async -> Bool {
         guard elevation == .active else {
@@ -1132,6 +1224,10 @@ public final class WalletStore: ObservableObject {
             switch operationError {
             case .cloudAcceptedAwaitingReplica:
                 latestParentMutationOutcome = .acceptedAwaitingReplica
+                snapshot = repository.snapshot()
+                errorMessage = nil
+            case .cloudAcceptedScheduleUnavailable:
+                latestParentMutationOutcome = .acceptedScheduleUnavailable
                 snapshot = repository.snapshot()
                 errorMessage = nil
             case .cloudMutationAwaitingReconciliation:
@@ -1216,9 +1312,14 @@ public final class WalletStore: ObservableObject {
         do {
             let result = try await repository.submit(command)
             if generation == refreshGeneration, elevation == .active {
-                publishOperationDiagnostic(preferredDiagnostic: result.transportDiagnostic)
+                if case .acceptedScheduleUnavailable(_, let error) = result {
+                    publishOperationDiagnostic(for: error)
+                    errorMessage = "The allowance was paid out, but the latest allowance schedule could not be loaded. Refresh before paying out another week."
+                } else {
+                    publishOperationDiagnostic(preferredDiagnostic: result.transportDiagnostic)
+                    errorMessage = nil
+                }
                 snapshot = repository.snapshot()
-                errorMessage = nil
             }
             return result
         } catch let error as WalletAPIError {
@@ -1258,6 +1359,7 @@ public final class WalletStore: ObservableObject {
                 rejectionReason: userMessage(for: error)
             )
             if generation == refreshGeneration, elevation == .active {
+                snapshot = repository.snapshot()
                 errorMessage = userMessage(for: error)
             }
             return .rejected(event)
@@ -1592,7 +1694,7 @@ public final class WalletStore: ObservableObject {
     /// while the shared sync fact confirms an active plan, connected and
     /// reviewed replica, and no unresolved request.
     public var canStartParentMutation: Bool {
-        guard canModifyWallet else { return false }
+        guard canModifyWallet, !isRecordingMissedAllowance else { return false }
         guard authorityState.isCloudAuthority else { return true }
         return isSyncedWithCloud
     }

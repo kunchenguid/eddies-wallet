@@ -6,7 +6,7 @@ This policy is published at https://eddies-wallet.kunchenguid.com/. Future revis
 
 ## What this app is
 
-Eddie's Wallet is an iOS app for families. A parent records virtual allowance, deposits, withdrawals, loans, and repayments for one child, and the child sees a read-only wallet. The money in the app is pretend: it cannot be redeemed and never moves real money.
+Eddie's Wallet is an iOS app for families. A parent pays out virtual allowance and records deposits, withdrawals, loans, and repayments for one child, and the child sees a read-only wallet. The money in the app is pretend: it cannot be redeemed and never moves real money.
 
 The child never signs in and never has an account. Only a parent signs in.
 

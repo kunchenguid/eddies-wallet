@@ -75,6 +75,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
     case cloudEntitlementRequired
     case cloudMutationAwaitingReconciliation
     case cloudAcceptedAwaitingReplica
+    case cloudAcceptedScheduleUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -96,6 +97,7 @@ public enum WalletAPIError: Error, Equatable, LocalizedError {
         case .cloudEntitlementRequired: "Cloud ended, so this action was not recorded. This wallet still works on this device."
         case .cloudMutationAwaitingReconciliation: "Cloud has not confirmed the previous change yet. Reconnect and check it before recording another change."
         case .cloudAcceptedAwaitingReplica: "Cloud accepted this change. This device is waiting to see the updated wallet. Do not record it again."
+        case .cloudAcceptedScheduleUnavailable: "Cloud accepted this change, but the latest allowance schedule could not be loaded. Refresh before paying out allowance."
         }
     }
 
@@ -961,7 +963,8 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
                 return .rejected(event)
             case .cancelled, .timedOut, .familyNotSetup, .identityMismatch, .revisionRequired,
                  .cloudRevisionRefusal, .cloudEntitlementRequired,
-                 .cloudMutationAwaitingReconciliation, .cloudAcceptedAwaitingReplica:
+                 .cloudMutationAwaitingReconciliation, .cloudAcceptedAwaitingReplica,
+                 .cloudAcceptedScheduleUnavailable:
                 throw error
             case .revisionConflict:
                 let event = makeLocalEvent(for: command, state: .rejected, message: "This action was not recorded. Review the latest balance before recording it again.", rejectionReason: error.localizedDescription)

@@ -104,12 +104,14 @@ enum CloudReplicaMapper {
 }
 
 /// `YYYY-MM-DD` calendar days, which the service uses for allowance and loan
-/// due dates.
+/// due dates. These are parent-visible calendar days, not midnight instants:
+/// use the device calendar so a west-of-UTC family never sees its scheduled
+/// Friday decoded as Thursday.
 enum CloudDayFormat {
     private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.timeZone = .current
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter

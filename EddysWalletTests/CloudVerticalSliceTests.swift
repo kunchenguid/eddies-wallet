@@ -720,6 +720,430 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(relaunched.snapshot().activities.filter { $0.remoteID == "accepted-after-waiting" }.count, 1)
     }
 
+    func testCloudRecordAllWalksOnlyPastDueAllowanceOccurrencesOneAtATime() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -21, to: today))
+        let secondMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstMissed))
+        let thirdMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: 14, to: firstMissed))
+        let changes = [
+            CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage),
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "allowance-1"),
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 4, balanceCents: 1_750, entryID: "allowance-2"),
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 5, balanceCents: 2_250, entryID: "allowance-3"),
+        ]
+        transport.stub("GET", "/v1/cloud/changes", changes[0])
+        transport.enqueue("GET", "/v1/cloud/changes", changes[0])
+        for change in changes.dropFirst() { transport.enqueue("GET", "/v1/cloud/changes", change) }
+
+        let schedules = [
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: secondMissed, occurrenceID: "o-2"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: secondMissed, occurrenceID: "o-2"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: thirdMissed, occurrenceID: "o-3"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: thirdMissed, occurrenceID: "o-3"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "o-today"),
+        ]
+        transport.stub("GET", "/v1/allowance-rule", schedules[0])
+        for schedule in schedules.dropFirst() { transport.enqueue("GET", "/v1/allowance-rule", schedule) }
+        for (index, revision) in [Int64(3), 4, 5].enumerated() {
+            transport.stub(
+                "POST",
+                "/v1/allowance-rule/a-1/occurrences/o-\(index + 1)/record",
+                CloudSliceFixtures.depositAccepted(revision: revision, entryID: "allowance-\(index + 1)"),
+                status: 201
+            )
+        }
+
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilParentReadSettles(store, transport)
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(store.snapshot.allowance?.nextDate)), firstMissed)
+        XCTAssertEqual(store.missedAllowancePayouts.count, 3)
+        XCTAssertEqual(store.missedAllowancePayouts.totalCents, 1_500)
+        XCTAssertEqual(
+            calendar.startOfDay(for: try XCTUnwrap(store.snapshot.allowance?.nextCurrentOrFuturePayout(calendar: calendar))),
+            today
+        )
+
+        let confirmed = store.missedAllowancePayouts
+        XCTAssertTrue(cloud.isReadyForRuntimeMutations)
+        XCTAssertEqual(store.elevation, .active)
+        XCTAssertEqual(store.connection, .reached)
+        let outcome = await store.recordAllMissedAllowance(confirmed)
+
+        XCTAssertNil(store.errorMessage)
+        XCTAssertEqual(outcome, .recorded(count: 3, totalCents: 1_500))
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 2_250)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 3)
+        XCTAssertTrue(store.missedAllowancePayouts.isEmpty)
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(store.snapshot.allowance?.nextDate)), today)
+        let noOp = await store.recordAllMissedAllowance(AllowanceMissedPayouts(occurrences: []))
+        XCTAssertEqual(noOp, .noMissed)
+
+        let writes = transport.requests.filter { $0.httpMethod == "POST" }
+        XCTAssertEqual(writes.map { $0.url?.path }, [
+            "/v1/allowance-rule/a-1/occurrences/o-1/record",
+            "/v1/allowance-rule/a-1/occurrences/o-2/record",
+            "/v1/allowance-rule/a-1/occurrences/o-3/record",
+        ])
+        XCTAssertEqual(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }, ["\"rev-2\"", "\"rev-3\"", "\"rev-4\""])
+    }
+
+    func testCloudRecordAllUsesConfirmedSetAndLeavesNewlyMissedOccurrenceUntouched() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -21, to: today))
+        let secondMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstMissed))
+        let thirdMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: 14, to: firstMissed))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "bound-1"))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 4, balanceCents: 1_750, entryID: "bound-2"))
+        for schedule in [
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "bound-o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "bound-o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "bound-o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: secondMissed, occurrenceID: "bound-o-2"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: secondMissed, occurrenceID: "bound-o-2"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: thirdMissed, occurrenceID: "bound-o-3"),
+        ] {
+            transport.enqueue("GET", "/v1/allowance-rule", schedule)
+        }
+        transport.stub("POST", "/v1/allowance-rule/a-1/occurrences/bound-o-1/record", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "bound-1"), status: 201)
+        transport.stub("POST", "/v1/allowance-rule/a-1/occurrences/bound-o-2/record", CloudSliceFixtures.depositAccepted(revision: 4, entryID: "bound-2"), status: 201)
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilParentReadSettles(store, transport)
+        let confirmed = AllowanceMissedPayouts(occurrences: Array(store.missedAllowancePayouts.occurrences.prefix(2)))
+
+        let outcome = await store.recordAllMissedAllowance(confirmed)
+
+        XCTAssertEqual(outcome, .recorded(count: 2, totalCents: 1_000))
+        XCTAssertEqual(store.missedAllowancePayouts.occurrences.map(\.dueDate), [thirdMissed])
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 2)
+    }
+
+    func testCloudRecordAllKeepsAcceptedPrefixAndDoesNotCallUnresolvedWeekPayable() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -14, to: calendar.startOfDay(for: .now)))
+        let secondMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstMissed))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "partial-1"))
+        for schedule in [
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "partial-o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "partial-o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "partial-o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: secondMissed, occurrenceID: "partial-o-2"),
+        ] {
+            transport.enqueue("GET", "/v1/allowance-rule", schedule)
+        }
+        transport.stub("POST", "/v1/allowance-rule/a-1/occurrences/partial-o-1/record", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "partial-1"), status: 201)
+        transport.stub("POST", "/v1/allowance-rule/a-1/occurrences/partial-o-2/record", CloudSliceFixtures.depositAccepted(revision: 4, entryID: "partial-2"), status: 201)
+        transport.dropNextResponse("POST", "/v1/allowance-rule/a-1/occurrences/partial-o-2/record")
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilParentReadSettles(store, transport)
+
+        let outcome = await store.recordAllMissedAllowance(store.missedAllowancePayouts)
+
+        XCTAssertEqual(outcome, .awaitingCloud(recordedCount: 1, recordedTotalCents: 500))
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 1)
+        XCTAssertTrue(cloud.hasUnsettledMutation)
+        XCTAssertEqual(transport.committedMutationCount, 2)
+    }
+
+    func testCloudRecordAllReportsAcceptedPrefixWhenScheduleRefreshFails() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -14, to: calendar.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "schedule-failure-1"))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "schedule-failure-o-1"))
+        transport.enqueue("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "schedule-failure-o-1"))
+        transport.enqueue("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "schedule-failure-o-1"))
+        transport.enqueue("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
+        transport.stub(
+            "POST",
+            "/v1/allowance-rule/a-1/occurrences/schedule-failure-o-1/record",
+            CloudSliceFixtures.depositAccepted(revision: 3, entryID: "schedule-failure-1"),
+            status: 201
+        )
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilParentReadSettles(store, transport)
+        let confirmed = store.missedAllowancePayouts
+
+        let outcome = await store.recordAllMissedAllowance(confirmed)
+
+        XCTAssertEqual(outcome, .scheduleUnavailable(recordedCount: 1, recordedTotalCents: 500))
+        XCTAssertEqual(store.snapshot.activities.filter { $0.remoteID == "schedule-failure-1" }.count, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertTrue(store.missedAllowancePayouts.isEmpty)
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 1)
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertEqual(store.errorMessage, "The allowance was paid out, but the latest allowance schedule could not be loaded. Refresh before paying out another week.")
+    }
+
+    func testReconciledAllowancePayoutReportsUnavailableScheduleTruthfully() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let missedDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: calendar.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "reconciled-schedule-failure"))
+        transport.enqueue("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "reconciled-o-1"))
+        transport.enqueue("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "reconciled-o-1"))
+        transport.enqueue("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
+        transport.stub(
+            "POST",
+            "/v1/allowance-rule/a-1/occurrences/reconciled-o-1/record",
+            CloudSliceFixtures.depositAccepted(revision: 3, entryID: "reconciled-schedule-failure"),
+            status: 201
+        )
+        transport.dropNextResponse("GET", "/v1/cloud/changes")
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilParentReadSettles(store, transport)
+
+        guard case .acceptedAwaitingReplica = await store.submit(WalletCommand(
+            kind: .allowance,
+            amountCents: 500,
+            dueDate: missedDate
+        )) else {
+            return XCTFail("a lost observation must leave the accepted allowance awaiting reconciliation")
+        }
+
+        await store.refresh()
+
+        XCTAssertEqual(store.connection, .reached)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.remoteID == "reconciled-schedule-failure" }.count, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+        XCTAssertEqual(
+            store.errorMessage,
+            "Cloud accepted this change, but the latest allowance schedule could not be loaded. Refresh before paying out allowance."
+        )
+    }
+
+    func testReconciledDepositRefreshesActiveAllowanceSchedule() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let missedDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: calendar.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("POST", "/v1/wallet/deposits", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "reconciled-deposit"), status: 201)
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.depositChangesWithAllowance(
+            lineage: lineage,
+            revision: 3,
+            balanceCents: 1_000,
+            entryID: "reconciled-deposit"
+        ))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(
+            dueDate: missedDate,
+            occurrenceID: "missed-after-deposit"
+        ))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        transport.dropNextResponse("GET", "/v1/cloud/changes")
+
+        guard case .acceptedAwaitingReplica = try await cloud.submit(
+            WalletCommand(kind: .deposit, amountCents: 250, idempotencyKey: "reconciled-deposit-key")
+        ) else {
+            return XCTFail("the lost observation must remain unresolved")
+        }
+
+        let snapshot = try await cloud.refresh(for: .parent)
+
+        XCTAssertEqual(snapshot.allowance?.nextOccurrenceID, "missed-after-deposit")
+        XCTAssertEqual(snapshot.allowance?.missedPayouts(calendar: calendar).count, 1)
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testParentBootstrapPublishesAuthoritativeAllowanceSchedule() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let missedDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: calendar.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "bootstrap-missed"))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+
+        let snapshot = try await cloud.refresh(for: .parent)
+
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(snapshot.allowance?.nextDate)), missedDate)
+        XCTAssertEqual(snapshot.allowance?.nextOccurrenceID, "bootstrap-missed")
+        XCTAssertEqual(snapshot.allowance?.missedPayouts().count, 1)
+    }
+
+    func testParentRefreshReportsAllowanceScheduleFailure() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+
+        do {
+            _ = try await cloud.refresh(for: .parent)
+            XCTFail("a failed schedule read must not publish a healthy parent refresh")
+        } catch let error as WalletAPIError {
+            guard case .server(let statusCode, _, _) = error.operationError else {
+                return XCTFail("the schedule failure should preserve its server response")
+            }
+            XCTAssertEqual(statusCode, 503)
+            XCTAssertNil(cloud.snapshot().allowance?.nextOccurrenceID)
+        }
+    }
+
+    func testOlderScheduleFailureCannotInvalidateAQueuedSuccessfulRefresh() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        let missedDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
+        transport.enqueue("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "newest-occurrence"))
+        transport.suspend("GET", "/v1/allowance-rule")
+
+        let older = Task { try await cloud.refresh(for: .parent) }
+        await transport.waitUntilSuspended()
+        let newer = Task { try await cloud.refresh(for: .parent) }
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v1/allowance-rule" }.count, 1)
+        transport.resumeSuspendedRequest()
+
+        do {
+            _ = try await older.value
+            XCTFail("the older schedule read should preserve its failure")
+        } catch let error as WalletAPIError {
+            guard case .server(let statusCode, _, _) = error.operationError else {
+                return XCTFail("the older schedule read should report the service response")
+            }
+            XCTAssertEqual(statusCode, 503)
+        }
+        let newest = try await newer.value
+        XCTAssertEqual(newest.allowance?.nextOccurrenceID, "newest-occurrence")
+        XCTAssertTrue(cloud.isReadyForRuntimeMutations)
+    }
+
+    func testParentScheduleReadReservesTheSingleMutationSlot() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let missedDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "refresh-occurrence"))
+        transport.suspend("GET", "/v1/allowance-rule")
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let refresh = Task { try await cloud.refresh(for: .parent) }
+        await transport.waitUntilSuspended()
+        let competing = try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 100))
+
+        guard case .rejected = competing else {
+            return XCTFail("a schedule read must reserve the mutation slot")
+        }
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/wallet/deposits" })
+        transport.resumeSuspendedRequest()
+        let snapshot = try await refresh.value
+        XCTAssertEqual(snapshot.allowance?.nextOccurrenceID, "refresh-occurrence")
+    }
+
+    func testAllowancePreparationReservesTheSingleMutationSlot() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        let missedDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: missedDate, occurrenceID: "reserved-occurrence"))
+        transport.suspend("GET", "/v1/allowance-rule")
+        transport.stub("POST", "/v1/allowance-rule/a-1/occurrences/reserved-occurrence/record", CloudSliceFixtures.depositAccepted(revision: 3, entryID: "reserved-entry"), status: 201)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "reserved-entry"))
+
+        let allowance = Task {
+            try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500, dueDate: missedDate))
+        }
+        await transport.waitUntilSuspended()
+        let competing = try await cloud.submit(WalletCommand(kind: .deposit, amountCents: 100))
+        guard case .rejected = competing else {
+            return XCTFail("a competing mutation must be blocked while allowance preparation awaits")
+        }
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/v1/wallet/deposits" })
+
+        transport.resumeSuspendedRequest()
+        guard case .accepted = try await allowance.value else {
+            return XCTFail("the reserved allowance mutation should still settle normally")
+        }
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testMissedAllowanceCommandCannotRecordTodayAfterScheduleChanges() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let previouslyMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: today))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "today"))
+
+        do {
+            _ = try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500, dueDate: previouslyMissed))
+            XCTFail("a batch-bound command must not record today's occurrence")
+        } catch let error as WalletAPIError {
+            guard case .invalidResponse = error.operationError else {
+                return XCTFail("the changed due occurrence should require review")
+            }
+        }
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testOrdinaryAllowanceCannotRecordAFutureOccurrence() async throws {
+        let (cloud, transport, _) = try await writableCloud()
+        let futureDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: 7, to: Calendar.current.startOfDay(for: .now)))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(
+            dueDate: futureDate,
+            occurrenceID: "future-occurrence"
+        ))
+
+        do {
+            _ = try await cloud.submit(WalletCommand(kind: .allowance, amountCents: 500))
+            XCTFail("an ordinary payout must not record a future occurrence")
+        } catch let error as WalletAPIError {
+            guard case .invalidResponse = error.operationError else {
+                return XCTFail("a future occurrence should require review")
+            }
+        }
+
+        XCTAssertFalse(transport.requests.contains { $0.httpMethod == "POST" })
+        XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
     func testScheduledAllowanceRejectsCallerAmountMismatchBeforeStaging() async throws {
         let (cloud, transport, _) = try await writableCloud()
         transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceDue)
@@ -1034,17 +1458,71 @@ final class CloudVerticalSliceTests: XCTestCase {
 
     func testAcceptedAllowanceRuleUsesRevisionObservation() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
+        let nextDueDate = Date(timeIntervalSince1970: 1_800_000_000)
         transport.stub("PUT", "/v1/allowance-rule", CloudSliceFixtures.profileAccepted(revision: 3), status: 200)
         transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceRuleChanges(lineage: lineage, revision: 3))
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            CloudSliceFixtures.allowanceSchedule(
+                dueDate: nextDueDate,
+                occurrenceID: "saved-rule-occurrence",
+                ruleID: "a-2",
+                amountCents: 600
+            )
+        )
 
         let snapshot = try await cloud.setAllowance(
-            AllowanceRuleCommand(amountCents: 600, weekday: 2, startDate: Date(timeIntervalSince1970: 1_800_000_000), idempotencyKey: "allowance-rule-key")
+            AllowanceRuleCommand(amountCents: 600, weekday: 2, startDate: nextDueDate, idempotencyKey: "allowance-rule-key")
         )
 
         XCTAssertEqual(snapshot.allowance?.amountCents, 600)
         XCTAssertEqual(snapshot.allowance?.weekday, 2)
+        XCTAssertEqual(snapshot.allowance?.nextOccurrenceID, "saved-rule-occurrence")
+        XCTAssertEqual(
+            Calendar.current.startOfDay(for: try XCTUnwrap(snapshot.allowance?.nextDate)),
+            Calendar.current.startOfDay(for: nextDueDate)
+        )
         XCTAssertEqual(cloud.revision, 3)
         XCTAssertFalse(cloud.hasUnsettledMutation)
+    }
+
+    func testAcceptedAllowanceRuleReportsUnavailableScheduleAndRecovers() async throws {
+        let (cloud, transport, lineage) = try await writableCloud()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntil("the Parent-area read settles") { !store.isLoading }
+        let nextDueDate = Date(timeIntervalSince1970: 1_800_000_000)
+        transport.stub("PUT", "/v1/allowance-rule", CloudSliceFixtures.profileAccepted(revision: 3), status: 200)
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceRuleChanges(lineage: lineage, revision: 3))
+        transport.stub("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
+
+        let saved = await store.setAllowance(
+            AllowanceRuleCommand(amountCents: 600, weekday: 2, startDate: nextDueDate)
+        )
+
+        XCTAssertFalse(saved)
+        XCTAssertEqual(store.latestParentMutationOutcome, .acceptedScheduleUnavailable)
+        XCTAssertNil(store.errorMessage)
+        XCTAssertEqual(store.latestTransportDiagnostic?.route, "/v1/allowance-rule")
+        XCTAssertEqual(cloud.snapshot().allowance?.amountCents, 600)
+        XCTAssertNil(cloud.snapshot().allowance?.nextOccurrenceID)
+        XCTAssertFalse(cloud.isReadyForRuntimeMutations)
+
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            CloudSliceFixtures.allowanceSchedule(
+                dueDate: nextDueDate,
+                occurrenceID: "recovered-rule-occurrence",
+                ruleID: "a-2",
+                amountCents: 600
+            )
+        )
+        await store.refresh()
+
+        XCTAssertNil(store.errorMessage)
+        XCTAssertEqual(store.snapshot.allowance?.nextOccurrenceID, "recovered-rule-occurrence")
+        XCTAssertTrue(cloud.isReadyForRuntimeMutations)
     }
 
     func testUnsettledMutationBlocksEveryCloudToLocalAuthorityHandoff() async throws {
@@ -2460,6 +2938,15 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertNil(store.errorMessage, "the first read is expected to succeed before the race begins")
     }
 
+    private func waitUntilParentReadSettles(_ store: WalletStore, _ transport: RoutingTransport) async {
+        await waitUntil("the store's parent Cloud read to settle") {
+            transport.requests.filter { $0.url?.path == "/v1/cloud/changes" }.count >= 2
+                && store.snapshot.allowance?.nextOccurrenceID != nil
+                && !store.isLoading
+        }
+        XCTAssertNil(store.errorMessage, "the parent read is expected to succeed before settlement begins")
+    }
+
     private func waitUntil(_ description: String, condition: @escaping @MainActor () -> Bool) async {
         let deadline = Date().addingTimeInterval(2)
         while !condition() {
@@ -3385,6 +3872,35 @@ enum CloudSliceFixtures {
      "nextOccurrenceId":null,"nextDueDate":null}}
     """.utf8)
 
+    static func allowanceSchedule(
+        dueDate: Date,
+        occurrenceID: String,
+        ruleID: String = "a-1",
+        amountCents: Int = 500
+    ) -> Data {
+        Data("""
+        {"allowanceRule":{"id":"\(ruleID)","amountCents":\(amountCents),"cadence":"weekly","weekday":5,
+         "startDate":"2026-07-01","endDate":null,"active":true,
+         "nextOccurrenceId":"\(occurrenceID)","nextDueDate":"\(CloudDayFormat.string(from: dueDate))"}}
+        """.utf8)
+    }
+
+    static func allowanceChanges(
+        lineage: UUID,
+        revision: Int64,
+        balanceCents: Int,
+        entryID: String
+    ) -> Data {
+        Data("""
+        {"household":{"lineageId":"\(lineage.uuidString.lowercased())","authority":"cloud","revision":\(revision)},
+         "family":{"id":"f-1","name":"Test Kid's family"},
+         "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+         "wallet":{"id":"w-1","balanceCents":\(balanceCents)},
+         "entries":[{"id":"\(entryID)","type":"allowance","direction":"credit","amountCents":500,"balanceBeforeCents":\(balanceCents - 500),"balanceAfterCents":\(balanceCents),"reason":null,"loanId":null,"recordedAt":"2026-08-01T12:00:00.000Z","acceptedRevision":\(revision)}],
+         "loans":[],"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,"startDate":"2026-07-01","endDate":null,"active":true}}
+        """.utf8)
+    }
+
     static func contextActive(lineage: UUID, revision: Int64) -> Data {
         Data("""
         {"storeAccountToken":"11111111-1111-4111-8111-111111111111",
@@ -3457,6 +3973,24 @@ enum CloudSliceFixtures {
 
     static func bootstrapWithAllowance(lineage: UUID) -> Data {
         let source = String(decoding: bootstrap(lineage: lineage), as: UTF8.self)
+        return Data(source.replacingOccurrences(
+            of: "\"allowanceRule\":null",
+            with: "\"allowanceRule\":{\"id\":\"a-1\",\"amountCents\":500,\"cadence\":\"weekly\",\"weekday\":5,\"startDate\":\"2026-07-01\",\"endDate\":null,\"active\":true}"
+        ).utf8)
+    }
+
+    static func depositChangesWithAllowance(
+        lineage: UUID,
+        revision: Int64,
+        balanceCents: Int,
+        entryID: String
+    ) -> Data {
+        let source = String(decoding: changes(
+            lineage: lineage,
+            revision: revision,
+            balanceCents: balanceCents,
+            entryID: entryID
+        ), as: UTF8.self)
         return Data(source.replacingOccurrences(
             of: "\"allowanceRule\":null",
             with: "\"allowanceRule\":{\"id\":\"a-1\",\"amountCents\":500,\"cadence\":\"weekly\",\"weekday\":5,\"startDate\":\"2026-07-01\",\"endDate\":null,\"active\":true}"

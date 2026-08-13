@@ -43,7 +43,7 @@ Parents want a simple way to give children practice with allowance, spending, bo
 Eddie's Wallet addresses the gap with a small, closed virtual economy:
 
 1. A parent creates and controls the configured child profile.
-2. The parent records allowance, deposits, withdrawals, loans, and repayments.
+2. The parent pays out allowance and records deposits, withdrawals, loans, and repayments.
 3. The child sees an understandable, read-only wallet and activity history.
 4. The app stays honest about sync state. Parents repeatedly see that the balance cannot be spent or redeemed; kids see a plain allowance relationship without that legal framing on every glance.
 
@@ -73,7 +73,7 @@ The configured child profile uses a simple child view to check an allowance bala
 - Parent-set local PIN for entering the temporary Parent area on a shared iPad.
 - A single virtual wallet for the child profile.
 - A familiar US-dollar display vocabulary with persistent virtual/nonredeemable labeling on parent and safety surfaces, and plain allowance language on kid everyday surfaces.
-- Parent-created allowance, deposits, withdrawals, loans, and repayments.
+- Parent-paid allowance plus parent-recorded deposits, withdrawals, loans, and repayments.
 - A visible wallet activity list and activity details.
 - A secondary open-loan card and loan detail flow.
 - Honest offline, pending, rejected, and stale-data states.
@@ -233,7 +233,7 @@ The child's wallet is the app's home screen. The Parent area presents the parent
 
 1. A parent-only editor for the configured child nickname.
 2. The configured child profile's virtual balance and last update or authority state.
-3. Next allowance information.
+3. Next allowance information showing the earliest current or future occurrence, plus every missed weekly occurrence, its count, and its owed total when past weeks remain unpaid.
 4. A secondary open-loan card, if a loan exists. Tapping it opens loan details.
 5. Recent Activity visible directly on the wallet, with rows opening activity details.
 6. Parent actions for allowance, deposit, withdrawal, loan, and repayment.
@@ -269,12 +269,14 @@ Flow:
 2. Enter an amount, a simple cadence initially centered on weekly allowance, a start date, and an optional end date.
 3. Review a sentence such as “Add US$10.00 virtual dollars every Friday starting August 1.”
 4. Save the rule behind the parent PIN.
-5. Show the next expected date and distinguish the rule from an actual allowance entry.
-6. When an allowance is due, the MVP may present a parent action to record it. It must not claim that an allowance was credited until the event is accepted.
+5. Show the earliest current or future expected date and distinguish the rule from an actual allowance entry. A past missed date must not be repeated as the next allowance summary.
+6. **Pay out allowance** settles the next occurrence one at a time after it is due; it must never pay a future occurrence. It must not claim that an allowance was paid out until the event is accepted.
+7. An unrecorded weekly occurrence due strictly before today is missed. Show every currently missed occurrence, **N missed weeks**, and **Owed total** in both free-local and Cloud modes. An occurrence due today remains the ordinary single payout and is not part of the missed set.
+8. **Pay out missed allowance** asks the parent to confirm the initially visible missed set, including its entry count and total, then **Pay out all** settles that fixed set sequentially as separate allowance entries. It never expands the batch to include a newly due occurrence. Accepted weeks remain durable after interruption, while the untouched weeks remain visible and payable later without duplicates.
 
-Free-local authority records a valid rule immediately in protected local storage. A service-authoritative wallet must confirm its current replica revision online before submitting a rule change and must not queue an offline rule edit.
+Free-local authority records a valid rule immediately in protected local storage. A service-authoritative wallet must confirm its current replica revision online before submitting a rule change or payout and must not queue an offline rule edit. Each Cloud payout uses the existing occurrence endpoint with the normal revision, `If-Match`, and idempotency protections. A required Cloud review blocks the next payout rather than being bypassed by the batch.
 
-Editing or pausing a rule affects future occurrences only. It must not rewrite past activity. Exact automatic background scheduling, missed-occurrence catch-up, and additional cadences are open or future decisions.
+Editing or pausing a rule affects future occurrences only. It must not rewrite past activity. Every payout remains parent-triggered: there is no auto-disbursement, timer, background catch-up, scheduled job, or notification. Additional cadences remain a future decision.
 
 ### 8.7 Deposit flow
 
@@ -371,7 +373,7 @@ Acceptance and rejection must use text and icons, not color alone. A stale child
 This is a product constraint and client integration boundary, not an implementation plan. The service is maintained outside this public frontend repository.
 
 - Free mode is fully useful on one device. Its protected local repository is authoritative for the one-child aggregate, accepted ledger events, balances, allowance rules, and loans. Paid Cloud mode uses the service as the sole accepted authority; the client never grants Cloud entitlement.
-- The service must support idempotent parent commands so retries cannot duplicate deposits, withdrawals, loans, or repayments.
+- The service must support idempotent parent commands so retries cannot duplicate allowance payouts, deposits, withdrawals, loans, or repayments.
 - Child reads must not have a path to mutate wallet, profile, allowance, loan, membership, or parent-PIN data.
 - Before paid Cloud launch, the service must meet the recovery expectations in this document, including daily backups, a nightly encrypted export, and restore testing.
 - Keep the app's product boundary independent of the service implementation and hosting. Do not expose provider-specific behavior in parent or child copy.
@@ -384,7 +386,7 @@ These ideas may be valuable later but must not appear as required MVP work:
 
 - Additional parents, multiple children, co-parent permissions, and independent child-device identities.
 - Google Sign In and provider linking.
-- Automatic background allowance scheduling, catch-up rules, push notifications, and richer cadence options.
+- Automatic or background allowance payout, scheduled jobs, push notifications, and richer cadence options.
 - Child-initiated requests represented as a separate approval object.
 - Interest-bearing loans, installments, due-date reminders, or configurable loan terms.
 - Savings goals, jars, chores, rewards, multiple wallets, and multiple currencies.
@@ -396,11 +398,10 @@ These ideas may be valuable later but must not appear as required MVP work:
 These questions do not block the product boundary above. Questions that affect the free wallet must be answered before public launch; service-specific questions must be answered before paid Cloud is offered:
 
 1. Which exact iOS/iPadOS versions and oldest iPad models are supported? *(Current implementation answer: the Xcode project declares an iOS/iPadOS 17.0 minimum for iPhone and iPad; the oldest supported hardware has not been decided.)*
-2. Should the allowance MVP remain parent-confirmed on or after the due date, or should a reliable server job automatically record it?
-3. What additional allowance cadences, if any, belong in the first release?
-4. Which service implementation and operations plan meet the cost and recovery requirements, and who owns service incidents and restores?
-5. What retention period and parent deletion behavior apply to family data and accepted ledger history?
-6. Is the one-parent MVP sufficient for the pilot, or is a second authenticated parent a launch requirement?
+2. What additional allowance cadences, if any, belong in the first release?
+3. Which service implementation and operations plan meet the cost and recovery requirements, and who owns service incidents and restores?
+4. What retention period and parent deletion behavior apply to family data and accepted ledger history?
+5. Is the one-parent MVP sufficient for the pilot, or is a second authenticated parent a launch requirement?
 
 ## 15. MVP acceptance criteria
 
@@ -409,7 +410,7 @@ The free one-device MVP is product-complete when all of the following are true:
 1. A parent can sign in with Apple, create one free wallet and a parent-managed child profile, and set a parent PIN without creating a child login.
 2. On a shared iPad, the app rests on the child's read-only wallet, and entering the Parent area requires the parent-set PIN. The kid home never exposes parent money controls or sign-out.
 3. Parent and safety surfaces label the US-dollar ledger as virtual, pretend, and nonredeemable. The kid home primary balance label is **Your allowance balance** without that heavy disclaimer; kid detail glances stay plain and relational while parent detail/review surfaces keep the boundary.
-4. A parent can create a simple allowance rule, record a deposit, record a withdrawal, create an interest-free loan, and record a partial or full repayment.
+4. A parent can create a simple allowance rule, pay out one current allowance or an explicitly confirmed set of missed weeks, record a deposit, record a withdrawal, create an interest-free loan, and record a partial or full repayment.
 5. Each accepted money event changes the accepted balance exactly once and appears in the wallet activity list with an understandable explanation.
 6. Withdrawals and repayments cannot overdraw the wallet or exceed the outstanding loan. A loan adds virtual balance and creates a separate amount to repay.
 7. The open-loan card is visible on the wallet and opens a detail flow. There is no prominent top-level Loans area, and the wallet does not duplicate a Recent Activity entry point.
@@ -423,7 +424,7 @@ The free one-device MVP is product-complete when all of the following are true:
 
 Early MVP success is demonstrated by a small family pilot, not by transaction volume:
 
-- A parent completes setup and records the first allowance or deposit without needing banking knowledge.
+- A parent completes setup and pays out the first allowance or records the first deposit without needing banking knowledge.
 - A parent can tell the difference between a wallet balance, an allowance rule, and a loan outstanding, plus a pending command when using service authority.
 - The child can explain why a balance changed and how much of a loan remains without being able to change it.
 - No pilot parent mistakes the balance for spendable or redeemable money; parent UI continues to state the boundary clearly. The child understands the balance as allowance tracked with their parent.
