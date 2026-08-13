@@ -12,7 +12,7 @@ enum AcceptedEventCopy {
         case .deposit: "Your parent added \(amount) to your wallet."
         case .withdrawal: "Your parent recorded that \(amount) was used."
         case .loan: "Your parent gave you \(amount) to use now and give back over time."
-        case .repayment: "Your parent recorded \(amount) returned toward the loan."
+        case .repayment: "Your parent paid \(amount) toward your loan."
         }
     }
 }
@@ -81,9 +81,8 @@ enum CloudReplicaMapper {
     }
 
     /// The replica alone carries everything the installment reminder needs:
-    /// the loan's durable plan and its one `scheduled` occurrence. A loan with
-    /// no plan, or a settled loan whose occurrence the service already
-    /// cancelled, correctly yields no schedule and therefore no reminder.
+    /// the loan's durable plan and its occurrence chain. A loan with no plan
+    /// correctly yields no schedule and therefore no reminder.
     private static func loan(
         from loan: CloudReplica.CloudLoan,
         occurrences: [CloudReplica.CloudLoanOccurrence]
@@ -105,20 +104,27 @@ enum CloudReplicaMapper {
         guard let plan = loan.schedule,
               let cadence = LoanInstallmentCadence(rawValue: plan.cadence),
               let firstDueDate = CloudDayFormat.date(from: plan.firstDueDate) else { return nil }
-        // At most one occurrence per loan is ever scheduled, so the earliest
-        // scheduled row is the whole walkable chain head.
-        let scheduled = occurrences
-            .filter { $0.loanID == loan.id && $0.status == "scheduled" }
-            .compactMap { occurrence -> (id: String, dueDate: Date)? in
-                CloudDayFormat.date(from: occurrence.dueOn).map { (occurrence.id, $0) }
+        let mappedOccurrences = occurrences
+            .filter { $0.loanID == loan.id }
+            .compactMap { occurrence -> LoanSchedule.Occurrence? in
+                guard let dueDate = CloudDayFormat.date(from: occurrence.dueOn),
+                      let status = LoanSchedule.Occurrence.Status(rawValue: occurrence.status) else { return nil }
+                return LoanSchedule.Occurrence(
+                    id: occurrence.id,
+                    dueDate: dueDate,
+                    status: status,
+                    amountCents: occurrence.amountCents,
+                    entryID: occurrence.acceptedEntryID.map { stableID(for: $0) }
+                )
             }
-            .min { $0.dueDate < $1.dueDate }
+            .sorted { left, right in
+                left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
+            }
         return LoanSchedule(
             cadence: cadence,
             amountCents: plan.amountCents,
             firstDueDate: firstDueDate,
-            nextDueDate: scheduled?.dueDate,
-            nextOccurrenceID: scheduled?.id
+            occurrences: mappedOccurrences
         )
     }
 

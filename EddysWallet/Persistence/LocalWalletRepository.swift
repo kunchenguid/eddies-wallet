@@ -508,13 +508,6 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// A recorded installment carries the amount the plan actually settled,
     /// which is not the amount the command named.
     private func explanation(_ command: WalletCommand, amountCents: Int) -> String {
-        let amount = Money(cents: amountCents).display
-        return switch command.kind {
-        case .allowance: "Your parent added \(amount) as your allowance."
-        case .deposit: "Your parent added \(amount) to your wallet."
-        case .withdrawal: "Your parent recorded that \(amount) was used."
-        case .loan: "Your parent gave you \(amount) to use now and give back over time."
-        case .repayment, .loanInstallment: "Your parent recorded \(amount) returned toward the loan."
-        }
+        AcceptedEventCopy.explanation(for: activityType(command.kind), amountCents: amountCents)
     }
 }

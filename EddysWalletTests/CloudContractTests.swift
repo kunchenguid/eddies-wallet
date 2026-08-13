@@ -373,6 +373,57 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(snapshot.loan?.remainingCents, 200)
         XCTAssertEqual(snapshot.loan?.originalCents, 300)
         XCTAssertEqual(snapshot.allowance?.amountCents, 500)
+        XCTAssertEqual(
+            snapshot.activities.first { $0.type == .repayment }?.explanation,
+            "Your parent paid US$1.00 toward your loan."
+        )
+    }
+
+    func testCloudHandoffKeepsTheCompleteInstallmentChainForReimport() throws {
+        let replica = try JSONDecoder.cloud.decode(CloudReplica.self, from: CloudContractFixtures.scheduledLoanBootstrap)
+        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let schedule = try XCTUnwrap(snapshot.loan?.schedule)
+        let paymentID = UUID(uuidString: "a2000000-0000-4000-8000-000000000003")!
+
+        XCTAssertEqual(schedule.occurrences.map(\.id), ["occurrence-1", "occurrence-2"])
+        XCTAssertEqual(schedule.occurrences.map(\.status), [.recorded, .scheduled])
+        XCTAssertEqual(schedule.occurrences.first?.amountCents, 400)
+        XCTAssertEqual(schedule.occurrences.first?.entryID, paymentID)
+
+        let manifest = try CloudImportManifestBuilder.manifest(
+            lineageID: UUID(),
+            operationID: UUID(),
+            familyName: "Test Kid's family",
+            nickname: "Test Kid",
+            snapshot: snapshot
+        )
+
+        XCTAssertEqual(manifest.loanOccurrences.map(\.status), ["recorded", "scheduled"])
+        XCTAssertEqual(manifest.loanOccurrences.first?.entryOperationID, paymentID)
+        let body = manifest.requestBody.jsonObject()
+        let sentOccurrences = try XCTUnwrap(body["loanOccurrences"] as? [[String: Any]])
+        XCTAssertEqual(sentOccurrences.map { $0["dueOn"] as? String }, ["2026-07-01", "2026-07-08"])
+        XCTAssertEqual(sentOccurrences.first?["entryOperationId"] as? String, paymentID.uuidString.lowercased())
+    }
+
+    func testCloudHandoffKeepsACancelledTerminalInstallment() throws {
+        let replica = try JSONDecoder.cloud.decode(CloudReplica.self, from: CloudContractFixtures.paidScheduledLoanBootstrap)
+        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let schedule = try XCTUnwrap(snapshot.loan?.schedule)
+
+        XCTAssertEqual(schedule.occurrences.map(\.id), ["occurrence-1", "occurrence-2"])
+        XCTAssertEqual(schedule.occurrences.map(\.status), [.recorded, .cancelled])
+        XCTAssertNil(schedule.nextOccurrence)
+
+        let manifest = try CloudImportManifestBuilder.manifest(
+            lineageID: UUID(),
+            operationID: UUID(),
+            familyName: "Test Kid's family",
+            nickname: "Test Kid",
+            snapshot: snapshot
+        )
+        XCTAssertEqual(manifest.loans.last?.status, "paid")
+        XCTAssertEqual(manifest.loanOccurrences.map(\.status), ["recorded", "cancelled"])
     }
 
     func testChangesRequestUsesTheRetainedRevisionAndMergesOlderHistory() async throws {
@@ -939,6 +990,37 @@ enum CloudContractFixtures {
      "loans":[{"id":"96e6db14-91ea-4fa4-9a43-dddebd3d3807","principalCents":300,"outstandingCents":200,"purpose":"scooter","dueDate":null,"status":"open","createdAt":"2026-07-25T21:31:53.781Z","paidAt":null}],
      "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,"startDate":"2026-08-07","endDate":null,"active":true},
      "nextCursor":null}
+    """)
+    static let scheduledLoanBootstrap = json("""
+    {"household":{"lineageId":"43053f83-eae7-46ac-9516-ca41406c7ff1","authority":"cloud","revision":3},
+     "family":{"id":"f-1","name":"Test Kid's family"},
+     "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+     "wallet":{"id":"w-1","balanceCents":1600},
+     "entries":[
+       {"id":"a2000000-0000-4000-8000-000000000001","type":"deposit","direction":"credit","amountCents":1000,"balanceBeforeCents":0,"balanceAfterCents":1000,"reason":null,"loanId":null,"recordedAt":"2026-06-30T09:00:00.000Z","acceptedRevision":1},
+       {"id":"a2000000-0000-4000-8000-000000000002","type":"loan","direction":"credit","amountCents":1000,"balanceBeforeCents":1000,"balanceAfterCents":2000,"reason":"Bike helmet","loanId":"a2000000-0000-4000-8000-000000000002","recordedAt":"2026-06-30T10:00:00.000Z","acceptedRevision":2},
+       {"id":"a2000000-0000-4000-8000-000000000003","type":"repayment","direction":"debit","amountCents":400,"balanceBeforeCents":2000,"balanceAfterCents":1600,"reason":"Loan payment","loanId":"a2000000-0000-4000-8000-000000000002","recordedAt":"2026-07-01T10:00:00.000Z","acceptedRevision":3}],
+     "loans":[{"id":"a2000000-0000-4000-8000-000000000002","principalCents":1000,"outstandingCents":600,"purpose":"Bike helmet","dueDate":null,"status":"open","createdAt":"2026-06-30T10:00:00.000Z","paidAt":null,"schedule":{"cadence":"weekly","amountCents":400,"firstDueDate":"2026-07-01"}}],
+     "loanOccurrences":[
+       {"id":"occurrence-2","loanId":"a2000000-0000-4000-8000-000000000002","dueOn":"2026-07-08","status":"scheduled","amountCents":null,"acceptedEntryId":null},
+       {"id":"occurrence-1","loanId":"a2000000-0000-4000-8000-000000000002","dueOn":"2026-07-01","status":"recorded","amountCents":400,"acceptedEntryId":"a2000000-0000-4000-8000-000000000003"}],
+     "allowanceRule":null,"nextCursor":null}
+    """)
+    static let paidScheduledLoanBootstrap = json("""
+    {"household":{"lineageId":"43053f83-eae7-46ac-9516-ca41406c7ff1","authority":"cloud","revision":4},
+     "family":{"id":"f-1","name":"Test Kid's family"},
+     "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+     "wallet":{"id":"w-1","balanceCents":1000},
+     "entries":[
+       {"id":"a3000000-0000-4000-8000-000000000001","type":"deposit","direction":"credit","amountCents":1000,"balanceBeforeCents":0,"balanceAfterCents":1000,"reason":null,"loanId":null,"recordedAt":"2026-06-30T09:00:00.000Z","acceptedRevision":1},
+       {"id":"a3000000-0000-4000-8000-000000000002","type":"loan","direction":"credit","amountCents":1000,"balanceBeforeCents":1000,"balanceAfterCents":2000,"reason":"Bike helmet","loanId":"a3000000-0000-4000-8000-000000000002","recordedAt":"2026-06-30T10:00:00.000Z","acceptedRevision":2},
+       {"id":"a3000000-0000-4000-8000-000000000003","type":"repayment","direction":"debit","amountCents":400,"balanceBeforeCents":2000,"balanceAfterCents":1600,"reason":"Loan payment","loanId":"a3000000-0000-4000-8000-000000000002","recordedAt":"2026-07-01T10:00:00.000Z","acceptedRevision":3},
+       {"id":"a3000000-0000-4000-8000-000000000004","type":"repayment","direction":"debit","amountCents":600,"balanceBeforeCents":1600,"balanceAfterCents":1000,"reason":null,"loanId":"a3000000-0000-4000-8000-000000000002","recordedAt":"2026-07-02T10:00:00.000Z","acceptedRevision":4}],
+     "loans":[{"id":"a3000000-0000-4000-8000-000000000002","principalCents":1000,"outstandingCents":0,"purpose":"Bike helmet","dueDate":null,"status":"paid","createdAt":"2026-06-30T10:00:00.000Z","paidAt":"2026-07-02T10:00:00.000Z","schedule":{"cadence":"weekly","amountCents":400,"firstDueDate":"2026-07-01"}}],
+     "loanOccurrences":[
+       {"id":"occurrence-2","loanId":"a3000000-0000-4000-8000-000000000002","dueOn":"2026-07-08","status":"cancelled","amountCents":null,"acceptedEntryId":null},
+       {"id":"occurrence-1","loanId":"a3000000-0000-4000-8000-000000000002","dueOn":"2026-07-01","status":"recorded","amountCents":400,"acceptedEntryId":"a3000000-0000-4000-8000-000000000003"}],
+     "allowanceRule":null,"nextCursor":null}
     """)
     static let changesAfterRevision = json("""
     {"household":{"lineageId":"43053f83-eae7-46ac-9516-ca41406c7ff1","authority":"cloud","revision":5},

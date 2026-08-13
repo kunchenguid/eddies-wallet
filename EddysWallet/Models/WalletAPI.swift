@@ -1256,15 +1256,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         guard entry.direction == expectedDirection else {
             throw WalletAPIError.invalidResponse("The server returned an invalid activity direction.")
         }
-        let amount = Money(cents: entry.amountCents.value).display
-        let explanation: String
-        switch type {
-        case .allowance: explanation = "Your parent added \(amount) as your allowance."
-        case .deposit: explanation = "Your parent added \(amount) to your wallet."
-        case .withdrawal: explanation = "Your parent recorded that \(amount) was used."
-        case .loan: explanation = "Your parent gave you \(amount) to use now and give back over time."
-        case .repayment: explanation = "Your parent recorded \(amount) returned toward the loan."
-        }
+        let explanation = AcceptedEventCopy.explanation(for: type, amountCents: entry.amountCents.value)
         return WalletEvent(
             id: UUID(uuidString: entry.id) ?? UUID(),
             remoteID: entry.id,

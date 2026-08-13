@@ -1260,7 +1260,7 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
             reason: command.reason ?? LoanSchedule.defaultInstallmentReason,
             date: command.dueDate ?? .now,
             syncState: .recorded,
-            explanation: "Your parent recorded \(Money(cents: paymentCents).display) returned toward the loan."
+            explanation: AcceptedEventCopy.explanation(for: .repayment, amountCents: paymentCents)
         )
         current.activities.insert(event, at: 0)
         current.lastUpdated = .now
@@ -1288,13 +1288,16 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
     }
 
     private func explanation(for command: WalletCommand) -> String {
-        let amount = Money(cents: command.amountCents).display
-        switch command.kind {
-        case .allowance: return "Your parent added \(amount) as your allowance."
-        case .deposit: return "Your parent added \(amount) to your wallet."
-        case .withdrawal: return "Your parent recorded that \(amount) was used."
-        case .loan: return "Your parent gave you \(amount) to use now and give back over time."
-        case .repayment, .loanInstallment: return "Your parent recorded \(amount) returned toward the loan."
+        AcceptedEventCopy.explanation(for: activityType(for: command.kind), amountCents: command.amountCents)
+    }
+
+    private func activityType(for kind: WalletCommandKind) -> ActivityType {
+        switch kind {
+        case .allowance: .allowance
+        case .deposit: .deposit
+        case .withdrawal: .withdrawal
+        case .loan: .loan
+        case .repayment, .loanInstallment: .repayment
         }
     }
 }
