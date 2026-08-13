@@ -1,0 +1,4 @@
+CHANGE SCOPE OK
+A	tools/app-review/manifests/0.1.17.json
+target_commit_manifest_sha256=b5814da845c1e3d1175d181ce8646a00b61a1ecbc8e59fcf86a85ee1534ef47a
+checked_out_manifest_sha256=b5814da845c1e3d1175d181ce8646a00b61a1ecbc8e59fcf86a85ee1534ef47a
