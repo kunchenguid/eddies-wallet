@@ -254,11 +254,12 @@ enum CloudImportManifestBuilder {
         // Only the current loan carries a plan: older loans in the chain are
         // reconstructed from events alone and were never scheduled, so they
         // upload exactly as they always have.
-        let currentSchedule = openLoanID.flatMap { _ in snapshot.loan?.schedule }
+        let currentLoanID = loanOrder.last
+        let currentSchedule = currentLoanID.flatMap { _ in snapshot.loan?.schedule }
         let manifestLoans = loanOrder.compactMap { identifier -> CloudImportManifest.Loan? in
             guard let accumulator = loans[identifier] else { return nil }
             let outstanding = accumulator.principalCents - accumulator.repaidCents
-            let isCurrent = identifier == openLoanID
+            let isCurrent = identifier == currentLoanID
             return CloudImportManifest.Loan(
                 id: identifier,
                 principalCents: accumulator.principalCents,
@@ -286,7 +287,7 @@ enum CloudImportManifestBuilder {
             avatarURL: nil,
             loans: manifestLoans,
             entries: entries,
-            loanOccurrences: try loanOccurrences(schedule: currentSchedule, loanID: openLoanID)
+            loanOccurrences: try loanOccurrences(schedule: currentSchedule, loanID: currentLoanID)
         )
     }
 

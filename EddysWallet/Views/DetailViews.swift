@@ -151,11 +151,11 @@ struct LoanDetailView: View {
     }
 
     private var repayButton: some View {
-        Button("Record repayment", action: onRepay)
+        Button("Pay toward loan", action: onRepay)
             .buttonStyle(PrimaryButtonStyle())
             .disabled(!store.canStartParentMutation)
             .opacity(store.canStartParentMutation ? 1 : 0.5)
-            .accessibilityIdentifier("loan-record-repayment")
+            .accessibilityIdentifier("loan-pay-toward")
     }
 
     private var detail: some View {

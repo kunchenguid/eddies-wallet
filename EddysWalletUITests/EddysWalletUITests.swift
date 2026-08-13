@@ -567,7 +567,7 @@ final class EddysWalletUITests: XCTestCase {
 
         app.staticTexts["A little at a time is okay"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Loan details"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["loan-record-repayment"].exists, "the kid loan sheet offers no parent action")
+        XCTAssertFalse(app.buttons["loan-pay-toward"].exists, "the kid loan sheet offers no parent action")
         app.buttons["Done"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
 
@@ -576,7 +576,7 @@ final class EddysWalletUITests: XCTestCase {
         for _ in 0..<6 where !loanCard.isHittable { app.swipeUp() }
         loanCard.tap()
         XCTAssertTrue(app.staticTexts["Loan details"].waitForExistence(timeout: 5))
-        assertActionIsReachable(app.buttons["loan-record-repayment"], "the loan repayment control", in: app)
+        assertActionIsReachable(app.buttons["loan-pay-toward"], "the loan payment control", in: app)
     }
 
     func testParentCanEditChildNicknameAndKidHomeShowsIt() throws {

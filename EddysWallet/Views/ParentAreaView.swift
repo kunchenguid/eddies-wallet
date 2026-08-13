@@ -633,7 +633,7 @@ struct ParentAreaView: View {
         case .recorded: "Missed payments paid"
         case .awaitingCloud: "Cloud is confirming the payment"
         case .reviewRequired: "Review the latest loan"
-        case .partial: "Some missed payments were recorded"
+        case .partial: "Missed payments paid"
         case .noMissed, nil: "No missed payments"
         }
     }
@@ -882,7 +882,7 @@ struct ParentAreaView: View {
     }
 
     private var repaymentButton: some View {
-        ActionButton(title: "Record repayment", icon: "arrow.triangle.2.circlepath", tint: EW.Color.green700, isEnabled: store.canStartParentMutation) { flow = .repayment }
+        ActionButton(title: "Pay toward loan", icon: "arrow.triangle.2.circlepath", tint: EW.Color.green700, isEnabled: store.canStartParentMutation) { flow = .repayment }
     }
 
     private var allowanceActionButton: some View {
