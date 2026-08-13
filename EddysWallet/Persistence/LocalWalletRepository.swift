@@ -201,7 +201,6 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             wallet.acceptedBalanceCents -= payment
             wallet.loan = settled
             settledAmountCents = payment
-            settledDate = dueDate
         case .loan:
             guard wallet.loan == nil || wallet.loan?.isPaid == true else { return .rejected(rejected(command, "Finish the open loan before creating another one.")) }
             if let plan = command.installmentPlan, plan.amountCents <= 0 {

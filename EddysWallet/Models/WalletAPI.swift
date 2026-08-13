@@ -1117,7 +1117,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         refreshed.activities.insert(event, at: 0)
         if let loan = response.loan {
             refreshed.loan = try mapLoan(loan)
-        } else if command.kind == .loan || command.kind == .repayment {
+        } else if command.kind == .loan || command.kind == .repayment || command.kind == .loanInstallment {
             throw WalletAPIError.invalidResponse("The command response did not contain the updated loan.")
         }
         refreshed.lastUpdated = event.date
@@ -1244,7 +1244,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
               let date = parseTimestamp(entry.recordedAt), !entry.id.isEmpty else {
             throw WalletAPIError.invalidResponse("The server returned an invalid activity entry.")
         }
-        if let expected, commandKind(for: type) != expected {
+        if let expected, type != activityType(for: expected) {
             throw WalletAPIError.invalidResponse("The server returned the wrong activity type.")
         }
         let expectedDirection = type == .withdrawal || type == .repayment ? "debit" : "credit"
@@ -1355,13 +1355,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
     }
 
     private func makeLocalEvent(for command: WalletCommand, state: SyncState, message: String, rejectionReason: String? = nil) -> WalletEvent {
-        let type: ActivityType = switch command.kind {
-        case .allowance: .allowance
-        case .deposit: .deposit
-        case .withdrawal: .withdrawal
-        case .loan: .loan
-        case .repayment, .loanInstallment: .repayment
-        }
+        let type = activityType(for: command.kind)
         return WalletEvent(
             id: UUID(uuidString: command.idempotencyKey) ?? UUID(),
             remoteID: command.idempotencyKey,
@@ -1378,13 +1372,13 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         ActivityType(rawValue: value)
     }
 
-    private func commandKind(for type: ActivityType) -> WalletCommandKind {
-        switch type {
+    private func activityType(for kind: WalletCommandKind) -> ActivityType {
+        switch kind {
         case .allowance: .allowance
         case .deposit: .deposit
         case .withdrawal: .withdrawal
         case .loan: .loan
-        case .repayment: .repayment
+        case .repayment, .loanInstallment: .repayment
         }
     }
 

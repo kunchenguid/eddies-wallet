@@ -172,6 +172,7 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertEqual(store.missedLoanInstallments.installments.map(\.amountCents), [400, 400, 200])
         XCTAssertEqual(store.missedLoanInstallments.totalCents, 1_000)
 
+        let settlementStartedAt = Date.now
         let outcome = await store.recordAllMissedLoanInstallments()
 
         XCTAssertEqual(outcome, .recorded(count: 3, totalCents: 1_000))
@@ -180,6 +181,7 @@ final class LocalWalletPersistenceTests: XCTestCase {
         let repayments = store.snapshot.activities.filter { $0.type == .repayment }
         XCTAssertEqual(repayments.count, 3)
         XCTAssertEqual(repayments.map(\.amountCents).reduce(0, +), 1_000)
+        XCTAssertTrue(repayments.allSatisfy { $0.date >= settlementStartedAt })
         // A settled loan leaves no reminder standing and nothing left to record.
         XCTAssertNil(store.nextLoanInstallment)
         XCTAssertTrue(store.missedLoanInstallments.isEmpty)

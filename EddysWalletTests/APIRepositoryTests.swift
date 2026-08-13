@@ -278,6 +278,74 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(post.url?.path, "/v1/wallet/deposits")
     }
 
+    func testLoanInstallmentAcceptsRepaymentEntryAndAdvancesSchedule() async throws {
+        let notice = "Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."
+        let snapshot = Data("""
+        {
+          "wallet": {"balanceCents": 1000, "virtualNotice": "\(notice)"},
+          "allowanceRule": null,
+          "loan": {
+            "id": "loan-1", "principalCents": 1000, "outstandingCents": 1000,
+            "purpose": null, "dueDate": null, "status": "open",
+            "createdAt": "2026-01-01T00:00:00Z", "paidAt": null,
+            "schedule": {
+              "cadence": "weekly", "amountCents": 400, "firstDueDate": "2026-01-01",
+              "nextOccurrenceId": "occurrence-1", "nextDueDate": "2026-01-01"
+            }
+          },
+          "recentActivity": []
+        }
+        """.utf8)
+        let accepted = Data("""
+        {
+          "entry": {
+            "id": "repayment-1", "type": "repayment", "direction": "debit",
+            "amountCents": 400, "balanceBeforeCents": 1000, "balanceAfterCents": 600,
+            "reason": null, "recordedAt": "2026-01-08T12:00:00Z"
+          },
+          "wallet": {"balanceCents": 600, "virtualNotice": "\(notice)"},
+          "loan": {
+            "id": "loan-1", "principalCents": 1000, "outstandingCents": 600,
+            "purpose": null, "dueDate": null, "status": "open",
+            "createdAt": "2026-01-01T00:00:00Z", "paidAt": null,
+            "schedule": {
+              "cadence": "weekly", "amountCents": 400, "firstDueDate": "2026-01-01",
+              "nextOccurrenceId": "occurrence-2", "nextDueDate": "2026-01-08"
+            }
+          }
+        }
+        """.utf8)
+        let transport = StubHTTPTransport(responses: [
+            .init(statusCode: 200, body: snapshot),
+            .init(statusCode: 201, body: accepted),
+        ])
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: transport,
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore()
+        )
+
+        _ = try await repository.refresh(for: .parent)
+        let result = try await repository.submit(WalletCommand(
+            kind: .loanInstallment,
+            amountCents: 0,
+            idempotencyKey: "installment-key"
+        ))
+
+        guard case .accepted(let event) = result else {
+            return XCTFail("A recorded installment must be accepted as a repayment activity")
+        }
+        XCTAssertEqual(event.type, .repayment)
+        XCTAssertEqual(event.amountCents, 400)
+        XCTAssertEqual(repository.snapshot().loan?.remainingCents, 600)
+        XCTAssertEqual(repository.snapshot().loan?.schedule?.nextOccurrenceID, "occurrence-2")
+        let post = try XCTUnwrap(transport.requests.last)
+        XCTAssertEqual(post.url?.path, "/v1/loans/loan-1/occurrences/occurrence-1/record")
+        XCTAssertEqual(post.value(forHTTPHeaderField: "Idempotency-Key"), "installment-key")
+    }
+
     func testNetworkFailureReturnsWaitingToSyncAndDoesNotChangeAcceptedBalance() async throws {
         let transport = StubHTTPTransport(error: URLError(.notConnectedToInternet))
         let repository = APIWalletRepository(
