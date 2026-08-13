@@ -14,7 +14,7 @@ public enum MoneyFlowKind: String, Identifiable, CaseIterable {
         case .deposit: "Add deposit"
         case .withdrawal: "Record withdrawal"
         case .loan: "Create loan"
-        case .repayment: "Record repayment"
+        case .repayment: "Pay toward loan"
         case .allowance: "Pay out allowance"
         }
     }
@@ -44,6 +44,11 @@ struct MoneyFlowView: View {
     @State private var amount = ""
     @State private var reason = ""
     @State private var dueDate = Date().addingTimeInterval(60 * 60 * 24 * 30)
+    /// `nil` keeps the loan scheduleless, which is exactly what every loan was
+    /// before payment plans existed: no reminder, no installments, and the
+    /// one-shot repayment path.
+    @State private var installmentCadence: LoanInstallmentCadence?
+    @State private var installmentAmount = ""
     @State private var step: Step = .amount
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
@@ -53,6 +58,16 @@ struct MoneyFlowView: View {
     private enum Step { case amount, review, result }
 
     private var parsedCents: Int? { Money.parse(amount)?.cents }
+
+    private var parsedInstallmentCents: Int? { Money.parse(installmentAmount)?.cents }
+
+    /// The plan a parent has actually completed. A chosen cadence without a
+    /// usable payment amount is not a plan, and the step's validation blocks
+    /// review until it is one.
+    private var installmentPlan: LoanInstallmentPlan? {
+        guard kind == .loan, let installmentCadence, let cents = parsedInstallmentCents, cents > 0 else { return nil }
+        return LoanInstallmentPlan(cadence: installmentCadence, amountCents: cents)
+    }
 
     /// A parent who has not typed yet has done nothing wrong, so an untouched
     /// amount field is never marked as an error.
@@ -74,6 +89,9 @@ struct MoneyFlowView: View {
             return nil
         case .loan:
             if let loan = store.snapshot.loan, !loan.isPaid { return "Finish the open loan before creating another one." }
+            if installmentCadence != nil, installmentPlan == nil {
+                return "Enter a payment amount greater than US$0.00."
+            }
             return nil
         case .deposit, .allowance:
             return nil
@@ -160,6 +178,7 @@ struct MoneyFlowView: View {
                     DatePicker("Due date (optional)", selection: $dueDate, displayedComponents: .date)
                         .font(EW.Font.body)
                         .tint(EW.Color.primaryActive)
+                    installmentPlanFields
                 }
             }
         } actions: {
@@ -178,6 +197,63 @@ struct MoneyFlowView: View {
         .onAppear { isAmountFocused = true }
     }
 
+    /// Choosing a cadence is what turns a loan into a scheduled one. The
+    /// named amount is what each payment settles; the last payment is not part
+    /// of the plan, because it is always whatever is left to repay.
+    private var installmentPlanFields: some View {
+        VStack(alignment: .leading, spacing: EW.Space.three) {
+            Text("Payment plan (optional)")
+                .font(EW.Font.captionUpper)
+                .foregroundStyle(EW.Color.textTertiary)
+            Picker("Payment plan", selection: $installmentCadence) {
+                Text("No plan").tag(LoanInstallmentCadence?.none)
+                Text("Weekly").tag(LoanInstallmentCadence?.some(.weekly))
+                Text("Monthly").tag(LoanInstallmentCadence?.some(.monthly))
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("loan-payment-plan")
+
+            if installmentCadence != nil {
+                VStack(alignment: .leading, spacing: EW.Space.two) {
+                    Text("Amount for each payment")
+                        .font(EW.Font.captionUpper)
+                        .foregroundStyle(EW.Color.textTertiary)
+                    HStack(spacing: EW.Space.two) {
+                        Text("US$")
+                            .font(EW.Font.bodyBold)
+                            .foregroundStyle(EW.Color.textTertiary)
+                        TextField("0.00", text: $installmentAmount)
+                            .font(EW.Font.bodyBold)
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(.plain)
+                            .accessibilityLabel("Amount for each loan payment")
+                            .accessibilityIdentifier("loan-payment-amount")
+                    }
+                    .padding(.horizontal, EW.Space.four)
+                    .frame(minHeight: 56)
+                    .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous)
+                            .stroke(EW.Color.border, lineWidth: 1.5)
+                    }
+                    Text("The last payment is whatever is left to repay, so it can be smaller than this amount.")
+                        .font(EW.Font.caption)
+                        .foregroundStyle(EW.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var installmentPlanSummary: String {
+        guard let plan = installmentPlan else { return "No plan" }
+        let amount = Money(cents: plan.amountCents).display
+        return switch plan.cadence {
+        case .weekly: "\(amount) every week"
+        case .monthly: "\(amount) every month"
+        }
+    }
+
     private var amountFieldStroke: Color {
         if visibleValidationMessage != nil { return EW.Color.red600 }
         return isAmountFocused ? EW.Color.primary : EW.Color.border
@@ -187,7 +263,7 @@ struct MoneyFlowView: View {
         SheetForm {
             VStack(alignment: .leading, spacing: EW.Space.five) {
                 VStack(alignment: .leading, spacing: EW.Space.three) {
-                    Label(kind == .allowance ? "Review before paying out" : "Review before recording", systemImage: "checkmark.circle")
+                    Label(reviewHeading, systemImage: "checkmark.circle")
                         .font(EW.Font.heading)
                         .foregroundStyle(EW.Color.textPrimary)
                     reviewRow(label: "Event", value: kind.title)
@@ -199,6 +275,7 @@ struct MoneyFlowView: View {
                     reviewRow(label: "Resulting accepted balance", value: Money(cents: resultingBalance).display)
                     if kind == .loan, let cents = parsedCents {
                         reviewRow(label: "Amount left to repay", value: Money(cents: cents).display)
+                        reviewRow(label: "Payment plan", value: installmentPlanSummary)
                     }
                 }
                 .ewCard()
@@ -212,7 +289,7 @@ struct MoneyFlowView: View {
                     .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
             }
         } actions: {
-            Button(kind == .allowance ? "Pay out allowance" : "Confirm \(kind.title.lowercased())") {
+            Button(confirmActionTitle) {
                 Task { await confirm() }
             }
             .buttonStyle(PrimaryButtonStyle())
@@ -274,8 +351,27 @@ struct MoneyFlowView: View {
         case .deposit: "Add pretend dollars to the accepted balance in \(walletReference)."
         case .withdrawal: "Record virtual dollars as used from \(walletReference)."
         case .loan: "Give \(childReference) virtual dollars to use now and give back over time."
-        case .repayment: "Record virtual dollars returned toward the open loan."
+        case .repayment: "Pay virtual dollars back toward the open loan."
         case .allowance: "Pay out this virtual allowance in \(walletReference)."
+        }
+    }
+
+    /// The two settlement flows own their own verbs - allowance is paid out,
+    /// a loan is paid back - so neither borrows the generic "record" wording
+    /// that every other money event uses.
+    private var reviewHeading: String {
+        switch kind {
+        case .allowance: "Review before paying out"
+        case .repayment: "Review before paying"
+        case .deposit, .withdrawal, .loan: "Review before recording"
+        }
+    }
+
+    private var confirmActionTitle: String {
+        switch kind {
+        case .allowance: "Pay out allowance"
+        case .repayment: "Pay toward loan"
+        case .deposit, .withdrawal, .loan: "Confirm \(kind.title.lowercased())"
         }
     }
 
@@ -299,15 +395,19 @@ struct MoneyFlowView: View {
             kind: kind.commandKind,
             amountCents: cents,
             reason: reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : reason,
-            dueDate: kind == .loan ? dueDate : nil
+            dueDate: kind == .loan ? dueDate : nil,
+            installmentPlan: installmentPlan
         )
         let result = await store.submit(command)
         switch result {
         case .accepted:
             resultState = .recorded
-            resultMessage = kind == .allowance
-                ? "This virtual allowance was paid out and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
-                : "This virtual money event was accepted and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
+            let walletReference = ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)
+            resultMessage = switch kind {
+            case .allowance: "This virtual allowance was paid out and added to \(walletReference)."
+            case .repayment: "This virtual payment was accepted toward the open loan."
+            case .deposit, .withdrawal, .loan: "This virtual money event was accepted and added to \(walletReference)."
+            }
         case .acceptedScheduleUnavailable:
             resultState = .recorded
             resultMessage = "This virtual allowance was paid out, but Cloud could not load the latest allowance schedule. Refresh before paying out another week."
@@ -319,9 +419,12 @@ struct MoneyFlowView: View {
             resultMessage = event.explanation
         case .rejected(let event):
             resultState = .rejected
-            resultMessage = event.rejectionReason ?? (kind == .allowance
-                ? "This allowance was not paid out and did not change the accepted balance."
-                : "This action was not recorded and did not change the accepted balance.")
+            let refusal = switch kind {
+            case MoneyFlowKind.allowance: "This allowance was not paid out and did not change the accepted balance."
+            case .repayment: "This payment was not made and did not change the accepted balance."
+            case .deposit, .withdrawal, .loan: "This action was not recorded and did not change the accepted balance."
+            }
+            resultMessage = event.rejectionReason ?? refusal
         }
         isSubmitting = false
         step = .result

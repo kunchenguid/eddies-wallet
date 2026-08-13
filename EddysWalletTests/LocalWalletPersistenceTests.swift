@@ -102,6 +102,267 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertTrue(store.missedAllowancePayouts.isEmpty)
     }
 
+    // MARK: - Loan installments
+
+    /// Builds an elevated parent store over a local wallet that already holds a
+    /// scheduled loan whose first payment is `weeksOverdue` weeks in the past.
+    private func scheduledLoanStore(
+        principalCents: Int,
+        paymentCents: Int,
+        weeksOverdue: Int,
+        depositCents: Int = 10_000,
+        persistence: LocalWalletPersisting? = nil
+    ) async throws -> (store: WalletStore, repository: LocalWalletRepository, firstDueDate: Date) {
+        let repository = try persistence.map { try LocalWalletRepository(persistence: $0) }
+            ?? LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        _ = try await repository.submit(WalletCommand(kind: .deposit, amountCents: depositCents))
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstDueDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -7 * weeksOverdue, to: today))
+        _ = try await repository.submit(WalletCommand(
+            kind: .loan,
+            amountCents: principalCents,
+            reason: "Bike helmet",
+            installmentPlan: LoanInstallmentPlan(cadence: .weekly, amountCents: paymentCents, firstDueDate: firstDueDate)
+        ))
+        let store = WalletStore(
+            repository: repository,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner")
+        )
+        store.openParentGate()
+        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
+        return (store, repository, firstDueDate)
+    }
+
+    func testLocalMissedInstallmentsListPastDuePaymentsAndLeaveTodayForTheSinglePath() async throws {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let (store, _, firstDueDate) = try await scheduledLoanStore(
+            principalCents: 2_000,
+            paymentCents: 400,
+            weeksOverdue: 3
+        )
+
+        XCTAssertEqual(store.missedLoanInstallments.count, 3)
+        XCTAssertEqual(store.missedLoanInstallments.totalCents, 1_200)
+        XCTAssertEqual(store.missedLoanInstallments.installments.map(\.dueDate), [
+            firstDueDate,
+            try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstDueDate)),
+            try XCTUnwrap(calendar.date(byAdding: .day, value: 14, to: firstDueDate)),
+        ])
+        XCTAssertEqual(store.missedLoanInstallments.installments.map(\.amountCents), [400, 400, 400])
+        // Today's payment is the ordinary next one, never part of the batch.
+        XCTAssertEqual(store.nextLoanInstallment?.dueDate, today)
+        XCTAssertEqual(store.nextLoanInstallment?.amountCents, 400)
+    }
+
+    func testLocalCatchUpRecordsExactlyTheMissedSetAndCapsTheFinalPayment() async throws {
+        let (store, _, _) = try await scheduledLoanStore(
+            principalCents: 1_000,
+            paymentCents: 400,
+            weeksOverdue: 3
+        )
+        let balanceBefore = store.snapshot.acceptedBalanceCents
+
+        // US$4.00 + US$4.00 leaves US$2.00, so the third missed payment settles
+        // the rest of the loan rather than the named amount.
+        XCTAssertEqual(store.missedLoanInstallments.installments.map(\.amountCents), [400, 400, 200])
+        XCTAssertEqual(store.missedLoanInstallments.totalCents, 1_000)
+
+        let settlementStartedAt = Date.now
+        let outcome = await store.recordAllMissedLoanInstallments()
+
+        XCTAssertEqual(outcome, .recorded(count: 3, totalCents: 1_000))
+        XCTAssertEqual(store.snapshot.loan?.remainingCents, 0)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, balanceBefore - 1_000)
+        let repayments = store.snapshot.activities.filter { $0.type == .repayment }
+        XCTAssertEqual(repayments.count, 3)
+        XCTAssertEqual(repayments.map(\.amountCents).reduce(0, +), 1_000)
+        XCTAssertTrue(repayments.allSatisfy { $0.date >= settlementStartedAt })
+        // A settled loan leaves no reminder standing and nothing left to record.
+        XCTAssertNil(store.nextLoanInstallment)
+        XCTAssertTrue(store.missedLoanInstallments.isEmpty)
+
+        let balanceAfter = store.snapshot.acceptedBalanceCents
+        let noOp = await store.recordAllMissedLoanInstallments()
+        XCTAssertEqual(noOp, .noMissed)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, balanceAfter)
+        XCTAssertEqual(store.snapshot.loan?.remainingCents, 0)
+    }
+
+    func testLocalMissedOwedTotalNeverExceedsTheOutstandingBalance() async throws {
+        // A long-abandoned plan: twenty weekly payments are past due, but the
+        // loan can only ever owe its remaining balance.
+        let (store, _, _) = try await scheduledLoanStore(
+            principalCents: 1_000,
+            paymentCents: 300,
+            weeksOverdue: 20
+        )
+
+        XCTAssertEqual(store.missedLoanInstallments.count, 4)
+        XCTAssertEqual(store.missedLoanInstallments.totalCents, 1_000)
+        XCTAssertEqual(store.missedLoanInstallments.installments.map(\.amountCents), [300, 300, 300, 100])
+
+        let outcome = await store.recordAllMissedLoanInstallments()
+
+        XCTAssertEqual(outcome, .recorded(count: 4, totalCents: 1_000))
+        XCTAssertEqual(store.snapshot.loan?.remainingCents, 0)
+    }
+
+    func testInterruptedLocalCatchUpKeepsRecordedPaymentsAndNeverDoubleRecords() async throws {
+        let persistence = ControllableLocalWalletPersistence()
+        let (store, _, _) = try await scheduledLoanStore(
+            principalCents: 2_000,
+            paymentCents: 400,
+            weeksOverdue: 3,
+            persistence: persistence
+        )
+        let balanceBefore = store.snapshot.acceptedBalanceCents
+        persistence.failOnNextSaveNumber = persistence.saveCount + 2
+
+        let interrupted = await store.recordAllMissedLoanInstallments()
+
+        guard case .partial(let recordedCount, let recordedTotalCents, let remaining) = interrupted else {
+            return XCTFail("a failed second save must leave a partial settlement")
+        }
+        XCTAssertEqual(recordedCount, 1)
+        XCTAssertEqual(recordedTotalCents, 400)
+        XCTAssertEqual(remaining.count, 2)
+        XCTAssertEqual(store.snapshot.loan?.remainingCents, 1_600)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, balanceBefore - 400)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .repayment }.count, 1)
+
+        let resumed = await store.recordAllMissedLoanInstallments()
+
+        XCTAssertEqual(resumed, .recorded(count: 2, totalCents: 800))
+        XCTAssertEqual(store.snapshot.loan?.remainingCents, 800)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, balanceBefore - 1_200)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .repayment }.count, 3)
+        XCTAssertTrue(store.missedLoanInstallments.isEmpty)
+    }
+
+    func testLocalSingleInstallmentPathRecordsOnlyTheCurrentPayment() async throws {
+        let (store, repository, _) = try await scheduledLoanStore(
+            principalCents: 2_000,
+            paymentCents: 400,
+            weeksOverdue: 0
+        )
+        let balanceBefore = store.snapshot.acceptedBalanceCents
+        XCTAssertTrue(store.missedLoanInstallments.isEmpty)
+
+        let result = try await repository.submit(WalletCommand(kind: .loanInstallment, amountCents: 400))
+
+        guard case .accepted(let event) = result else { return XCTFail("a due installment must be recorded") }
+        XCTAssertEqual(event.amountCents, 400)
+        XCTAssertEqual(repository.snapshot().loan?.remainingCents, 1_600)
+        XCTAssertEqual(repository.snapshot().acceptedBalanceCents, balanceBefore - 400)
+        XCTAssertEqual(
+            repository.snapshot().loan?.schedule?.nextDueDate,
+            Calendar.current.date(byAdding: .day, value: 7, to: Calendar.current.startOfDay(for: .now))
+        )
+    }
+
+    func testLocalInstallmentRejectsAPaymentThatIsNotDueYet() async throws {
+        let repository = try LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let futureDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: calendar.startOfDay(for: .now)))
+        _ = try await repository.submit(WalletCommand(
+            kind: .loan,
+            amountCents: 1_000,
+            installmentPlan: LoanInstallmentPlan(cadence: .weekly, amountCents: 400, firstDueDate: futureDate)
+        ))
+        let balanceBefore = repository.snapshot().acceptedBalanceCents
+
+        let result = try await repository.submit(WalletCommand(kind: .loanInstallment, amountCents: 400))
+
+        guard case .rejected(let event) = result else { return XCTFail("a future installment must be rejected") }
+        XCTAssertEqual(event.rejectionReason, "There is no scheduled loan payment due.")
+        XCTAssertEqual(repository.snapshot().acceptedBalanceCents, balanceBefore)
+        XCTAssertEqual(repository.snapshot().loan?.remainingCents, 1_000)
+    }
+
+    func testScheduledLoanKeepsTheOneShotRepaymentPathAndRetiresItsReminderWhenCleared() async throws {
+        let (store, repository, _) = try await scheduledLoanStore(
+            principalCents: 1_000,
+            paymentCents: 400,
+            weeksOverdue: 1
+        )
+
+        // A free-amount repayment that clears the balance must leave no
+        // payment reminder standing.
+        _ = await store.submit(WalletCommand(kind: .repayment, amountCents: 1_000))
+
+        XCTAssertEqual(repository.snapshot().loan?.remainingCents, 0)
+        XCTAssertEqual(store.snapshot.loan?.remainingCents, 0)
+        XCTAssertNil(store.nextLoanInstallment)
+        XCTAssertTrue(store.missedLoanInstallments.isEmpty)
+        let outcome = await store.recordAllMissedLoanInstallments()
+        XCTAssertEqual(outcome, .noMissed)
+    }
+
+    func testScheduleslessLoanShowsNoReminderAndKeepsTheOneShotRepayment() async throws {
+        let repository = try LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        _ = try await repository.submit(WalletCommand(kind: .deposit, amountCents: 5_000))
+        _ = try await repository.submit(WalletCommand(kind: .loan, amountCents: 1_000, reason: "Bike helmet"))
+        let store = WalletStore(
+            repository: repository,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner")
+        )
+        store.openParentGate()
+        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
+
+        XCTAssertNil(store.snapshot.loan?.schedule)
+        XCTAssertNil(store.nextLoanInstallment)
+        XCTAssertTrue(store.missedLoanInstallments.isEmpty)
+        let outcome = await store.recordAllMissedLoanInstallments()
+        XCTAssertEqual(outcome, .noMissed)
+
+        // The ordinary repayment path is untouched.
+        let repayment = try await repository.submit(WalletCommand(kind: .repayment, amountCents: 250))
+        guard case .accepted = repayment else { return XCTFail("a scheduleless loan keeps its one-shot repayment") }
+        XCTAssertEqual(repository.snapshot().loan?.remainingCents, 750)
+
+        let installment = try await repository.submit(WalletCommand(kind: .loanInstallment, amountCents: 250))
+        guard case .rejected(let event) = installment else {
+            return XCTFail("a scheduleless loan has no installment to record")
+        }
+        XCTAssertEqual(event.rejectionReason, "There is no scheduled loan payment due.")
+    }
+
+    func testMonthlyInstallmentsStayOnTheirAnchorDayAcrossShortMonths() async throws {
+        let repository = try LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        _ = try await repository.submit(WalletCommand(kind: .deposit, amountCents: 10_000))
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 1
+        components.day = 31
+        let calendar = Calendar.current
+        let anchor = try XCTUnwrap(calendar.date(from: components))
+        _ = try await repository.submit(WalletCommand(
+            kind: .loan,
+            amountCents: 3_000,
+            installmentPlan: LoanInstallmentPlan(cadence: .monthly, amountCents: 500, firstDueDate: anchor)
+        ))
+        let loan = try XCTUnwrap(repository.snapshot().loan)
+
+        // Measured from the anchor, never from the previously produced date, so
+        // February's clamped 28th does not drag March down with it.
+        let missed = loan.missedInstallments(
+            asOf: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 15))),
+            calendar: calendar
+        )
+        XCTAssertEqual(missed.count, 3)
+        XCTAssertEqual(missed.installments.map { calendar.component(.day, from: $0.dueDate) }, [31, 28, 31])
+    }
+
     func testLocalAllowanceRequiresAWeeklyRule() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))

@@ -720,6 +720,236 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(relaunched.snapshot().activities.filter { $0.remoteID == "accepted-after-waiting" }.count, 1)
     }
 
+    // MARK: - Loan installments
+
+    /// Stubs a Cloud wallet whose scheduled loan is `weeksOverdue` weeks
+    /// behind, then walks the replica forward one accepted installment at a
+    /// time exactly as the service seeds the chain.
+    private func scheduledLoanCloud(
+        lineage: UUID,
+        transport: RoutingTransport,
+        principalCents: Int,
+        paymentCents: Int,
+        weeksOverdue: Int,
+        settledPayments: [Int]
+    ) throws -> (cloud: CloudWalletRepository, firstDueDate: Date) {
+        let local = try LocalWalletRepository(directory: directory)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstDueDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -7 * weeksOverdue, to: today))
+        func dueDate(_ index: Int) throws -> Date {
+            try XCTUnwrap(calendar.date(byAdding: .day, value: 7 * index, to: firstDueDate))
+        }
+        func replica(afterPayments count: Int, revision: Int64) throws -> Data {
+            let settled = Array(settledPayments.prefix(count))
+            let remaining = principalCents - settled.reduce(0, +)
+            return CloudSliceFixtures.scheduledLoanReplica(
+                lineage: lineage,
+                revision: revision,
+                principalCents: principalCents,
+                paymentCents: paymentCents,
+                firstDueDate: firstDueDate,
+                nextDueDate: remaining > 0 ? try dueDate(count) : nil,
+                nextOccurrenceID: "o-\(count + 1)",
+                recordedOccurrences: try settled.enumerated().map { index, amount in
+                    (id: "o-\(index + 1)", dueDate: try dueDate(index), amountCents: amount, entryID: "r-\(index + 1)")
+                }
+            )
+        }
+
+        transport.stub("GET", "/v1/cloud/bootstrap", try replica(afterPayments: 0, revision: 2))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+
+        transport.stub("GET", "/v1/cloud/changes", try replica(afterPayments: 0, revision: 2))
+        transport.enqueue("GET", "/v1/cloud/changes", try replica(afterPayments: 0, revision: 2))
+        for (index, amount) in settledPayments.enumerated() {
+            let revision = Int64(3 + index)
+            transport.enqueue("GET", "/v1/cloud/changes", try replica(afterPayments: index + 1, revision: revision))
+            transport.stub(
+                "POST",
+                "/v1/loans/l-1/occurrences/o-\(index + 1)/record",
+                CloudSliceFixtures.loanInstallmentAccepted(revision: revision, entryID: "r-\(index + 1)", amountCents: amount),
+                status: 201
+            )
+        }
+        return (cloud, firstDueDate)
+    }
+
+    func testCloudCatchUpWalksOnlyPastDueLoanInstallmentsOneAtATime() async throws {
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let (cloud, firstDueDate) = try scheduledLoanCloud(
+            lineage: lineage,
+            transport: transport,
+            principalCents: 2_000,
+            paymentCents: 400,
+            weeksOverdue: 3,
+            settledPayments: [400, 400, 400]
+        )
+        _ = try await cloud.bootstrap()
+
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilScheduledLoanReadSettles(store, transport)
+
+        XCTAssertEqual(store.missedLoanInstallments.count, 3)
+        XCTAssertEqual(store.missedLoanInstallments.totalCents, 1_200)
+        XCTAssertEqual(store.missedLoanInstallments.installments.map(\.dueDate), [
+            firstDueDate,
+            try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstDueDate)),
+            try XCTUnwrap(calendar.date(byAdding: .day, value: 14, to: firstDueDate)),
+        ])
+        // Today's payment stays the ordinary single one.
+        XCTAssertEqual(store.nextLoanInstallment?.dueDate, today)
+
+        let confirmed = store.missedLoanInstallments
+        XCTAssertTrue(cloud.isReadyForRuntimeMutations)
+        let outcome = await store.recordAllMissedLoanInstallments(confirmed)
+
+        XCTAssertNil(store.errorMessage)
+        XCTAssertEqual(outcome, .recorded(count: 3, totalCents: 1_200))
+        XCTAssertEqual(store.snapshot.loan?.remainingCents, 800)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 3_800)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .repayment }.count, 3)
+        XCTAssertTrue(store.missedLoanInstallments.isEmpty)
+        XCTAssertEqual(store.nextLoanInstallment?.dueDate, today)
+
+        let noOp = await store.recordAllMissedLoanInstallments(LoanMissedInstallments(installments: []))
+        XCTAssertEqual(noOp, .noMissed)
+
+        let writes = transport.requests.filter { $0.httpMethod == "POST" }
+        XCTAssertEqual(writes.map { $0.url?.path }, [
+            "/v1/loans/l-1/occurrences/o-1/record",
+            "/v1/loans/l-1/occurrences/o-2/record",
+            "/v1/loans/l-1/occurrences/o-3/record",
+        ])
+        XCTAssertEqual(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }, ["\"rev-2\"", "\"rev-3\"", "\"rev-4\""])
+        // An installment names no amount: the service decides it.
+        XCTAssertEqual(writes.compactMap { $0.httpBody.map { String(decoding: $0, as: UTF8.self) } }, ["{}", "{}", "{}"])
+    }
+
+    func testCloudFinalInstallmentCapsAtTheRemainingBalance() async throws {
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let (cloud, _) = try scheduledLoanCloud(
+            lineage: lineage,
+            transport: transport,
+            principalCents: 1_000,
+            paymentCents: 400,
+            weeksOverdue: 3,
+            settledPayments: [400, 400, 200]
+        )
+        _ = try await cloud.bootstrap()
+
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilScheduledLoanReadSettles(store, transport)
+
+        // The third missed payment settles the US$2.00 that is left, not the
+        // named US$4.00, so the owed total never exceeds the outstanding loan.
+        XCTAssertEqual(store.missedLoanInstallments.installments.map(\.amountCents), [400, 400, 200])
+        XCTAssertEqual(store.missedLoanInstallments.totalCents, 1_000)
+
+        let outcome = await store.recordAllMissedLoanInstallments(store.missedLoanInstallments)
+
+        XCTAssertEqual(outcome, .recorded(count: 3, totalCents: 1_000))
+        XCTAssertEqual(store.snapshot.loan?.remainingCents, 0)
+        // US$30.00 opening deposit + US$10.00 loan - US$10.00 repaid.
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 3_000)
+        // A settled loan leaves no payment reminder standing.
+        XCTAssertNil(store.snapshot.loan?.schedule?.nextDueDate)
+        XCTAssertNil(store.nextLoanInstallment)
+        XCTAssertTrue(store.missedLoanInstallments.isEmpty)
+    }
+
+    func testCloudCatchUpKeepsAcceptedPaymentsWhenAResponseIsLost() async throws {
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let (cloud, _) = try scheduledLoanCloud(
+            lineage: lineage,
+            transport: transport,
+            principalCents: 2_000,
+            paymentCents: 400,
+            weeksOverdue: 3,
+            settledPayments: [400, 400, 400]
+        )
+        _ = try await cloud.bootstrap()
+
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilScheduledLoanReadSettles(store, transport)
+        transport.dropNextResponse("POST", "/v1/loans/l-1/occurrences/o-2/record")
+
+        let outcome = await store.recordAllMissedLoanInstallments(store.missedLoanInstallments)
+
+        guard case .awaitingCloud(let recordedCount, let recordedTotalCents) = outcome else {
+            return XCTFail("a lost response must stop the catch-up without claiming the payment")
+        }
+        XCTAssertEqual(recordedCount, 1)
+        XCTAssertEqual(recordedTotalCents, 400)
+        XCTAssertTrue(cloud.hasUnsettledMutation)
+        // Exactly two payments were sent: the accepted first and the unresolved
+        // second. The untouched third was never requested.
+        XCTAssertEqual(transport.committedMutationCount, 2)
+        XCTAssertEqual(
+            transport.requests.filter { $0.httpMethod == "POST" }.map { $0.url?.path },
+            ["/v1/loans/l-1/occurrences/o-1/record", "/v1/loans/l-1/occurrences/o-2/record"]
+        )
+    }
+
+    func testCloudScheduleslessLoanKeepsTheOneShotRepaymentAndShowsNoReminder() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.scheduleslessLoanReplica(lineage: lineage, revision: 2))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.scheduleslessLoanReplica(lineage: lineage, revision: 2))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilFirstReadSettles(store, transport)
+
+        XCTAssertNotNil(store.snapshot.loan)
+        XCTAssertNil(store.snapshot.loan?.schedule)
+        XCTAssertNil(store.nextLoanInstallment)
+        XCTAssertTrue(store.missedLoanInstallments.isEmpty)
+        let outcome = await store.recordAllMissedLoanInstallments()
+        XCTAssertEqual(outcome, .noMissed)
+        XCTAssertTrue(transport.requests.filter { $0.httpMethod == "POST" }.isEmpty)
+    }
+
+    func testCloudInstallmentCannotRecordAPaymentThatIsNotDueYet() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let future = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: calendar.startOfDay(for: .now)))
+        let replica = CloudSliceFixtures.scheduledLoanReplica(
+            lineage: lineage,
+            revision: 2,
+            principalCents: 2_000,
+            paymentCents: 400,
+            firstDueDate: future,
+            nextDueDate: future,
+            nextOccurrenceID: "o-1"
+        )
+        transport.stub("GET", "/v1/cloud/bootstrap", replica)
+        transport.stub("GET", "/v1/cloud/changes", replica)
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilScheduledLoanReadSettles(store, transport)
+
+        XCTAssertTrue(store.missedLoanInstallments.isEmpty)
+        XCTAssertEqual(store.nextLoanInstallment?.dueDate, future)
+
+        let result = await store.submit(WalletCommand(kind: .loanInstallment, amountCents: 400))
+
+        guard case .rejected = result else { return XCTFail("a future installment must not be recorded") }
+        XCTAssertTrue(transport.requests.filter { $0.httpMethod == "POST" }.isEmpty)
+        XCTAssertEqual(store.snapshot.loan?.remainingCents, 2_000)
+    }
+
     func testCloudRecordAllWalksOnlyPastDueAllowanceOccurrencesOneAtATime() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
@@ -2938,6 +3168,15 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertNil(store.errorMessage, "the first read is expected to succeed before the race begins")
     }
 
+    private func waitUntilScheduledLoanReadSettles(_ store: WalletStore, _ transport: RoutingTransport) async {
+        await waitUntil("the store's parent Cloud read to settle") {
+            transport.requests.filter { $0.url?.path == "/v1/cloud/changes" }.count >= 2
+                && store.snapshot.loan?.schedule?.nextOccurrenceID != nil
+                && !store.isLoading
+        }
+        XCTAssertNil(store.errorMessage, "the parent read is expected to succeed before settlement begins")
+    }
+
     private func waitUntilParentReadSettles(_ store: WalletStore, _ transport: RoutingTransport) async {
         await waitUntil("the store's parent Cloud read to settle") {
             transport.requests.filter { $0.url?.path == "/v1/cloud/changes" }.count >= 2
@@ -3898,6 +4137,100 @@ enum CloudSliceFixtures {
          "wallet":{"id":"w-1","balanceCents":\(balanceCents)},
          "entries":[{"id":"\(entryID)","type":"allowance","direction":"credit","amountCents":500,"balanceBeforeCents":\(balanceCents - 500),"balanceAfterCents":\(balanceCents),"reason":null,"loanId":null,"recordedAt":"2026-08-01T12:00:00.000Z","acceptedRevision":\(revision)}],
          "loans":[],"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,"startDate":"2026-07-01","endDate":null,"active":true}}
+        """.utf8)
+    }
+
+    /// A Cloud replica holding one scheduled loan. The replica carries only
+    /// durable facts - the plan and its occurrence rows - so every reminder and
+    /// missed payment in these tests is derived by the client, exactly as it is
+    /// on a real device.
+    ///
+    /// The entry chain is emitted whole and always reconciles with the wallet
+    /// balance: an opening deposit, the loan credit, then one repayment per
+    /// recorded payment.
+    static func scheduledLoanReplica(
+        lineage: UUID,
+        revision: Int64,
+        principalCents: Int,
+        paymentCents: Int,
+        firstDueDate: Date,
+        nextDueDate: Date?,
+        nextOccurrenceID: String,
+        recordedOccurrences: [(id: String, dueDate: Date, amountCents: Int, entryID: String)] = [],
+        openingDepositCents: Int = 3_000,
+        scheduled: Bool = true
+    ) -> Data {
+        let repaid = recordedOccurrences.reduce(0) { $0 + $1.amountCents }
+        let outstandingCents = principalCents - repaid
+        let balanceCents = openingDepositCents + principalCents - repaid
+
+        var entries = [
+            """
+            {"id":"d1111111-1111-4111-8111-111111111111","type":"deposit","direction":"credit","amountCents":\(openingDepositCents),"balanceBeforeCents":0,"balanceAfterCents":\(openingDepositCents),"reason":"chores","loanId":null,"recordedAt":"2026-07-01T09:00:00.000Z","acceptedRevision":1}
+            """,
+            """
+            {"id":"d2222222-2222-4222-8222-222222222222","type":"loan","direction":"credit","amountCents":\(principalCents),"balanceBeforeCents":\(openingDepositCents),"balanceAfterCents":\(openingDepositCents + principalCents),"reason":"Bike helmet","loanId":"l-1","recordedAt":"2026-07-01T10:00:00.000Z","acceptedRevision":2}
+            """,
+        ]
+        var running = openingDepositCents + principalCents
+        for (index, occurrence) in recordedOccurrences.enumerated() {
+            let before = running
+            running -= occurrence.amountCents
+            entries.append("""
+            {"id":"\(occurrence.entryID)","type":"repayment","direction":"debit","amountCents":\(occurrence.amountCents),"balanceBeforeCents":\(before),"balanceAfterCents":\(running),"reason":"Loan payment","loanId":"l-1","recordedAt":"2026-08-01T1\(index):00:00.000Z","acceptedRevision":\(revision)}
+            """)
+        }
+
+        var occurrences = recordedOccurrences.map { occurrence in
+            """
+            {"id":"\(occurrence.id)","loanId":"l-1","dueOn":"\(CloudDayFormat.string(from: occurrence.dueDate))","status":"recorded","amountCents":\(occurrence.amountCents),"acceptedEntryId":"\(occurrence.entryID)"}
+            """
+        }
+        if let nextDueDate {
+            occurrences.append("""
+            {"id":"\(nextOccurrenceID)","loanId":"l-1","dueOn":"\(CloudDayFormat.string(from: nextDueDate))","status":"scheduled","amountCents":null,"acceptedEntryId":null}
+            """)
+        }
+
+        let plan = scheduled
+            ? """
+            {"cadence":"weekly","amountCents":\(paymentCents),"firstDueDate":"\(CloudDayFormat.string(from: firstDueDate))"}
+            """
+            : "null"
+        return Data("""
+        {"household":{"lineageId":"\(lineage.uuidString.lowercased())","authority":"cloud","revision":\(revision)},
+         "family":{"id":"f-1","name":"Test Kid's family"},
+         "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+         "wallet":{"id":"w-1","balanceCents":\(balanceCents)},
+         "entries":[\(entries.joined(separator: ","))],
+         "loans":[{"id":"l-1","principalCents":\(principalCents),"outstandingCents":\(outstandingCents),"purpose":"Bike helmet","dueDate":null,"status":"\(outstandingCents == 0 ? "paid" : "open")","createdAt":"2026-07-01T10:00:00.000Z","paidAt":null,
+           "schedule":\(plan)}],
+         "loanOccurrences":[\(occurrences.joined(separator: ","))],
+         "allowanceRule":null,"nextCursor":null}
+        """.utf8)
+    }
+
+    /// The same wallet with a loan that was taken out without a plan: no
+    /// `schedule`, no occurrences, and therefore no reminder anywhere.
+    static func scheduleslessLoanReplica(lineage: UUID, revision: Int64) -> Data {
+        scheduledLoanReplica(
+            lineage: lineage,
+            revision: revision,
+            principalCents: 2_000,
+            paymentCents: 400,
+            firstDueDate: .now,
+            nextDueDate: nil,
+            nextOccurrenceID: "unused",
+            scheduled: false
+        )
+    }
+
+    static func loanInstallmentAccepted(revision: Int64, entryID: String, amountCents: Int) -> Data {
+        Data("""
+        {"loan":{"id":"l-1","outstandingCents":0},
+         "occurrence":{"id":"o-x","dueOn":"2026-08-01","status":"recorded","amountCents":\(amountCents)},
+         "entry":{"id":"\(entryID)","type":"repayment","amountCents":\(amountCents)},
+         "wallet":{"id":"w-1","balanceCents":0},"revision":\(revision)}
         """.utf8)
     }
 

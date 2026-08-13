@@ -84,6 +84,29 @@ extension CloudImportManifest {
                 ("status", .string(loan.status)),
                 ("createdAt", .string(Self.timestamp(loan.createdAt))),
                 ("paidAt", loan.paidAt.map { CloudCanonicalJSON.Value.string(Self.timestamp($0)) } ?? .null),
+            ] + (loan.schedule.map { schedule in
+                [(
+                    "schedule",
+                    CloudCanonicalJSON.Value.object([
+                        ("cadence", .string(schedule.cadence)),
+                        ("amountCents", .integer(schedule.amountCents)),
+                        ("firstDueDate", .string(schedule.firstDueDate)),
+                    ])
+                )]
+            } ?? []))
+        }
+    }
+
+    private var canonicalLoanOccurrences: [CloudCanonicalJSON.Value] {
+        loanOccurrences.map { occurrence in
+            .object([
+                ("loanId", .string(occurrence.loanID.uuidString.lowercased())),
+                ("dueOn", .string(occurrence.dueOn)),
+                ("status", .string(occurrence.status)),
+                (
+                    "entryOperationId",
+                    occurrence.entryOperationID.map { CloudCanonicalJSON.Value.string($0.uuidString.lowercased()) } ?? .null
+                ),
             ])
         }
     }
@@ -107,6 +130,11 @@ extension CloudImportManifest {
     /// The exact structure the server hashes: lineage, names, then the loan and
     /// entry arrays. `avatarUrl` is always present because the server
     /// normalizes a missing value to `null` before hashing.
+    ///
+    /// `loanOccurrences` is appended only when this household actually has a
+    /// scheduled loan. The server adds that key to its own expected digest only
+    /// when a client sent it, so a household with no plan hashes byte-for-byte
+    /// what it hashed before installments existed.
     var canonicalAggregate: CloudCanonicalJSON.Value {
         .object([
             ("lineageId", .string(lineageID.uuidString.lowercased())),
@@ -115,7 +143,7 @@ extension CloudImportManifest {
             ("avatarUrl", avatarURL.map { CloudCanonicalJSON.Value.string($0) } ?? .null),
             ("loans", .array(canonicalLoans)),
             ("entries", .array(canonicalEntries)),
-        ])
+        ] + (loanOccurrences.isEmpty ? [] : [("loanOccurrences", .array(canonicalLoanOccurrences))]))
     }
 
     public var aggregateSHA256: String { CloudCanonicalJSON.sha256Hex(of: canonicalAggregate) }

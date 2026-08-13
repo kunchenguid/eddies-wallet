@@ -278,6 +278,115 @@ final class APIRepositoryTests: XCTestCase {
         XCTAssertEqual(post.url?.path, "/v1/wallet/deposits")
     }
 
+    func testCloudCalendarDaysKeepGregorianWireYearWithBuddhistDeviceCalendar() throws {
+        let timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var deviceCalendar = Calendar(identifier: .buddhist)
+        deviceCalendar.timeZone = timeZone
+        var gregorianCalendar = Calendar(identifier: .gregorian)
+        gregorianCalendar.timeZone = timeZone
+        let date = try XCTUnwrap(gregorianCalendar.date(from: DateComponents(
+            year: 2026,
+            month: 8,
+            day: 13,
+            hour: 12
+        )))
+
+        XCTAssertEqual(CloudDayFormat.string(from: date, calendar: deviceCalendar), "2026-08-13")
+        let decoded = try XCTUnwrap(CloudDayFormat.date(from: "2026-08-13", calendar: deviceCalendar))
+        XCTAssertEqual(
+            gregorianCalendar.dateComponents([.year, .month, .day], from: decoded),
+            DateComponents(year: 2026, month: 8, day: 13)
+        )
+    }
+
+    func testLoanInstallmentAcceptsRepaymentEntryAndAdvancesSchedule() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        let notice = "Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money."
+        let snapshot = Data("""
+        {
+          "wallet": {"balanceCents": 1000, "virtualNotice": "\(notice)"},
+          "allowanceRule": null,
+          "loan": {
+            "id": "loan-1", "principalCents": 1000, "outstandingCents": 1000,
+            "purpose": null, "dueDate": null, "status": "open",
+            "createdAt": "2026-01-01T00:00:00Z", "paidAt": null,
+            "schedule": {
+              "cadence": "weekly", "amountCents": 400, "firstDueDate": "2026-01-01",
+              "nextOccurrenceId": "occurrence-1", "nextDueDate": "2026-01-01"
+            }
+          },
+          "recentActivity": []
+        }
+        """.utf8)
+        let accepted = Data("""
+        {
+          "entry": {
+            "id": "repayment-1", "type": "repayment", "direction": "debit",
+            "amountCents": 400, "balanceBeforeCents": 1000, "balanceAfterCents": 600,
+            "reason": null, "recordedAt": "2026-01-08T12:00:00Z"
+          },
+          "wallet": {"balanceCents": 600, "virtualNotice": "\(notice)"},
+          "loan": {
+            "id": "loan-1", "principalCents": 1000, "outstandingCents": 600,
+            "purpose": null, "dueDate": null, "status": "open",
+            "createdAt": "2026-01-01T00:00:00Z", "paidAt": null,
+            "schedule": {
+              "cadence": "weekly", "amountCents": 400, "firstDueDate": "2026-01-01",
+              "nextOccurrenceId": "occurrence-2", "nextDueDate": "2026-01-08"
+            }
+          }
+        }
+        """.utf8)
+        let transport = StubHTTPTransport(responses: [
+            .init(statusCode: 200, body: snapshot),
+            .init(statusCode: 201, body: accepted),
+        ])
+        let repository = APIWalletRepository(
+            baseURL: URL(string: "https://api.example.test")!,
+            sessionStore: InMemorySessionStore(session: validSession),
+            transport: transport,
+            cache: TestSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore(),
+            calendar: calendar
+        )
+
+        _ = try await repository.refresh(for: .parent)
+        let initialSchedule = try XCTUnwrap(repository.snapshot().loan?.schedule)
+        XCTAssertEqual(
+            calendar.dateComponents([.year, .month, .day], from: initialSchedule.firstDueDate),
+            DateComponents(year: 2026, month: 1, day: 1)
+        )
+        XCTAssertEqual(
+            calendar.dateComponents([.year, .month, .day], from: try XCTUnwrap(initialSchedule.nextDueDate)),
+            DateComponents(year: 2026, month: 1, day: 1)
+        )
+
+        let result = try await repository.submit(WalletCommand(
+            kind: .loanInstallment,
+            amountCents: 0,
+            idempotencyKey: "installment-key"
+        ))
+
+        guard case .accepted(let event) = result else {
+            return XCTFail("A recorded installment must be accepted as a repayment activity")
+        }
+        XCTAssertEqual(event.type, .repayment)
+        XCTAssertEqual(event.amountCents, 400)
+        XCTAssertEqual(repository.snapshot().loan?.remainingCents, 600)
+        XCTAssertEqual(repository.snapshot().loan?.schedule?.nextOccurrenceID, "occurrence-2")
+        XCTAssertEqual(
+            calendar.dateComponents(
+                [.year, .month, .day],
+                from: try XCTUnwrap(repository.snapshot().loan?.schedule?.nextDueDate)
+            ),
+            DateComponents(year: 2026, month: 1, day: 8)
+        )
+        let post = try XCTUnwrap(transport.requests.last)
+        XCTAssertEqual(post.url?.path, "/v1/loans/loan-1/occurrences/occurrence-1/record")
+        XCTAssertEqual(post.value(forHTTPHeaderField: "Idempotency-Key"), "installment-key")
+    }
+
     func testNetworkFailureReturnsWaitingToSyncAndDoesNotChangeAcceptedBalance() async throws {
         let transport = StubHTTPTransport(error: URLError(.notConnectedToInternet))
         let repository = APIWalletRepository(

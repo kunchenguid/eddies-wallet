@@ -124,7 +124,7 @@ Parent balance framing uses the configured nickname, such as **Maya's virtual ba
 
 **Kid everyday surfaces** (kid home hero, empty-wallet ready state, kid activity list/detail, kid loan card/detail, and kid status/accessibility text) stay plain and relational. The primary kid balance label is exactly **Your allowance balance**. Do not stack `pretend`, `virtual practice`, `not real money`, `nonredeemable`, or similar complexity on the kid home or routine kid detail glances. Kid activity lines stay human (“Your parent added…”) without a heavy disclaimer on every row.
 
-Do not use a bank-card design or wording that implies spendable funds, banks, cards, cash-out, or payments on any surface.
+Do not use a bank-card design or wording that implies spendable funds, banks, cards, cash-out, or real-world payment services on any surface. **Pay** and **payment** are reserved for virtual loan repayment; allowance is **paid out**, while a loan is **paid toward**.
 
 ### Ledger rules
 
@@ -144,7 +144,7 @@ Do not use a bank-card design or wording that implies spendable funds, banks, ca
 | Deposit | Your parent added dollars to your wallet. |
 | Withdrawal | Your parent recorded that dollars were used. |
 | Loan | Dollars your parent gave you to use now and give back later. |
-| Repayment | Dollars returned toward the loan. |
+| Loan payment / repayment | Dollars paid back toward the loan. |
 | Virtual balance (parent) | Practice ledger value that cannot be redeemed or spent as real money. |
 | Allowance balance (kid) | Your allowance balance - plain relational framing without pretend/nonredeemable stacking. |
 
@@ -234,7 +234,7 @@ The child's wallet is the app's home screen. The Parent area presents the parent
 1. A parent-only editor for the configured child nickname.
 2. The configured child profile's virtual balance and last update or authority state.
 3. Next allowance information showing the earliest current or future occurrence, plus every missed weekly occurrence, its count, and its owed total when past weeks remain unpaid.
-4. A secondary open-loan card, if a loan exists. Tapping it opens loan details.
+4. A secondary open-loan card, if a loan exists. Tapping it opens loan details. A scheduled open loan also has a separate **Loan payments** card with its next-payment reminder and any missed payments.
 5. Recent Activity visible directly on the wallet, with rows opening activity details.
 6. Parent actions for allowance, deposit, withdrawal, loan, and repayment.
 7. A minimal settings surface for changing the parent PIN (with the current PIN) and signing out (with confirmation).
@@ -300,23 +300,36 @@ The child has no spending or withdrawal control. A withdrawal means the parent r
 
 ### 8.9 Loan and repayment flow
 
-The MVP loan model is parent-to-child, virtual, interest-free, and simple. It supports one open loan at a time for the child profile. The parent can optionally set a due date. Interest, fees, installments, and automatic repayment are out of scope.
+The MVP loan model is parent-to-child, virtual, interest-free, and simple. It supports one open loan at a time for the child profile. The parent can optionally set a due date, and can optionally give the loan a payment plan. Interest, fees, and automatic repayment are out of scope.
 
 **Create loan:**
 
 1. Parent opens the wallet and chooses **Create loan**.
-2. Parent enters principal, optional purpose, and optional due date.
-3. Review explains that the loan adds virtual dollars to the child's wallet and creates an amount to repay.
+2. Parent enters principal, optional purpose, optional due date, and an optional payment plan: a cadence of weekly or monthly plus the amount for each payment.
+3. Review explains that the loan adds virtual dollars to the child's wallet and creates an amount to repay, and restates the payment plan.
 4. Free-local authority records a valid loan immediately. Service authority records it only after service acceptance.
 5. The wallet shows a secondary loan card such as “US$10.00 left to repay.”
 
+**Payment plan and missed payments:**
+
+1. A loan created without a cadence has no plan. It shows no reminder and no payment list, and keeps the one-shot **Pay toward loan** path unchanged. A plan is chosen once, at loan creation.
+2. A scheduled loan's first payment defaults to one cadence after creation. It shows **Next payment**: the earliest current or future payment day and its actual amount, capped at what will remain after missed payments are settled. A past missed day is never shown as the next payment.
+3. The last payment of a plan is whatever is left to repay, so it is smaller than the named amount when the balance no longer covers it. A payment can never exceed the outstanding loan, and the outstanding amount can never fall below zero.
+4. An unrecorded payment day strictly before today is missed. Show every currently missed payment, **N missed**, and **Owed total** in both free-local and Cloud modes. **Owed total** is capped at the outstanding balance. A payment due today remains the ordinary single one and is not part of the missed set.
+5. **Pay missed payments** asks the parent to confirm the initially visible missed set, including its count and total, then **Pay all** settles that fixed set sequentially as separate payments. It never expands the batch to include a newly due payment. Paid installments remain durable after interruption, while the untouched ones remain visible and payable later without duplicates.
+6. A repayment that clears the balance retires the plan, so a settled loan never leaves a payment reminder standing.
+
+Required parent copy uses **Loan payments**, **Next payment**, **Missed payments**, **N missed**, **Owed total**, **Pay missed payments**, and **Pay this payment**. Creation uses **Payment plan (optional)**, **Amount for each payment**, and “The last payment is whatever is left to repay, so it can be smaller than this amount.” Catch-up confirmation uses “Pay N missed loan payments?”, “This pays N separate payments totaling US$X toward the loan. The next payment is not included.”, **Pay all**, and **Not now**; success uses **Missed payments paid** and “Paid N separate payments totaling US$X toward the loan.” The single-payment dialog confirms with **Pay**. Do not replace loan **Pay** language with **Record**, borrow allowance's **Pay out**, or imply automatic settlement.
+
 **Repay:**
 
-1. Parent opens the loan card and chooses **Record repayment**.
-2. Parent enters a partial or full repayment amount.
+1. Parent opens the loan card and chooses **Pay toward loan**, or, on a scheduled loan whose payment is due, **Pay this payment**.
+2. Parent enters a partial or full repayment amount. A scheduled payment names no amount: the plan and the remaining balance decide it.
 3. The app shows the remaining principal after repayment and refuses an amount above the outstanding principal or available accepted wallet balance.
 4. Free-local authority records a valid repayment immediately. Service authority requires a current online replica and records it after acceptance is observed; an ambiguous submitted request remains **Waiting to sync**.
 5. A paid loan remains in history as **Paid** rather than disappearing.
+
+Every payment remains parent-triggered: there is no automatic settlement, timer, background catch-up, scheduled job, or notification.
 
 **Child loan view:** The child can see the original loan, accepted repayments, and amount left to repay in plain language. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP. Parent loan details keep the virtual/nonredeemable notice.
 
@@ -330,7 +343,7 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 | View accepted wallet and activity | Yes | Yes, read-only |
 | Create/edit/pause allowance rule | Yes | No |
 | Record deposit or withdrawal | Yes | No |
-| Create loan or record repayment | Yes | No |
+| Create loan or pay toward it | Yes | No |
 | View loan details | Yes | Yes, read-only |
 | Edit/delete accepted money events | No; use a compensating event if needed | No |
 | Create or edit child profile | Yes | No |
@@ -357,7 +370,7 @@ Acceptance and rejection must use text and icons, not color alone. A stale child
 
 ## 11. Privacy and safety
 
-- Keep the product clearly virtual. Do not use bank, cash-out, card, investment, or payment language except when explaining that those real-world concepts are outside the app.
+- Keep the product clearly virtual. Do not use bank, cash-out, card, investment, or real-world payment-service language except when explaining that those concepts are outside the app. Loan **Pay** wording always means virtual repayment toward the family loan.
 - Collect only what is needed for the parent identity and the child profile: parent Apple identity, child nickname, and optional avatar.
 - Do not require a child email, phone number, exact birth date, contacts, location, public profile, or free-text upload.
 - Put family management, exports, account deletion, and external links behind the parent gate.
@@ -388,7 +401,7 @@ These ideas may be valuable later but must not appear as required MVP work:
 - Google Sign In and provider linking.
 - Automatic or background allowance payout, scheduled jobs, push notifications, and richer cadence options.
 - Child-initiated requests represented as a separate approval object.
-- Interest-bearing loans, installments, due-date reminders, or configurable loan terms.
+- Interest-bearing loans, late-payment penalties, plan editing, or other configurable loan terms.
 - Savings goals, jars, chores, rewards, multiple wallets, and multiple currencies.
 - Restore tools, point-in-time recovery, advanced monitoring, and a larger operational control plane.
 - Localized currency vocabulary beyond the initial US-dollar experience.
@@ -410,10 +423,10 @@ The free one-device MVP is product-complete when all of the following are true:
 1. A parent can sign in with Apple, create one free wallet and a parent-managed child profile, and set a parent PIN without creating a child login.
 2. On a shared iPad, the app rests on the child's read-only wallet, and entering the Parent area requires the parent-set PIN. The kid home never exposes parent money controls or sign-out.
 3. Parent and safety surfaces label the US-dollar ledger as virtual, pretend, and nonredeemable. The kid home primary balance label is **Your allowance balance** without that heavy disclaimer; kid detail glances stay plain and relational while parent detail/review surfaces keep the boundary.
-4. A parent can create a simple allowance rule, pay out one current allowance or an explicitly confirmed set of missed weeks, record a deposit, record a withdrawal, create an interest-free loan, and record a partial or full repayment.
+4. A parent can create a simple allowance rule, pay out one current allowance or an explicitly confirmed set of missed weeks, record a deposit or withdrawal, create an interest-free loan with an optional payment plan, pay one current loan payment, pay an explicitly confirmed set of missed payments, and pay any free amount toward the loan.
 5. Each accepted money event changes the accepted balance exactly once and appears in the wallet activity list with an understandable explanation.
-6. Withdrawals and repayments cannot overdraw the wallet or exceed the outstanding loan. A loan adds virtual balance and creates a separate amount to repay.
-7. The open-loan card is visible on the wallet and opens a detail flow. There is no prominent top-level Loans area, and the wallet does not duplicate a Recent Activity entry point.
+6. Withdrawals and loan payments cannot overdraw the wallet or exceed the outstanding loan. Every planned payment and missed-payment total caps at what remains. A loan adds virtual balance and creates a separate amount to repay.
+7. The open-loan card is visible on the wallet and opens a detail flow. A scheduled loan also shows its next payment and any missed payments only in the Parent area. There is no prominent top-level Loans area, and the wallet does not duplicate a Recent Activity entry point.
 8. The child can read the accepted balance, activity, and loan details, but cannot create or change any wallet, profile, allowance, loan, repayment, or request.
 9. The free one-device wallet remains fully usable offline and records valid parent actions through protected local authority. Service-authoritative offline views show the last update time and remain read-only; a request interrupted after submission stays visibly unresolved, and rejected actions never appear as accepted balance changes.
 10. The app collects no unnecessary child identity data and ships without real-money rails, ads, tracking, chat, or public sharing.

@@ -17,14 +17,7 @@ enum ActivityDetailCopy {
     ) -> String {
         guard audience == .kid else { return event.explanation }
 
-        let amount = Money(cents: event.amountCents).display
-        return switch event.type {
-        case .allowance: "Your parent added \(amount) as your allowance."
-        case .deposit: "Your parent added \(amount) to your wallet."
-        case .withdrawal: "Your parent recorded that \(amount) was used."
-        case .loan: "Your parent gave you \(amount) to use now and give back over time."
-        case .repayment: "Your parent recorded \(amount) returned toward the loan."
-        }
+        return AcceptedEventCopy.explanation(for: event.type, amountCents: event.amountCents)
     }
 }
 
@@ -151,11 +144,11 @@ struct LoanDetailView: View {
     }
 
     private var repayButton: some View {
-        Button("Record repayment", action: onRepay)
+        Button("Pay toward loan", action: onRepay)
             .buttonStyle(PrimaryButtonStyle())
             .disabled(!store.canStartParentMutation)
             .opacity(store.canStartParentMutation ? 1 : 0.5)
-            .accessibilityIdentifier("loan-record-repayment")
+            .accessibilityIdentifier("loan-pay-toward")
     }
 
     private var detail: some View {

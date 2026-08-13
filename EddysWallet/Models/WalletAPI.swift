@@ -631,6 +631,14 @@ private struct EntryDTO: Decodable {
     let recordedAt: String
 }
 
+private struct LoanScheduleDTO: Decodable {
+    let cadence: String
+    let amountCents: FlexibleInt
+    let firstDueDate: String
+    let nextOccurrenceId: String?
+    let nextDueDate: String?
+}
+
 private struct LoanDTO: Decodable {
     let id: String
     let principalCents: FlexibleInt
@@ -640,6 +648,7 @@ private struct LoanDTO: Decodable {
     let status: String
     let createdAt: String
     let paidAt: String?
+    let schedule: LoanScheduleDTO?
 }
 
 private struct AllowanceDTO: Decodable {
@@ -704,6 +713,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
     private let cache: any WalletSnapshotCache
     private let configuredKidStore: any ConfiguredKidStore
     private let pendingStore: any PendingCommandStore
+    private let calendar: Calendar
     private var current: WalletSnapshot
     private var currentChild: WalletSnapshot
     private var pendingCommands: [String: WalletCommand]
@@ -716,7 +726,8 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         transport: any HTTPTransport = URLSessionTransport(),
         cache: (any WalletSnapshotCache)? = nil,
         configuredKidStore: (any ConfiguredKidStore)? = nil,
-        pendingStore: (any PendingCommandStore)? = nil
+        pendingStore: (any PendingCommandStore)? = nil,
+        calendar: Calendar = .current
     ) {
         self.baseURL = baseURL
         self.sessionStore = sessionStore ?? KeychainSessionStore()
@@ -724,6 +735,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         self.cache = cache ?? UserDefaultsWalletSnapshotCache()
         self.configuredKidStore = configuredKidStore ?? UserDefaultsConfiguredKidStore()
         self.pendingStore = pendingStore ?? (baseURL == APIConfiguration.productionBaseURL ? UserDefaultsPendingCommandStore() : InMemoryPendingCommandStore())
+        self.calendar = calendar
         let cachedChild = self.cache.load() ?? .empty()
         self.current = cachedChild
         self.currentChild = cachedChild
@@ -1054,7 +1066,28 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
             var loanBody: [String: Any] = ["principalCents": command.amountCents]
             if let purpose = command.reason { loanBody["purpose"] = purpose }
             if let dueDate = command.dueDate { loanBody["dueDate"] = formatDate(dueDate) }
+            if let plan = command.installmentPlan {
+                guard plan.amountCents > 0 else {
+                    throw WalletAPIError.invalidResponse("Enter a payment amount greater than US$0.00.")
+                }
+                var schedule: [String: Any] = ["cadence": plan.cadence.rawValue, "amountCents": plan.amountCents]
+                if let firstDueDate = plan.firstDueDate {
+                    schedule["firstDueDate"] = CloudDayFormat.string(from: firstDueDate, calendar: calendar)
+                }
+                loanBody["schedule"] = schedule
+            }
             endpoint = ("/v1/loans", loanBody)
+        case .loanInstallment:
+            guard let loan = current.loan, let loanID = loan.remoteID,
+                  let occurrenceID = loan.schedule?.nextOccurrenceID else {
+                throw WalletAPIError.server(statusCode: 409, code: "LOAN_OCCURRENCE_NOT_SCHEDULED", message: "There is no scheduled loan payment due.")
+            }
+            // The installment amount is entirely server-decided, so the body
+            // names none and the final payment caps at the remaining balance.
+            endpoint = (
+                "/v1/loans/\(pathComponent(loanID))/occurrences/\(pathComponent(occurrenceID))/record",
+                optionalBody([:], reason: command.reason)
+            )
         case .repayment:
             guard let loanID = current.loan?.remoteID else {
                 throw WalletAPIError.server(statusCode: 409, code: "LOAN_NOT_FOUND", message: "There is no open loan to repay.")
@@ -1089,7 +1122,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         refreshed.activities.insert(event, at: 0)
         if let loan = response.loan {
             refreshed.loan = try mapLoan(loan)
-        } else if command.kind == .loan || command.kind == .repayment {
+        } else if command.kind == .loan || command.kind == .repayment || command.kind == .loanInstallment {
             throw WalletAPIError.invalidResponse("The command response did not contain the updated loan.")
         }
         refreshed.lastUpdated = event.date
@@ -1216,22 +1249,14 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
               let date = parseTimestamp(entry.recordedAt), !entry.id.isEmpty else {
             throw WalletAPIError.invalidResponse("The server returned an invalid activity entry.")
         }
-        if let expected, commandKind(for: type) != expected {
+        if let expected, type != activityType(for: expected) {
             throw WalletAPIError.invalidResponse("The server returned the wrong activity type.")
         }
         let expectedDirection = type == .withdrawal || type == .repayment ? "debit" : "credit"
         guard entry.direction == expectedDirection else {
             throw WalletAPIError.invalidResponse("The server returned an invalid activity direction.")
         }
-        let amount = Money(cents: entry.amountCents.value).display
-        let explanation: String
-        switch type {
-        case .allowance: explanation = "Your parent added \(amount) as your allowance."
-        case .deposit: explanation = "Your parent added \(amount) to your wallet."
-        case .withdrawal: explanation = "Your parent recorded that \(amount) was used."
-        case .loan: explanation = "Your parent gave you \(amount) to use now and give back over time."
-        case .repayment: explanation = "Your parent recorded \(amount) returned toward the loan."
-        }
+        let explanation = AcceptedEventCopy.explanation(for: type, amountCents: entry.amountCents.value)
         return WalletEvent(
             id: UUID(uuidString: entry.id) ?? UUID(),
             remoteID: entry.id,
@@ -1260,7 +1285,29 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
             originalCents: loan.principalCents.value,
             remainingCents: loan.outstandingCents.value,
             purpose: loan.purpose,
-            dueDate: parseDate(loan.dueDate)
+            dueDate: parseDate(loan.dueDate),
+            schedule: try loan.schedule.map(mapLoanSchedule)
+        )
+    }
+
+    /// Only the durable plan and the one occurrence waiting to be recorded are
+    /// taken from the service. The past-due picture itself is derived on the
+    /// device, so a reminder and a missed list mean the same thing on every
+    /// authority and never disagree about which day "today" is.
+    private func mapLoanSchedule(_ schedule: LoanScheduleDTO) throws -> LoanSchedule {
+        guard let cadence = LoanInstallmentCadence(rawValue: schedule.cadence),
+              schedule.amountCents.value > 0,
+              let firstDueDate = CloudDayFormat.date(from: schedule.firstDueDate, calendar: calendar) else {
+            throw WalletAPIError.invalidResponse("The server returned an invalid loan payment schedule.")
+        }
+        return LoanSchedule(
+            cadence: cadence,
+            amountCents: schedule.amountCents.value,
+            firstDueDate: firstDueDate,
+            nextDueDate: schedule.nextDueDate.flatMap {
+                CloudDayFormat.date(from: $0, calendar: calendar)
+            },
+            nextOccurrenceID: schedule.nextOccurrenceId
         )
     }
 
@@ -1307,13 +1354,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
     }
 
     private func makeLocalEvent(for command: WalletCommand, state: SyncState, message: String, rejectionReason: String? = nil) -> WalletEvent {
-        let type: ActivityType = switch command.kind {
-        case .allowance: .allowance
-        case .deposit: .deposit
-        case .withdrawal: .withdrawal
-        case .loan: .loan
-        case .repayment: .repayment
-        }
+        let type = activityType(for: command.kind)
         return WalletEvent(
             id: UUID(uuidString: command.idempotencyKey) ?? UUID(),
             remoteID: command.idempotencyKey,
@@ -1330,13 +1371,13 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         ActivityType(rawValue: value)
     }
 
-    private func commandKind(for type: ActivityType) -> WalletCommandKind {
-        switch type {
+    private func activityType(for kind: WalletCommandKind) -> ActivityType {
+        switch kind {
         case .allowance: .allowance
         case .deposit: .deposit
         case .withdrawal: .withdrawal
         case .loan: .loan
-        case .repayment: .repayment
+        case .repayment, .loanInstallment: .repayment
         }
     }
 

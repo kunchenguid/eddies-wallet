@@ -373,6 +373,57 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(snapshot.loan?.remainingCents, 200)
         XCTAssertEqual(snapshot.loan?.originalCents, 300)
         XCTAssertEqual(snapshot.allowance?.amountCents, 500)
+        XCTAssertEqual(
+            snapshot.activities.first { $0.type == .repayment }?.explanation,
+            "Your parent paid US$1.00 toward your loan."
+        )
+    }
+
+    func testCloudHandoffKeepsTheCompleteInstallmentChainForReimport() throws {
+        let replica = try JSONDecoder.cloud.decode(CloudReplica.self, from: CloudContractFixtures.scheduledLoanBootstrap)
+        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let schedule = try XCTUnwrap(snapshot.loan?.schedule)
+        let paymentID = UUID(uuidString: "a2000000-0000-4000-8000-000000000003")!
+
+        XCTAssertEqual(schedule.occurrences.map(\.id), ["occurrence-1", "occurrence-2"])
+        XCTAssertEqual(schedule.occurrences.map(\.status), [.recorded, .scheduled])
+        XCTAssertEqual(schedule.occurrences.first?.amountCents, 400)
+        XCTAssertEqual(schedule.occurrences.first?.entryID, paymentID)
+
+        let manifest = try CloudImportManifestBuilder.manifest(
+            lineageID: UUID(),
+            operationID: UUID(),
+            familyName: "Test Kid's family",
+            nickname: "Test Kid",
+            snapshot: snapshot
+        )
+
+        XCTAssertEqual(manifest.loanOccurrences.map(\.status), ["recorded", "scheduled"])
+        XCTAssertEqual(manifest.loanOccurrences.first?.entryOperationID, paymentID)
+        let body = manifest.requestBody.jsonObject()
+        let sentOccurrences = try XCTUnwrap(body["loanOccurrences"] as? [[String: Any]])
+        XCTAssertEqual(sentOccurrences.map { $0["dueOn"] as? String }, ["2026-07-01", "2026-07-08"])
+        XCTAssertEqual(sentOccurrences.first?["entryOperationId"] as? String, paymentID.uuidString.lowercased())
+    }
+
+    func testCloudHandoffKeepsACancelledTerminalInstallment() throws {
+        let replica = try JSONDecoder.cloud.decode(CloudReplica.self, from: CloudContractFixtures.paidScheduledLoanBootstrap)
+        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let schedule = try XCTUnwrap(snapshot.loan?.schedule)
+
+        XCTAssertEqual(schedule.occurrences.map(\.id), ["occurrence-1", "occurrence-2"])
+        XCTAssertEqual(schedule.occurrences.map(\.status), [.recorded, .cancelled])
+        XCTAssertNil(schedule.nextOccurrence)
+
+        let manifest = try CloudImportManifestBuilder.manifest(
+            lineageID: UUID(),
+            operationID: UUID(),
+            familyName: "Test Kid's family",
+            nickname: "Test Kid",
+            snapshot: snapshot
+        )
+        XCTAssertEqual(manifest.loans.last?.status, "paid")
+        XCTAssertEqual(manifest.loanOccurrences.map(\.status), ["recorded", "cancelled"])
     }
 
     func testChangesRequestUsesTheRetainedRevisionAndMergesOlderHistory() async throws {
@@ -479,6 +530,119 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(manifest.loans.last?.outstandingCents, 300)
         XCTAssertEqual(manifest.entries.map(\.balanceAfterCents), [1_000, 1_300, 1_000, 1_500, 1_300])
         XCTAssertEqual(manifest.entries.compactMap(\.loanID).count, 4, "loan and repayment entries carry their loan")
+    }
+
+    func testManifestKeepsPaidCurrentLoanScheduleAndCompleteOccurrenceChain() throws {
+        let depositID = UUID(uuidString: "a1000000-0000-4000-8000-000000000001")!
+        let loanID = UUID(uuidString: "a1000000-0000-4000-8000-000000000002")!
+        let firstPaymentID = UUID(uuidString: "a1000000-0000-4000-8000-000000000003")!
+        let secondPaymentID = UUID(uuidString: "a1000000-0000-4000-8000-000000000004")!
+        let finalPaymentID = UUID(uuidString: "a1000000-0000-4000-8000-000000000005")!
+        let base = Date(timeIntervalSince1970: 1_780_000_000)
+        let firstDueDate = try XCTUnwrap(CloudDayFormat.date(from: "2026-07-01"))
+        let secondDueDate = try XCTUnwrap(CloudDayFormat.date(from: "2026-07-08"))
+        let finalDueDate = try XCTUnwrap(CloudDayFormat.date(from: "2026-07-15"))
+        let schedule = LoanSchedule(
+            cadence: .weekly,
+            amountCents: 400,
+            firstDueDate: firstDueDate,
+            occurrences: [
+                .init(id: "occurrence-1", dueDate: firstDueDate, status: .recorded, amountCents: 400, entryID: firstPaymentID),
+                .init(id: "occurrence-2", dueDate: secondDueDate, status: .recorded, amountCents: 400, entryID: secondPaymentID),
+                .init(id: "occurrence-3", dueDate: finalDueDate, status: .recorded, amountCents: 200, entryID: finalPaymentID),
+            ]
+        )
+        let snapshot = WalletSnapshot(
+            acceptedBalanceCents: 1_000,
+            activities: [
+                .init(id: finalPaymentID, type: .repayment, amountCents: 200, date: base.addingTimeInterval(240), explanation: ""),
+                .init(id: secondPaymentID, type: .repayment, amountCents: 400, date: base.addingTimeInterval(180), explanation: ""),
+                .init(id: firstPaymentID, type: .repayment, amountCents: 400, date: base.addingTimeInterval(120), explanation: ""),
+                .init(id: loanID, type: .loan, amountCents: 1_000, reason: "Bike helmet", date: base.addingTimeInterval(60), explanation: ""),
+                .init(id: depositID, type: .deposit, amountCents: 1_000, date: base, explanation: ""),
+            ],
+            loan: Loan(originalCents: 1_000, remainingCents: 0, purpose: "Bike helmet", schedule: schedule),
+            allowance: nil,
+            pendingEvents: [],
+            lastUpdated: base,
+            isStale: false,
+            childNickname: "Test Kid"
+        )
+
+        let manifest = try CloudImportManifestBuilder.manifest(
+            lineageID: UUID(),
+            operationID: UUID(),
+            familyName: "Test Kid's family",
+            nickname: "Test Kid",
+            snapshot: snapshot
+        )
+
+        XCTAssertEqual(manifest.loans.last?.id, loanID)
+        XCTAssertEqual(manifest.loans.last?.status, "paid")
+        XCTAssertEqual(manifest.loans.last?.schedule?.amountCents, 400)
+        XCTAssertEqual(manifest.loanOccurrences.map(\.status), ["recorded", "recorded", "recorded"])
+        XCTAssertEqual(manifest.loanOccurrences.map(\.entryOperationID), [firstPaymentID, secondPaymentID, finalPaymentID])
+        let body = manifest.requestBody.jsonObject()
+        let sentLoan = try XCTUnwrap((body["loans"] as? [[String: Any]])?.last)
+        XCTAssertEqual((sentLoan["schedule"] as? [String: Any])?["firstDueDate"] as? String, "2026-07-01")
+        let sentOccurrences = try XCTUnwrap(body["loanOccurrences"] as? [[String: Any]])
+        XCTAssertEqual(sentOccurrences.map { $0["status"] as? String }, ["recorded", "recorded", "recorded"])
+        XCTAssertEqual(sentOccurrences.last?["entryOperationId"] as? String, finalPaymentID.uuidString.lowercased())
+    }
+
+    func testBuilderKeepsUnscheduledImportAggregateByteCompatible() throws {
+        let snapshot = WalletSnapshot(
+            acceptedBalanceCents: 700,
+            activities: [
+                .init(id: UUID(uuidString: "44444444-4444-4444-8444-444444444444")!, type: .repayment, amountCents: 100, date: Date(timeIntervalSince1970: 1_785_060_000), explanation: ""),
+                .init(id: UUID(uuidString: "33333333-3333-4333-8333-333333333333")!, type: .loan, amountCents: 300, reason: "scooter \"fast\"", date: Date(timeIntervalSince1970: 1_784_973_600), explanation: ""),
+                .init(id: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!, type: .deposit, amountCents: 500, reason: "chores\nweek 1", date: Date(timeIntervalSince1970: 1_784_887_200), explanation: ""),
+            ],
+            loan: Loan(originalCents: 300, remainingCents: 200, purpose: "scooter \"fast\"", dueDate: CloudDayFormat.date(from: "2026-09-01")),
+            allowance: nil,
+            pendingEvents: [],
+            lastUpdated: Date(timeIntervalSince1970: 1_785_060_000),
+            isStale: false,
+            childNickname: "Test Kid"
+        )
+        let manifest = try CloudImportManifestBuilder.manifest(
+            lineageID: UUID(uuidString: "55555555-5555-4555-8555-555555555555")!,
+            operationID: UUID(uuidString: "66666666-6666-4666-8666-666666666666")!,
+            familyName: "Test Kid\u{2019}s family",
+            nickname: "Test Kid",
+            snapshot: snapshot
+        )
+
+        let expected = CloudImportManifest(
+            lineageID: UUID(uuidString: "55555555-5555-4555-8555-555555555555")!,
+            operationID: UUID(uuidString: "66666666-6666-4666-8666-666666666666")!,
+            familyName: "Test Kid\u{2019}s family",
+            nickname: "Test Kid",
+            avatarURL: nil,
+            loans: [
+                .init(
+                    id: UUID(uuidString: "33333333-3333-4333-8333-333333333333")!,
+                    principalCents: 300,
+                    outstandingCents: 200,
+                    purpose: "scooter \"fast\"",
+                    dueDate: "2026-09-01",
+                    status: "open",
+                    createdAt: Date(timeIntervalSince1970: 1_784_973_600),
+                    paidAt: nil
+                )
+            ],
+            entries: [
+                .init(operationID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!, type: "deposit", direction: "credit", amountCents: 500, balanceBeforeCents: 0, balanceAfterCents: 500, reason: "chores\nweek 1", loanID: nil, recordedAt: Date(timeIntervalSince1970: 1_784_887_200)),
+                .init(operationID: UUID(uuidString: "33333333-3333-4333-8333-333333333333")!, type: "loan", direction: "credit", amountCents: 300, balanceBeforeCents: 500, balanceAfterCents: 800, reason: "scooter \"fast\"", loanID: UUID(uuidString: "33333333-3333-4333-8333-333333333333")!, recordedAt: Date(timeIntervalSince1970: 1_784_973_600)),
+                .init(operationID: UUID(uuidString: "44444444-4444-4444-8444-444444444444")!, type: "repayment", direction: "debit", amountCents: 100, balanceBeforeCents: 800, balanceAfterCents: 700, reason: nil, loanID: UUID(uuidString: "33333333-3333-4333-8333-333333333333")!, recordedAt: Date(timeIntervalSince1970: 1_785_060_000)),
+            ]
+        )
+
+        XCTAssertEqual(manifest.canonicalAggregate.encoded, expected.canonicalAggregate.encoded)
+        XCTAssertEqual(manifest.aggregateSHA256, expected.aggregateSHA256)
+        let body = manifest.requestBody.jsonObject()
+        XCTAssertNil(body["loanOccurrences"])
+        XCTAssertNil((body["loans"] as? [[String: Any]])?.first?["schedule"])
     }
 
     func testManifestRefusesAHistoryThatDoesNotBalance() {
@@ -590,7 +754,18 @@ final class CloudContractTests: XCTestCase {
         // Bootstrap and household mutations.
         XCTAssertEqual(
             Set(try fields("cloudBootstrap").keys),
-            ["household", "family", "child", "wallet", "entries", "loans", "allowanceRule", "nextCursor"]
+            ["household", "family", "child", "wallet", "entries", "loans", "loanOccurrences", "allowanceRule", "nextCursor"]
+        )
+        // The replica carries the loan's durable plan and its occurrence rows,
+        // and deliberately no next/missed projection: those embed "today",
+        // which a durable fact must never do.
+        let bootstrapLoan = try XCTUnwrap((try fields("cloudBootstrap")["loans"] as? [String: Any])?["fields"] as? [String: Any])
+        let loanSchedule = try XCTUnwrap((bootstrapLoan["schedule"] as? [String: Any])?["fields"] as? [String: Any])
+        XCTAssertEqual(Set(loanSchedule.keys), ["cadence", "amountCents", "firstDueDate"])
+        let loanOccurrence = try XCTUnwrap((try fields("cloudBootstrap")["loanOccurrences"] as? [String: Any])?["fields"] as? [String: Any])
+        XCTAssertEqual(
+            Set(loanOccurrence.keys),
+            ["id", "loanId", "dueOn", "status", "amountCents", "acceptedEntryId"]
         )
         XCTAssertEqual(Set(try fields("cloudHouseholdMutation").keys), ["entry", "wallet", "revision"])
         let allowance = try fields("allowanceSchedule")
@@ -606,6 +781,82 @@ final class CloudContractTests: XCTestCase {
         ).canonicalAggregate
         guard case .object(let members) = aggregate else { return XCTFail("aggregate must be a JSON object") }
         XCTAssertEqual(members.map(\.0), ["lineageId", "familyName", "nickname", "avatarUrl", "loans", "entries"])
+    }
+
+    /// The server adds `loanOccurrences` to its own expected digest only when a
+    /// client sent the key, so a household with no installment plan must hash
+    /// exactly what it hashed before plans existed - and one with a plan must
+    /// carry both the plan and its occurrence chain.
+    func testImportAggregateAddsInstallmentKeysOnlyForAScheduledHousehold() throws {
+        let lineage = UUID(uuidString: "b1a1e1d1-0000-4000-8000-000000000001")!
+        let operation = UUID(uuidString: "b1a1e1d1-0000-4000-8000-000000000002")!
+        let loanID = UUID(uuidString: "b1a1e1d1-0000-4000-8000-000000000003")!
+        let entryID = UUID(uuidString: "b1a1e1d1-0000-4000-8000-000000000004")!
+        func manifest(
+            schedule: CloudImportManifest.Loan.Schedule?,
+            occurrences: [CloudImportManifest.LoanOccurrence]
+        ) -> CloudImportManifest {
+            CloudImportManifest(
+                lineageID: lineage,
+                operationID: operation,
+                familyName: "f",
+                nickname: "n",
+                loans: [
+                    CloudImportManifest.Loan(
+                        id: loanID,
+                        principalCents: 1_000,
+                        outstandingCents: 600,
+                        purpose: "Bike helmet",
+                        dueDate: nil,
+                        status: "open",
+                        createdAt: Date(timeIntervalSince1970: 1_780_000_000),
+                        paidAt: nil,
+                        schedule: schedule
+                    )
+                ],
+                entries: [],
+                loanOccurrences: occurrences
+            )
+        }
+
+        let unscheduled = manifest(schedule: nil, occurrences: [])
+        guard case .object(let unscheduledMembers) = unscheduled.canonicalAggregate else {
+            return XCTFail("aggregate must be a JSON object")
+        }
+        XCTAssertEqual(unscheduledMembers.map(\.0), ["lineageId", "familyName", "nickname", "avatarUrl", "loans", "entries"])
+        XCTAssertFalse(String(decoding: unscheduled.requestBody, as: UTF8.self).contains("schedule"))
+        XCTAssertFalse(String(decoding: unscheduled.requestBody, as: UTF8.self).contains("loanOccurrences"))
+
+        let scheduled = manifest(
+            schedule: CloudImportManifest.Loan.Schedule(cadence: "weekly", amountCents: 400, firstDueDate: "2026-07-01"),
+            occurrences: [
+                CloudImportManifest.LoanOccurrence(loanID: loanID, dueOn: "2026-07-01", status: "recorded", entryOperationID: entryID),
+                CloudImportManifest.LoanOccurrence(loanID: loanID, dueOn: "2026-07-08", status: "scheduled", entryOperationID: nil),
+            ]
+        )
+        guard case .object(let scheduledMembers) = scheduled.canonicalAggregate else {
+            return XCTFail("aggregate must be a JSON object")
+        }
+        XCTAssertEqual(
+            scheduledMembers.map(\.0),
+            ["lineageId", "familyName", "nickname", "avatarUrl", "loans", "entries", "loanOccurrences"]
+        )
+        XCTAssertNotEqual(scheduled.aggregateSHA256, unscheduled.aggregateSHA256)
+
+        // The digest must be over exactly the bytes that are sent.
+        let body = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: scheduled.requestBody) as? [String: Any]
+        )
+        XCTAssertEqual(body["aggregateSha256"] as? String, scheduled.aggregateSHA256)
+        let sentLoan = try XCTUnwrap((body["loans"] as? [[String: Any]])?.first)
+        XCTAssertEqual(
+            (sentLoan["schedule"] as? [String: Any])?["firstDueDate"] as? String,
+            "2026-07-01"
+        )
+        let sentOccurrences = try XCTUnwrap(body["loanOccurrences"] as? [[String: Any]])
+        XCTAssertEqual(sentOccurrences.map { $0["status"] as? String }, ["recorded", "scheduled"])
+        XCTAssertEqual(sentOccurrences.first?["entryOperationId"] as? String, entryID.uuidString.lowercased())
+        XCTAssertNil(sentOccurrences.last?["entryOperationId"] as? String)
     }
 
     // MARK: - Helpers
@@ -739,6 +990,37 @@ enum CloudContractFixtures {
      "loans":[{"id":"96e6db14-91ea-4fa4-9a43-dddebd3d3807","principalCents":300,"outstandingCents":200,"purpose":"scooter","dueDate":null,"status":"open","createdAt":"2026-07-25T21:31:53.781Z","paidAt":null}],
      "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,"startDate":"2026-08-07","endDate":null,"active":true},
      "nextCursor":null}
+    """)
+    static let scheduledLoanBootstrap = json("""
+    {"household":{"lineageId":"43053f83-eae7-46ac-9516-ca41406c7ff1","authority":"cloud","revision":3},
+     "family":{"id":"f-1","name":"Test Kid's family"},
+     "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+     "wallet":{"id":"w-1","balanceCents":1600},
+     "entries":[
+       {"id":"a2000000-0000-4000-8000-000000000001","type":"deposit","direction":"credit","amountCents":1000,"balanceBeforeCents":0,"balanceAfterCents":1000,"reason":null,"loanId":null,"recordedAt":"2026-06-30T09:00:00.000Z","acceptedRevision":1},
+       {"id":"a2000000-0000-4000-8000-000000000002","type":"loan","direction":"credit","amountCents":1000,"balanceBeforeCents":1000,"balanceAfterCents":2000,"reason":"Bike helmet","loanId":"a2000000-0000-4000-8000-000000000002","recordedAt":"2026-06-30T10:00:00.000Z","acceptedRevision":2},
+       {"id":"a2000000-0000-4000-8000-000000000003","type":"repayment","direction":"debit","amountCents":400,"balanceBeforeCents":2000,"balanceAfterCents":1600,"reason":"Loan payment","loanId":"a2000000-0000-4000-8000-000000000002","recordedAt":"2026-07-01T10:00:00.000Z","acceptedRevision":3}],
+     "loans":[{"id":"a2000000-0000-4000-8000-000000000002","principalCents":1000,"outstandingCents":600,"purpose":"Bike helmet","dueDate":null,"status":"open","createdAt":"2026-06-30T10:00:00.000Z","paidAt":null,"schedule":{"cadence":"weekly","amountCents":400,"firstDueDate":"2026-07-01"}}],
+     "loanOccurrences":[
+       {"id":"occurrence-2","loanId":"a2000000-0000-4000-8000-000000000002","dueOn":"2026-07-08","status":"scheduled","amountCents":null,"acceptedEntryId":null},
+       {"id":"occurrence-1","loanId":"a2000000-0000-4000-8000-000000000002","dueOn":"2026-07-01","status":"recorded","amountCents":400,"acceptedEntryId":"a2000000-0000-4000-8000-000000000003"}],
+     "allowanceRule":null,"nextCursor":null}
+    """)
+    static let paidScheduledLoanBootstrap = json("""
+    {"household":{"lineageId":"43053f83-eae7-46ac-9516-ca41406c7ff1","authority":"cloud","revision":4},
+     "family":{"id":"f-1","name":"Test Kid's family"},
+     "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+     "wallet":{"id":"w-1","balanceCents":1000},
+     "entries":[
+       {"id":"a3000000-0000-4000-8000-000000000001","type":"deposit","direction":"credit","amountCents":1000,"balanceBeforeCents":0,"balanceAfterCents":1000,"reason":null,"loanId":null,"recordedAt":"2026-06-30T09:00:00.000Z","acceptedRevision":1},
+       {"id":"a3000000-0000-4000-8000-000000000002","type":"loan","direction":"credit","amountCents":1000,"balanceBeforeCents":1000,"balanceAfterCents":2000,"reason":"Bike helmet","loanId":"a3000000-0000-4000-8000-000000000002","recordedAt":"2026-06-30T10:00:00.000Z","acceptedRevision":2},
+       {"id":"a3000000-0000-4000-8000-000000000003","type":"repayment","direction":"debit","amountCents":400,"balanceBeforeCents":2000,"balanceAfterCents":1600,"reason":"Loan payment","loanId":"a3000000-0000-4000-8000-000000000002","recordedAt":"2026-07-01T10:00:00.000Z","acceptedRevision":3},
+       {"id":"a3000000-0000-4000-8000-000000000004","type":"repayment","direction":"debit","amountCents":600,"balanceBeforeCents":1600,"balanceAfterCents":1000,"reason":null,"loanId":"a3000000-0000-4000-8000-000000000002","recordedAt":"2026-07-02T10:00:00.000Z","acceptedRevision":4}],
+     "loans":[{"id":"a3000000-0000-4000-8000-000000000002","principalCents":1000,"outstandingCents":0,"purpose":"Bike helmet","dueDate":null,"status":"paid","createdAt":"2026-06-30T10:00:00.000Z","paidAt":"2026-07-02T10:00:00.000Z","schedule":{"cadence":"weekly","amountCents":400,"firstDueDate":"2026-07-01"}}],
+     "loanOccurrences":[
+       {"id":"occurrence-2","loanId":"a3000000-0000-4000-8000-000000000002","dueOn":"2026-07-08","status":"cancelled","amountCents":null,"acceptedEntryId":null},
+       {"id":"occurrence-1","loanId":"a3000000-0000-4000-8000-000000000002","dueOn":"2026-07-01","status":"recorded","amountCents":400,"acceptedEntryId":"a3000000-0000-4000-8000-000000000003"}],
+     "allowanceRule":null,"nextCursor":null}
     """)
     static let changesAfterRevision = json("""
     {"household":{"lineageId":"43053f83-eae7-46ac-9516-ca41406c7ff1","authority":"cloud","revision":5},

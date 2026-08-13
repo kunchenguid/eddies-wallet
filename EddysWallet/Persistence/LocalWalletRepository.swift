@@ -135,8 +135,24 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
 
     public func submit(_ command: WalletCommand) async throws -> CommandResult {
         var candidate = try writableAggregate()
-        guard command.amountCents > 0 else { return .rejected(rejected(command, "Enter an amount greater than US$0.00.")) }
+        // An installment names no amount: the plan and the remaining balance
+        // decide it, so it is the one command that legitimately arrives at
+        // zero. Every other command still needs a positive amount.
+        guard command.amountCents > 0 || command.kind == .loanInstallment else {
+            return .rejected(rejected(command, "Enter an amount greater than US$0.00."))
+        }
         var wallet = candidate.snapshot
+        var settledAmountCents = command.amountCents
+        var settledDate = Date.now
+        // The service names an unlabelled installment "Loan payment", so every
+        // authority puts the same words on the same accepted entry.
+        let settledReason = command.kind == .loanInstallment
+            ? (command.reason ?? LoanSchedule.defaultInstallmentReason)
+            : command.reason
+        // One identity for the accepted entry, minted before the switch so a
+        // recorded installment and the ledger entry that pays it name the same
+        // event even when the idempotency key is not itself a UUID.
+        let eventID = UUID(uuidString: command.idempotencyKey) ?? UUID()
         switch command.kind {
         case .withdrawal:
             guard command.amountCents <= wallet.acceptedBalanceCents else { return .rejected(rejected(command, "The amount is greater than the accepted balance.")) }
@@ -146,10 +162,59 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             guard command.amountCents <= wallet.acceptedBalanceCents else { return .rejected(rejected(command, "The repayment is greater than the accepted balance.")) }
             wallet.acceptedBalanceCents -= command.amountCents
             wallet.loan?.remainingCents -= command.amountCents
+            // A free-amount repayment that clears the balance must leave no
+            // payment reminder standing, exactly as the service cancels the
+            // pending occurrence in the same transaction.
+            wallet.loan?.retireScheduleIfSettled()
+        case .loanInstallment:
+            // One scheduled payment at a time, advanced only in the same atomic
+            // save as its ledger entry, so an interrupted catch-up resumes at
+            // the first unrecorded payment and can never record one twice.
+            guard let loan = wallet.loan, let schedule = loan.schedule, let dueDate = schedule.nextDueDate else {
+                return .rejected(rejected(command, "There is no scheduled loan payment due."))
+            }
+            let calendar = Calendar.current
+            guard calendar.startOfDay(for: dueDate) <= calendar.startOfDay(for: .now) else {
+                return .rejected(rejected(command, "There is no scheduled loan payment due."))
+            }
+            if let expectedDueDate = command.dueDate {
+                guard calendar.startOfDay(for: expectedDueDate) == calendar.startOfDay(for: dueDate),
+                      calendar.startOfDay(for: expectedDueDate) < calendar.startOfDay(for: .now) else {
+                    return .rejected(rejected(command, "The loan payment schedule changed. Review the remaining payments before paying them."))
+                }
+            }
+            // The final payment is the rest of the loan, never the full named
+            // amount, so the outstanding balance never falls below zero.
+            let payment = Loan.installmentPaymentCents(named: schedule.amountCents, remainingCents: loan.remainingCents)
+            guard payment > 0 else { return .rejected(rejected(command, "There is no scheduled loan payment due.")) }
+            guard payment <= wallet.acceptedBalanceCents else {
+                return .rejected(rejected(command, "The loan payment is greater than the accepted balance."))
+            }
+            guard let settled = loan.recordingInstallment(
+                paymentCents: payment,
+                nextOccurrenceID: UUID().uuidString,
+                entryID: eventID,
+                calendar: calendar
+            ) else {
+                return .rejected(rejected(command, "The next loan payment could not be scheduled."))
+            }
+            wallet.acceptedBalanceCents -= payment
+            wallet.loan = settled
+            settledAmountCents = payment
         case .loan:
             guard wallet.loan == nil || wallet.loan?.isPaid == true else { return .rejected(rejected(command, "Finish the open loan before creating another one.")) }
+            if let plan = command.installmentPlan, plan.amountCents <= 0 {
+                return .rejected(rejected(command, "Enter a payment amount greater than US$0.00."))
+            }
             wallet.acceptedBalanceCents += command.amountCents
-            wallet.loan = Loan(remoteID: "local-loan", originalCents: command.amountCents, remainingCents: command.amountCents, purpose: command.reason, dueDate: command.dueDate)
+            wallet.loan = Loan(
+                remoteID: "local-loan",
+                originalCents: command.amountCents,
+                remainingCents: command.amountCents,
+                purpose: command.reason,
+                dueDate: command.dueDate,
+                schedule: command.installmentPlan.map { LoanSchedule.opening($0) }
+            )
         case .deposit:
             wallet.acceptedBalanceCents += command.amountCents
         case .allowance:
@@ -184,7 +249,18 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             )
             wallet.acceptedBalanceCents += command.amountCents
         }
-        let event = WalletEvent(id: UUID(uuidString: command.idempotencyKey) ?? UUID(), remoteID: command.idempotencyKey, type: activityType(command.kind), amountCents: command.amountCents, balanceBeforeCents: candidate.snapshot.acceptedBalanceCents, balanceAfterCents: wallet.acceptedBalanceCents, reason: command.reason, syncState: .recorded, explanation: explanation(command))
+        let event = WalletEvent(
+            id: eventID,
+            remoteID: command.idempotencyKey,
+            type: activityType(command.kind),
+            amountCents: settledAmountCents,
+            balanceBeforeCents: candidate.snapshot.acceptedBalanceCents,
+            balanceAfterCents: wallet.acceptedBalanceCents,
+            reason: settledReason,
+            date: settledDate,
+            syncState: .recorded,
+            explanation: explanation(command, amountCents: settledAmountCents)
+        )
         wallet.activities.insert(event, at: 0)
         wallet.lastUpdated = .now
         wallet.isStale = false
@@ -422,21 +498,16 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     }
 
     private func activityType(_ kind: WalletCommandKind) -> ActivityType {
-        switch kind { case .allowance: .allowance; case .deposit: .deposit; case .withdrawal: .withdrawal; case .loan: .loan; case .repayment: .repayment }
+        switch kind { case .allowance: .allowance; case .deposit: .deposit; case .withdrawal: .withdrawal; case .loan: .loan; case .repayment, .loanInstallment: .repayment }
     }
 
     private func rejected(_ command: WalletCommand, _ reason: String) -> WalletEvent {
         WalletEvent(type: activityType(command.kind), amountCents: command.amountCents, reason: command.reason, syncState: .rejected, explanation: "This action was not recorded and did not change the accepted balance.", rejectionReason: reason)
     }
 
-    private func explanation(_ command: WalletCommand) -> String {
-        let amount = Money(cents: command.amountCents).display
-        return switch command.kind {
-        case .allowance: "Your parent added \(amount) as your allowance."
-        case .deposit: "Your parent added \(amount) to your wallet."
-        case .withdrawal: "Your parent recorded that \(amount) was used."
-        case .loan: "Your parent gave you \(amount) to use now and give back over time."
-        case .repayment: "Your parent recorded \(amount) returned toward the loan."
-        }
+    /// A recorded installment carries the amount the plan actually settled,
+    /// which is not the amount the command named.
+    private func explanation(_ command: WalletCommand, amountCents: Int) -> String {
+        AcceptedEventCopy.explanation(for: activityType(command.kind), amountCents: amountCents)
     }
 }

@@ -664,7 +664,7 @@ final class WalletTests: XCTestCase {
             (.deposit, "Your parent added US$5.00 to your wallet."),
             (.withdrawal, "Your parent recorded that US$5.00 was used."),
             (.loan, "Your parent gave you US$5.00 to use now and give back over time."),
-            (.repayment, "Your parent recorded US$5.00 returned toward the loan."),
+            (.repayment, "Your parent paid US$5.00 toward your loan."),
         ]
 
         for (type, expectedKidCopy) in expectations {

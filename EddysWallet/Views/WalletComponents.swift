@@ -137,7 +137,7 @@ struct LoanCardView: View {
                     .font(EW.Font.caption)
                     .foregroundStyle(EW.Color.textSecondary)
                     if isParent {
-                        Text("Record repayment")
+                        Text("Pay toward loan")
                             .font(EW.Font.bodyBold)
                             .foregroundStyle(EW.Color.peach700)
                     }
