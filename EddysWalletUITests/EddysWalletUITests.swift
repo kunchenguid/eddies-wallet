@@ -463,6 +463,29 @@ final class EddysWalletUITests: XCTestCase {
         assertActionIsReachable(app.buttons["Review"], "the loan review control after scrolling", in: app)
     }
 
+    func testLoanCreationDefaultsToNoPlanAndRevealsOptionalPaymentFields() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let createLoan = app.buttons["Create loan"]
+        for _ in 0..<6 where !createLoan.isHittable { app.swipeUp() }
+        createLoan.tap()
+
+        let paymentPlan = app.segmentedControls["loan-payment-plan"]
+        XCTAssertTrue(paymentPlan.waitForExistence(timeout: 5))
+        XCTAssertTrue(paymentPlan.buttons["No plan"].isSelected, "loan creation must remain scheduleless by default")
+        XCTAssertFalse(app.textFields["loan-payment-amount"].exists, "scheduleless loans must not ask for a payment amount")
+
+        paymentPlan.buttons["Weekly"].tap()
+        XCTAssertTrue(app.staticTexts["Amount for each payment"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["loan-payment-amount"].exists)
+        XCTAssertTrue(
+            app.staticTexts["The last payment is whatever is left to repay, so it can be smaller than this amount."].exists,
+            "parents must see that the final installment is capped before creating a scheduled loan"
+        )
+    }
+
     func testLoanSheetFadeClearsAtContentEnd() throws {
         let phoneOverflowArguments = UIDevice.current.userInterfaceIdiom == .pad
             ? []
