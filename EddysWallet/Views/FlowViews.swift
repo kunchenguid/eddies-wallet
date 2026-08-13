@@ -14,7 +14,7 @@ public enum MoneyFlowKind: String, Identifiable, CaseIterable {
         case .deposit: "Add deposit"
         case .withdrawal: "Record withdrawal"
         case .loan: "Create loan"
-        case .repayment: "Record repayment"
+        case .repayment: "Pay toward loan"
         case .allowance: "Pay out allowance"
         }
     }
@@ -263,7 +263,7 @@ struct MoneyFlowView: View {
         SheetForm {
             VStack(alignment: .leading, spacing: EW.Space.five) {
                 VStack(alignment: .leading, spacing: EW.Space.three) {
-                    Label(kind == .allowance ? "Review before paying out" : "Review before recording", systemImage: "checkmark.circle")
+                    Label(reviewHeading, systemImage: "checkmark.circle")
                         .font(EW.Font.heading)
                         .foregroundStyle(EW.Color.textPrimary)
                     reviewRow(label: "Event", value: kind.title)
@@ -289,7 +289,7 @@ struct MoneyFlowView: View {
                     .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
             }
         } actions: {
-            Button(kind == .allowance ? "Pay out allowance" : "Confirm \(kind.title.lowercased())") {
+            Button(confirmActionTitle) {
                 Task { await confirm() }
             }
             .buttonStyle(PrimaryButtonStyle())
@@ -351,8 +351,27 @@ struct MoneyFlowView: View {
         case .deposit: "Add pretend dollars to the accepted balance in \(walletReference)."
         case .withdrawal: "Record virtual dollars as used from \(walletReference)."
         case .loan: "Give \(childReference) virtual dollars to use now and give back over time."
-        case .repayment: "Record virtual dollars returned toward the open loan."
+        case .repayment: "Pay virtual dollars back toward the open loan."
         case .allowance: "Pay out this virtual allowance in \(walletReference)."
+        }
+    }
+
+    /// The two settlement flows own their own verbs - allowance is paid out,
+    /// a loan is paid back - so neither borrows the generic "record" wording
+    /// that every other money event uses.
+    private var reviewHeading: String {
+        switch kind {
+        case .allowance: "Review before paying out"
+        case .repayment: "Review before paying"
+        case .deposit, .withdrawal, .loan: "Review before recording"
+        }
+    }
+
+    private var confirmActionTitle: String {
+        switch kind {
+        case .allowance: "Pay out allowance"
+        case .repayment: "Pay toward loan"
+        case .deposit, .withdrawal, .loan: "Confirm \(kind.title.lowercased())"
         }
     }
 
@@ -383,9 +402,12 @@ struct MoneyFlowView: View {
         switch result {
         case .accepted:
             resultState = .recorded
-            resultMessage = kind == .allowance
-                ? "This virtual allowance was paid out and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
-                : "This virtual money event was accepted and added to \(ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname))."
+            let walletReference = ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)
+            resultMessage = switch kind {
+            case .allowance: "This virtual allowance was paid out and added to \(walletReference)."
+            case .repayment: "This virtual payment was accepted toward the open loan."
+            case .deposit, .withdrawal, .loan: "This virtual money event was accepted and added to \(walletReference)."
+            }
         case .acceptedScheduleUnavailable:
             resultState = .recorded
             resultMessage = "This virtual allowance was paid out, but Cloud could not load the latest allowance schedule. Refresh before paying out another week."
@@ -397,9 +419,12 @@ struct MoneyFlowView: View {
             resultMessage = event.explanation
         case .rejected(let event):
             resultState = .rejected
-            resultMessage = event.rejectionReason ?? (kind == .allowance
-                ? "This allowance was not paid out and did not change the accepted balance."
-                : "This action was not recorded and did not change the accepted balance.")
+            let refusal = switch kind {
+            case MoneyFlowKind.allowance: "This allowance was not paid out and did not change the accepted balance."
+            case .repayment: "This payment was not made and did not change the accepted balance."
+            case .deposit, .withdrawal, .loan: "This action was not recorded and did not change the accepted balance."
+            }
+            resultMessage = event.rejectionReason ?? refusal
         }
         isSubmitting = false
         step = .result

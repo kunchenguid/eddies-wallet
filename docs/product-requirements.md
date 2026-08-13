@@ -312,16 +312,16 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 
 **Payment plan and missed payments:**
 
-1. A loan created without a cadence has no plan. It shows no reminder and no payment list, and keeps the one-shot **Record repayment** path unchanged. A plan is chosen once, at loan creation.
+1. A loan created without a cadence has no plan. It shows no reminder and no payment list, and keeps the one-shot **Pay toward loan** path unchanged. A plan is chosen once, at loan creation.
 2. A scheduled loan shows **Next payment**: the earliest current or future payment day and what that payment settles. A past missed day is never shown as the next payment.
 3. The last payment of a plan is whatever is left to repay, so it is smaller than the named amount when the balance no longer covers it. A payment can never exceed the outstanding loan, and the outstanding amount can never fall below zero.
-4. An unrecorded payment day strictly before today is missed. Show every currently missed payment, **N missed**, and **Owed now** in both free-local and Cloud modes. **Owed now** is capped at the outstanding balance. A payment due today remains the ordinary single one and is not part of the missed set.
-5. **Record all missed payments** asks the parent to confirm the initially visible missed set, including its count and total, then **Record all** settles that fixed set sequentially as separate repayments. It never expands the batch to include a newly due payment. Recorded payments remain durable after interruption, while the untouched ones remain visible and recordable later without duplicates.
+4. An unrecorded payment day strictly before today is missed. Show every currently missed payment, **N missed**, and **Owed total** in both free-local and Cloud modes. **Owed total** is capped at the outstanding balance. A payment due today remains the ordinary single one and is not part of the missed set.
+5. **Pay missed payments** asks the parent to confirm the initially visible missed set, including its count and total, then **Pay all** settles that fixed set sequentially as separate payments. It never expands the batch to include a newly due payment. Paid installments remain durable after interruption, while the untouched ones remain visible and payable later without duplicates.
 6. A repayment that clears the balance retires the plan, so a settled loan never leaves a payment reminder standing.
 
 **Repay:**
 
-1. Parent opens the loan card and chooses **Record repayment**, or, on a scheduled loan whose payment is due, **Record this payment**.
+1. Parent opens the loan card and chooses **Pay toward loan**, or, on a scheduled loan whose payment is due, **Pay this payment**.
 2. Parent enters a partial or full repayment amount. A scheduled payment names no amount: the plan and the remaining balance decide it.
 3. The app shows the remaining principal after repayment and refuses an amount above the outstanding principal or available accepted wallet balance.
 4. Free-local authority records a valid repayment immediately. Service authority requires a current online replica and records it after acceptance is observed; an ambiguous submitted request remains **Waiting to sync**.

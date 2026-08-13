@@ -1203,13 +1203,13 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
             current.loan?.retireScheduleIfSettled()
         case .loanInstallment:
             guard let loan = current.loan, let payment = loan.nextInstallmentPaymentCents else {
-                return .rejected(makeEvent(for: command, state: .rejected, explanation: "This loan payment was not recorded.", rejectionReason: "There is no scheduled loan payment to record."))
+                return .rejected(makeEvent(for: command, state: .rejected, explanation: "This loan payment was not made.", rejectionReason: "There is no scheduled loan payment due."))
             }
             guard payment <= current.acceptedBalanceCents else {
-                return .rejected(makeEvent(for: command, state: .rejected, explanation: "This loan payment was not recorded.", rejectionReason: "The payment is greater than the accepted balance."))
+                return .rejected(makeEvent(for: command, state: .rejected, explanation: "This loan payment was not made.", rejectionReason: "The payment is greater than the accepted balance."))
             }
             guard let settled = loan.recordingInstallment(paymentCents: payment, nextOccurrenceID: UUID().uuidString) else {
-                return .rejected(makeEvent(for: command, state: .rejected, explanation: "This loan payment was not recorded.", rejectionReason: "There is no scheduled loan payment to record."))
+                return .rejected(makeEvent(for: command, state: .rejected, explanation: "This loan payment was not made.", rejectionReason: "There is no scheduled loan payment due."))
             }
             current.acceptedBalanceCents -= payment
             current.loan = settled

@@ -171,22 +171,22 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             // save as its ledger entry, so an interrupted catch-up resumes at
             // the first unrecorded payment and can never record one twice.
             guard let loan = wallet.loan, let schedule = loan.schedule, let dueDate = schedule.nextDueDate else {
-                return .rejected(rejected(command, "There is no scheduled loan payment to record."))
+                return .rejected(rejected(command, "There is no scheduled loan payment due."))
             }
             let calendar = Calendar.current
             guard calendar.startOfDay(for: dueDate) <= calendar.startOfDay(for: .now) else {
-                return .rejected(rejected(command, "There is no scheduled loan payment to record."))
+                return .rejected(rejected(command, "There is no scheduled loan payment due."))
             }
             if let expectedDueDate = command.dueDate {
                 guard calendar.startOfDay(for: expectedDueDate) == calendar.startOfDay(for: dueDate),
                       calendar.startOfDay(for: expectedDueDate) < calendar.startOfDay(for: .now) else {
-                    return .rejected(rejected(command, "The loan payment schedule changed. Review the remaining payments before recording them."))
+                    return .rejected(rejected(command, "The loan payment schedule changed. Review the remaining payments before paying them."))
                 }
             }
             // The final payment is the rest of the loan, never the full named
             // amount, so the outstanding balance never falls below zero.
             let payment = Loan.installmentPaymentCents(named: schedule.amountCents, remainingCents: loan.remainingCents)
-            guard payment > 0 else { return .rejected(rejected(command, "There is no scheduled loan payment to record.")) }
+            guard payment > 0 else { return .rejected(rejected(command, "There is no scheduled loan payment due.")) }
             guard payment <= wallet.acceptedBalanceCents else {
                 return .rejected(rejected(command, "The loan payment is greater than the accepted balance."))
             }

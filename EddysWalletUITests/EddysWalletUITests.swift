@@ -8,7 +8,7 @@ import XCTest
 /// PIN 1234) - no real accounts, families, or services.
 final class EddysWalletUITests: XCTestCase {
     private let doorLabel = "Parent area. Asks for the parent PIN."
-    private let parentActionTitles = ["Add deposit", "Record withdrawal", "Create loan", "Record repayment", "Pay out allowance"]
+    private let parentActionTitles = ["Add deposit", "Record withdrawal", "Create loan", "Pay toward loan", "Pay out allowance"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false

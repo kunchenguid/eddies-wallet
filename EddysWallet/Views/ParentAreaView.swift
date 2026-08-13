@@ -217,11 +217,11 @@ struct ParentAreaView: View {
             Text(recordAllMissedAllowanceAlertMessage)
         }
         .confirmationDialog(
-            "Record \(confirmedMissedLoanInstallments?.count ?? 0) missed loan payments?",
+            "Pay \(confirmedMissedLoanInstallments?.count ?? 0) missed loan payments?",
             isPresented: $isConfirmingRecordAllMissedLoanInstallments,
             titleVisibility: .visible
         ) {
-            Button("Record all") {
+            Button("Pay all") {
                 guard let confirmedMissedLoanInstallments else { return }
                 self.confirmedMissedLoanInstallments = nil
                 Task {
@@ -233,7 +233,7 @@ struct ParentAreaView: View {
             }
         } message: {
             let confirmed = confirmedMissedLoanInstallments ?? LoanMissedInstallments(installments: [])
-            Text("This records \(confirmed.count) separate repayments totaling \(Money(cents: confirmed.totalCents).display) toward the loan. The next payment is not included.")
+            Text("This pays \(confirmed.count) separate payments totaling \(Money(cents: confirmed.totalCents).display) toward the loan. The next payment is not included.")
         }
         .alert(recordAllMissedLoanInstallmentsAlertTitle, isPresented: Binding(
             get: { recordAllMissedLoanInstallmentsOutcome != nil },
@@ -244,11 +244,15 @@ struct ParentAreaView: View {
             Text(recordAllMissedLoanInstallmentsAlertMessage)
         }
         .confirmationDialog(
-            "Record this loan payment?",
+            "Pay this loan payment?",
             isPresented: $isConfirmingRecordLoanInstallment,
             titleVisibility: .visible
         ) {
-            Button("Record payment") {
+            // Deliberately not the card button's own words: the batch dialog
+            // confirms with "Pay all", so its singular counterpart is "Pay".
+            // Sharing a label with the control that opened the dialog also
+            // leaves two identical buttons on screen at once.
+            Button("Pay") {
                 guard let next = store.nextLoanInstallment else { return }
                 Task {
                     let result = await store.submit(WalletCommand(kind: .loanInstallment, amountCents: next.amountCents))
@@ -262,7 +266,7 @@ struct ParentAreaView: View {
             Button("Not now", role: .cancel) {}
         } message: {
             let next = store.nextLoanInstallment
-            Text("This records \(Money(cents: next?.amountCents ?? 0).display) toward the loan for the payment due \(next.map { $0.dueDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()) } ?? "").")
+            Text("This pays \(Money(cents: next?.amountCents ?? 0).display) toward the loan for the payment due \(next.map { $0.dueDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()) } ?? "").")
         }
         .alert("Loan payment", isPresented: Binding(
             get: { recordLoanInstallmentOutcome != nil },
@@ -582,14 +586,14 @@ struct ParentAreaView: View {
                 .padding(.horizontal, EW.Space.three)
                 .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
                 HStack {
-                    Text("Owed now")
+                    Text("Owed total")
                         .font(EW.Font.bodyBold)
                         .foregroundStyle(EW.Color.textPrimary)
                     Spacer()
                     MoneyAmount(cents: missedLoanInstallments.totalCents, font: EW.Font.heading)
                 }
                 ActionButton(
-                    title: "Record all missed payments",
+                    title: "Pay missed payments",
                     icon: "arrow.triangle.2.circlepath",
                     tint: EW.Color.peach700,
                     isEnabled: store.canStartParentMutation && !store.isRecordingMissedLoanInstallments
@@ -597,17 +601,17 @@ struct ParentAreaView: View {
                     confirmedMissedLoanInstallments = missedLoanInstallments
                     isConfirmingRecordAllMissedLoanInstallments = true
                 }
-                .accessibilityIdentifier("record-all-missed-loan-payments")
+                .accessibilityIdentifier("pay-missed-loan-payments")
             } else if let next = store.nextLoanInstallment, next.dueDate <= Calendar.current.startOfDay(for: .now) {
                 ActionButton(
-                    title: "Record this payment",
+                    title: "Pay this payment",
                     icon: "arrow.triangle.2.circlepath",
                     tint: EW.Color.peach700,
                     isEnabled: store.canStartParentMutation
                 ) {
                     isConfirmingRecordLoanInstallment = true
                 }
-                .accessibilityIdentifier("record-loan-payment")
+                .accessibilityIdentifier("pay-loan-payment")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -626,7 +630,7 @@ struct ParentAreaView: View {
 
     private var recordAllMissedLoanInstallmentsAlertTitle: String {
         switch recordAllMissedLoanInstallmentsOutcome {
-        case .recorded: "Missed payments recorded"
+        case .recorded: "Missed payments paid"
         case .awaitingCloud: "Cloud is confirming the payment"
         case .reviewRequired: "Review the latest loan"
         case .partial: "Some missed payments were recorded"
@@ -637,23 +641,23 @@ struct ParentAreaView: View {
     private var recordAllMissedLoanInstallmentsAlertMessage: String {
         switch recordAllMissedLoanInstallmentsOutcome {
         case .recorded(let count, let totalCents):
-            "Recorded \(count) separate repayments totaling \(Money(cents: totalCents).display) toward the loan."
+            "Paid \(count) separate payments totaling \(Money(cents: totalCents).display) toward the loan."
         case .awaitingCloud(let recordedCount, let recordedTotalCents):
             if recordedCount == 0 {
-                "Cloud has the payment request. Refresh to confirm the latest loan before recording anything else."
+                "Cloud has the payment request. Refresh to confirm the latest loan before paying anything else."
             } else {
-                "Recorded \(recordedCount) repayments totaling \(Money(cents: recordedTotalCents).display). Cloud is confirming the next payment. Refresh before recording anything else."
+                "Paid \(recordedCount) payments totaling \(Money(cents: recordedTotalCents).display). Cloud is confirming the next payment. Refresh before paying anything else."
             }
         case .reviewRequired(let recordedCount, let recordedTotalCents):
             if recordedCount == 0 {
-                "The loan payments changed. Review the latest wallet before recording missed payments."
+                "The loan payments changed. Review the latest wallet before paying missed payments."
             } else {
-                "Recorded \(recordedCount) repayments totaling \(Money(cents: recordedTotalCents).display). The loan payments changed. Review the latest wallet before recording more."
+                "Paid \(recordedCount) payments totaling \(Money(cents: recordedTotalCents).display). The loan payments changed. Review the latest wallet before paying more."
             }
         case .partial(let recordedCount, let recordedTotalCents, let remaining):
-            "Recorded \(recordedCount) repayments totaling \(Money(cents: recordedTotalCents).display). \(remaining.count) missed payments remain and can be recorded after reviewing the latest wallet."
+            "Paid \(recordedCount) payments totaling \(Money(cents: recordedTotalCents).display). \(remaining.count) missed payments remain and can be paid after reviewing the latest wallet."
         case .noMissed:
-            "There are no past-due loan payments to record."
+            "There are no past-due loan payments to pay."
         case nil:
             ""
         }
@@ -661,9 +665,9 @@ struct ParentAreaView: View {
 
     private var recordLoanInstallmentAlertMessage: String {
         switch recordLoanInstallmentOutcome {
-        case .recorded: "This payment was recorded toward the loan."
-        case .pending: "Cloud has the payment request. Refresh before recording anything else."
-        case .rejected, .draft, nil: "This payment was not recorded and did not change the accepted balance."
+        case .recorded: "Paid this payment toward the loan."
+        case .pending: "Cloud has the payment request. Refresh before paying anything else."
+        case .rejected, .draft, nil: "This payment was not made and did not change the accepted balance."
         }
     }
 

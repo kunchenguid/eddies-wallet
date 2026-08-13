@@ -278,7 +278,7 @@ final class LocalWalletPersistenceTests: XCTestCase {
         let result = try await repository.submit(WalletCommand(kind: .loanInstallment, amountCents: 400))
 
         guard case .rejected(let event) = result else { return XCTFail("a future installment must be rejected") }
-        XCTAssertEqual(event.rejectionReason, "There is no scheduled loan payment to record.")
+        XCTAssertEqual(event.rejectionReason, "There is no scheduled loan payment due.")
         XCTAssertEqual(repository.snapshot().acceptedBalanceCents, balanceBefore)
         XCTAssertEqual(repository.snapshot().loan?.remainingCents, 1_000)
     }
@@ -331,7 +331,7 @@ final class LocalWalletPersistenceTests: XCTestCase {
         guard case .rejected(let event) = installment else {
             return XCTFail("a scheduleless loan has no installment to record")
         }
-        XCTAssertEqual(event.rejectionReason, "There is no scheduled loan payment to record.")
+        XCTAssertEqual(event.rejectionReason, "There is no scheduled loan payment due.")
     }
 
     func testMonthlyInstallmentsStayOnTheirAnchorDayAcrossShortMonths() async throws {

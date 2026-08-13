@@ -295,7 +295,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
         app.staticTexts["A little at a time is okay"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Loan details"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["Record repayment"].exists, "The kid loan detail is read-only")
+        XCTAssertFalse(app.buttons["Pay toward loan"].exists, "The kid loan detail is read-only")
         capture("kid-loan-detail")
         app.buttons["Done"].tap()
     }
@@ -450,51 +450,53 @@ final class EvidenceCaptureUITests: XCTestCase {
         unlockParentArea(app)
         capture("parent-loan-payments-initial")
 
-        let recordAll = app.buttons["Record all missed payments"]
-        for _ in 0..<3 where !recordAll.isHittable {
+        let payMissed = app.buttons["Pay missed payments"]
+        for _ in 0..<3 where !payMissed.isHittable {
             app.swipeUp()
         }
-        XCTAssertTrue(recordAll.waitForExistence(timeout: 5))
-        XCTAssertTrue(recordAll.isHittable)
+        XCTAssertTrue(payMissed.waitForExistence(timeout: 5))
+        XCTAssertTrue(payMissed.isHittable)
         // The reminder names the next payment; the list below it is only what
         // is already past due.
         XCTAssertTrue(app.staticTexts["Next payment"].exists)
         XCTAssertTrue(app.staticTexts["Missed payments"].exists)
         XCTAssertTrue(app.staticTexts["3 missed"].exists)
-        XCTAssertTrue(app.staticTexts["Owed now"].exists)
+        XCTAssertTrue(app.staticTexts["Owed total"].exists)
         capture("parent-loan-payments")
 
-        recordAll.tap()
-        XCTAssertTrue(app.staticTexts["Record 3 missed loan payments?"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["This records 3 separate repayments totaling US$12.00 toward the loan. The next payment is not included."].exists)
-        let recordAllConfirm = app.buttons["Record all"]
-        XCTAssertTrue(recordAllConfirm.exists)
+        payMissed.tap()
+        XCTAssertTrue(app.staticTexts["Pay 3 missed loan payments?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["This pays 3 separate payments totaling US$12.00 toward the loan. The next payment is not included."].exists)
+        let payAll = app.buttons["Pay all"]
+        XCTAssertTrue(payAll.exists)
         // A dialog captured mid-presentation is a transition frame, not an end
         // state, so wait until its action is actually usable.
-        waitUntilHittable(recordAllConfirm)
+        waitUntilHittable(payAll)
         capture("parent-loan-payments-confirm")
 
-        recordAllConfirm.tap()
-        XCTAssertTrue(app.staticTexts["Missed payments recorded"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Recorded 3 separate repayments totaling US$12.00 toward the loan."].exists)
+        payAll.tap()
+        XCTAssertTrue(app.staticTexts["Missed payments paid"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Paid 3 separate payments totaling US$12.00 toward the loan."].exists)
         capture("parent-loan-payments-recorded")
 
         app.buttons["Done"].tap()
-        // US$24.00 - US$12.00 recorded. The three missed payments are gone and
+        // US$24.00 - US$12.00 paid. The three missed payments are gone and
         // the last payment is capped at the US$3.00 that is left to repay.
         XCTAssertTrue(app.staticTexts["US$12.00"].waitForExistence(timeout: 5))
-        let recordThis = app.buttons["Record this payment"]
-        for _ in 0..<3 where !recordThis.isHittable {
+        let payThis = app.buttons["Pay this payment"]
+        for _ in 0..<3 where !payThis.isHittable {
             app.swipeUp()
         }
-        XCTAssertTrue(recordThis.waitForExistence(timeout: 5))
+        XCTAssertTrue(payThis.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Missed payments"].exists)
         capture("parent-loan-payments-settled")
 
-        recordThis.tap()
-        XCTAssertTrue(app.staticTexts["Record this loan payment?"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["This records US$3.00 toward the loan for the payment due \(todayLabel)."].exists)
-        waitUntilHittable(app.buttons["Record payment"])
+        payThis.tap()
+        XCTAssertTrue(app.staticTexts["Pay this loan payment?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["This pays US$3.00 toward the loan for the payment due \(todayLabel)."].exists)
+        let payOne = app.buttons["Pay"]
+        XCTAssertTrue(payOne.waitForExistence(timeout: 5))
+        waitUntilHittable(payOne)
         capture("parent-loan-payment-single-confirm")
     }
 

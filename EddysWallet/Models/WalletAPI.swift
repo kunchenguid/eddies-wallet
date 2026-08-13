@@ -1075,7 +1075,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
         case .loanInstallment:
             guard let loan = current.loan, let loanID = loan.remoteID,
                   let occurrenceID = loan.schedule?.nextOccurrenceID else {
-                throw WalletAPIError.server(statusCode: 409, code: "LOAN_OCCURRENCE_NOT_SCHEDULED", message: "There is no scheduled loan payment to record.")
+                throw WalletAPIError.server(statusCode: 409, code: "LOAN_OCCURRENCE_NOT_SCHEDULED", message: "There is no scheduled loan payment due.")
             }
             // The installment amount is entirely server-decided, so the body
             // names none and the final payment caps at the remaining balance.

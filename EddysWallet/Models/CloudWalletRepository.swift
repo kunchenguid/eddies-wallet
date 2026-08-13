@@ -420,7 +420,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 throw WalletAPIError.server(
                     statusCode: 409,
                     code: "LOAN_OCCURRENCE_NOT_SCHEDULED",
-                    message: "There is no scheduled loan payment to record."
+                    message: "There is no scheduled loan payment due."
                 )
             }
             let calendar = Calendar.current
@@ -431,7 +431,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             if let expectedDueDate = command.dueDate {
                 guard calendar.startOfDay(for: expectedDueDate) == calendar.startOfDay(for: nextDueDate),
                       calendar.startOfDay(for: expectedDueDate) < today else {
-                    throw WalletAPIError.invalidResponse("The missed loan payments changed. Review the remaining payments before recording them.")
+                    throw WalletAPIError.invalidResponse("The missed loan payments changed. Review the remaining payments before paying them.")
                 }
             }
             authoritativeAmountCents = Loan.installmentPaymentCents(
