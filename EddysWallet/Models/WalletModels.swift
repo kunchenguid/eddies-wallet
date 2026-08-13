@@ -1179,7 +1179,9 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
     }
 
     public func submit(_ command: WalletCommand) async throws -> CommandResult {
-        guard command.amountCents > 0 else {
+        // An installment names no amount: the plan and the remaining balance
+        // decide it, so it is the one command that legitimately arrives at zero.
+        guard command.amountCents > 0 || command.kind == .loanInstallment else {
             return .rejected(makeEvent(for: command, state: .rejected, explanation: "This amount was not recorded.", rejectionReason: "Enter an amount greater than US$0.00."))
         }
 

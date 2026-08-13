@@ -619,6 +619,82 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(members.map(\.0), ["lineageId", "familyName", "nickname", "avatarUrl", "loans", "entries"])
     }
 
+    /// The server adds `loanOccurrences` to its own expected digest only when a
+    /// client sent the key, so a household with no installment plan must hash
+    /// exactly what it hashed before plans existed - and one with a plan must
+    /// carry both the plan and its occurrence chain.
+    func testImportAggregateAddsInstallmentKeysOnlyForAScheduledHousehold() throws {
+        let lineage = UUID(uuidString: "b1a1e1d1-0000-4000-8000-000000000001")!
+        let operation = UUID(uuidString: "b1a1e1d1-0000-4000-8000-000000000002")!
+        let loanID = UUID(uuidString: "b1a1e1d1-0000-4000-8000-000000000003")!
+        let entryID = UUID(uuidString: "b1a1e1d1-0000-4000-8000-000000000004")!
+        func manifest(
+            schedule: CloudImportManifest.Loan.Schedule?,
+            occurrences: [CloudImportManifest.LoanOccurrence]
+        ) -> CloudImportManifest {
+            CloudImportManifest(
+                lineageID: lineage,
+                operationID: operation,
+                familyName: "f",
+                nickname: "n",
+                loans: [
+                    CloudImportManifest.Loan(
+                        id: loanID,
+                        principalCents: 1_000,
+                        outstandingCents: 600,
+                        purpose: "Bike helmet",
+                        dueDate: nil,
+                        status: "open",
+                        createdAt: Date(timeIntervalSince1970: 1_780_000_000),
+                        paidAt: nil,
+                        schedule: schedule
+                    )
+                ],
+                entries: [],
+                loanOccurrences: occurrences
+            )
+        }
+
+        let unscheduled = manifest(schedule: nil, occurrences: [])
+        guard case .object(let unscheduledMembers) = unscheduled.canonicalAggregate else {
+            return XCTFail("aggregate must be a JSON object")
+        }
+        XCTAssertEqual(unscheduledMembers.map(\.0), ["lineageId", "familyName", "nickname", "avatarUrl", "loans", "entries"])
+        XCTAssertFalse(String(decoding: unscheduled.requestBody, as: UTF8.self).contains("schedule"))
+        XCTAssertFalse(String(decoding: unscheduled.requestBody, as: UTF8.self).contains("loanOccurrences"))
+
+        let scheduled = manifest(
+            schedule: CloudImportManifest.Loan.Schedule(cadence: "weekly", amountCents: 400, firstDueDate: "2026-07-01"),
+            occurrences: [
+                CloudImportManifest.LoanOccurrence(loanID: loanID, dueOn: "2026-07-01", status: "recorded", entryOperationID: entryID),
+                CloudImportManifest.LoanOccurrence(loanID: loanID, dueOn: "2026-07-08", status: "scheduled", entryOperationID: nil),
+            ]
+        )
+        guard case .object(let scheduledMembers) = scheduled.canonicalAggregate else {
+            return XCTFail("aggregate must be a JSON object")
+        }
+        XCTAssertEqual(
+            scheduledMembers.map(\.0),
+            ["lineageId", "familyName", "nickname", "avatarUrl", "loans", "entries", "loanOccurrences"]
+        )
+        XCTAssertNotEqual(scheduled.aggregateSHA256, unscheduled.aggregateSHA256)
+
+        // The digest must be over exactly the bytes that are sent.
+        let body = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: scheduled.requestBody) as? [String: Any]
+        )
+        XCTAssertEqual(body["aggregateSha256"] as? String, scheduled.aggregateSHA256)
+        let sentLoan = try XCTUnwrap((body["loans"] as? [[String: Any]])?.first)
+        XCTAssertEqual(
+            (sentLoan["schedule"] as? [String: Any])?["firstDueDate"] as? String,
+            "2026-07-01"
+        )
+        let sentOccurrences = try XCTUnwrap(body["loanOccurrences"] as? [[String: Any]])
+        XCTAssertEqual(sentOccurrences.map { $0["status"] as? String }, ["recorded", "scheduled"])
+        XCTAssertEqual(sentOccurrences.first?["entryOperationId"] as? String, entryID.uuidString.lowercased())
+        XCTAssertNil(sentOccurrences.last?["entryOperationId"] as? String)
+    }
+
     // MARK: - Helpers
 
     private static let baseURL = URL(string: "https://api.example.test")!
