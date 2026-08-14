@@ -117,11 +117,11 @@
   "approval": {
     "approved": true,
     "approvedBy": "kunchenguid",
-    "approvedUtc": "2026-08-14T02:28:07Z",
+    "approvedUtc": "2026-08-14T08:53:54Z",
     "statement": "Generated from live App Store Connect GET readback plus committed 0.1.17 screenshot and IAP review-screenshot bytes. Apple stores Cloud IAP review screenshots as fileName SOURCE; those two assets were bound by size and MD5 to the committed iPhone 6.9 priced shot. Not submitted."
   },
   "binding": {
     "algorithm": "eddies-wallet-app-review-manifest-v1",
-    "manifestHash": "ec04ddb3927fa79ad5d2173de53aba402d4deaad1e5790881f5a693d3018772c"
+    "manifestHash": "91517198be5ad1febf81fd3811e261f96f93f378d47c9f4f84d97e7f082fd40b"
   }
 }
