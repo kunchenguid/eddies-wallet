@@ -370,8 +370,11 @@ class FakeAppStoreConnect:
                 for product_id, subscription in self.subscriptions.items()
             ]
             return [_res("subscriptionGroups", "group-1", {})], included
-        if path == "/v1/reviewSubmissions":
-            open_states = set(query["filter[state]"].split(","))
+        if path == f"/v1/apps/{APP_ID}/reviewSubmissions":
+            # SSHHIP-aligned: the engine reads the app-scoped relationship
+            # collection with no `filter[state]` and narrows to the open states
+            # client-side, so this returns every review submission regardless of
+            # state.
             return (
                 [
                     _res(
@@ -380,7 +383,6 @@ class FakeAppStoreConnect:
                         {"state": entry["state"], "platform": "IOS"},
                     )
                     for identifier, entry in self.review_submissions.items()
-                    if entry["state"] in open_states
                 ],
                 [],
             )
@@ -486,43 +488,158 @@ def _without_id(entry):
     return {key: value for key, value in entry.items() if key != "id"}
 
 
-# Apple's documented valid fields for the reviewSubmissions resource. A
-# `fields[reviewSubmissions]` sparse-fieldset carrying anything outside this set
-# makes App Store Connect reject the whole read with HTTP 400
-# (PARAMETER_ERROR.INVALID, "'<name>' is not a valid field name") - which is the
-# 400 that blocked the submit before the `submitted` field was dropped.
-VALID_REVIEW_SUBMISSION_FIELDS = frozenset(
-    {"state", "platform", "submittedDate", "createdDate"}
-)
+# Apple's documented valid `fields[<type>]` sparse-fieldset values for the App
+# Store Connect resource types the SUBMIT path reads, transcribed from Apple's
+# App Store Connect OpenAPI specification. A `fields[<type>]` carrying anything
+# outside its set makes App Store Connect reject the whole read with HTTP 400
+# (PARAMETER_ERROR.INVALID, "'<name>' is not a valid field name") - the exact
+# failure that blocked the submit twice: first `fields[reviewSubmissions]=...,
+# submitted` (`submitted` invalid), then `fields[reviewSubmissionItems]=...,
+# subscription` (`subscription` is not a reviewSubmissionItems field). Note that
+# `submitted`/`subscription` are deliberately ABSENT from these sets.
+VALID_SUBMIT_FIELDS = {
+    "appStoreVersions": frozenset({
+        "platform", "versionString", "appStoreState", "appVersionState",
+        "copyright", "reviewType", "releaseType", "earliestReleaseDate",
+        "usesIdfa", "downloadable", "createdDate", "app",
+        "appStoreVersionLocalizations", "build", "appStoreVersionPhasedRelease",
+        "gameCenterAppVersion", "routingAppCoverage", "appStoreReviewDetail",
+        "appStoreVersionSubmission", "appClipDefaultExperience",
+        "appStoreVersionExperiments", "appStoreVersionExperimentsV2",
+        "customerReviews", "alternativeDistributionPackage",
+    }),
+    "builds": frozenset({
+        "version", "uploadedDate", "expirationDate", "expired", "minOsVersion",
+        "lsMinimumSystemVersion", "computedMinMacOsVersion",
+        "computedMinVisionOsVersion", "iconAssetToken", "processingState",
+        "buildAudienceType", "usesNonExemptEncryption", "preReleaseVersion",
+        "individualTesters", "betaGroups", "betaBuildLocalizations",
+        "appEncryptionDeclaration", "betaAppReviewSubmission", "app",
+        "buildBetaDetail", "appStoreVersion", "icons", "buildBundles",
+        "buildUpload", "perfPowerMetrics", "diagnosticSignatures",
+    }),
+    "appStoreReviewDetails": frozenset({
+        "contactFirstName", "contactLastName", "contactPhone", "contactEmail",
+        "demoAccountName", "demoAccountPassword", "demoAccountRequired", "notes",
+        "appStoreVersion", "appStoreReviewAttachments",
+    }),
+    "reviewSubmissions": frozenset({
+        "platform", "submittedDate", "state", "app", "items",
+        "appStoreVersionForReview", "submittedByActor", "lastUpdatedByActor",
+    }),
+    "reviewSubmissionItems": frozenset({
+        "state", "appStoreVersion", "appCustomProductPageVersion",
+        "appStoreVersionExperiment", "appStoreVersionExperimentV2", "appEvent",
+        "backgroundAssetVersion", "gameCenterAchievementVersion",
+        "gameCenterActivityVersion", "gameCenterChallengeVersion",
+        "gameCenterLeaderboardSetVersion", "gameCenterLeaderboardVersion",
+    }),
+    "subscriptionGroups": frozenset({
+        "referenceName", "subscriptions", "subscriptionGroupLocalizations",
+    }),
+    "subscriptions": frozenset({
+        "name", "productId", "familySharable", "state", "subscriptionPeriod",
+        "reviewNote", "groupLevel", "subscriptionLocalizations",
+        "appStoreReviewScreenshot", "group", "introductoryOffers",
+        "promotionalOffers", "offerCodes", "prices", "pricePoints",
+        "promotedPurchase", "subscriptionAvailability", "winBackOffers",
+        "images", "planAvailabilities",
+    }),
+    "apps": frozenset({"bundleId", "name", "sku", "primaryLocale"}),
+}
+
+# Apple's valid `filter[...]` keys, keyed by the submit-path endpoint that
+# accepts them (concrete `{id}` segments normalized by `_submit_endpoint_key`).
+VALID_SUBMIT_FILTERS = {
+    f"/v1/apps/{APP_ID}/appStoreVersions": frozenset({
+        "filter[versionString]", "filter[platform]", "filter[appStoreState]",
+        "filter[appVersionState]", "filter[id]",
+    }),
+    "/v1/builds": frozenset({
+        "filter[app]", "filter[version]", "filter[preReleaseVersion.version]",
+        "filter[preReleaseVersion]", "filter[preReleaseVersion.platform]",
+        "filter[appStoreVersion]", "filter[betaGroups]",
+        "filter[buildAudienceType]", "filter[expired]", "filter[id]",
+        "filter[processingState]", "filter[usesNonExemptEncryption]",
+        "filter[betaAppReviewSubmission.betaReviewState]",
+    }),
+    f"/v1/apps/{APP_ID}/reviewSubmissions": frozenset({
+        "filter[platform]", "filter[state]",
+    }),
+    f"/v1/apps/{APP_ID}/subscriptionGroups": frozenset({
+        "filter[referenceName]", "filter[subscriptions.state]",
+    }),
+}
+
+# Apple's valid `include` relationship names for the submit-path endpoints that
+# request an include.
+VALID_SUBMIT_INCLUDES = {
+    f"/v1/reviewSubmissions/{{id}}/items": frozenset({
+        "appStoreVersion", "appCustomProductPageVersion",
+        "appStoreVersionExperiment", "appStoreVersionExperimentV2", "appEvent",
+        "backgroundAssetVersion", "gameCenterAchievementVersion",
+        "gameCenterActivityVersion", "gameCenterChallengeVersion",
+        "gameCenterLeaderboardSetVersion", "gameCenterLeaderboardVersion",
+    }),
+    f"/v1/apps/{APP_ID}/subscriptionGroups": frozenset({
+        "subscriptions", "subscriptionGroupLocalizations",
+    }),
+}
+
+
+def _submit_endpoint_key(path):
+    """Normalize a concrete read path to the endpoint key used above, collapsing
+    id-bearing segments so per-endpoint filter/include sets can be looked up."""
+    if re.fullmatch(r"/v1/reviewSubmissions/[^/]+/items", path):
+        return "/v1/reviewSubmissions/{id}/items"
+    return path
 
 
 class FieldValidatingAppStoreConnect(FakeAppStoreConnect):
-    """A fake that rejects an invalid `fields[reviewSubmissions]` the way Apple
-    does: any sparse-field name outside `VALID_REVIEW_SUBMISSION_FIELDS` fails
-    the whole reviewSubmissions read with the same bounded error a real HTTP 400
-    surfaces as. It validates both the `_open_submissions()` collection read and
-    the `_open_submission` readback `get`, so it guards both sites that requested
-    the invalid `submitted` field."""
+    """A fake that answers exactly as App Store Connect does when a read names an
+    invalid `fields[<type>]`, `filter[...]`, or `include`: it rejects the whole
+    read with the bounded error a real HTTP 400 surfaces as. It validates every
+    read the engine issues (`get`, `optional_single`, and `collection`) against
+    Apple's authoritative valid sets, so any submit-path query that regains an
+    invalid field/filter/include - `submitted`, `subscription`, or any other -
+    fails the run instead of silently passing."""
 
-    def _guard_review_submission_fields(self, query):
-        raw = query.get("fields[reviewSubmissions]")
-        if raw is None:
-            return
-        requested = {field for field in raw.split(",") if field}
-        invalid = requested - VALID_REVIEW_SUBMISSION_FIELDS
-        if invalid:
-            raise asc_read.AppStoreConnectError(
-                "App Store Connect read request failed with status 400"
-            )
+    def _guard(self, path, query):
+        for key, value in query.items():
+            if key.startswith("fields[") and key.endswith("]"):
+                resource_type = key[len("fields["):-1]
+                valid = VALID_SUBMIT_FIELDS.get(resource_type)
+                if valid is not None and {
+                    field for field in value.split(",") if field
+                } - valid:
+                    self._reject_400()
+        endpoint = _submit_endpoint_key(path)
+        allowed_filters = VALID_SUBMIT_FILTERS.get(endpoint)
+        if allowed_filters is not None:
+            for key in query:
+                if key.startswith("filter[") and key not in allowed_filters:
+                    self._reject_400()
+        allowed_includes = VALID_SUBMIT_INCLUDES.get(endpoint)
+        if allowed_includes is not None and "include" in query:
+            if {value for value in query["include"].split(",") if value} - allowed_includes:
+                self._reject_400()
+
+    @staticmethod
+    def _reject_400():
+        raise asc_read.AppStoreConnectError(
+            "App Store Connect read request failed with status 400"
+        )
 
     def get(self, path, query):
-        if re.fullmatch(r"/v1/reviewSubmissions/[^/]+", path):
-            self._guard_review_submission_fields(query)
+        self._guard(path, query)
         return super().get(path, query)
 
+    def optional_single(self, path, query):
+        self._guard(path, query)
+        return super().optional_single(path, query)
+
     def collection(self, path, query):
-        if path == "/v1/reviewSubmissions":
-            self._guard_review_submission_fields(query)
+        self._guard(path, query)
         return super().collection(path, query)
 
 
@@ -851,18 +968,63 @@ class SubmissionEngineTests(FixtureCase):
             ],
         )
 
-    def test_open_submissions_read_uses_only_valid_review_submission_fields(self):
-        # Regression: `_open_submissions()` and the `_open_submission` readback
-        # once requested `fields[reviewSubmissions]=state,platform,submitted`,
-        # and `submitted` is not a valid reviewSubmissions field, so Apple
-        # rejected the whole read with HTTP 400 and the submit could never
-        # proceed. Drive the engine against a fake that 400s on any invalid
-        # sparse field exactly as Apple does; the read - and the whole run -
-        # must succeed, proving the query carries only valid fields.
+    def test_every_submit_path_read_uses_only_valid_asc_query_shapes(self):
+        # Regression for the two proven submit-path 400s and their whole class:
+        # `_open_submissions()` once requested an invalid
+        # `fields[reviewSubmissions]=...,submitted`, and `_submission_items()`
+        # once requested an invalid `fields[reviewSubmissionItems]=...,
+        # subscription`. Drive a full clean submit against a fake that 400s on
+        # any `fields[...]`/`filter[...]`/`include` outside Apple's valid set for
+        # the resource, exactly as App Store Connect does. Every submit-path read
+        # - and the whole run - must succeed, which can only happen if no read
+        # names an invalid field/filter/include. This fails if any submit-path
+        # query regains one.
         fake = FieldValidatingAppStoreConnect(self.fixture)
         outcome = self.engine(fake).run()
         self.assertTrue(outcome.accepted)
-        self.assertIn("/v1/reviewSubmissions", fake.reads)
+        # The app-scoped reviewSubmissions collection and the items read (the two
+        # sites of the proven 400s) were actually exercised.
+        self.assertIn(f"/v1/apps/{APP_ID}/reviewSubmissions", fake.reads)
+        self.assertTrue(
+            any(re.fullmatch(r"/v1/reviewSubmissions/[^/]+/items", read) for read in fake.reads),
+            "the submission-items read must be exercised",
+        )
+
+    def test_resumed_run_reads_existing_submission_items_with_valid_fields(self):
+        # The failed real submit already created a review submission, so on the
+        # next run `_submission_items()` reads the items of a PRE-EXISTING
+        # submission - the exact read that 400'd on the invalid `subscription`
+        # field. Seed such a submission and drive the run against the
+        # field-validating fake; the items read of the existing submission must
+        # return 200 and the run must be accepted.
+        fake = FieldValidatingAppStoreConnect(
+            self.fixture,
+            reviewSubmissions={
+                "rs-existing": {
+                    "state": "READY_FOR_REVIEW",
+                    "items": [{"id": "item-v", "appStoreVersion": "ver-1"}],
+                }
+            },
+        )
+        outcome = self.engine(fake).run()
+        self.assertTrue(outcome.accepted)
+        self.assertIn("/v1/reviewSubmissions/rs-existing/items", fake.reads)
+
+    def test_the_field_validator_rejects_the_historically_invalid_fields(self):
+        # Guard the guard: prove the field-validating fake actually 400s on the
+        # two fields that caused the real failures, so the success tests above
+        # are meaningful rather than vacuous.
+        fake = FieldValidatingAppStoreConnect(self.fixture)
+        with self.assertRaises(asc_read.AppStoreConnectError):
+            fake.collection(
+                f"/v1/apps/{APP_ID}/reviewSubmissions",
+                {"fields[reviewSubmissions]": "state,platform,submitted"},
+            )
+        with self.assertRaises(asc_read.AppStoreConnectError):
+            fake.collection(
+                "/v1/reviewSubmissions/rs-existing/items",
+                {"fields[reviewSubmissionItems]": "state,appStoreVersion,subscription"},
+            )
 
     def test_rerunning_an_accepted_submission_writes_nothing(self):
         fake = FakeAppStoreConnect(self.fixture)
