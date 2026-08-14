@@ -42,6 +42,18 @@ so any residual 400 can be root-caused. It covers, end to end:
     `content.CandidateReadTransport` / `collect_content` path exactly as
     `SubmissionEngine.run()` reconciles.
 
+After that audit it adds a clearly labelled GET-only leftover-report section.
+A real submit hit `POST` 409 Conflict at create-review-submission because a
+leftover review submission already existed. That section reissues the
+SSHHIP-aligned `/v1/apps/{APP_ID}/reviewSubmissions` read, then for each
+returned submission prints its id, `state`, `platform`, and any
+`submittedDate`/`createdDate`, fetches `/v1/reviewSubmissions/{id}/items`
+(`include=appStoreVersion`), and for each item prints its id, `state`, linked
+appStoreVersion id, and a follow-up GET of that version
+(`fields[appStoreVersions]=versionString,appVersionState`) so the captain can
+see whether the leftover is the 0.1.17 candidate and whether its state looks
+resumable or terminal. It still mutates nothing.
+
 Hard safety, non-negotiable, this handles a live credential:
   * It is GET-only. It imports neither `asc_write` nor `submission` (which
     imports the mutation boundary). Because `submission.py` imports `asc_write`,
@@ -52,8 +64,9 @@ Hard safety, non-negotiable, this handles a live credential:
   * It never prints, echoes, logs, or writes the API key, private key PEM,
     issuer id, key id, signed JWT/bearer token, the `Authorization` header, any
     request header, or any environment variable value. Its only output is
-    Apple's response `errors[]` fields and the request path + query string,
-    neither of which carries a secret.
+    Apple's response attributes, Apple's `errors[]` fields, and the request
+    path + query string, each passed through `asc_read.redact()`, none of which
+    carries a secret.
 """
 
 from __future__ import annotations
@@ -106,9 +119,22 @@ OPEN_SUBMISSIONS_QUERY = {
 }
 # submission.py _submission_items
 ITEMS_QUERY = {"include": "appStoreVersion", "limit": "200"}
+# Leftover-report version read: proven appStoreVersions sparse fields only
+# (versionString, appVersionState). Not a reviewSubmissions/items fields set.
+VERSION_STATE_FIELDS_QUERY = {
+    "fields[appStoreVersions]": "versionString,appVersionState",
+}
 # submission.py _subscriptions_awaiting_review
 SUBSCRIPTION_GROUPS_PATH = f"/v1/apps/{core.APP_ID}/subscriptionGroups"
 SUBSCRIPTION_GROUPS_QUERY = {"include": "subscriptions", "limit": "200"}
+
+# ReviewSubmissionState values this leftover report classifies. Copied for
+# GET-only reporting; the mutating engine is not imported. READY_FOR_REVIEW is
+# the state `_resume_or_create_submission` will resume and submit from.
+RESUMABLE_SUBMISSION_STATES = frozenset(("READY_FOR_REVIEW",))
+IN_FLIGHT_SUBMISSION_STATES = frozenset(("WAITING_FOR_REVIEW", "IN_REVIEW"))
+UNRESOLVED_SUBMISSION_STATES = frozenset(("UNRESOLVED_ISSUES",))
+TERMINAL_SUBMISSION_STATES = frozenset(("COMPLETE", "CANCELING", "COMPLETING"))
 
 
 class ReadFailure(Exception):
@@ -289,6 +315,66 @@ def _first_submission_id(payload: Mapping[str, Any]) -> Optional[str]:
     return None
 
 
+def _resource_list(payload: Optional[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Return well-formed resource objects from a JSON:API collection payload."""
+    if not isinstance(payload, dict):
+        return []
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return []
+    return [
+        entry
+        for entry in data
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    ]
+
+
+def _attributes_dict(entry: Mapping[str, Any]) -> Mapping[str, Any]:
+    found = entry.get("attributes")
+    return found if isinstance(found, dict) else {}
+
+
+def _print_attr(attributes: Mapping[str, Any], name: str, indent: str) -> None:
+    if name in attributes:
+        print(f"{indent}{name}: {asc_read.redact(attributes.get(name))}")
+    else:
+        print(f"{indent}{name}: (absent)")
+
+
+def _print_optional_attr(attributes: Mapping[str, Any], name: str, indent: str) -> None:
+    if name in attributes:
+        print(f"{indent}{name}: {asc_read.redact(attributes.get(name))}")
+
+
+def _linked_app_store_version_id(item: Mapping[str, Any]) -> Optional[str]:
+    try:
+        return asc_read.linkage_id(item, "appStoreVersion", "appStoreVersions")
+    except asc_read.AppStoreConnectError:
+        return None
+
+
+def _resumability_label(state: str) -> str:
+    """Classify a review-submission state for the captain's leftover decision.
+
+    READY_FOR_REVIEW is the only state the submit engine will resume and submit
+    from. Other open states are already in flight or unresolved. Terminal
+    Apple states are not resumable. Anything else is reported as unknown.
+    """
+    if state in RESUMABLE_SUBMISSION_STATES:
+        return "resumable (editable/open)"
+    if state in IN_FLIGHT_SUBMISSION_STATES:
+        return "open / in-flight (already submitted, not editable)"
+    if state in UNRESOLVED_SUBMISSION_STATES:
+        return "open / unresolved (not a clean resume)"
+    if state in TERMINAL_SUBMISSION_STATES:
+        return "terminal/stuck"
+    if state in OPEN_SUBMISSION_STATES:
+        return "open"
+    if not state:
+        return "unknown (state attribute absent)"
+    return "unknown (not a recognized open or terminal review-submission state)"
+
+
 def _labeled_get(
     credential: asc_read.Credential,
     step: str,
@@ -367,6 +453,187 @@ def _run_content_reconcile(
         print("      FAILURE:")
         print(str(failure))
         failures.append("content_reconcile")
+
+
+def _report_leftover_review_submissions(
+    credential: asc_read.Credential,
+    failures: list[str],
+    candidate_version_id: Optional[str],
+) -> None:
+    """GET-only report of every review submission the SSHHIP-aligned collection
+    returns, including items and the linked App Store version, so the captain
+    can decide whether a leftover is resumable or must be deleted.
+
+    This function issues only GET requests. It never POSTs, PATCHes, DELETEs,
+    submits, cancels, or imports the mutation boundary.
+    """
+    print("=" * 72)
+    print("STALE / LEFTOVER REVIEW SUBMISSION STATE (GET-only, no mutation)")
+    print("=" * 72)
+    print(
+        "Captain decision aid: exact state of leftover review submission(s) "
+        "that can make create-review-submission return HTTP 409 Conflict. "
+        "This section does not submit, cancel, or delete anything."
+    )
+    print(
+        f"Candidate under inspection: versionString={VERSION}  "
+        f"platform={core.PLATFORM}"
+        + (
+            f"  appStoreVersion id={asc_read.redact(candidate_version_id)}"
+            if candidate_version_id
+            else "  appStoreVersion id=(not resolved in step 1)"
+        )
+    )
+    print()
+
+    payload = _labeled_get(
+        credential,
+        "[leftover]",
+        "leftover_review_submissions",
+        OPEN_SUBMISSIONS_PATH,
+        OPEN_SUBMISSIONS_QUERY,
+        failures,
+    )
+    submissions = _resource_list(payload)
+    if payload is None:
+        print("  leftover report aborted: the reviewSubmissions collection GET failed")
+        return
+    if not submissions:
+        print("  no review submissions returned for this app/platform")
+        print()
+        print("leftover summary:")
+        print("  submissions found: 0")
+        print(
+            "  no leftover to resume or delete; a 409 Conflict at "
+            "create-review-submission would need a different explanation"
+        )
+        return
+
+    reports: list[dict[str, Any]] = []
+    for index, submission in enumerate(submissions, start=1):
+        submission_id = submission["id"]
+        attributes = _attributes_dict(submission)
+        state = attributes.get("state")
+        state_text = state if isinstance(state, str) else ""
+        print()
+        print(f"  submission {index}/{len(submissions)}:")
+        print(f"    id: {asc_read.redact(submission_id)}")
+        _print_attr(attributes, "state", "    ")
+        _print_attr(attributes, "platform", "    ")
+        _print_optional_attr(attributes, "createdDate", "    ")
+        _print_optional_attr(attributes, "submittedDate", "    ")
+
+        items_payload = _labeled_get(
+            credential,
+            "[leftover]",
+            f"leftover_items:{submission_id}",
+            f"/v1/reviewSubmissions/{submission_id}/items",
+            ITEMS_QUERY,
+            failures,
+        )
+        items = _resource_list(items_payload)
+        contains_candidate = False
+        item_notes: list[str] = []
+        if items_payload is None:
+            print("    items: GET failed (see FAILURE above)")
+            item_notes.append("items GET failed")
+        elif not items:
+            print("    items: none")
+        else:
+            print(f"    items ({len(items)}):")
+            for item in items:
+                item_id = item["id"]
+                item_attributes = _attributes_dict(item)
+                version_id = _linked_app_store_version_id(item)
+                print(f"      item id: {asc_read.redact(item_id)}")
+                _print_attr(item_attributes, "state", "        ")
+                if version_id is None:
+                    print("        linked appStoreVersion id: (absent or malformed)")
+                    item_notes.append(f"item {item_id} has no linked appStoreVersion")
+                    continue
+                print(
+                    f"        linked appStoreVersion id: {asc_read.redact(version_id)}"
+                )
+                version_payload = _labeled_get(
+                    credential,
+                    "[leftover]",
+                    f"leftover_version:{version_id}",
+                    f"/v1/appStoreVersions/{version_id}",
+                    VERSION_STATE_FIELDS_QUERY,
+                    failures,
+                )
+                if version_payload is None:
+                    print("        versionString / appVersionState: GET failed")
+                    item_notes.append(f"version {version_id} GET failed")
+                    if candidate_version_id and version_id == candidate_version_id:
+                        contains_candidate = True
+                    continue
+                version_data = version_payload.get("data")
+                version_attributes = (
+                    _attributes_dict(version_data)
+                    if isinstance(version_data, dict)
+                    else {}
+                )
+                version_string = version_attributes.get("versionString")
+                _print_attr(version_attributes, "versionString", "        ")
+                _print_attr(version_attributes, "appVersionState", "        ")
+                if version_string == VERSION or (
+                    candidate_version_id and version_id == candidate_version_id
+                ):
+                    contains_candidate = True
+                    print(f"        contains {VERSION} candidate: yes")
+                else:
+                    print(f"        contains {VERSION} candidate: no")
+
+        reports.append(
+            {
+                "id": submission_id,
+                "state": state_text,
+                "contains_candidate": contains_candidate,
+                "item_notes": item_notes,
+                "open_for_engine": state_text in OPEN_SUBMISSION_STATES,
+                "resumability": _resumability_label(state_text),
+            }
+        )
+
+    print()
+    print("leftover summary:")
+    print(f"  submissions found: {len(reports)}")
+    for report in reports:
+        print(f"  submission {asc_read.redact(report['id'])}:")
+        print(f"    state: {asc_read.redact(report['state']) or '(absent)'}")
+        print(
+            f"    in OPEN_SUBMISSION_STATES (engine would see it as open): "
+            f"{'yes' if report['open_for_engine'] else 'no'}"
+        )
+        print(
+            f"    contains {VERSION} candidate: "
+            f"{'yes' if report['contains_candidate'] else 'no'}"
+        )
+        print(f"    resumability: {report['resumability']}")
+        for note in report["item_notes"]:
+            print(f"    note: {asc_read.redact(note)}")
+        if report["contains_candidate"] and report["state"] in RESUMABLE_SUBMISSION_STATES:
+            print(
+                f"    captain: this looks like a resumable {VERSION} leftover "
+                "(editable/open). Deletion is still a captain call."
+            )
+        elif report["contains_candidate"] and report["state"] in TERMINAL_SUBMISSION_STATES:
+            print(
+                f"    captain: this {VERSION} leftover is terminal/stuck, not resumable. "
+                "Deletion is a captain call."
+            )
+        elif report["contains_candidate"]:
+            print(
+                f"    captain: this leftover contains {VERSION} but is not in an "
+                "editable READY_FOR_REVIEW state. Deletion is a captain call."
+            )
+        elif report["open_for_engine"] or report["state"] not in TERMINAL_SUBMISSION_STATES:
+            print(
+                "    captain: this leftover does not contain the "
+                f"{VERSION} candidate and may block create-review-submission "
+                "(HTTP 409). Deletion is a captain call."
+            )
 
 
 def main() -> int:
@@ -537,9 +804,15 @@ def main() -> int:
     _run_content_reconcile(credential, failures)
 
     print()
+    _report_leftover_review_submissions(credential, failures, version_id)
+
+    print()
     print("summary:")
     if failures:
-        print(f"  FAILED reads (HTTP error): {', '.join(failures)}")
+        print(
+            "  FAILED reads (HTTP error): "
+            + ", ".join(asc_read.redact(item) for item in failures)
+        )
         return 1
     print("  every issued submit-path read returned HTTP 200")
     if version_id is None:
