@@ -35,6 +35,13 @@ import core  # noqa: E402
 REVIEWED_LOCALE = "en-US"
 ASSET_COMPLETE = "COMPLETE"
 
+# App Store Connect stores a subscription App Review screenshot's `fileName` as
+# this literal sentinel rather than the real uploaded name, even after a correct
+# re-upload. A listing screenshot instead carries its real uploaded file name, so
+# only a subscription review asset whose name is exactly this sentinel is allowed
+# to bind by byte size and MD5 alone.
+SOURCE_FILENAME_SENTINEL = "SOURCE"
+
 
 class ContentError(core.BoundedError):
     """A bounded, nonsecret reviewed-content binding failure."""
@@ -351,7 +358,9 @@ class CandidateReadTransport:
                         asc_read.attributes(subscription), "reviewNote"
                     ),
                     "reviewScreenshot": self._match_asset(
-                        asc_read.attributes(screenshot), f"in-app purchase {product_id}"
+                        asc_read.attributes(screenshot),
+                        f"in-app purchase {product_id}",
+                        allow_source_filename=True,
                     ),
                 }
             )
@@ -387,8 +396,23 @@ class CandidateReadTransport:
             )
         return self._match_asset(found, label)
 
-    def _match_asset(self, asset: Mapping[str, Any], label: str) -> Mapping[str, Any]:
-        """Map one uploaded Apple asset back to the exact approved local file."""
+    def _match_asset(
+        self,
+        asset: Mapping[str, Any],
+        label: str,
+        *,
+        allow_source_filename: bool = False,
+    ) -> Mapping[str, Any]:
+        """Map one uploaded Apple asset back to the exact approved local file.
+
+        Identity is proven by Apple's own file name, byte size, and MD5 source
+        checksum against the same local file the manifest hashed. A subscription
+        App Review screenshot is the one exception: Apple reports its file name
+        as `SOURCE_FILENAME_SENTINEL` rather than the real uploaded name, so when
+        `allow_source_filename` is set and the name is exactly that sentinel the
+        name predicate is dropped and the asset binds on byte size and MD5 alone.
+        Exactly one approved file must still match either way.
+        """
         delivery = asset.get("assetDeliveryState")
         state = delivery.get("state") if isinstance(delivery, dict) else None
         if state != ASSET_COMPLETE:
@@ -398,10 +422,11 @@ class CandidateReadTransport:
         name = asc_read.text(asset, "fileName")
         size = asset.get("fileSize")
         checksum = asc_read.text(asset, "sourceFileChecksum")
+        match_by_source = allow_source_filename and name == SOURCE_FILENAME_SENTINEL
         matches = [
             (path, verified)
             for path, verified in self._verified_files.items()
-            if verified["name"] == name
+            if (match_by_source or verified["name"] == name)
             and verified["bytes"] == size
             and verified["md5"] == checksum
         ]

@@ -649,6 +649,146 @@ class LiveReconciliationTests(FixtureCase):
         self.assertEqual(fake.writes, [])
 
 
+class SubscriptionReviewAssetBindingTests(FixtureCase):
+    """`_match_asset` binds a subscription review screenshot Apple names SOURCE.
+
+    App Store Connect reports a subscription App Review screenshot's `fileName`
+    as the literal sentinel `SOURCE` rather than the real uploaded name, even
+    after a correct re-upload, so the strict name+size+md5 predicate that binds a
+    listing screenshot matches zero approved files and the read refuses. These
+    tests exercise the observable binding behavior through the real transport.
+    """
+
+    IAP_PATH = "docs/app-store/iap/cloud-monthly.png"
+    LISTING_PATH = "docs/app-store/screenshots/iphone-67/01-wallet.png"
+
+    def transport(self, verified):
+        return content.CandidateReadTransport(None, self.fixture.candidate, verified)
+
+    def client(self, fake):
+        return core.ReadOnlyASCClient(
+            content.CandidateReadTransport(
+                fake, self.fixture.candidate, self.fixture.verified
+            )
+        )
+
+    @staticmethod
+    def asset(name, size, checksum, state="COMPLETE"):
+        return {
+            "fileName": name,
+            "fileSize": size,
+            "sourceFileChecksum": checksum,
+            "assetDeliveryState": {"state": state},
+        }
+
+    def test_a_source_named_iap_asset_binds_by_size_and_checksum(self):
+        entry = self.fixture.verified[self.IAP_PATH]
+        bound = self.transport(self.fixture.verified)._match_asset(
+            self.asset(content.SOURCE_FILENAME_SENTINEL, entry["bytes"], entry["md5"]),
+            "in-app purchase com.example.cloud.monthly",
+            allow_source_filename=True,
+        )
+        self.assertEqual(bound["path"], self.IAP_PATH)
+        self.assertEqual(bound["sha256"], entry["sha256"])
+
+    def test_a_full_read_binds_source_named_subscription_screenshots(self):
+        fake = FakeAppStoreConnect(self.fixture)
+        for product_id in core.CLOUD_PRODUCT_IDS:
+            fake.subscriptions[product_id]["screenshot"][
+                "fileName"
+            ] = content.SOURCE_FILENAME_SENTINEL
+        outcome = core.reconcile_authoritatively(
+            self.fixture.manifest, self.client(fake)
+        )
+        self.assertEqual(outcome.outcome, "matching_draft")
+        self.assertEqual(fake.writes, [])
+
+    def test_a_source_name_is_not_relaxed_without_the_flag(self):
+        entry = self.fixture.verified[self.IAP_PATH]
+        with self.assertRaises(asc_read.AppStoreConnectError) as caught:
+            self.transport(self.fixture.verified)._match_asset(
+                self.asset(
+                    content.SOURCE_FILENAME_SENTINEL, entry["bytes"], entry["md5"]
+                ),
+                "screenshot APP_IPHONE_67",
+            )
+        self.assertIn("does not match exactly one approved file", str(caught.exception))
+
+    def test_a_listing_asset_still_binds_by_name_size_and_checksum(self):
+        entry = self.fixture.verified[self.LISTING_PATH]
+        bound = self.transport(self.fixture.verified)._match_asset(
+            self.asset(entry["name"], entry["bytes"], entry["md5"]),
+            "screenshot APP_IPHONE_67",
+        )
+        self.assertEqual(bound["path"], self.LISTING_PATH)
+
+    def test_a_listing_asset_with_a_wrong_name_still_refuses(self):
+        entry = self.fixture.verified[self.LISTING_PATH]
+        with self.assertRaises(asc_read.AppStoreConnectError) as caught:
+            self.transport(self.fixture.verified)._match_asset(
+                self.asset("not-the-approved-name.png", entry["bytes"], entry["md5"]),
+                "screenshot APP_IPHONE_67",
+            )
+        self.assertIn("does not match exactly one approved file", str(caught.exception))
+
+    def test_a_real_iap_name_that_differs_is_not_relaxed(self):
+        entry = self.fixture.verified[self.IAP_PATH]
+        with self.assertRaises(asc_read.AppStoreConnectError) as caught:
+            self.transport(self.fixture.verified)._match_asset(
+                self.asset("a-real-but-wrong-name.png", entry["bytes"], entry["md5"]),
+                "in-app purchase com.example.cloud.monthly",
+                allow_source_filename=True,
+            )
+        self.assertIn("does not match exactly one approved file", str(caught.exception))
+
+    def test_a_source_asset_matching_more_than_one_file_refuses(self):
+        verified = {
+            "docs/app-store/iap/one.png": {
+                "bytes": 10,
+                "sha256": "s1",
+                "md5": "sharedmd5",
+                "name": "one.png",
+            },
+            "docs/app-store/iap/two.png": {
+                "bytes": 10,
+                "sha256": "s2",
+                "md5": "sharedmd5",
+                "name": "two.png",
+            },
+        }
+        with self.assertRaises(asc_read.AppStoreConnectError) as caught:
+            self.transport(verified)._match_asset(
+                self.asset(content.SOURCE_FILENAME_SENTINEL, 10, "sharedmd5"),
+                "in-app purchase com.example.cloud.monthly",
+                allow_source_filename=True,
+            )
+        self.assertIn("does not match exactly one approved file", str(caught.exception))
+
+    def test_a_source_asset_matching_no_file_refuses(self):
+        with self.assertRaises(asc_read.AppStoreConnectError) as caught:
+            self.transport(self.fixture.verified)._match_asset(
+                self.asset(content.SOURCE_FILENAME_SENTINEL, 999999, "0" * 32),
+                "in-app purchase com.example.cloud.monthly",
+                allow_source_filename=True,
+            )
+        self.assertIn("does not match exactly one approved file", str(caught.exception))
+
+    def test_a_source_asset_that_is_undelivered_still_refuses(self):
+        entry = self.fixture.verified[self.IAP_PATH]
+        with self.assertRaises(asc_read.AppStoreConnectError) as caught:
+            self.transport(self.fixture.verified)._match_asset(
+                self.asset(
+                    content.SOURCE_FILENAME_SENTINEL,
+                    entry["bytes"],
+                    entry["md5"],
+                    state="UPLOAD_COMPLETE",
+                ),
+                "in-app purchase com.example.cloud.monthly",
+                allow_source_filename=True,
+            )
+        self.assertIn("not fully delivered", str(caught.exception))
+
+
 class SubmissionEngineTests(FixtureCase):
     def engine(self, fake):
         return submission.SubmissionEngine(
