@@ -15,13 +15,16 @@ root-caused. It covers:
 
   * the three `SubmissionEngine._align_candidate()` reads (version resource,
     bound build, review detail) - already GET-clean per an earlier run;
-  * the submit-only `_open_submissions()` read of `/v1/reviewSubmissions`,
-    which neither preflight nor the earlier diagnostic exercised, and which is
-    the prime suspect: its `filter[platform]` may be unsupported on that
-    collection and return a 400;
-  * the same `/v1/reviewSubmissions` read with `filter[platform]` removed, to
-    prove directly whether dropping it makes Apple return 200 (the hypothesised
-    fix);
+  * the submit-only `_open_submissions()` read of `/v1/reviewSubmissions`. An
+    earlier GET-only run (31782606696) proved its 400 came from an invalid
+    `fields[reviewSubmissions]` entry (`submitted` is not a valid field name),
+    NOT from `filter[platform]`. This diagnostic now issues the CORRECTED query
+    (`fields[reviewSubmissions]=state,platform`, matching the fixed
+    `submission.py`), so a green run confirms the corrected read returns 200;
+  * the same corrected `/v1/reviewSubmissions` read with `filter[platform]`
+    removed, kept only to re-confirm that `filter[platform]` is a supported
+    filter on that collection (the corrected read must return 200 both ways),
+    since the fix deliberately keeps `filter[platform]`;
   * the content-reconcile reads, driven through the real
     `content.CandidateReadTransport` / `collect_content` path exactly as
     `SubmissionEngine.run()` reconciles, so a 400 anywhere in that path is
@@ -76,10 +79,14 @@ REVIEW_DETAIL_FIELDS = {
     "fields[appStoreReviewDetails]": "notes,demoAccountRequired"
 }
 
-# Reconstructed verbatim from submission.py:40 (OPEN_SUBMISSION_STATES) and the
-# submission.py `_open_submissions()` read (submission.py:235). Copied inline,
-# not imported, because submission.py imports the mutation boundary asc_write
-# and this diagnostic must import neither asc_write nor the mutating engine.
+# Reconstructed verbatim from submission.py's OPEN_SUBMISSION_STATES and the
+# CORRECTED `_open_submissions()` read. Copied inline, not imported, because
+# submission.py imports the mutation boundary asc_write and this diagnostic must
+# import neither asc_write nor the mutating engine. The `fields` list here MUST
+# stay identical to submission.py's `_open_submissions()` query: only valid
+# reviewSubmissions fields (Apple's set includes state, platform, submittedDate,
+# createdDate). `submitted` was invalid and caused the 400; it is dropped here
+# exactly as it was dropped in submission.py.
 OPEN_SUBMISSION_STATES = (
     "READY_FOR_REVIEW",
     "WAITING_FOR_REVIEW",
@@ -91,12 +98,13 @@ OPEN_SUBMISSIONS_QUERY = {
     "filter[app]": core.APP_ID,
     "filter[platform]": core.PLATFORM,
     "filter[state]": ",".join(OPEN_SUBMISSION_STATES),
-    "fields[reviewSubmissions]": "state,platform,submitted",
+    "fields[reviewSubmissions]": "state,platform",
     "limit": "50",
 }
-# The same read with `filter[platform]` removed (filter[app] + filter[state]
-# only), to test the hypothesis that `filter[platform]` is not a supported
-# filter on `/v1/reviewSubmissions` and is the cause of the 400.
+# The same corrected read with `filter[platform]` removed (filter[app] +
+# filter[state] only), kept to re-confirm that `filter[platform]` is a supported
+# filter on `/v1/reviewSubmissions` - the corrected read must return 200 both
+# with and without it, since the fix keeps `filter[platform]`.
 OPEN_SUBMISSIONS_QUERY_NO_PLATFORM = {
     key: value
     for key, value in OPEN_SUBMISSIONS_QUERY.items()
@@ -376,7 +384,7 @@ def main() -> int:
                 "or ambiguous; cannot resolve version id for steps 2-3"
             )
         else:
-            print(f"      SUCCESS (HTTP 200); resolved version id")
+            print("      SUCCESS (HTTP 200); resolved version id")
     except ReadFailure as failure:
         print("      FAILURE:")
         print(str(failure))
@@ -419,7 +427,9 @@ def main() -> int:
             failures.append("review_detail")
 
     # Step 4 - _open_submissions: the submit-only /v1/reviewSubmissions read,
-    # WITH filter[platform] - the prime suspect for the 400.
+    # the CORRECTED query (fields=state,platform, WITH filter[platform]). This
+    # is the read that 400'd on the invalid `submitted` field; a 200 here
+    # confirms the fix.
     print()
     open_with_platform_ok = _reviewsubmissions_read(
         credential,
@@ -429,8 +439,8 @@ def main() -> int:
         failures,
     )
 
-    # Step 5 - the same read WITHOUT filter[platform], to test the hypothesised
-    # fix directly.
+    # Step 5 - the same corrected read WITHOUT filter[platform], retained to
+    # re-confirm that this filter was not the cause of the 400.
     print()
     open_without_platform_ok = _reviewsubmissions_read(
         credential,
@@ -446,21 +456,23 @@ def main() -> int:
 
     print()
     print("summary:")
-    # Report the reviewSubmissions hypothesis explicitly.
-    if not open_with_platform_ok and open_without_platform_ok:
+    # Report the corrected reviewSubmissions read explicitly. The 400 was the
+    # invalid `submitted` field, now dropped; both reads should return 200.
+    if open_with_platform_ok and open_without_platform_ok:
         print(
-            "  /v1/reviewSubmissions FAILS with filter[platform] but returns "
-            "HTTP 200 without it: dropping filter[platform] resolves the read"
+            "  corrected /v1/reviewSubmissions read returned HTTP 200 both WITH "
+            "and WITHOUT filter[platform]: the fix (dropping the invalid "
+            "`submitted` field) resolves the read and filter[platform] is fine"
         )
-    elif not open_with_platform_ok and not open_without_platform_ok:
+    elif open_with_platform_ok and not open_without_platform_ok:
         print(
-            "  /v1/reviewSubmissions FAILS both with and without "
-            "filter[platform]: removing filter[platform] does NOT resolve it"
+            "  corrected /v1/reviewSubmissions read returned HTTP 200 WITH "
+            "filter[platform] but FAILS without it (unexpected)"
         )
-    elif open_with_platform_ok:
+    else:
         print(
-            "  /v1/reviewSubmissions returned HTTP 200 WITH filter[platform]: "
-            "that filter is not the cause of the 400"
+            "  corrected /v1/reviewSubmissions read still FAILS: the invalid "
+            "`submitted` field was not the whole cause; inspect errors[] above"
         )
 
     if failures:

@@ -239,7 +239,7 @@ class SubmissionEngine:
                 "filter[app]": core.APP_ID,
                 "filter[platform]": core.PLATFORM,
                 "filter[state]": ",".join(OPEN_SUBMISSION_STATES),
-                "fields[reviewSubmissions]": "state,platform,submitted",
+                "fields[reviewSubmissions]": "state,platform",
                 "limit": "50",
             },
         )
@@ -372,7 +372,7 @@ class SubmissionEngine:
         submission_id = submission[0]
         payload = self._read.get(
             f"/v1/reviewSubmissions/{submission_id}",
-            {"fields[reviewSubmissions]": "state,platform,submitted"},
+            {"fields[reviewSubmissions]": "state,platform"},
         )
         data = payload.get("data")
         if not isinstance(data, dict):
