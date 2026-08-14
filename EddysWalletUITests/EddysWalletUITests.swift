@@ -1080,7 +1080,13 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Sign out must ask for confirmation")
         confirm.tap()
 
-        XCTAssertTrue(app.buttons["Sign in with Apple"].waitForExistence(timeout: 5))
+        let welcome = app.buttons["Sign in with Apple"]
+        if !welcome.waitForExistence(timeout: 5), confirm.isHittable {
+            // XCTest can report a synthesized confirmation-dialog tap without
+            // delivering it. Retry only while that same dialog remains open.
+            confirm.tap()
+        }
+        XCTAssertTrue(welcome.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["Hi, Eddie"].exists, "No usable family data after sign-out")
     }
 
