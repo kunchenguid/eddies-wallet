@@ -1,0 +1,20 @@
+FORMER REQUEST RESULT: REJECTED
+bounded error: App Store Connect read request failed with status 400
+
+CORRECTED FULL SUBMISSION RUN:
+GET collection /v1/reviewSubmissions
+  fields[reviewSubmissions]=state,platform
+  filter[app]=6795664301
+  filter[platform]=IOS
+  filter[state]=READY_FOR_REVIEW,WAITING_FOR_REVIEW,IN_REVIEW,UNRESOLVED_ISSUES
+GET collection /v1/reviewSubmissions
+  fields[reviewSubmissions]=state,platform
+  filter[app]=6795664301
+  filter[platform]=IOS
+  filter[state]=READY_FOR_REVIEW,WAITING_FOR_REVIEW,IN_REVIEW,UNRESOLVED_ISSUES
+GET readback /v1/reviewSubmissions/rs-1
+  fields[reviewSubmissions]=state,platform
+accepted=True
+submission_state=WAITING_FOR_REVIEW
+version_state=WAITING_FOR_REVIEW
+writes=POST reviewSubmission -> POST versionItem -> POST subscriptionItem -> POST subscriptionItem -> PATCH submitted

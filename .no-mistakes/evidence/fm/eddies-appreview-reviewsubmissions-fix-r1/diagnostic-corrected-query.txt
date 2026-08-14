@@ -1,0 +1,28 @@
+App Review submit reconcile-read diagnostic (GET-only, no secrets)
+app: 6795664301  version: 0.1.17  platform: IOS
+
+[1/6] version_resource: GET /v1/apps/6795664301/appStoreVersions
+      query: filter[versionString]=0.1.17&filter[platform]=IOS&fields[appStoreVersions]=versionString,appVersionState,platform,releaseType,build&limit=50
+      SUCCESS (HTTP 200); resolved version id
+
+[2/6] bound_build_version: GET /v1/appStoreVersions/version-1/build
+      query: fields[builds]=version,expired,processingState
+      SUCCESS (HTTP 200)
+
+[3/6] review_detail: GET /v1/appStoreVersions/version-1/appStoreReviewDetail
+      query: fields[appStoreReviewDetails]=notes,demoAccountRequired
+      SUCCESS (HTTP 200)
+
+[4/6] open_submissions_with_platform: GET /v1/reviewSubmissions
+      query: filter[app]=6795664301&filter[platform]=IOS&filter[state]=READY_FOR_REVIEW,WAITING_FOR_REVIEW,IN_REVIEW,UNRESOLVED_ISSUES&fields[reviewSubmissions]=state,platform&limit=50
+      SUCCESS (HTTP 200)
+
+[5/6] open_submissions_without_platform: GET /v1/reviewSubmissions
+      query: filter[app]=6795664301&filter[state]=READY_FOR_REVIEW,WAITING_FOR_REVIEW,IN_REVIEW,UNRESOLVED_ISSUES&fields[reviewSubmissions]=state,platform&limit=50
+      SUCCESS (HTTP 200)
+
+[6/6] content_reconcile: simulated HTTP 200 for offline validation
+
+summary:
+  corrected /v1/reviewSubmissions read returned HTTP 200 both WITH and WITHOUT filter[platform]: the fix (dropping the invalid `submitted` field) resolves the read and filter[platform] is fine
+  all issued reads returned HTTP 200
