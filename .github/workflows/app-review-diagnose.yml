@@ -1,0 +1,44 @@
+name: App Review submit-read diagnostic
+
+# GET-only, no-secrets diagnostic for the reproducible HTTP 400 in the App
+# Review SUBMIT reconcile-read phase (app-review-submit.yml mode=submit). It
+# reissues exactly the submit-phase reads that
+# submission.SubmissionEngine._align_candidate() performs and prints Apple's raw
+# errors[] body, which the structurally read-only client discards.
+#
+# This workflow performs NO mutation and NO submission. It runs the standalone
+# GET-only tools/app-review/diagnose_submit_reads.py, which imports neither the
+# mutation boundary (asc_write) nor the submission engine. App Review is HELD.
+#
+# It checks out the DEFAULT branch (not a pinned manifest commit) so the
+# diagnostic reflects current code, and wires the three read credentials exactly
+# as app-review-demo-preflight.yml does.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Capture Apple's raw errors[] for the submit reconcile-read 400
+    if: github.repository == 'kunchenguid/eddies-wallet'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # ubuntu-latest ships python3, used directly by every other App Review
+      # workflow in this repo (app-review-demo-preflight.yml, -submit.yml).
+      - name: Reissue the submit-phase reads and print Apple's errors[]
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: python3 tools/app-review/diagnose_submit_reads.py
