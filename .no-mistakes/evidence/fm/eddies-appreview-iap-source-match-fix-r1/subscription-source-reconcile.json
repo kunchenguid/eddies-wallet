@@ -1,0 +1,33 @@
+{
+  "scenario": "GET-only authoritative reconciliation of Apple SOURCE-named subscription review screenshots",
+  "preFixReproduction": {
+    "unexpectedlyMatched": false,
+    "errorType": "AppStoreConnectError",
+    "error": "an uploaded in-app purchase com.kunchenguid.eddieswallet.cloud.monthly asset does not match exactly one approved file"
+  },
+  "postFixObservedAssets": [
+    {
+      "productId": "com.kunchenguid.eddieswallet.cloud.monthly",
+      "appleFileName": "SOURCE",
+      "appleDeliveryState": "COMPLETE",
+      "appleSize": 24,
+      "approvedPath": "docs/app-store/iap/cloud-monthly.png",
+      "approvedSize": 24,
+      "sizeMatches": true,
+      "md5MatchesApprovedBytes": true
+    },
+    {
+      "productId": "com.kunchenguid.eddieswallet.cloud.annual",
+      "appleFileName": "SOURCE",
+      "appleDeliveryState": "COMPLETE",
+      "appleSize": 23,
+      "approvedPath": "docs/app-store/iap/cloud-annual.png",
+      "approvedSize": 23,
+      "sizeMatches": true,
+      "md5MatchesApprovedBytes": true
+    }
+  ],
+  "postFixReconcileOutcome": "matching_draft",
+  "mutationWrites": [],
+  "result": "approved local files bound and candidate matched without App Store Connect mutation"
+}
