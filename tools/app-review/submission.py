@@ -324,8 +324,8 @@ class SubmissionEngine:
             raise SubmissionError(
                 "an unrelated review submission is already in flight for this app"
             )
-        item_versions = self._item_version_ids(submission_id)
-        if item_versions and item_versions != [version_id]:
+        items = self._submission_items(submission_id)
+        if items and not self._is_only_candidate_item(items, version_id):
             raise SubmissionError(
                 "an unrelated review submission is already in flight for this app"
             )
@@ -351,20 +351,20 @@ class SubmissionEngine:
             "App Store Connect did not return exactly the created review submission"
         )
 
-    def _item_version_ids(self, submission_id: str) -> list[str]:
-        return [
-            version_id
-            for item in self._submission_items(submission_id)
-            if (
-                version_id := asc_read.linkage_id(
-                    item, "appStoreVersion", "appStoreVersions"
-                )
-            )
-            is not None
-        ]
+    @staticmethod
+    def _is_only_candidate_item(
+        items: list[Mapping[str, Any]], version_id: str
+    ) -> bool:
+        return len(items) == 1 and asc_read.linkage_id(
+            items[0], "appStoreVersion", "appStoreVersions"
+        ) == version_id
 
     def _contains_version(self, submission_id: str, version_id: str) -> bool:
-        return version_id in self._item_version_ids(submission_id)
+        return any(
+            asc_read.linkage_id(item, "appStoreVersion", "appStoreVersions")
+            == version_id
+            for item in self._submission_items(submission_id)
+        )
 
     def _attach_items(self, submission_id: str, version_id: str) -> None:
         """Attach only the candidate version, reconciling by readback.
@@ -375,17 +375,23 @@ class SubmissionEngine:
         was Apple reporting a state it already holds. Only an item that readback
         proves genuinely absent is a real failure.
         """
-        if self._item_version_ids(submission_id) == [version_id]:
+        if self._is_only_candidate_item(
+            self._submission_items(submission_id), version_id
+        ):
             return
         try:
             self._change.add_version_item(submission_id, version_id)
         except asc_read.AppStoreConnectError:
-            if self._item_version_ids(submission_id) == [version_id]:
+            if self._is_only_candidate_item(
+                self._submission_items(submission_id), version_id
+            ):
                 return
             raise SubmissionError(
                 "App Store Connect did not attach the approved candidate"
             )
-        if self._item_version_ids(submission_id) != [version_id]:
+        if not self._is_only_candidate_item(
+            self._submission_items(submission_id), version_id
+        ):
             raise SubmissionError(
                 "App Store Connect did not attach the approved candidate"
             )

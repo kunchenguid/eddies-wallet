@@ -1072,6 +1072,22 @@ class SubmissionEngineTests(FixtureCase):
         self.assertNotIn("POST versionItem", fake.writes)
         self.assertNotIn("PATCH submitted", fake.writes)
 
+    def test_a_ready_submission_with_an_unrelated_item_is_a_conflict(self):
+        fake = FakeAppStoreConnect(
+            self.fixture,
+            reviewSubmissions={
+                "rs-other": {
+                    "state": "READY_FOR_REVIEW",
+                    "items": [{"id": "item-x", "subscription": "sub-monthly"}],
+                }
+            },
+        )
+        with self.assertRaises(submission.SubmissionError) as caught:
+            self.engine(fake).run()
+        self.assertIn("unrelated review submission", str(caught.exception))
+        self.assertNotIn("POST versionItem", fake.writes)
+        self.assertNotIn("PATCH submitted", fake.writes)
+
     def test_a_clean_candidate_is_submitted_once_and_read_back(self):
         fake = FakeAppStoreConnect(self.fixture)
         outcome = self.engine(fake).run()
