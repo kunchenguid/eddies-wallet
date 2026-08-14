@@ -1,0 +1,33 @@
+=== clean submit with build realignment ===
+accepted=True submission_state=WAITING_FOR_REVIEW version_state=WAITING_FOR_REVIEW
+GET collection /v1/apps/6795664301/appStoreVersions query={"filter[platform]": "IOS", "filter[versionString]": "0.2.0", "limit": "200"} -> HTTP 200 (validated fake)
+GET optional-single /v1/appStoreVersions/ver-1/build query={} -> HTTP 200 (validated fake)
+GET collection /v1/builds query={"filter[app]": "6795664301", "filter[preReleaseVersion.version]": "0.2.0", "filter[version]": "41.1", "limit": "200"} -> HTTP 200 (validated fake)
+GET optional-single /v1/appStoreVersions/ver-1/appStoreReviewDetail query={} -> HTTP 200 (validated fake)
+GET collection /v1/apps/6795664301/appStoreVersions query={"fields[appStoreVersions]": "versionString,appVersionState,platform,releaseType,build", "fields[builds]": "version,expired", "filter[platform]": "IOS", "filter[versionString]": "0.2.0", "include": "build", "limit": "50"} -> HTTP 200 (validated fake)
+GET collection /v1/apps/6795664301/subscriptionGroups query={"fields[subscriptionGroups]": "subscriptions", "fields[subscriptions]": "productId,state,reviewNote", "include": "subscriptions", "limit": "50"} -> HTTP 200 (validated fake)
+GET optional-single /v1/appStoreVersions/ver-1/appStoreReviewDetail query={"fields[appStoreReviewDetails]": "notes,demoAccountRequired"} -> HTTP 200 (validated fake)
+GET collection /v1/apps/6795664301/reviewSubmissions query={"filter[platform]": "IOS", "limit": "200"} -> HTTP 200 (validated fake)
+GET collection /v1/reviewSubmissions/rs-1/items query={"include": "appStoreVersion", "limit": "200"} -> HTTP 200 (validated fake)
+GET collection /v1/apps/6795664301/subscriptionGroups query={"include": "subscriptions", "limit": "200"} -> HTTP 200 (validated fake)
+GET /v1/reviewSubmissions/rs-1 query={} -> HTTP 200 (validated fake)
+GET /v1/appStoreVersions/ver-1 query={} -> HTTP 200 (validated fake)
+writes=["PATCH build", "POST reviewSubmission", "POST versionItem", "PATCH submitted"]
+
+=== resumed submit with existing version item ===
+accepted=True submission_state=WAITING_FOR_REVIEW version_state=WAITING_FOR_REVIEW
+GET collection /v1/apps/6795664301/appStoreVersions query={"filter[platform]": "IOS", "filter[versionString]": "0.2.0", "limit": "200"} -> HTTP 200 (validated fake)
+GET optional-single /v1/appStoreVersions/ver-1/build query={} -> HTTP 200 (validated fake)
+GET optional-single /v1/appStoreVersions/ver-1/appStoreReviewDetail query={} -> HTTP 200 (validated fake)
+GET collection /v1/apps/6795664301/appStoreVersions query={"fields[appStoreVersions]": "versionString,appVersionState,platform,releaseType,build", "fields[builds]": "version,expired", "filter[platform]": "IOS", "filter[versionString]": "0.2.0", "include": "build", "limit": "50"} -> HTTP 200 (validated fake)
+GET collection /v1/apps/6795664301/subscriptionGroups query={"fields[subscriptionGroups]": "subscriptions", "fields[subscriptions]": "productId,state,reviewNote", "include": "subscriptions", "limit": "50"} -> HTTP 200 (validated fake)
+GET optional-single /v1/appStoreVersions/ver-1/appStoreReviewDetail query={"fields[appStoreReviewDetails]": "notes,demoAccountRequired"} -> HTTP 200 (validated fake)
+GET collection /v1/apps/6795664301/reviewSubmissions query={"filter[platform]": "IOS", "limit": "200"} -> HTTP 200 (validated fake)
+GET collection /v1/reviewSubmissions/rs-existing/items query={"include": "appStoreVersion", "limit": "200"} -> HTTP 200 (validated fake)
+GET collection /v1/apps/6795664301/subscriptionGroups query={"include": "subscriptions", "limit": "200"} -> HTTP 200 (validated fake)
+GET /v1/reviewSubmissions/rs-existing query={} -> HTTP 200 (validated fake)
+GET /v1/appStoreVersions/ver-1 query={} -> HTTP 200 (validated fake)
+writes=["PATCH submitted"]
+
+historical-invalid-query rejected: GET /v1/apps/6795664301/reviewSubmissions query={"fields[reviewSubmissions]": "state,platform,submitted"} -> App Store Connect read request failed with status 400
+historical-invalid-query rejected: GET /v1/reviewSubmissions/rs-existing/items query={"fields[reviewSubmissionItems]": "state,appStoreVersion,subscription"} -> App Store Connect read request failed with status 400
