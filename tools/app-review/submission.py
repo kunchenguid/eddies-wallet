@@ -11,9 +11,10 @@ and it proves it got there by reading Apple back:
 2. Reconcile. `core.reconcile_authoritatively` compares the whole approved
    manifest against the authoritative GET-only read. A candidate that does not
    match is refused here, before any submission exists.
-3. Submit. One open review submission is resumed or created, the exact candidate
-   and any Cloud subscription awaiting review are attached once, and the
-   submission is submitted only while it is still `READY_FOR_REVIEW`.
+3. Submit. One open review submission is resumed or created, only the exact
+   candidate version is attached, Cloud subscriptions are verified reviewable
+   without becoming review-submission items, and the submission is submitted
+   only while it is still `READY_FOR_REVIEW`.
 4. Read back. The run is accepted only when Apple reports the submission and the
    App Store version in a submitted state.
 
@@ -44,7 +45,6 @@ OPEN_SUBMISSION_STATES = (
     "UNRESOLVED_ISSUES",
 )
 ACCEPTED_SUBMISSION_STATES = frozenset(("WAITING_FOR_REVIEW", "IN_REVIEW"))
-SUBSCRIPTION_NEEDS_REVIEW = frozenset(("READY_TO_SUBMIT",))
 SUBSCRIPTION_ALREADY_REVIEWABLE = frozenset(
     ("WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_BINARY_APPROVAL", "APPROVED")
 )
@@ -100,6 +100,7 @@ class SubmissionEngine:
         submission_id, submission_state = self._resume_or_create_submission(version_id)
         if submission_state == "READY_FOR_REVIEW":
             self._attach_items(submission_id, version_id)
+            self._verify_cloud_subscriptions_reviewable()
             self._change.submit_for_review(submission_id)
         return self._accept(
             reconciliation.outcome, (submission_id, None), version_id
@@ -321,40 +322,16 @@ class SubmissionEngine:
         )
 
     def _attach_items(self, submission_id: str, version_id: str) -> None:
+        """Attach and confirm only the candidate App Store version."""
         if not self._contains_version(submission_id, version_id):
             self._change.add_version_item(submission_id, version_id)
             if not self._contains_version(submission_id, version_id):
                 raise SubmissionError(
                     "App Store Connect did not attach the approved candidate"
                 )
-        attached = {
-            asc_read.linkage_id(item, "subscription", "subscriptions")
-            for item in self._submission_items(submission_id)
-        }
-        for identifier in self._subscriptions_awaiting_review():
-            if identifier in attached:
-                continue
-            self._change.add_subscription_item(submission_id, identifier)
-        still_missing = {
-            identifier
-            for identifier in self._subscriptions_awaiting_review()
-            if identifier
-            not in {
-                asc_read.linkage_id(item, "subscription", "subscriptions")
-                for item in self._submission_items(submission_id)
-            }
-        }
-        if still_missing:
-            raise SubmissionError(
-                "App Store Connect did not attach every Cloud subscription awaiting review"
-            )
 
-    def _subscriptions_awaiting_review(self) -> list[str]:
-        # `include=subscriptions` materializes each group's subscriptions in the
-        # `included` set with Apple's default fields (which carry `productId` and
-        # `state`, the only attributes this code reads); no
-        # `fields[...]` restriction is sent, matching the SSHHIP default-fields
-        # discipline that keeps invalid sparse-field names off every submit read.
+    def _verify_cloud_subscriptions_reviewable(self) -> None:
+        """Verify Cloud subscriptions without attaching purchase-product items."""
         _, included = self._read.collection(
             f"/v1/apps/{core.APP_ID}/subscriptionGroups",
             {
@@ -367,7 +344,7 @@ class SubmissionEngine:
             for item in included
             if item.get("type") == "subscriptions"
         }
-        awaiting: list[str] = []
+        acceptable_states = SUBSCRIPTION_ALREADY_REVIEWABLE | {"READY_TO_SUBMIT"}
         for product_id in core.CLOUD_PRODUCT_IDS:
             subscription = by_product.get(product_id)
             if subscription is None:
@@ -375,13 +352,10 @@ class SubmissionEngine:
                     "an approved Cloud subscription is absent from App Store Connect"
                 )
             state = asc_read.text(asc_read.attributes(subscription), "state")
-            if state in SUBSCRIPTION_NEEDS_REVIEW:
-                awaiting.append(subscription["id"])
-            elif state not in SUBSCRIPTION_ALREADY_REVIEWABLE:
+            if state not in acceptable_states:
                 raise SubmissionError(
                     "a Cloud subscription needs captain-attended App Store Connect work"
                 )
-        return awaiting
 
     # -- acceptance ---------------------------------------------------------
 
