@@ -6,9 +6,10 @@ Review. `tools/app-review/README.md` owns the module boundaries;
 `docs/app-store-review-monitor.md` owns the monitor that watches the result.
 
 Merging the pull request that adds this pipeline submits nothing. It creates no
-App Store Connect resource, no credential, no manifest, and no review
-submission. Every workflow here is manual, and the submission workflow needs a
-captain-approved manifest that does not exist yet.
+App Store Connect resource, no credential, and no review submission. Every
+workflow here is manual. The content half of the submission gate is now in
+place: `tools/app-review/manifests/0.1.17.json` is the first captain-approved
+manifest, merged on `main`. App Review remains HELD; nothing has been submitted.
 
 ## The gate
 

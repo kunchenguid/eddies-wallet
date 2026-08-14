@@ -11,7 +11,7 @@ schema and its two self-checks - a content hash over every reviewed string and
 image descriptor, and a binding hash over the whole document - so an edited field
 invalidates the file rather than quietly changing what gets submitted.
 
-This directory is deliberately empty of manifests. Generating the first one
-belongs to the phase that finishes the real listing copy, App Store screenshots,
-and Cloud in-app purchase review assets, and it is captain-attended work. See
+`0.1.17.json` is the first captain-approved manifest, now present on `main`.
+Later versions get their own generated `<version>.json` the same way: generate
+the file, never hand-write it, and merge it after captain review. See
 `docs/app-review.md` and `tools/app-review/README.md`.

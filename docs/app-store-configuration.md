@@ -28,15 +28,13 @@ In-App Purchase needs no entitlement key. `EddysWallet/EddysWallet.entitlements`
 
 ### App Store version and build lineage
 
-App Store Connect holds **one** iOS App Store version record, in `PREPARE_FOR_SUBMISSION`. It was created with the placeholder version string `1.0`, while every build this repository has ever uploaded carries a `0.1.x` marketing version derived from its release tag (`docs/release.md` owns that derivation). Apple will not bind a build to a version record whose version string differs from the build's marketing version, so **the version record must be aligned to the exact candidate's marketing version before that candidate can be attached**. Align App Store Connect to the repository's release lineage; do not invent a version the repository has never cut.
+App Store Connect holds **one** iOS App Store version record: marketing version `0.1.17`, build `18.1`, state `PREPARE_FOR_SUBMISSION`, `releaseType` `AFTER_APPROVAL`. The `en-US` listing is filled: app name "Eddie's Wallet", subtitle "Virtual allowance practice", privacy policy URL https://eddies-wallet.kunchenguid.com/privacy/ , support URL https://eddies-wallet.kunchenguid.com/ . Listing screenshots are `COMPLETE` (5x iPhone 6.9" and 5x iPad 13"). `demoAccountRequired` is false: the reviewer uses their own Apple ID; no sandbox tester is supplied. Nothing is submitted; App Review is HELD.
 
-The uploaded builds are TestFlight artifacts, not App Store candidates: a build is only a candidate once it is attached to the version record. All uploaded builds declare `usesNonExemptEncryption = false`, so export compliance is already answered at the build level and App Review does not ask again.
+All uploaded builds declare `usesNonExemptEncryption = false`, so export compliance is already answered at the build level and App Review does not ask again.
 
 ### Review preparation blocked outside this repository
 
-Three review-preparation items cannot be completed truthfully from this repository:
-
-- **Privacy policy URL** is mandatory for an app and its auto-renewable subscription. The finalized privacy policy is published at https://eddies-wallet.kunchenguid.com/ via GitHub Pages (`site/` and `.github/workflows/pages.yml`); entering that URL in the version record remains a captain action with no committed-here surface.
+The `en-US` listing now has the privacy policy URL https://eddies-wallet.kunchenguid.com/privacy/ (policy published via GitHub Pages: `site/` and `.github/workflows/pages.yml`). Two review-preparation items still cannot be completed truthfully from this repository:
 
 - **App Privacy (data collection) answers** have no public API surface; they are entered in the App Store Connect console.
 - **App Review contact details** (name, email, phone) are the captain's real contact information. They must never be invented, and no synthetic value belongs in that field.
@@ -73,7 +71,7 @@ Both products are at the same group level because they are the same service bill
 
 `READY_TO_SUBMIT` is the furthest state a product reaches without being attached to a submission. It means the required metadata is complete; it does not mean the product is approved, live, or purchasable.
 
-The uploaded App Store review screenshot is an `EvidenceCaptureUITests` capture of the actual Cloud card. It truthfully shows the guarded, unavailable state because the app cannot render a purchase offer until product propagation and backend enablement are complete. Its successful upload proves only that the review asset is present, not that a purchase offer rendered or a transaction succeeded.
+The uploaded App Store review screenshot for both Cloud products is the priced iPhone 6.9" subscription review shot. Its successful upload proves the review asset is present; it does not mean a purchase offer rendered or a transaction succeeded.
 
 ### Plan type is `UPFRONT` for both products, deliberately
 
@@ -98,7 +96,7 @@ The following remain deliberately unproven or undone:
 - The backend's In-App Purchase credential is installed and has verified the observed Sandbox notification. It remains distinct from the App Store Connect API key used for uploads; no new key is needed and none should be requested.
 - This App Store Connect configuration work did not cut a TestFlight build or merge release pull request 26. That pull request remains open and captain-owned; this task-scoped boundary does not negate the TestFlight uploads App Store Connect has already accepted for this app.
 - No submission for App Review, and no request for Apple's test notification.
-- No build is attached to the App Store version record, no App Store listing screenshots exist, and no App Review submission object has been created.
+- Version `0.1.17` has build `18.1` attached and listing screenshots `COMPLETE`. No App Review submission object has been created; App Review remains HELD.
 
 ### An account-policy state is not a product-discovery failure
 
