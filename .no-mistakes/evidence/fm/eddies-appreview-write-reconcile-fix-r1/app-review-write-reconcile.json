@@ -1,0 +1,40 @@
+{
+  "attach_409_item_absent": {
+    "bounded_error": "App Store Connect did not attach the approved candidate",
+    "submitted": false,
+    "writes": [
+      "POST reviewSubmission",
+      "POST versionItem"
+    ]
+  },
+  "attach_409_item_landed": {
+    "accepted": true,
+    "submission_state": "WAITING_FOR_REVIEW",
+    "submitted_after_readback": true,
+    "writes": [
+      "POST reviewSubmission",
+      "POST versionItem",
+      "PATCH submitted"
+    ]
+  },
+  "different_version_conflict": {
+    "bounded_error": "an unrelated review submission is already in flight for this app",
+    "submitted": false,
+    "writes": []
+  },
+  "reuse_existing_empty_submission": {
+    "accepted": true,
+    "attached_versions": [
+      "ver-1"
+    ],
+    "created_second_submission": false,
+    "submission_ids": [
+      "rs-leftover"
+    ],
+    "submission_state": "WAITING_FOR_REVIEW",
+    "writes": [
+      "POST versionItem",
+      "PATCH submitted"
+    ]
+  }
+}
