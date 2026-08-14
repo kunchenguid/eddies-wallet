@@ -133,10 +133,10 @@ class SubmissionEngine:
 
     def _version_resource(self) -> Mapping[str, Any]:
         # Query shape mirrors SSHHIP's proven `loadVersions`: filter server-side
-        # only by platform and never restrict `fields[appStoreVersions]`, so
-        # Apple returns its default attribute set (a superset of what this code
-        # reads) and no invalid sparse-field name can ever reject the read. The
-        # single 0.1.x candidate is still selected client-side below.
+        # by the candidate version and platform, and never restrict
+        # `fields[appStoreVersions]`, so Apple returns its default attribute set
+        # (a superset of what this code reads) and no invalid sparse-field name
+        # can reject the read. The exact candidate is confirmed client-side.
         versions, _ = self._read.collection(
             f"/v1/apps/{core.APP_ID}/appStoreVersions",
             {

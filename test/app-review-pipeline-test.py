@@ -999,16 +999,18 @@ class SubmissionEngineTests(FixtureCase):
         # - and the whole run - must succeed, which can only happen if no read
         # names an invalid field/filter/include. This fails if any submit-path
         # query regains one.
-        fake = FieldValidatingAppStoreConnect(self.fixture)
+        # Start with the wrong build so the conditional `/v1/builds` candidate
+        # lookup and its bound-build readback are exercised too. A normally
+        # aligned fixture skips that submit-path query entirely.
+        fake = FieldValidatingAppStoreConnect(self.fixture, buildId="build-old")
         outcome = self.engine(fake).run()
         self.assertTrue(outcome.accepted)
-        # The app-scoped reviewSubmissions collection and the items read (the two
-        # sites of the proven 400s) were actually exercised.
-        self.assertIn(f"/v1/apps/{APP_ID}/reviewSubmissions", fake.reads)
-        self.assertTrue(
-            any(re.fullmatch(r"/v1/reviewSubmissions/[^/]+/items", read) for read in fake.reads),
-            "the submission-items read must be exercised",
-        )
+        exercised_submit_endpoints = {
+            endpoint
+            for path in fake.reads
+            if (endpoint := _submit_endpoint_key(path)) in SUBMIT_ENDPOINT_FIELDS
+        }
+        self.assertEqual(exercised_submit_endpoints, set(SUBMIT_ENDPOINT_FIELDS))
 
     def test_resumed_run_reads_existing_submission_items_with_valid_fields(self):
         # The failed real submit already created a review submission, so on the

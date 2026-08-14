@@ -23,11 +23,10 @@ app-scoped `/v1/apps/{APP_ID}/reviewSubmissions` collection with client-side
 state filtering, and uses `include=appStoreVersion` on the items read. That
 removes the whole invalid-sparse-field class of 400.
 
-This script reissues EVERY submit-phase read, in the same order and with the
-same query shapes as `submission.SubmissionEngine`, each wrapped in its own
-labeled try/except, and - unlike the production client - reads and prints
-Apple's raw `errors[]` on an HTTP error so any residual 400 can be root-caused.
-It covers, end to end:
+This script reissues EVERY distinct submit-phase read shape in one labeled audit
+sequence, using the same queries as `submission.SubmissionEngine`, and - unlike
+the production client - reads and prints Apple's raw `errors[]` on an HTTP error
+so any residual 400 can be root-caused. It covers, end to end:
 
   * `_version_resource` (appStoreVersions collection);
   * `_align_build` (the `/v1/builds` candidate read);
