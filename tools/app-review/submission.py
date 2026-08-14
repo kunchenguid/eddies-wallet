@@ -11,9 +11,10 @@ and it proves it got there by reading Apple back:
 2. Reconcile. `core.reconcile_authoritatively` compares the whole approved
    manifest against the authoritative GET-only read. A candidate that does not
    match is refused here, before any submission exists.
-3. Submit. One open review submission is resumed or created, the exact candidate
-   and any Cloud subscription awaiting review are attached once, and the
-   submission is submitted only while it is still `READY_FOR_REVIEW`.
+3. Submit. One open review submission is resumed or created, only the exact
+   candidate version is attached, Cloud subscriptions are verified reviewable
+   without becoming review-submission items, and the submission is submitted
+   only while it is still `READY_FOR_REVIEW`.
 4. Read back. The run is accepted only when Apple reports the submission and the
    App Store version in a submitted state.
 
@@ -44,7 +45,6 @@ OPEN_SUBMISSION_STATES = (
     "UNRESOLVED_ISSUES",
 )
 ACCEPTED_SUBMISSION_STATES = frozenset(("WAITING_FOR_REVIEW", "IN_REVIEW"))
-SUBSCRIPTION_NEEDS_REVIEW = frozenset(("READY_TO_SUBMIT",))
 SUBSCRIPTION_ALREADY_REVIEWABLE = frozenset(
     ("WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_BINARY_APPROVAL", "APPROVED")
 )
@@ -100,6 +100,7 @@ class SubmissionEngine:
         submission_id, submission_state = self._resume_or_create_submission(version_id)
         if submission_state == "READY_FOR_REVIEW":
             self._attach_items(submission_id, version_id)
+            self._verify_cloud_subscriptions_reviewable()
             self._change.submit_for_review(submission_id)
         return self._accept(
             reconciliation.outcome, (submission_id, None), version_id
@@ -131,13 +132,17 @@ class SubmissionEngine:
         return version_id
 
     def _version_resource(self) -> Mapping[str, Any]:
+        # Query shape mirrors SSHHIP's proven `loadVersions`: filter server-side
+        # by the candidate version and platform, and never restrict
+        # `fields[appStoreVersions]`, so Apple returns its default attribute set
+        # (a superset of what this code reads) and no invalid sparse-field name
+        # can reject the read. The exact candidate is confirmed client-side.
         versions, _ = self._read.collection(
             f"/v1/apps/{core.APP_ID}/appStoreVersions",
             {
                 "filter[versionString]": self._candidate["version"],
                 "filter[platform]": core.PLATFORM,
-                "fields[appStoreVersions]": "versionString,appVersionState,platform,releaseType,build",
-                "limit": "50",
+                "limit": "200",
             },
         )
         matching = [
@@ -158,14 +163,17 @@ class SubmissionEngine:
         target = self._candidate["build"]
         if self._bound_build_version(version_id) == target:
             return
+        # SSHHIP's proven `loadBuild` filters: app + exact build version +
+        # marketing (prerelease) version, with no `fields[builds]` restriction so
+        # the default build attributes (`version`, `expired`, `processingState`,
+        # ...) always come back.
         builds, _ = self._read.collection(
             "/v1/builds",
             {
                 "filter[app]": core.APP_ID,
                 "filter[version]": target,
                 "filter[preReleaseVersion.version]": self._candidate["version"],
-                "fields[builds]": "version,expired,processingState",
-                "limit": "50",
+                "limit": "200",
             },
         )
         usable = [
@@ -186,9 +194,12 @@ class SubmissionEngine:
             )
 
     def _bound_build_version(self, version_id: str) -> Optional[str]:
+        # The bound-build related-resource read takes Apple's default build
+        # fields (no sparse-field restriction), and `optional_single` already
+        # treats an unbound build (Apple's `data: null`) as absent.
         build = self._read.optional_single(
             f"/v1/appStoreVersions/{version_id}/build",
-            {"fields[builds]": "version,expired,processingState"},
+            {},
         )
         if build is None:
             return None
@@ -199,9 +210,12 @@ class SubmissionEngine:
 
     def _align_review_detail(self, version_id: str) -> None:
         approved = self._manifest["content"]["appReview"]
+        # No `fields[appStoreReviewDetails]` restriction (Apple defaults);
+        # `optional_single` reports an absent detail (`data: null`) as None, which
+        # this method refuses on rather than inventing contact information.
         detail = self._read.optional_single(
             f"/v1/appStoreVersions/{version_id}/appStoreReviewDetail",
-            {"fields[appStoreReviewDetails]": "notes,demoAccountRequired"},
+            {},
         )
         if detail is None:
             raise SubmissionError(
@@ -217,7 +231,7 @@ class SubmissionEngine:
         self._change.set_review_detail(detail["id"], approved["notes"])
         readback = self._read.optional_single(
             f"/v1/appStoreVersions/{version_id}/appStoreReviewDetail",
-            {"fields[appStoreReviewDetails]": "notes,demoAccountRequired"},
+            {},
         )
         if readback is None:
             raise SubmissionError("App Store Connect lost the App Review detail")
@@ -233,28 +247,45 @@ class SubmissionEngine:
     # -- review submission --------------------------------------------------
 
     def _open_submissions(self) -> list[Mapping[str, Any]]:
+        # SSHHIP's proven `loadSubmissions` shape: read the app-scoped
+        # `/v1/apps/{APP_ID}/reviewSubmissions` relationship collection filtered
+        # only by platform, with no `fields[reviewSubmissions]` restriction, and
+        # narrow to the open states client-side. Requesting a sparse
+        # `fields[reviewSubmissions]` set is exactly what let the invalid
+        # `submitted` field reject this read; taking Apple's default fields
+        # removes that whole class of failure.
         submissions, _ = self._read.collection(
-            "/v1/reviewSubmissions",
+            f"/v1/apps/{core.APP_ID}/reviewSubmissions",
             {
-                "filter[app]": core.APP_ID,
                 "filter[platform]": core.PLATFORM,
-                "filter[state]": ",".join(OPEN_SUBMISSION_STATES),
-                "fields[reviewSubmissions]": "state,platform",
-                "limit": "50",
+                "limit": "200",
             },
         )
-        if len(submissions) > 1:
+        open_submissions = [
+            submission
+            for submission in submissions
+            if asc_read.text(asc_read.attributes(submission), "state")
+            in OPEN_SUBMISSION_STATES
+        ]
+        if len(open_submissions) > 1:
             raise SubmissionError(
                 "App Store Connect holds more than one open review submission"
             )
-        return submissions
+        return open_submissions
 
     def _submission_items(self, submission_id: str) -> list[Mapping[str, Any]]:
+        # SSHHIP's proven items read: never restrict `fields[reviewSubmissionItems]`
+        # and use `include=appStoreVersion` to materialize the version linkage this
+        # code reads in `_contains_version`. `subscription` is not a valid
+        # reviewSubmissionItems field/relationship on App Store Connect, so the
+        # earlier `fields[reviewSubmissionItems]=...,subscription` sparse set
+        # rejected this read; taking Apple defaults returns whatever linkages the
+        # item actually carries without naming an invalid one.
         items, _ = self._read.collection(
             f"/v1/reviewSubmissions/{submission_id}/items",
             {
-                "fields[reviewSubmissionItems]": "state,appStoreVersion,subscription",
-                "limit": "50",
+                "include": "appStoreVersion",
+                "limit": "200",
             },
         )
         return items
@@ -291,42 +322,21 @@ class SubmissionEngine:
         )
 
     def _attach_items(self, submission_id: str, version_id: str) -> None:
+        """Attach and confirm only the candidate App Store version."""
         if not self._contains_version(submission_id, version_id):
             self._change.add_version_item(submission_id, version_id)
             if not self._contains_version(submission_id, version_id):
                 raise SubmissionError(
                     "App Store Connect did not attach the approved candidate"
                 )
-        attached = {
-            asc_read.linkage_id(item, "subscription", "subscriptions")
-            for item in self._submission_items(submission_id)
-        }
-        for identifier in self._subscriptions_awaiting_review():
-            if identifier in attached:
-                continue
-            self._change.add_subscription_item(submission_id, identifier)
-        still_missing = {
-            identifier
-            for identifier in self._subscriptions_awaiting_review()
-            if identifier
-            not in {
-                asc_read.linkage_id(item, "subscription", "subscriptions")
-                for item in self._submission_items(submission_id)
-            }
-        }
-        if still_missing:
-            raise SubmissionError(
-                "App Store Connect did not attach every Cloud subscription awaiting review"
-            )
 
-    def _subscriptions_awaiting_review(self) -> list[str]:
+    def _verify_cloud_subscriptions_reviewable(self) -> None:
+        """Verify Cloud subscriptions without attaching purchase-product items."""
         _, included = self._read.collection(
             f"/v1/apps/{core.APP_ID}/subscriptionGroups",
             {
-                "fields[subscriptionGroups]": "subscriptions",
-                "fields[subscriptions]": "productId,state",
                 "include": "subscriptions",
-                "limit": "50",
+                "limit": "200",
             },
         )
         by_product = {
@@ -334,7 +344,7 @@ class SubmissionEngine:
             for item in included
             if item.get("type") == "subscriptions"
         }
-        awaiting: list[str] = []
+        acceptable_states = SUBSCRIPTION_ALREADY_REVIEWABLE | {"READY_TO_SUBMIT"}
         for product_id in core.CLOUD_PRODUCT_IDS:
             subscription = by_product.get(product_id)
             if subscription is None:
@@ -342,13 +352,10 @@ class SubmissionEngine:
                     "an approved Cloud subscription is absent from App Store Connect"
                 )
             state = asc_read.text(asc_read.attributes(subscription), "state")
-            if state in SUBSCRIPTION_NEEDS_REVIEW:
-                awaiting.append(subscription["id"])
-            elif state not in SUBSCRIPTION_ALREADY_REVIEWABLE:
+            if state not in acceptable_states:
                 raise SubmissionError(
                     "a Cloud subscription needs captain-attended App Store Connect work"
                 )
-        return awaiting
 
     # -- acceptance ---------------------------------------------------------
 
@@ -372,7 +379,7 @@ class SubmissionEngine:
         submission_id = submission[0]
         payload = self._read.get(
             f"/v1/reviewSubmissions/{submission_id}",
-            {"fields[reviewSubmissions]": "state,platform"},
+            {},
         )
         data = payload.get("data")
         if not isinstance(data, dict):
@@ -400,7 +407,7 @@ class SubmissionEngine:
     def _version_state(self, version_id: str) -> str:
         payload = self._read.get(
             f"/v1/appStoreVersions/{version_id}",
-            {"fields[appStoreVersions]": "versionString,appVersionState"},
+            {},
         )
         data = payload.get("data")
         if not isinstance(data, dict):
