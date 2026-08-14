@@ -486,6 +486,46 @@ def _without_id(entry):
     return {key: value for key, value in entry.items() if key != "id"}
 
 
+# Apple's documented valid fields for the reviewSubmissions resource. A
+# `fields[reviewSubmissions]` sparse-fieldset carrying anything outside this set
+# makes App Store Connect reject the whole read with HTTP 400
+# (PARAMETER_ERROR.INVALID, "'<name>' is not a valid field name") - which is the
+# 400 that blocked the submit before the `submitted` field was dropped.
+VALID_REVIEW_SUBMISSION_FIELDS = frozenset(
+    {"state", "platform", "submittedDate", "createdDate"}
+)
+
+
+class FieldValidatingAppStoreConnect(FakeAppStoreConnect):
+    """A fake that rejects an invalid `fields[reviewSubmissions]` the way Apple
+    does: any sparse-field name outside `VALID_REVIEW_SUBMISSION_FIELDS` fails
+    the whole reviewSubmissions read with the same bounded error a real HTTP 400
+    surfaces as. It validates both the `_open_submissions()` collection read and
+    the `_open_submission` readback `get`, so it guards both sites that requested
+    the invalid `submitted` field."""
+
+    def _guard_review_submission_fields(self, query):
+        raw = query.get("fields[reviewSubmissions]")
+        if raw is None:
+            return
+        requested = {field for field in raw.split(",") if field}
+        invalid = requested - VALID_REVIEW_SUBMISSION_FIELDS
+        if invalid:
+            raise asc_read.AppStoreConnectError(
+                "App Store Connect read request failed with status 400"
+            )
+
+    def get(self, path, query):
+        if re.fullmatch(r"/v1/reviewSubmissions/[^/]+", path):
+            self._guard_review_submission_fields(query)
+        return super().get(path, query)
+
+    def collection(self, path, query):
+        if path == "/v1/reviewSubmissions":
+            self._guard_review_submission_fields(query)
+        return super().collection(path, query)
+
+
 class FixtureCase(unittest.TestCase):
     def setUp(self):
         self._directory = tempfile.TemporaryDirectory()
@@ -810,6 +850,19 @@ class SubmissionEngineTests(FixtureCase):
                 "PATCH submitted",
             ],
         )
+
+    def test_open_submissions_read_uses_only_valid_review_submission_fields(self):
+        # Regression: `_open_submissions()` and the `_open_submission` readback
+        # once requested `fields[reviewSubmissions]=state,platform,submitted`,
+        # and `submitted` is not a valid reviewSubmissions field, so Apple
+        # rejected the whole read with HTTP 400 and the submit could never
+        # proceed. Drive the engine against a fake that 400s on any invalid
+        # sparse field exactly as Apple does; the read - and the whole run -
+        # must succeed, proving the query carries only valid fields.
+        fake = FieldValidatingAppStoreConnect(self.fixture)
+        outcome = self.engine(fake).run()
+        self.assertTrue(outcome.accepted)
+        self.assertIn("/v1/reviewSubmissions", fake.reads)
 
     def test_rerunning_an_accepted_submission_writes_nothing(self):
         fake = FakeAppStoreConnect(self.fixture)
