@@ -384,7 +384,7 @@ def main() -> int:
                 "or ambiguous; cannot resolve version id for steps 2-3"
             )
         else:
-            print(f"      SUCCESS (HTTP 200); resolved version id")
+            print("      SUCCESS (HTTP 200); resolved version id")
     except ReadFailure as failure:
         print("      FAILURE:")
         print(str(failure))
@@ -439,8 +439,8 @@ def main() -> int:
         failures,
     )
 
-    # Step 5 - the same read WITHOUT filter[platform], to test the hypothesised
-    # fix directly.
+    # Step 5 - the same corrected read WITHOUT filter[platform], retained to
+    # re-confirm that this filter was not the cause of the 400.
     print()
     open_without_platform_ok = _reviewsubmissions_read(
         credential,
