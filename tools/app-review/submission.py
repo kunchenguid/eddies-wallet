@@ -335,20 +335,28 @@ class SubmissionEngine:
         # SSHHIP's ambiguous-create handling: a create that errors may still have
         # landed on Apple, so read back before deciding and never blindly re-POST.
         create_error: Optional[asc_read.AppStoreConnectError] = None
+        created_submission_id: Optional[str] = None
         try:
-            self._change.create_review_submission(core.APP_ID, core.PLATFORM)
+            created_submission_id = self._change.create_review_submission(
+                core.APP_ID, core.PLATFORM
+            )
         except asc_read.AppStoreConnectError as error:
             create_error = error
         readback = self._open_submissions()
+        if create_error is None:
+            if (
+                len(readback) != 1
+                or readback[0]["id"] != created_submission_id
+            ):
+                raise SubmissionError(
+                    "App Store Connect did not return exactly the created review submission"
+                )
+            return self._confirm_reusable(readback[0], version_id)
         if len(readback) == 1:
             return self._confirm_reusable(readback[0], version_id)
-        if create_error is not None:
-            raise SubmissionError(
-                "App Store Connect did not confirm the created review submission; "
-                "resume later rather than risk a duplicate"
-            )
         raise SubmissionError(
-            "App Store Connect did not return exactly the created review submission"
+            "App Store Connect did not confirm the created review submission; "
+            "resume later rather than risk a duplicate"
         )
 
     @staticmethod

@@ -967,6 +967,17 @@ class SubscriptionReviewAssetBindingTests(FixtureCase):
         self.assertIn("not fully delivered", str(caught.exception))
 
 
+class MismatchedCreateReadbackAppStoreConnect(FakeAppStoreConnect):
+    def create_review_submission(self, app_id, platform):
+        created_id = super().create_review_submission(app_id, platform)
+        self.review_submissions.pop(created_id)
+        self.review_submissions["rs-concurrent"] = {
+            "state": "READY_FOR_REVIEW",
+            "items": [],
+        }
+        return created_id
+
+
 class ReconcileAppStoreConnect(FakeAppStoreConnect):
     """Model Apple 409-ing an attach POST that may or may not have landed.
 
@@ -1000,6 +1011,18 @@ class SubmissionEngineTests(FixtureCase):
         return submission.SubmissionEngine(
             fake, fake, self.fixture.manifest, self.fixture.verified
         )
+
+    def test_successful_create_refuses_a_different_readback_submission(self):
+        fake = MismatchedCreateReadbackAppStoreConnect(self.fixture)
+        with self.assertRaises(submission.SubmissionError) as caught:
+            self.engine(fake).run()
+        self.assertIn(
+            "did not return exactly the created review submission",
+            str(caught.exception),
+        )
+        self.assertIn("POST reviewSubmission", fake.writes)
+        self.assertNotIn("POST versionItem", fake.writes)
+        self.assertNotIn("PATCH submitted", fake.writes)
 
     def test_an_empty_ready_submission_is_reused_not_recreated(self):
         # The proven leftover on App Store Connect: an empty `READY_FOR_REVIEW`
