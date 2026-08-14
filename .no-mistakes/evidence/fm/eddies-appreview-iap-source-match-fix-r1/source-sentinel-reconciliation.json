@@ -1,0 +1,13 @@
+{
+  "outcome": "matching_draft",
+  "safety_checks": {
+    "SOURCE_listing_filename_without_opt_in_refused": "an uploaded screenshot APP_IPHONE_67 asset does not match exactly one approved file",
+    "different_real_iap_filename_refused": "an uploaded in-app purchase com.kunchenguid.eddieswallet.cloud.monthly asset does not match exactly one approved file"
+  },
+  "scenario": "GET-only authoritative reconciliation with both Cloud subscription review screenshots reported by Apple as SOURCE",
+  "subscription_file_names": {
+    "com.kunchenguid.eddieswallet.cloud.annual": "SOURCE",
+    "com.kunchenguid.eddieswallet.cloud.monthly": "SOURCE"
+  },
+  "writes": []
+}
