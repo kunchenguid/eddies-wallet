@@ -73,8 +73,14 @@ reconciliation outcome, and timestamp. Nothing else is recorded there.
 
 Rerunning `mode=submit` after an interruption is safe. The engine reconciles
 against authoritative Apple state first: if Apple already holds the candidate as
-submitted it performs no write and completes only the monitor handoff. It never
-replays an uncertain write, and it never creates a second review submission.
+submitted it performs no write and completes only the monitor handoff. Otherwise
+it reuses the single open review submission only when that submission is still
+reusable and contains no item or only the exact candidate; an unrelated item,
+state, or additional open submission is a conflict. After creating a submission
+or attaching the candidate, the engine reads Apple back before proceeding. A
+failed attach whose readback contains the exact candidate is complete; an absent
+candidate is a bounded failure. An uncertain create is never replayed, so a
+rerun cannot create a second review submission.
 
 If Apple accepted the submission but the monitor handoff failed, rerun the same
 dispatch. Only the handoff is outstanding, and it is a `GET`, then write, then
