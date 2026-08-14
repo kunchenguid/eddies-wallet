@@ -694,9 +694,8 @@ class SubscriptionReviewAssetBindingTests(FixtureCase):
     def test_a_full_read_binds_source_named_subscription_screenshots(self):
         fake = FakeAppStoreConnect(self.fixture)
         for product_id in core.CLOUD_PRODUCT_IDS:
-            fake.subscriptions[product_id]["screenshot"][
-                "fileName"
-            ] = content.SOURCE_FILENAME_SENTINEL
+            screenshot = fake.subscriptions[product_id]["screenshot"]
+            screenshot["fileName"] = content.SOURCE_FILENAME_SENTINEL
         outcome = core.reconcile_authoritatively(
             self.fixture.manifest, self.client(fake)
         )
