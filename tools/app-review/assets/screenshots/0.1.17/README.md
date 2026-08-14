@@ -2,9 +2,9 @@
 
 Captain-approved submission set, 2026-08-13. These ten PNGs are the locked
 listing screenshots for Eddie's Wallet 0.1.17: the same five screens on iPhone
-6.9" (1320x2868) and iPad 13" (2064x2752). A later `0.1.17` App Review
-manifest must bind these exact paths and bytes, and the attended App Store
-Connect upload must use this same set.
+6.9" (1320x2868) and iPad 13" (2064x2752). The approved `0.1.17` App Review
+manifest (`tools/app-review/manifests/0.1.17.json`) now binds these exact paths
+and bytes; the attended App Store Connect upload used this same set.
 
 | File | Device | Screen |
 | --- | --- | --- |
