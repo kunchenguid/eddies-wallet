@@ -96,7 +96,7 @@ The following remain deliberately unproven or undone:
 - The backend's In-App Purchase credential is installed and has verified the observed Sandbox notification. It remains distinct from the App Store Connect API key used for uploads; no new key is needed and none should be requested.
 - This App Store Connect configuration work did not cut a TestFlight build or merge release pull request 26. That pull request remains open and captain-owned; this task-scoped boundary does not negate the TestFlight uploads App Store Connect has already accepted for this app.
 - No submission for App Review, and no request for Apple's test notification.
-- Version `0.1.17` has build `18.1` attached and listing screenshots `COMPLETE`. No App Review submission object has been created; App Review remains HELD.
+- Version `0.1.17` has build `18.1` attached and listing screenshots `COMPLETE`. An interrupted submit attempt left one empty `READY_FOR_REVIEW` submission object with no version item attached; the version itself has not been submitted and App Review remains HELD.
 
 ### An account-policy state is not a product-discovery failure
 

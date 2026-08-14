@@ -45,6 +45,13 @@ OPEN_SUBMISSION_STATES = (
     "UNRESOLVED_ISSUES",
 )
 ACCEPTED_SUBMISSION_STATES = frozenset(("WAITING_FOR_REVIEW", "IN_REVIEW"))
+# SSHHIP's proven `reconcileSubmission` reuses only a submission Apple still
+# holds open for review work. A submission in any other observed state (for
+# example `UNRESOLVED_ISSUES`) is a genuine conflict for the captain, never a
+# base this engine attaches to or duplicates around.
+REUSABLE_SUBMISSION_STATES = frozenset(
+    ("READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "IN_REVIEW")
+)
 SUBSCRIPTION_ALREADY_REVIEWABLE = frozenset(
     ("WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_BINARY_APPROVAL", "APPROVED")
 )
@@ -291,28 +298,74 @@ class SubmissionEngine:
         return items
 
     def _resume_or_create_submission(self, version_id: str) -> tuple[str, str]:
+        # SSHHIP's proven `reconcileSubmission`: reuse the open review submission
+        # Apple already holds rather than POST a fresh one every attempt, so a
+        # partially-completed prior run (like an empty `READY_FOR_REVIEW`
+        # leftover) is resumed in place and never accumulates duplicates.
         open_submissions = self._open_submissions()
         if open_submissions:
-            submission = open_submissions[0]
-            state = asc_read.text(asc_read.attributes(submission), "state")
-            if state != "READY_FOR_REVIEW" and not self._contains_version(
-                submission["id"], version_id
+            return self._confirm_reusable(open_submissions[0], version_id)
+        return self._create_submission(version_id)
+
+    def _confirm_reusable(
+        self, submission: Mapping[str, Any], version_id: str
+    ) -> tuple[str, str]:
+        """Prove an existing open submission is reusable for this candidate.
+
+        A submission is reusable only when Apple still holds it open for review
+        (`REUSABLE_SUBMISSION_STATES`) and it carries at most the exact candidate
+        version as its single item. Any other state, an item targeting a
+        different version, or more than one item is a genuine conflict the
+        captain resolves - never a duplicate this engine papers over.
+        """
+        submission_id = submission["id"]
+        state = asc_read.text(asc_read.attributes(submission), "state")
+        if state not in REUSABLE_SUBMISSION_STATES:
+            raise SubmissionError(
+                "an unrelated review submission is already in flight for this app"
+            )
+        items = self._submission_items(submission_id)
+        if items and not self._is_only_candidate_item(items, version_id):
+            raise SubmissionError(
+                "an unrelated review submission is already in flight for this app"
+            )
+        return submission_id, state
+
+    def _create_submission(self, version_id: str) -> tuple[str, str]:
+        # SSHHIP's ambiguous-create handling: a create that errors may still have
+        # landed on Apple, so read back before deciding and never blindly re-POST.
+        create_error: Optional[asc_read.AppStoreConnectError] = None
+        created_submission_id: Optional[str] = None
+        try:
+            created_submission_id = self._change.create_review_submission(
+                core.APP_ID, core.PLATFORM
+            )
+        except asc_read.AppStoreConnectError as error:
+            create_error = error
+        readback = self._open_submissions()
+        if create_error is None:
+            if (
+                len(readback) != 1
+                or readback[0]["id"] != created_submission_id
             ):
                 raise SubmissionError(
-                    "an unrelated review submission is already in flight for this app"
+                    "App Store Connect did not return exactly the created review submission"
                 )
-            return submission["id"], state
-        submission_id = self._change.create_review_submission(
-            core.APP_ID, core.PLATFORM
+            return self._confirm_reusable(readback[0], version_id)
+        if len(readback) == 1:
+            return self._confirm_reusable(readback[0], version_id)
+        raise SubmissionError(
+            "App Store Connect did not confirm the created review submission; "
+            "resume later rather than risk a duplicate"
         )
-        readback = self._open_submissions()
-        if len(readback) != 1 or readback[0]["id"] != submission_id:
-            raise SubmissionError(
-                "App Store Connect did not return exactly the created review submission"
-            )
-        return submission_id, asc_read.text(
-            asc_read.attributes(readback[0]), "state"
-        )
+
+    @staticmethod
+    def _is_only_candidate_item(
+        items: list[Mapping[str, Any]], version_id: str
+    ) -> bool:
+        return len(items) == 1 and asc_read.linkage_id(
+            items[0], "appStoreVersion", "appStoreVersions"
+        ) == version_id
 
     def _contains_version(self, submission_id: str, version_id: str) -> bool:
         return any(
@@ -322,13 +375,34 @@ class SubmissionEngine:
         )
 
     def _attach_items(self, submission_id: str, version_id: str) -> None:
-        """Attach and confirm only the candidate App Store version."""
-        if not self._contains_version(submission_id, version_id):
+        """Attach only the candidate version, reconciling by readback.
+
+        SSHHIP's proven `createReviewItem`: after the attach POST - even one Apple
+        rejects with a 409 - read the items back. If the candidate item is now
+        present the resource actually landed and the attach succeeded; the error
+        was Apple reporting a state it already holds. Only an item that readback
+        proves genuinely absent is a real failure.
+        """
+        if self._is_only_candidate_item(
+            self._submission_items(submission_id), version_id
+        ):
+            return
+        try:
             self._change.add_version_item(submission_id, version_id)
-            if not self._contains_version(submission_id, version_id):
-                raise SubmissionError(
-                    "App Store Connect did not attach the approved candidate"
-                )
+        except asc_read.AppStoreConnectError:
+            if self._is_only_candidate_item(
+                self._submission_items(submission_id), version_id
+            ):
+                return
+            raise SubmissionError(
+                "App Store Connect did not attach the approved candidate"
+            )
+        if not self._is_only_candidate_item(
+            self._submission_items(submission_id), version_id
+        ):
+            raise SubmissionError(
+                "App Store Connect did not attach the approved candidate"
+            )
 
     def _verify_cloud_subscriptions_reviewable(self) -> None:
         """Verify Cloud subscriptions without attaching purchase-product items."""
