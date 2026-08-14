@@ -967,11 +967,110 @@ class SubscriptionReviewAssetBindingTests(FixtureCase):
         self.assertIn("not fully delivered", str(caught.exception))
 
 
+class ReconcileAppStoreConnect(FakeAppStoreConnect):
+    """Model Apple 409-ing an attach POST that may or may not have landed.
+
+    A real submit created a review submission and then got a `POST 409` on
+    `add_version_item`; the item genuinely landed on Apple in some runs and not
+    others. This double lets a test choose both independently so the readback
+    reconcile can be exercised for a conflict that succeeded and one that failed.
+    """
+
+    def __init__(self, *args, add_item_conflicts=False, add_item_lands=True, **overrides):
+        self.add_item_conflicts = add_item_conflicts
+        self.add_item_lands = add_item_lands
+        super().__init__(*args, **overrides)
+
+    def add_version_item(self, submission_id, version_id):
+        if not self.add_item_conflicts:
+            return super().add_version_item(submission_id, version_id)
+        self.writes.append("POST versionItem")
+        if self.add_item_lands:
+            self._next += 1
+            self.review_submissions[submission_id]["items"].append(
+                {"id": f"item-{self._next}", "appStoreVersion": version_id}
+            )
+        raise asc_read.AppStoreConnectError(
+            "App Store Connect POST was rejected with status 409"
+        )
+
+
 class SubmissionEngineTests(FixtureCase):
     def engine(self, fake):
         return submission.SubmissionEngine(
             fake, fake, self.fixture.manifest, self.fixture.verified
         )
+
+    def test_an_empty_ready_submission_is_reused_not_recreated(self):
+        # The proven leftover on App Store Connect: an empty `READY_FOR_REVIEW`
+        # review submission with no items. SSHHIP's `reconcileSubmission` reuses
+        # it in place and attaches the candidate rather than POSTing a second
+        # submission and accumulating another empty leftover.
+        fake = FakeAppStoreConnect(
+            self.fixture,
+            reviewSubmissions={
+                "rs-leftover": {"state": "READY_FOR_REVIEW", "items": []}
+            },
+        )
+        outcome = self.engine(fake).run()
+        self.assertTrue(outcome.accepted)
+        self.assertNotIn(
+            "POST reviewSubmission",
+            fake.writes,
+            "an existing open submission must be reused, never recreated",
+        )
+        self.assertEqual(fake.writes.count("POST versionItem"), 1)
+        self.assertEqual(
+            [item["appStoreVersion"] for item in fake.review_submissions["rs-leftover"]["items"]],
+            ["ver-1"],
+        )
+
+    def test_an_attach_conflict_whose_item_landed_is_treated_as_success(self):
+        # SSHHIP's `createReviewItem`: a `POST 409` on the attach whose readback
+        # shows the candidate item present means the resource actually landed, so
+        # the attach succeeded and the run submits.
+        fake = ReconcileAppStoreConnect(
+            self.fixture, add_item_conflicts=True, add_item_lands=True
+        )
+        outcome = self.engine(fake).run()
+        self.assertTrue(outcome.accepted)
+        self.assertIn("POST versionItem", fake.writes)
+        self.assertIn(
+            "PATCH submitted",
+            fake.writes,
+            "a 409 whose item landed must not block the submit",
+        )
+        self.assertEqual(outcome.submission_state, "WAITING_FOR_REVIEW")
+
+    def test_an_attach_conflict_whose_item_is_absent_still_fails(self):
+        # The other side of the readback reconcile: an attach error whose readback
+        # proves the item genuinely absent is a real failure, never smoothed over.
+        fake = ReconcileAppStoreConnect(
+            self.fixture, add_item_conflicts=True, add_item_lands=False
+        )
+        with self.assertRaises(submission.SubmissionError) as caught:
+            self.engine(fake).run()
+        self.assertIn("did not attach the approved candidate", str(caught.exception))
+        self.assertNotIn("PATCH submitted", fake.writes)
+
+    def test_a_ready_submission_targeting_another_version_is_a_conflict(self):
+        # An open submission that already carries a single item for a DIFFERENT
+        # version is a genuine conflict for the captain, not a base to attach the
+        # candidate onto - so it is surfaced and nothing is submitted.
+        fake = FakeAppStoreConnect(
+            self.fixture,
+            reviewSubmissions={
+                "rs-other": {
+                    "state": "READY_FOR_REVIEW",
+                    "items": [{"id": "item-x", "appStoreVersion": "ver-other"}],
+                }
+            },
+        )
+        with self.assertRaises(submission.SubmissionError) as caught:
+            self.engine(fake).run()
+        self.assertIn("unrelated review submission", str(caught.exception))
+        self.assertNotIn("POST versionItem", fake.writes)
+        self.assertNotIn("PATCH submitted", fake.writes)
 
     def test_a_clean_candidate_is_submitted_once_and_read_back(self):
         fake = FakeAppStoreConnect(self.fixture)
