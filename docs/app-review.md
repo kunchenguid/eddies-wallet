@@ -32,8 +32,9 @@ the captain a second approval prompt for a run the captain just started by hand,
 which is ceremony rather than a boundary. The manifest is the content gate and
 the dispatch is the intent gate.
 
-The mutation-capable App Store Connect credential exists in exactly one step:
-`app-review-submit.yml`'s submit job. Preparation and readiness use the same
+The mutation-capable App Store Connect credential belongs to exactly one
+mutating step, `app-review-submit.yml`'s submit job; the GET-only shared
+monitor reuses that same submit key. Preparation and readiness use the same
 shared credential only through the structurally GET-only client, and the verify
 lanes refuse to start if any App Store Connect credential is present at all.
 
@@ -48,8 +49,8 @@ lanes refuse to start if any App Store Connect credential is present at all.
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only. | The recovery issue only. |
 | 6. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered review assets, and the production service publishing Cloud activation with exactly those two products. Emits base64 readiness evidence. | Nothing. |
 | 7. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
-| 8. `app-review-submit.yml` with `mode=submit` | Aligns release behavior, bound build, and App Review notes to the manifest; reconciles; resumes or creates one review submission; submits; reads Apple back; then arms the monitor. | App Store Connect, within the manifest only. |
-| 9. `app-store-review-status.yml` | Watches the armed cycle roughly every four hours and notifies on state transitions. | One GitHub issue. |
+| 8. `app-review-submit.yml` with `mode=submit` | Aligns release behavior, bound build, and App Review notes to the manifest; reconciles; resumes or creates one review submission; submits; reads Apple back; then writes `EDDIES_REVIEW_MONITOR_CYCLE`. | App Store Connect, within the manifest only. |
+| 9. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; notifies on a terminal or sustained-unavailable observation. | One GitHub issue. |
 
 Steps 5 to 8 all take the same `version` twice. A mismatch refuses before
 anything else happens.
@@ -101,24 +102,27 @@ dispatch. Only the handoff is outstanding, and it is a `GET`, then write, then
 
 Already in place and reused as-is: `APP_STORE_CONNECT_KEY_ID`,
 `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY` (the shared release
-credential), and the monitor's own `ASC_REVIEW_MONITOR_KEY_ID` and
-`ASC_REVIEW_MONITOR_PRIVATE_KEY`. Do not create a new Apple key for this
-pipeline.
+and submit credential). The GET-only status monitor authenticates with that
+same submit key. Its checkout of the private shared tool uses the already-configured
+`APP_REVIEW_SUBMIT_READ_TOKEN` (`contents:read` on `kunchenguid/app-review-submit`);
+that token is not an Apple credential and is not mapped into the poll step.
+Do not create a dedicated monitor user or any `ASC_REVIEW_MONITOR_*` secret.
 
 Still to create, before the first `mode=submit`:
 
 - **`EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN`** - a GitHub secret holding a
   fine-grained token for this repository with **Variables: read and write** and
   no other permission. The run's `GITHUB_TOKEN` cannot write Actions variables,
-  so the submit job needs this one to arm the monitor. Until it exists, a
-  submission that Apple accepts will refuse at the handoff and say so; rerunning
-  the same dispatch once the secret is set completes only the handoff.
+  so the Python submit job needs this one to write `EDDIES_REVIEW_MONITOR_CYCLE`.
+  Until it exists, a submission that Apple accepts will refuse at the handoff
+  and say so; rerunning the same dispatch once the secret is set completes only
+  the handoff.
 
-`EDDIES_REVIEW_MONITOR_CYCLE` is written by the submit handoff, not by hand. The
-retiring `ASC_REVIEW_MONITOR_VERSION` and `ASC_REVIEW_MONITOR_BUILD` pair stays
-readable until the first handoff is verified, then clear both together. Setting
-the canonical variable and the pair to different cycles fails visibly rather
-than silently preferring one.
+The live scheduled monitor reads `APP_REVIEW_MONITOR_VERSION` (the exact
+marketing version). That variable is not written by the Python submit engine;
+arm it separately as `docs/app-store-review-monitor.md` describes. The Python
+submit handoff still writes `EDDIES_REVIEW_MONITOR_CYCLE` after Apple accepts.
+Do not introduce a dedicated `ASC_REVIEW_MONITOR_*` credential for either path.
 
 ## What this pipeline will never do
 

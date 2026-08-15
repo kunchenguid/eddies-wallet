@@ -1,0 +1,88 @@
+{
+  "app": {
+    "appId": "6795664301",
+    "bundleId": "com.kunchenguid.eddieswallet",
+    "name": "Eddie's Wallet",
+    "platform": "IOS"
+  },
+  "github": {
+    "repository": "kunchenguid/eddies-wallet",
+    "defaultBranchRef": "refs/heads/main"
+  },
+  "monitor": {
+    "variableName": "APP_REVIEW_MONITOR_VERSION",
+    "recordMarkerPrefix": "eddies-app-review-monitor"
+  },
+  "env": {
+    "version": "EDDIES_APP_REVIEW_VERSION",
+    "confirm": "EDDIES_APP_REVIEW_CONFIRM",
+    "evidence": "EDDIES_APP_REVIEW_EVIDENCE",
+    "monitorVariableToken": "APP_REVIEW_MONITOR_VARIABLE_TOKEN"
+  },
+  "manifest": {
+    "schemaVersion": 1,
+    "bindingAlgorithm": "eddies-wallet-app-review-manifest-v1",
+    "directory": ["tools", "app-review", "manifests"]
+  },
+  "listingPolicy": "observe",
+  "listing": {
+    "sourcePath": ["docs", "appstore", "listing.md"],
+    "screenshotDirectory": ["tools", "app-review", "assets"],
+    "approvedSubtitle": "Virtual allowance practice",
+    "alignmentWrites": ["releaseType", "build", "reviewNotes"],
+    "screenshotSpecs": [
+      {
+        "displayType": "APP_IPHONE_67",
+        "width": 1320,
+        "height": 2868,
+        "files": [
+          "iphone-6.9-kid-home.png",
+          "iphone-6.9-parent-area.png",
+          "iphone-6.9-parent-loan-payments.png",
+          "iphone-6.9-money-flow-review.png",
+          "iphone-6.9-cloud-plans.png"
+        ]
+      },
+      {
+        "displayType": "APP_IPAD_PRO_3GEN_129",
+        "width": 2064,
+        "height": 2752,
+        "files": [
+          "ipad-13-kid-home.png",
+          "ipad-13-parent-area.png",
+          "ipad-13-parent-loan-payments.png",
+          "ipad-13-money-flow-review.png",
+          "ipad-13-cloud-plans.png"
+        ]
+      }
+    ]
+  },
+  "commerce": {
+    "kind": "subscriptions",
+    "productIds": [
+      "com.kunchenguid.eddieswallet.cloud.monthly",
+      "com.kunchenguid.eddieswallet.cloud.annual"
+    ]
+  },
+  "protected": {
+    "contentRightsDeclaration": "DOES_NOT_USE_THIRD_PARTY_CONTENT",
+    "isOrEverWasMadeForKids": false,
+    "primaryCategory": "FINANCE",
+    "secondaryCategory": "PRODUCTIVITY"
+  },
+  "evidence": {
+    "adapter": "demoPreflight",
+    "gateName": "eddies-wallet-demo-preflight",
+    "schemaVersion": 1,
+    "requireHostnameInNotes": false,
+    "layers": ["candidate", "cloud-products", "public-service"]
+  },
+  "journal": {
+    "recordMarkerPrefix": "eddies-app-review-pipeline",
+    "issueTitleTemplate": "{appName} App Review submission {version}",
+    "scratchPrefix": "eddies-app-review"
+  },
+  "credentials": {
+    "jwtStyle": "team"
+  }
+}

@@ -29,20 +29,28 @@ TOOLS = ROOT / "tools" / "app-review"
 PREPARE = "app-review-prepare.yml"
 SUBMIT = "app-review-submit.yml"
 DEMO_PREFLIGHT = "app-review-demo-preflight.yml"
-MONITOR = "app-store-review-status.yml"
+MONITOR = "app-review-monitor.yml"
 APP_REVIEW_WORKFLOWS = (PREPARE, SUBMIT, DEMO_PREFLIGHT)
+SHARED_TOOL_PIN = "3f8886b00b160d4dc79997833df8dbbca9a54cee"
+SHARED_TOOL_REPO = "kunchenguid/app-review-submit"
+MONITOR_CONFIG = TOOLS / "app-review.config.json"
 
 REPOSITORY_GUARD = "github.repository == 'kunchenguid/eddies-wallet'"
 DEFAULT_BRANCH_GUARD = "github.ref == 'refs/heads/main'"
 CONCURRENCY_GROUP = "eddies-app-review-submission"
+MONITOR_CONCURRENCY_GROUP = "eddies-app-review-monitor"
 MUTATION_SECRETS = (
     "APP_STORE_CONNECT_KEY_ID",
     "APP_STORE_CONNECT_ISSUER_ID",
     "APP_STORE_CONNECT_API_KEY",
 )
 VARIABLE_TOKEN = "EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN"
+MONITOR_VARIABLE_TOKEN = "APP_REVIEW_MONITOR_VARIABLE_TOKEN"
+SHARED_TOOL_READ_TOKEN = "APP_REVIEW_SUBMIT_READ_TOKEN"
 SECRET_REFERENCE = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)")
+VAR_REFERENCE = re.compile(r"vars\.([A-Za-z_][A-Za-z0-9_]*)")
 PINNED_ACTION = re.compile(r"^[^\s@]+@[0-9a-f]{40}$")
+DEDICATED_MONITOR_SECRET = re.compile(r"ASC_REVIEW_MONITOR_")
 
 
 def parse_workflow(name: str) -> dict:
@@ -73,6 +81,13 @@ def steps_of(job: dict) -> list[dict]:
 def secrets_of(step: dict) -> set[str]:
     found: set[str] = set()
     for value in (step.get("env") or {}).values():
+        found.update(SECRET_REFERENCE.findall(str(value)))
+    return found
+
+
+def with_secrets_of(step: dict) -> set[str]:
+    found: set[str] = set()
+    for value in (step.get("with") or {}).values():
         found.update(SECRET_REFERENCE.findall(str(value)))
     return found
 
@@ -152,6 +167,7 @@ class CredentialLaneTests(WorkflowModelCase):
                     ),
                     [
                         (DEMO_PREFLIGHT, "readiness"),
+                        (MONITOR, "observe"),
                         (PREPARE, "preflight"),
                         (SUBMIT, "submit"),
                     ],
@@ -181,12 +197,25 @@ class CredentialLaneTests(WorkflowModelCase):
                         f"{name}:{job_name} must hold no Apple or variable credential",
                     )
 
-    def test_the_monitor_never_borrows_the_upload_or_mutation_credential(self):
+    def test_the_monitor_reuses_the_submit_key_and_never_a_dedicated_credential(self):
+        polling = [
+            step
+            for step in steps_of(self.jobs(MONITOR)["observe"])
+            if "APP_STORE_CONNECT_API_KEY" in secrets_of(step)
+        ]
+        self.assertEqual(len(polling), 1)
+        held = secrets_of(polling[0])
+        self.assertEqual(held, set(MUTATION_SECRETS))
+        self.assertNotIn(VARIABLE_TOKEN, held)
+        self.assertNotIn(MONITOR_VARIABLE_TOKEN, held)
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, held)
         for job in self.jobs(MONITOR).values():
             for step in steps_of(job):
-                held = secrets_of(step)
-                self.assertFalse(held & set(MUTATION_SECRETS))
-                self.assertNotIn(VARIABLE_TOKEN, held)
+                blob = json.dumps(step)
+                self.assertIsNone(DEDICATED_MONITOR_SECRET.search(blob))
+                self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(step))
+                self.assertNotIn(VARIABLE_TOKEN, secrets_of(step))
+                self.assertNotIn(SHARED_TOOL_READ_TOKEN, secrets_of(step))
 
     def test_no_app_review_job_uses_a_github_environment(self):
         # The captain-decided gate is the approved manifest plus a double-confirm
@@ -262,35 +291,125 @@ class PermissionAndPinTests(WorkflowModelCase):
                     self.assertLess(pin, min(entrypoints))
 
 
-class MonitorMigrationTests(WorkflowModelCase):
-    def test_the_monitor_reads_the_single_canonical_cycle_variable(self):
-        resolver = next(
-            step
-            for step in steps_of(self.jobs(MONITOR)["monitor"])
-            if "review_monitor_cycle.sh" in str(step.get("run", ""))
-        )
-        environment = resolver["env"]
-        self.assertEqual(
-            environment["SCHEDULED_CYCLE"], "${{ vars.EDDIES_REVIEW_MONITOR_CYCLE }}"
-        )
-        # The retiring pair stays readable until the migration is verified.
-        self.assertIn("ASC_REVIEW_MONITOR_VERSION", environment["SCHEDULED_VERSION"])
+class SharedMonitorTests(WorkflowModelCase):
+    """The scheduled monitor is the pinned shared GET-only tool, not the old dedicated-key poll."""
 
-    def test_the_monitor_polls_four_hourly_off_the_top_of_the_hour(self):
-        crons = [entry["cron"] for entry in self.models[MONITOR]["on"]["schedule"]]
+    def test_the_monitor_is_a_trusted_default_branch_schedule_or_dispatch(self):
+        triggers = self.models[MONITOR]["on"]
+        self.assertEqual(set(triggers), {"schedule", "workflow_dispatch"})
+        crons = [entry["cron"] for entry in triggers["schedule"]]
         self.assertEqual(crons, ["41 */4 * * *"])
         minute, hour = crons[0].split()[:2]
         self.assertNotEqual(minute, "0")
         self.assertEqual(hour, "*/4")
+        self.assertEqual(
+            self.models[MONITOR]["permissions"],
+            {"contents": "read", "issues": "write"},
+        )
+        concurrency = self.models[MONITOR]["concurrency"]
+        self.assertEqual(concurrency["group"], MONITOR_CONCURRENCY_GROUP)
+        self.assertIs(concurrency["cancel-in-progress"], False)
+        guard = " ".join(str(self.jobs(MONITOR)["observe"].get("if", "")).split())
+        self.assertIn(REPOSITORY_GUARD, guard)
+        self.assertIn(DEFAULT_BRANCH_GUARD, guard)
 
-    def test_the_monitor_still_polls_apple_only_for_an_armed_cycle(self):
+    def test_the_monitor_checks_out_the_pinned_shared_tool(self):
+        checkouts = [
+            step
+            for step in steps_of(self.jobs(MONITOR)["observe"])
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        ]
+        self.assertEqual(len(checkouts), 2)
+        for step in checkouts:
+            self.assertRegex(step["uses"], PINNED_ACTION)
+            self.assertIs(step["with"]["persist-credentials"], False)
+        tool = next(
+            step
+            for step in checkouts
+            if (step.get("with") or {}).get("repository") == SHARED_TOOL_REPO
+        )
+        self.assertEqual(tool["with"]["ref"], SHARED_TOOL_PIN)
+        self.assertEqual(tool["with"]["path"], ".app-review-submit")
+        self.assertEqual(
+            tool["with"]["token"],
+            "${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}",
+        )
+        local = next(
+            step
+            for step in checkouts
+            if (step.get("with") or {}).get("repository") != SHARED_TOOL_REPO
+        )
+        self.assertNotIn("token", local.get("with") or {})
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, with_secrets_of(local))
+
+    def test_the_shared_tool_read_token_reaches_only_the_private_checkout(self):
+        located = []
+        for name in APP_REVIEW_WORKFLOWS + (MONITOR,):
+            for job_name, job in self.jobs(name).items():
+                for step in steps_of(job):
+                    if SHARED_TOOL_READ_TOKEN in secrets_of(step):
+                        located.append((name, job_name, step.get("name"), "env"))
+                    if SHARED_TOOL_READ_TOKEN in with_secrets_of(step):
+                        located.append((name, job_name, step.get("name"), "with"))
+        self.assertEqual(
+            located,
+            [
+                (
+                    MONITOR,
+                    "observe",
+                    "Check out the shared review-submission CLI",
+                    "with",
+                )
+            ],
+        )
+
+    def test_the_monitor_runs_the_shared_get_only_command(self):
         polling = [
             step
-            for step in steps_of(self.jobs(MONITOR)["monitor"])
-            if "ASC_REVIEW_MONITOR_PRIVATE_KEY" in secrets_of(step)
+            for step in steps_of(self.jobs(MONITOR)["observe"])
+            if "app_review_pipeline.js" in str(step.get("run", ""))
         ]
         self.assertEqual(len(polling), 1)
-        self.assertEqual(polling[0]["if"], "steps.cycle.outputs.armed == 'true'")
+        command = polling[0]["run"]
+        self.assertIn("app_review_pipeline.js monitor", command)
+        self.assertNotIn("app_review_pipeline.js submit", command)
+        environment = polling[0]["env"]
+        self.assertEqual(
+            environment["APP_REVIEW_CONFIG"],
+            "${{ github.workspace }}/tools/app-review/app-review.config.json",
+        )
+        self.assertEqual(
+            environment["APP_REVIEW_MONITOR_VERSION"],
+            "${{ vars.APP_REVIEW_MONITOR_VERSION }}",
+        )
+        self.assertEqual(
+            VAR_REFERENCE.findall(json.dumps(environment)),
+            ["APP_REVIEW_MONITOR_VERSION"],
+        )
+        self.assertEqual(
+            {name: environment[name] for name in MUTATION_SECRETS},
+            {
+                "APP_STORE_CONNECT_KEY_ID": "${{ secrets.APP_STORE_CONNECT_KEY_ID }}",
+                "APP_STORE_CONNECT_ISSUER_ID": "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}",
+                "APP_STORE_CONNECT_API_KEY": "${{ secrets.APP_STORE_CONNECT_API_KEY }}",
+            },
+        )
+
+    def test_the_committed_config_is_the_eddie_monitor_consumer(self):
+        config = json.loads(MONITOR_CONFIG.read_text())
+        self.assertEqual(config["app"]["appId"], "6795664301")
+        self.assertEqual(config["app"]["bundleId"], "com.kunchenguid.eddieswallet")
+        self.assertEqual(config["github"]["repository"], "kunchenguid/eddies-wallet")
+        self.assertEqual(config["monitor"]["variableName"], "APP_REVIEW_MONITOR_VERSION")
+        self.assertEqual(
+            config["monitor"]["recordMarkerPrefix"], "eddies-app-review-monitor"
+        )
+        self.assertEqual(config["env"]["monitorVariableToken"], MONITOR_VARIABLE_TOKEN)
+        self.assertEqual(config["credentials"]["jwtStyle"], "team")
+        self.assertEqual(config["listingPolicy"], "observe")
+        blob = json.dumps(config)
+        self.assertIsNone(DEDICATED_MONITOR_SECRET.search(blob))
+        self.assertNotIn("EDDIES_REVIEW_MONITOR_CYCLE", blob)
 
 
 class ImportBoundaryTests(unittest.TestCase):
@@ -446,6 +565,25 @@ class NegativeControlTests(WorkflowModelCase):
         model = parse_workflow(SUBMIT)
         model["jobs"]["submit"]["environment"] = "app-store-submission"
         self.assertIn("environment", model["jobs"]["submit"])
+
+    def test_dropping_the_shared_tool_checkout_token_would_be_caught(self):
+        model = parse_workflow(MONITOR)
+        tool = next(
+            step
+            for step in steps_of(model["jobs"]["observe"])
+            if (step.get("with") or {}).get("repository") == SHARED_TOOL_REPO
+        )
+        tool["with"].pop("token", None)
+        held = [
+            step
+            for step in steps_of(model["jobs"]["observe"])
+            if SHARED_TOOL_READ_TOKEN in secrets_of(step) | with_secrets_of(step)
+        ]
+        self.assertEqual(
+            held,
+            [],
+            "the lane assertion must be able to see a missing checkout token",
+        )
 
 
 if __name__ == "__main__":
