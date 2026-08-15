@@ -1,0 +1,11 @@
+test_the_committed_config_is_the_eddie_monitor_consumer (__main__.SharedMonitorTests.test_the_committed_config_is_the_eddie_monitor_consumer) ... ok
+test_the_monitor_checks_out_the_pinned_shared_tool (__main__.SharedMonitorTests.test_the_monitor_checks_out_the_pinned_shared_tool) ... ok
+test_the_monitor_is_a_trusted_default_branch_schedule_or_dispatch (__main__.SharedMonitorTests.test_the_monitor_is_a_trusted_default_branch_schedule_or_dispatch) ... ok
+test_the_monitor_runs_the_shared_get_only_command (__main__.SharedMonitorTests.test_the_monitor_runs_the_shared_get_only_command) ... ok
+test_the_shared_tool_read_token_reaches_only_the_private_checkout (__main__.SharedMonitorTests.test_the_shared_tool_read_token_reaches_only_the_private_checkout) ... ok
+test_the_monitor_reuses_the_submit_key_and_never_a_dedicated_credential (__main__.CredentialLaneTests.test_the_monitor_reuses_the_submit_key_and_never_a_dedicated_credential) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.449s
+
+OK

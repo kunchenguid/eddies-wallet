@@ -1,0 +1,36 @@
+{
+  "consumer": "kunchenguid/app-review-submit config.js",
+  "pin": "3f8886b00b160d4dc79997833df8dbbca9a54cee",
+  "accepted": true,
+  "monitor": {
+    "variableName": "APP_REVIEW_MONITOR_VERSION",
+    "recordMarkerPrefix": "eddies-app-review-monitor"
+  },
+  "env": {
+    "version": "EDDIES_APP_REVIEW_VERSION",
+    "confirm": "EDDIES_APP_REVIEW_CONFIRM",
+    "evidence": "EDDIES_APP_REVIEW_EVIDENCE",
+    "monitorVariableToken": "APP_REVIEW_MONITOR_VARIABLE_TOKEN"
+  },
+  "credentials": {
+    "jwtStyle": "team"
+  },
+  "listingPolicy": "observe",
+  "app": {
+    "appId": "6795664301",
+    "bundleId": "com.kunchenguid.eddieswallet",
+    "name": "Eddie's Wallet",
+    "platform": "IOS"
+  },
+  "github": {
+    "repository": "kunchenguid/eddies-wallet",
+    "defaultBranchRef": "refs/heads/main"
+  },
+  "captainDirected": {
+    "variableName": "APP_REVIEW_MONITOR_VERSION",
+    "recordMarkerPrefix": "eddies-app-review-monitor",
+    "monitorVariableToken": "APP_REVIEW_MONITOR_VARIABLE_TOKEN",
+    "jwtStyle": "team",
+    "noDedicatedAscMonitorCredential": true
+  }
+}

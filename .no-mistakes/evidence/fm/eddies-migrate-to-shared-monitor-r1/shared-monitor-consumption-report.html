@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Eddie's Wallet shared review-status monitor consumption</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 2rem auto; max-width: 52rem; line-height: 1.45; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 0.4rem 0.55rem; text-align: left; vertical-align: top; }
+    th { background: #f4f4f4; width: 34%; }
+    .ok { color: #0b6b2b; font-weight: 600; }
+    .note { color: #444; font-size: 0.95rem; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Shared GET-only review-status monitor</h1>
+  <p class="note">End-user surface for this change is the committed GitHub Actions consumer, not an in-app UI. This report is the operator-visible contract: the pinned shared tool accepted Eddie's config, and the parsed monitor workflow matches the README consumption model. The live monitor and App Store Connect were not invoked.</p>
+
+  <h2>Pinned consumer accepted Eddie's config</h2>
+  <p>Loaded <code>tools/app-review/app-review.config.json</code> through <code>kunchenguid/app-review-submit</code> <code>config.js</code> at <code>3f8886b00b160d4dc79997833df8dbbca9a54cee</code> (merge of that repo's PR #2). The real consumer accepted the file.</p>
+  <table>
+    <tr><th>monitor.variableName</th><td><code>APP_REVIEW_MONITOR_VERSION</code></td></tr>
+    <tr><th>monitor.recordMarkerPrefix</th><td><code>eddies-app-review-monitor</code></td></tr>
+    <tr><th>env.monitorVariableToken</th><td><code>APP_REVIEW_MONITOR_VARIABLE_TOKEN</code></td></tr>
+    <tr><th>credentials.jwtStyle</th><td><code>team</code></td></tr>
+    <tr><th>listingPolicy</th><td><code>observe</code></td></tr>
+    <tr><th>app</th><td>Eddie's Wallet / <code>6795664301</code> / <code>com.kunchenguid.eddieswallet</code></td></tr>
+    <tr><th>github.repository</th><td><code>kunchenguid/eddies-wallet</code> on <code>refs/heads/main</code></td></tr>
+    <tr><th>ASC_REVIEW_MONITOR_*</th><td class="ok">absent from accepted config</td></tr>
+  </table>
+
+  <h2>Committed monitor workflow (parsed model)</h2>
+  <table>
+    <tr><th>Workflow name</th><td>Monitor App Store review status</td></tr>
+    <tr><th>Triggers</th><td><code>schedule</code> <code>41 */4 * * *</code> (four-hourly, off the hour) plus <code>workflow_dispatch</code></td></tr>
+    <tr><th>Permissions</th><td><code>contents: read</code>, <code>issues: write</code></td></tr>
+    <tr><th>Guard</th><td><code>github.repository == 'kunchenguid/eddies-wallet' &amp;&amp; github.ref == 'refs/heads/main'</code></td></tr>
+    <tr><th>Shared tool checkout</th><td><code>kunchenguid/app-review-submit</code> at <code>3f8886b00b160d4dc79997833df8dbbca9a54cee</code> into <code>.app-review-submit</code></td></tr>
+    <tr><th>Command</th><td><code>node .app-review-submit/app_review_pipeline.js monitor</code></td></tr>
+    <tr><th>Apple credentials</th><td>existing submit key only: <code>APP_STORE_CONNECT_KEY_ID</code>, <code>APP_STORE_CONNECT_ISSUER_ID</code>, <code>APP_STORE_CONNECT_API_KEY</code></td></tr>
+    <tr><th>Arming variable</th><td><code>vars.APP_REVIEW_MONITOR_VERSION</code></td></tr>
+    <tr><th>Dedicated monitor key</th><td class="ok">no <code>ASC_REVIEW_MONITOR_*</code></td></tr>
+    <tr><th>Submit command</th><td class="ok">not invoked</td></tr>
+    <tr><th>SSHHIP announcement / X / Discord</th><td class="ok">not present</td></tr>
+    <tr><th>Handoff token in monitor env</th><td class="ok"><code>APP_REVIEW_MONITOR_VARIABLE_TOKEN</code> is named in config only; the GET-only job does not receive it</td></tr>
+  </table>
+
+  <h2>Retired dedicated-key monitor</h2>
+  <table>
+    <tr><th><code>.github/workflows/app-store-review-status.yml</code></th><td class="ok">gone</td></tr>
+    <tr><th><code>.github/scripts/review_monitor_cycle.sh</code></th><td class="ok">gone</td></tr>
+    <tr><th><code>.github/scripts/app_store_review_monitor.py</code></th><td class="ok">gone</td></tr>
+    <tr><th><code>test/app-store-review-monitor-test.py</code></th><td class="ok">gone</td></tr>
+  </table>
+
+  <h2>What was deliberately not run</h2>
+  <p>The GitHub Actions monitor was not dispatched, and no App Store Connect request was made, matching the captain constraint not to run the monitor or touch the live 0.1.17 submission.</p>
+</body>
+</html>

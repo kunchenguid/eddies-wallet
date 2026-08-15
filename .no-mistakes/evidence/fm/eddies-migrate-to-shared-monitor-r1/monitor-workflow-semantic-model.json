@@ -1,0 +1,80 @@
+{
+  "name": "Monitor App Store review status",
+  "triggers": [
+    "schedule",
+    "workflow_dispatch"
+  ],
+  "schedule": [
+    "41 */4 * * *"
+  ],
+  "permissions": {
+    "contents": "read",
+    "issues": "write"
+  },
+  "concurrency": {
+    "group": "eddies-app-review-monitor",
+    "cancel-in-progress": false
+  },
+  "job": {
+    "id": "observe",
+    "name": "Poll the armed App Review cycle",
+    "if": "github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'",
+    "timeout_minutes": 10
+  },
+  "checkouts": [
+    {
+      "name": "Checkout trusted default branch",
+      "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+      "with": {
+        "persist-credentials": false
+      }
+    },
+    {
+      "name": "Check out the shared review-submission CLI",
+      "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+      "with": {
+        "repository": "kunchenguid/app-review-submit",
+        "ref": "3f8886b00b160d4dc79997833df8dbbca9a54cee",
+        "path": ".app-review-submit",
+        "token": "${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}",
+        "persist-credentials": false
+      }
+    }
+  ],
+  "poll": {
+    "name": "Poll the armed App Review cycle",
+    "run": "node .app-review-submit/app_review_pipeline.js monitor",
+    "env": {
+      "APP_REVIEW_CONFIG": "${{ github.workspace }}/tools/app-review/app-review.config.json",
+      "GITHUB_TOKEN": "${{ github.token }}",
+      "APP_STORE_CONNECT_KEY_ID": "${{ secrets.APP_STORE_CONNECT_KEY_ID }}",
+      "APP_STORE_CONNECT_ISSUER_ID": "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}",
+      "APP_STORE_CONNECT_API_KEY": "${{ secrets.APP_STORE_CONNECT_API_KEY }}",
+      "APP_REVIEW_MONITOR_VERSION": "${{ vars.APP_REVIEW_MONITOR_VERSION }}"
+    },
+    "secrets": [
+      "APP_STORE_CONNECT_KEY_ID",
+      "APP_STORE_CONNECT_ISSUER_ID",
+      "APP_STORE_CONNECT_API_KEY"
+    ],
+    "vars": [
+      "APP_REVIEW_MONITOR_VERSION"
+    ]
+  },
+  "consumption": {
+    "pinned_tool_repo": "kunchenguid/app-review-submit",
+    "pinned_tool_ref": "3f8886b00b160d4dc79997833df8dbbca9a54cee",
+    "checkout_path": ".app-review-submit",
+    "persist_credentials": true,
+    "command_is_monitor_only": true,
+    "invokes_shared_submit_command": false,
+    "no_announcement_or_social": true,
+    "reuses_submit_key": true,
+    "no_dedicated_monitor_key": true,
+    "arming_var": [
+      "APP_REVIEW_MONITOR_VERSION"
+    ],
+    "monitor_variable_token_not_in_workflow_env": true,
+    "read_token_only_on_private_checkout": true
+  }
+}

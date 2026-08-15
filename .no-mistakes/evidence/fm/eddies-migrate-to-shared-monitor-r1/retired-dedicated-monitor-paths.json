@@ -1,0 +1,21 @@
+{
+  "retired": [
+    {
+      "path": ".github/workflows/app-store-review-status.yml",
+      "exists": false
+    },
+    {
+      "path": ".github/scripts/review_monitor_cycle.sh",
+      "exists": false
+    },
+    {
+      "path": ".github/scripts/app_store_review_monitor.py",
+      "exists": false
+    },
+    {
+      "path": "test/app-store-review-monitor-test.py",
+      "exists": false
+    }
+  ],
+  "all_gone": true
+}
