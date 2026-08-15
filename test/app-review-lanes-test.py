@@ -46,6 +46,7 @@ MUTATION_SECRETS = (
 )
 VARIABLE_TOKEN = "EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN"
 MONITOR_VARIABLE_TOKEN = "APP_REVIEW_MONITOR_VARIABLE_TOKEN"
+SHARED_TOOL_READ_TOKEN = "APP_REVIEW_SUBMIT_READ_TOKEN"
 SECRET_REFERENCE = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)")
 VAR_REFERENCE = re.compile(r"vars\.([A-Za-z_][A-Za-z0-9_]*)")
 PINNED_ACTION = re.compile(r"^[^\s@]+@[0-9a-f]{40}$")
@@ -80,6 +81,13 @@ def steps_of(job: dict) -> list[dict]:
 def secrets_of(step: dict) -> set[str]:
     found: set[str] = set()
     for value in (step.get("env") or {}).values():
+        found.update(SECRET_REFERENCE.findall(str(value)))
+    return found
+
+
+def with_secrets_of(step: dict) -> set[str]:
+    found: set[str] = set()
+    for value in (step.get("with") or {}).values():
         found.update(SECRET_REFERENCE.findall(str(value)))
     return found
 
@@ -200,12 +208,14 @@ class CredentialLaneTests(WorkflowModelCase):
         self.assertEqual(held, set(MUTATION_SECRETS))
         self.assertNotIn(VARIABLE_TOKEN, held)
         self.assertNotIn(MONITOR_VARIABLE_TOKEN, held)
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, held)
         for job in self.jobs(MONITOR).values():
             for step in steps_of(job):
                 blob = json.dumps(step)
                 self.assertIsNone(DEDICATED_MONITOR_SECRET.search(blob))
                 self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(step))
                 self.assertNotIn(VARIABLE_TOKEN, secrets_of(step))
+                self.assertNotIn(SHARED_TOOL_READ_TOKEN, secrets_of(step))
 
     def test_no_app_review_job_uses_a_github_environment(self):
         # The captain-decided gate is the approved manifest plus a double-confirm
@@ -320,6 +330,38 @@ class SharedMonitorTests(WorkflowModelCase):
         )
         self.assertEqual(tool["with"]["ref"], SHARED_TOOL_PIN)
         self.assertEqual(tool["with"]["path"], ".app-review-submit")
+        self.assertEqual(
+            tool["with"]["token"],
+            "${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}",
+        )
+        local = next(
+            step
+            for step in checkouts
+            if (step.get("with") or {}).get("repository") != SHARED_TOOL_REPO
+        )
+        self.assertNotIn("token", local.get("with") or {})
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, with_secrets_of(local))
+
+    def test_the_shared_tool_read_token_reaches_only_the_private_checkout(self):
+        located = []
+        for name in APP_REVIEW_WORKFLOWS + (MONITOR,):
+            for job_name, job in self.jobs(name).items():
+                for step in steps_of(job):
+                    if SHARED_TOOL_READ_TOKEN in secrets_of(step):
+                        located.append((name, job_name, step.get("name"), "env"))
+                    if SHARED_TOOL_READ_TOKEN in with_secrets_of(step):
+                        located.append((name, job_name, step.get("name"), "with"))
+        self.assertEqual(
+            located,
+            [
+                (
+                    MONITOR,
+                    "observe",
+                    "Check out the shared review-submission CLI",
+                    "with",
+                )
+            ],
+        )
 
     def test_the_monitor_runs_the_shared_get_only_command(self):
         polling = [
@@ -523,6 +565,25 @@ class NegativeControlTests(WorkflowModelCase):
         model = parse_workflow(SUBMIT)
         model["jobs"]["submit"]["environment"] = "app-store-submission"
         self.assertIn("environment", model["jobs"]["submit"])
+
+    def test_dropping_the_shared_tool_checkout_token_would_be_caught(self):
+        model = parse_workflow(MONITOR)
+        tool = next(
+            step
+            for step in steps_of(model["jobs"]["observe"])
+            if (step.get("with") or {}).get("repository") == SHARED_TOOL_REPO
+        )
+        tool["with"].pop("token", None)
+        held = [
+            step
+            for step in steps_of(model["jobs"]["observe"])
+            if SHARED_TOOL_READ_TOKEN in secrets_of(step) | with_secrets_of(step)
+        ]
+        self.assertEqual(
+            held,
+            [],
+            "the lane assertion must be able to see a missing checkout token",
+        )
 
 
 if __name__ == "__main__":

@@ -103,8 +103,10 @@ dispatch. Only the handoff is outstanding, and it is a `GET`, then write, then
 Already in place and reused as-is: `APP_STORE_CONNECT_KEY_ID`,
 `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY` (the shared release
 and submit credential). The GET-only status monitor authenticates with that
-same submit key. Do not create a dedicated monitor user or any
-`ASC_REVIEW_MONITOR_*` secret.
+same submit key. Its checkout of the private shared tool uses the already-configured
+`APP_REVIEW_SUBMIT_READ_TOKEN` (`contents:read` on `kunchenguid/app-review-submit`);
+that token is not an Apple credential and is not mapped into the poll step.
+Do not create a dedicated monitor user or any `ASC_REVIEW_MONITOR_*` secret.
 
 Still to create, before the first `mode=submit`:
 

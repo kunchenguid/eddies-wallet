@@ -11,7 +11,7 @@ The Python submit engine in `tools/app-review/` is a separate lane and is not th
 The workflow follows the shared tool's pinned-checkout consumption model:
 
 1. Check out this repository (for `tools/app-review/app-review.config.json`).
-2. Check out `kunchenguid/app-review-submit` at the exact 40-hex commit in the workflow `ref:` (`3f8886b00b160d4dc79997833df8dbbca9a54cee`, the merge of that repo's GET-only monitor PR) into `.app-review-submit`.
+2. Check out `kunchenguid/app-review-submit` at the exact 40-hex commit in the workflow `ref:` (`3f8886b00b160d4dc79997833df8dbbca9a54cee`, the merge of that repo's GET-only monitor PR) into `.app-review-submit`, using the already-configured `APP_REVIEW_SUBMIT_READ_TOKEN` and `persist-credentials: false`. That secret is a fine-grained PAT with `contents:read` on the private tool repo. The default `github.token` is scoped to this public repository and cannot clone it.
 3. Run `node .app-review-submit/app_review_pipeline.js monitor` with `APP_REVIEW_CONFIG` pointing at the committed Eddie config.
 
 Bump the pin only after that repo's tests are green on the new commit. Reverting the pin restores the previous engine. Do not vendor the tool into this repository.
@@ -23,6 +23,8 @@ The monitor reuses Eddie's **existing submit** App Store Connect key. Those secr
 - `APP_STORE_CONNECT_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
 - `APP_STORE_CONNECT_API_KEY`
+
+The private-tool checkout uses the already-configured GitHub secret `APP_REVIEW_SUBMIT_READ_TOKEN`. That is a fine-grained PAT with `contents:read` on `kunchenguid/app-review-submit` only. It is not an Apple credential. Do not invent a new token or any `ASC_REVIEW_MONITOR_*` secret. Do not map this token into the monitor step's environment or any other job. Do not change the tool repo's visibility.
 
 Do not create a dedicated Developer-role monitor user. Do not add `ASC_REVIEW_MONITOR_KEY_ID`, `ASC_REVIEW_MONITOR_PRIVATE_KEY`, or any other `ASC_REVIEW_MONITOR_*` secret. The shared tool authenticates with those three submit fields and signs a team JWT (`credentials.jwtStyle: team` in the committed config, matching the submit key that already uses an issuer id).
 

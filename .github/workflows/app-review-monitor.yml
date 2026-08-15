@@ -45,6 +45,7 @@ jobs:
           # Pin: merge of kunchenguid/app-review-submit#2 (GET-only monitor).
           ref: 3f8886b00b160d4dc79997833df8dbbca9a54cee
           path: .app-review-submit
+          token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
 
       - name: Poll the armed App Review cycle
