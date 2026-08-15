@@ -1334,8 +1334,6 @@ _REAL_REQUEST = github_api._request
 class MonitorHandoffTests(unittest.TestCase):
     """One atomic cycle value, written only after acceptance and read back."""
 
-    RESOLVER = ROOT / ".github/scripts/review_monitor_cycle.sh"
-
     def variable_client(self, existing=None):
         client = github_api.MonitorCycleVariable(token="fake", repo=core.REPOSITORY)
         store = {"value": existing}
@@ -1378,71 +1376,6 @@ class MonitorHandoffTests(unittest.TestCase):
             with self.subTest(version=version, build=build):
                 with self.assertRaises(github_api.GitHubError):
                     github_api.monitor_cycle_value(version, build)
-
-    def resolve(self, **environment):
-        with tempfile.TemporaryDirectory() as directory:
-            output = pathlib.Path(directory) / "github-output"
-            output.touch()
-            completed = subprocess.run(
-                [str(self.RESOLVER)],
-                env={
-                    "PATH": os.environ.get("PATH", ""),
-                    "GITHUB_OUTPUT": str(output),
-                    **environment,
-                },
-                capture_output=True,
-                text=True,
-            )
-            return completed, dict(
-                line.split("=", 1)
-                for line in output.read_text().splitlines()
-                if "=" in line
-            )
-
-    def test_the_monitor_resolves_exactly_what_the_handoff_writes(self):
-        written = github_api.monitor_cycle_value("0.2.0", "41.1")
-        completed, outputs = self.resolve(EVENT_NAME="schedule", SCHEDULED_CYCLE=written)
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(
-            outputs,
-            {"armed": "true", "version": "0.2.0", "build": "41.1", "rearm": "false"},
-        )
-
-    def test_a_reshaped_cycle_variable_fails_visibly(self):
-        for value in (
-            '{"v":1,"version":"0.2.0","build":"41.1"}',
-            '{"build":"41.1","v":2,"version":"0.2.0"}',
-            '{"build":"41.1","v":1,"version":"latest"}',
-            "0.2.0",
-        ):
-            with self.subTest(value=value):
-                completed, outputs = self.resolve(
-                    EVENT_NAME="schedule", SCHEDULED_CYCLE=value
-                )
-                self.assertEqual(completed.returncode, 1)
-                self.assertEqual(outputs, {})
-
-    def test_the_retiring_pair_still_works_during_migration(self):
-        completed, outputs = self.resolve(
-            EVENT_NAME="schedule", SCHEDULED_VERSION="0.1.13", SCHEDULED_BUILD="40.1"
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(outputs.get("version"), "0.1.13")
-
-    def test_two_sources_naming_different_cycles_fail_rather_than_pick_one(self):
-        completed, _ = self.resolve(
-            EVENT_NAME="schedule",
-            SCHEDULED_CYCLE=github_api.monitor_cycle_value("0.2.0", "41.1"),
-            SCHEDULED_VERSION="0.1.13",
-            SCHEDULED_BUILD="40.1",
-        )
-        self.assertEqual(completed.returncode, 1)
-        self.assertIn("different cycles", completed.stderr)
-
-    def test_no_configured_cycle_stays_unarmed_and_succeeds(self):
-        completed, outputs = self.resolve(EVENT_NAME="schedule")
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(outputs.get("armed"), "false")
 
 
 class BoundedDiagnosticsTests(unittest.TestCase):

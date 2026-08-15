@@ -1,0 +1,58 @@
+name: Monitor App Store review status
+
+# GET-only review-status poll. It checks out the shared app-review-submit CLI at
+# a committed pin and authenticates with Eddie's existing submit App Store
+# Connect key. Do not add a dedicated monitor user or credential. The armed
+# cycle is the marketing version in APP_REVIEW_MONITOR_VERSION. An empty
+# variable is not_armed: the run succeeds, contacts Apple not at all, and does
+# not keep the schedule red between cycles.
+#
+# This workflow does not submit, mutate, release, or touch a live App Review
+# submission. The Python submit engine (tools/app-review/) is a separate lane.
+#
+# The cadence is four-hourly and off the top of the hour: App Review states move
+# in hours, not minutes, and a quieter schedule keeps the notification worth
+# reading. A manual dispatch polls the same armed version.
+on:
+  schedule:
+    - cron: "41 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: eddies-app-review-monitor
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    name: Poll the armed App Review cycle
+    if: github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Check out the shared review-submission CLI
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: kunchenguid/app-review-submit
+          # Pin: merge of kunchenguid/app-review-submit#2 (GET-only monitor).
+          ref: 3f8886b00b160d4dc79997833df8dbbca9a54cee
+          path: .app-review-submit
+          persist-credentials: false
+
+      - name: Poll the armed App Review cycle
+        env:
+          APP_REVIEW_CONFIG: ${{ github.workspace }}/tools/app-review/app-review.config.json
+          GITHUB_TOKEN: ${{ github.token }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_REVIEW_MONITOR_VERSION: ${{ vars.APP_REVIEW_MONITOR_VERSION }}
+        run: node .app-review-submit/app_review_pipeline.js monitor

@@ -39,7 +39,7 @@ forbid_grep() {
   fi
 }
 
-WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-store-review-status.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml)
+WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-review-monitor.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml)
 
 # --- Workflow syntax -------------------------------------------------------
 
@@ -237,47 +237,41 @@ require_grep '^  contents: read$' .github/workflows/asc-build-status.yml "asc-bu
 
 # The review monitor is deliberately separate from release/upload paths. It
 # runs only from trusted schedules or trusted manual dispatches, observes one
-# configured exact cycle, and may write only the bounded GitHub issue used for
-# notification deduplication.
-REVIEW_WORKFLOW=.github/workflows/app-store-review-status.yml
-REVIEW_SCRIPT=.github/scripts/app_store_review_monitor.py
+# armed marketing version through the pinned shared GET-only tool, and may write
+# only the bounded GitHub issue used for the exact-cycle wake signal.
+REVIEW_WORKFLOW=.github/workflows/app-review-monitor.yml
 require_grep '^  schedule:$' "$REVIEW_WORKFLOW" "review monitor has a schedule trigger"
 require_grep '^  workflow_dispatch:$' "$REVIEW_WORKFLOW" "review monitor has a manual trigger"
 for forbidden in 'pull_request' 'pull_request_target' 'workflow_run' 'repository_dispatch' '^  push:'; do
   forbid_grep "$forbidden" "$REVIEW_WORKFLOW" "review monitor excludes untrusted trigger ($forbidden)"
 done
 require_grep '^  contents: read$' "$REVIEW_WORKFLOW" "review monitor needs contents read only"
-require_grep '^  issues: write$' "$REVIEW_WORKFLOW" "review monitor grants only issue write for dedup notifications"
+require_grep '^  issues: write$' "$REVIEW_WORKFLOW" "review monitor grants only issue write for exact-cycle notifications"
 require_grep '^concurrency:$' "$REVIEW_WORKFLOW" "review monitor serializes transition deduplication"
-require_grep '^  group: app-store-review-status$' "$REVIEW_WORKFLOW" "review monitor uses one concurrency group"
+require_grep '^  group: eddies-app-review-monitor$' "$REVIEW_WORKFLOW" "review monitor uses one concurrency group"
 require_grep '^  cancel-in-progress: false$' "$REVIEW_WORKFLOW" "review monitor does not cancel active polling"
 forbid_grep '^[[:space:]]*(actions|pull-requests|checks|id-token|packages): write' "$REVIEW_WORKFLOW" "review monitor has no extra write permissions"
-require_grep 'ASC_REVIEW_MONITOR_KEY_ID' "$REVIEW_WORKFLOW" "review monitor uses its dedicated key ID secret"
-require_grep 'ASC_REVIEW_MONITOR_PRIVATE_KEY' "$REVIEW_WORKFLOW" "review monitor uses its dedicated private-key secret"
-forbid_grep 'ASC_REVIEW_MONITOR_ISSUER_ID' "$REVIEW_WORKFLOW" "review monitor individual key has no issuer secret"
-forbid_grep 'APP_STORE_CONNECT_API_KEY' "$REVIEW_WORKFLOW" "review monitor never reuses upload credentials"
-require_grep 'ASC_REVIEW_MONITOR_VERSION' "$REVIEW_WORKFLOW" "review monitor requires scheduled exact version configuration"
-require_grep 'ASC_REVIEW_MONITOR_BUILD' "$REVIEW_WORKFLOW" "review monitor requires scheduled exact build configuration"
+require_grep 'APP_STORE_CONNECT_KEY_ID' "$REVIEW_WORKFLOW" "review monitor reuses the existing submit key ID"
+require_grep 'APP_STORE_CONNECT_ISSUER_ID' "$REVIEW_WORKFLOW" "review monitor reuses the existing submit issuer"
+require_grep 'APP_STORE_CONNECT_API_KEY' "$REVIEW_WORKFLOW" "review monitor reuses the existing submit API key"
+forbid_grep 'ASC_REVIEW_MONITOR_' "$REVIEW_WORKFLOW" "review monitor never references a dedicated monitor credential"
+forbid_grep 'app_review_pipeline\.js submit' "$REVIEW_WORKFLOW" "review monitor never invokes the shared submit command"
+require_grep 'app_review_pipeline\.js monitor' "$REVIEW_WORKFLOW" "review monitor runs the shared GET-only monitor command"
+require_grep 'kunchenguid/app-review-submit' "$REVIEW_WORKFLOW" "review monitor checks out the shared app-review-submit tool"
+require_grep '3f8886b00b160d4dc79997833df8dbbca9a54cee' "$REVIEW_WORKFLOW" "review monitor pins the shared tool at the GET-only monitor SHA"
 require_grep 'actions/checkout@[0-9a-f]{40}' "$REVIEW_WORKFLOW" "review monitor pins checkout immutably"
-# Arming is resolved before any credential is in scope, so an unarmed schedule
-# never reaches Apple and never leaves this workflow permanently red.
-REVIEW_CYCLE_RESOLVER=.github/scripts/review_monitor_cycle.sh
-require_grep 'review_monitor_cycle\.sh' "$REVIEW_WORKFLOW" "review monitor resolves its cycle before polling"
-require_grep "if: steps\.cycle\.outputs\.armed == 'true'" "$REVIEW_WORKFLOW" "review monitor polls Apple only for an armed cycle"
-forbid_grep 'ASC_REVIEW_MONITOR_PRIVATE_KEY' "$REVIEW_CYCLE_RESOLVER" "cycle resolver handles no credential"
-if [ -x "$REVIEW_CYCLE_RESOLVER" ]; then
-  pass "cycle resolver is executable"
-else
-  fail "cycle resolver is executable"
-fi
-require_grep 'method="GET"' "$REVIEW_SCRIPT" "review monitor makes App Store Connect GET requests"
-forbidden_apple_mutation='appStoreVersionSubmissions|reviewSubmissions|--request POST|--request PATCH|--request DELETE|urlopen\(.*method="POST"'
-forbid_grep "$forbidden_apple_mutation" "$REVIEW_SCRIPT" "review monitor contains no Apple mutation path"
-if python3 test/app-store-review-monitor-test.py >/dev/null; then
-  pass "review monitor deterministic fixtures and negative controls"
-else
-  fail "review monitor deterministic fixtures and negative controls"
-fi
+for retired in \
+  .github/workflows/app-store-review-status.yml \
+  .github/scripts/app_store_review_monitor.py \
+  .github/scripts/review_monitor_cycle.sh \
+  test/app-store-review-monitor-test.py
+do
+  if [ -e "$retired" ]; then
+    fail "retired dedicated-key monitor path is gone ($retired)"
+  else
+    pass "retired dedicated-key monitor path is gone ($retired)"
+  fi
+done
 
 # Phase 1 App Review core is deliberately pure: its tests use only fake App
 # Store Connect and GitHub issue boundaries, so this check cannot reach a
@@ -329,9 +323,9 @@ else
 fi
 forbid_grep 'curl|wget|PRIVATE_KEY|APP_STORE_CONNECT' .github/scripts/pin_app_review_manifest.sh "the manifest pin handles no credential and contacts nothing"
 
-# The review monitor consumes the single canonical cycle variable the submit
-# handoff writes, on an off-top-of-hour four-hour cadence.
-require_grep 'vars\.EDDIES_REVIEW_MONITOR_CYCLE' "$REVIEW_WORKFLOW" "review monitor reads the canonical cycle variable"
+# The shared GET-only monitor consumes APP_REVIEW_MONITOR_VERSION, on an
+# off-top-of-hour four-hour cadence.
+require_grep 'vars\.APP_REVIEW_MONITOR_VERSION' "$REVIEW_WORKFLOW" "review monitor reads the shared-tool arming variable"
 require_grep '^    - cron: "[1-9][0-9]? \*/4 \* \* \*"$' "$REVIEW_WORKFLOW" "review monitor polls four-hourly off the top of the hour"
 
 # --- Export options --------------------------------------------------------

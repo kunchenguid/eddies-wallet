@@ -1,9 +1,11 @@
 # App Review pipeline
 
 Eddie's Wallet submits one captain-approved App Store version through three
-manual workflows and a scheduled monitor. `docs/app-review.md` is the operating
-guide - the gate, the order of dispatches, and what stays attended. This file
-owns the module boundaries.
+manual workflows. The scheduled review-status monitor is the shared
+`app-review-submit` GET-only tool, documented in
+`docs/app-store-review-monitor.md`; this Python engine does not own that poll.
+`docs/app-review.md` is the operating guide - the gate, the order of dispatches,
+and what stays attended. This file owns the module boundaries.
 
 Run the deterministic suites locally:
 
