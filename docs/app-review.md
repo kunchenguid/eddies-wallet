@@ -54,6 +54,17 @@ lanes refuse to start if any App Store Connect credential is present at all.
 Steps 5 to 8 all take the same `version` twice. A mismatch refuses before
 anything else happens.
 
+App Store Connect will not attach an `appStoreVersion` to a review
+submission until the App Privacy / data-collection declaration is complete.
+When incomplete, this surfaces through the ASC API as a generic attach
+failure / HTTP 409 (the submission engine reports `did not attach the
+approved candidate`), not a clear "App Privacy incomplete" error. If an API
+submit fails at the version-attach step with a 409 / attach-failure while
+the reads and write-path reconcile are otherwise correct, verify App Privacy
+and App Information completeness in the App Store Connect UI before assuming
+a code bug. Confirmed on 0.1.17, 2026-08-14: the blocker was an incomplete
+App Privacy declaration, not the age rating, which was already saved.
+
 ## Readiness evidence
 
 The preflight prints a base64 document naming the candidate, the manifest hashes,
