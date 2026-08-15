@@ -32,8 +32,9 @@ the captain a second approval prompt for a run the captain just started by hand,
 which is ceremony rather than a boundary. The manifest is the content gate and
 the dispatch is the intent gate.
 
-The mutation-capable App Store Connect credential exists in exactly one step:
-`app-review-submit.yml`'s submit job. Preparation and readiness use the same
+The mutation-capable App Store Connect credential belongs to exactly one
+mutating step, `app-review-submit.yml`'s submit job; the GET-only shared
+monitor reuses that same submit key. Preparation and readiness use the same
 shared credential only through the structurally GET-only client, and the verify
 lanes refuse to start if any App Store Connect credential is present at all.
 
