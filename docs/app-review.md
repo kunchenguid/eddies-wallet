@@ -32,11 +32,13 @@ the captain a second approval prompt for a run the captain just started by hand,
 which is ceremony rather than a boundary. The manifest is the content gate and
 the dispatch is the intent gate.
 
-The mutation-capable App Store Connect credential belongs to exactly one
-mutating step, `app-review-submit.yml`'s submit job; the GET-only shared
-monitor reuses that same submit key. Preparation and readiness use the same
-shared credential only through the structurally GET-only client, and the verify
-lanes refuse to start if any App Store Connect credential is present at all.
+The App Review submission mutation credential belongs to
+`app-review-submit.yml`'s submit job; the GET-only shared monitor reuses that
+same submit key. A separate one-shot Guideline 3.1.2 workflow,
+`app-review-eula-append.yml`, maps that key to PATCH only the 0.1.17 en-US
+description. Preparation and readiness use the same shared credential only
+through the structurally GET-only client, and the verify lanes refuse to start
+if any App Store Connect credential is present at all.
 
 ## Order of operations
 
@@ -131,7 +133,13 @@ Do not introduce a dedicated `ASC_REVIEW_MONITOR_*` credential for either path.
   captain gates.
 - Release. The manifest may only choose `MANUAL` or `AFTER_APPROVAL`.
 - Create or edit listing copy, screenshots, products, App Review contacts, or
-  the App Store version. It refuses instead, naming what is missing.
+  the App Store version. It refuses instead, naming what is missing. A
+  captain-directed one-shot exception lives in `app-review-eula-append.yml`: it
+  may PATCH only the 0.1.17 en-US description to append Apple's standard EULA
+  link. That is not listing-sync and does not submit for review. The next
+  submit reconcile will see live description differ from
+  `tools/app-review/manifests/0.1.17.json` until a new manifest that includes
+  the line is generated and approved.
 - Put an Apple Account credential, parent PIN, session, purchase payload,
   receipt, raw Apple response, or reviewer contact detail into git, an issue, a
   log, an artifact, a workflow input, or a runner argument.

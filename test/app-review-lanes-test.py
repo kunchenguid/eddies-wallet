@@ -29,9 +29,11 @@ TOOLS = ROOT / "tools" / "app-review"
 PREPARE = "app-review-prepare.yml"
 SUBMIT = "app-review-submit.yml"
 DEMO_PREFLIGHT = "app-review-demo-preflight.yml"
+EULA_APPEND = "app-review-eula-append.yml"
 MONITOR = "app-review-monitor.yml"
 MONITOR_E2E = "app-review-monitor-e2e.yml"
 APP_REVIEW_WORKFLOWS = (PREPARE, SUBMIT, DEMO_PREFLIGHT)
+MODELED_WORKFLOWS = APP_REVIEW_WORKFLOWS + (MONITOR, MONITOR_E2E, EULA_APPEND)
 SHARED_TOOL_PIN = "216a65513dbde70d04d0efd021792743f094ed77"
 FIXED_MONITOR_ENGINE_SHA = "216a65513dbde70d04d0efd021792743f094ed77"
 SHARED_TOOL_REPO = "kunchenguid/app-review-submit"
@@ -100,7 +102,7 @@ class WorkflowModelCase(unittest.TestCase):
     def setUpClass(cls):
         cls.models = {
             name: parse_workflow(name)
-            for name in APP_REVIEW_WORKFLOWS + (MONITOR, MONITOR_E2E)
+            for name in MODELED_WORKFLOWS
         }
 
     def jobs(self, name):
@@ -154,7 +156,7 @@ class CredentialLaneTests(WorkflowModelCase):
 
     def steps_holding(self, secret_name):
         located = []
-        for name in APP_REVIEW_WORKFLOWS + (MONITOR, MONITOR_E2E):
+        for name in MODELED_WORKFLOWS:
             for job_name, job in self.jobs(name).items():
                 for step in steps_of(job):
                     if secret_name in secrets_of(step):
@@ -170,6 +172,7 @@ class CredentialLaneTests(WorkflowModelCase):
                     ),
                     [
                         (DEMO_PREFLIGHT, "readiness"),
+                        (EULA_APPEND, "append"),
                         (MONITOR_E2E, "observe"),
                         (MONITOR, "observe"),
                         (PREPARE, "preflight"),
@@ -348,7 +351,7 @@ class SharedMonitorTests(WorkflowModelCase):
 
     def test_the_shared_tool_read_token_reaches_only_the_private_checkout(self):
         located = []
-        for name in APP_REVIEW_WORKFLOWS + (MONITOR, MONITOR_E2E):
+        for name in MODELED_WORKFLOWS:
             for job_name, job in self.jobs(name).items():
                 for step in steps_of(job):
                     if SHARED_TOOL_READ_TOKEN in secrets_of(step):
@@ -548,6 +551,65 @@ class LiveMonitorProofTests(WorkflowModelCase):
         self.assertIn(r"^[0-9a-f]{40}$", command)
 
 
+class EulaAppendWorkflowTests(WorkflowModelCase):
+    """The 3.1.2 EULA append is a bounded one-shot write, not listing-sync."""
+
+    def test_the_eula_append_is_a_main_only_manual_dispatch(self):
+        triggers = self.models[EULA_APPEND]["on"]
+        self.assertEqual(list(triggers), ["workflow_dispatch"])
+        inputs = triggers["workflow_dispatch"]["inputs"]
+        self.assertEqual(list(inputs), ["confirm"])
+        self.assertTrue(inputs["confirm"]["required"])
+        self.assertIn("APPEND-EULA", inputs["confirm"]["description"])
+        self.assertNotIn("version", inputs)
+        self.assertNotIn("mode", inputs)
+        self.assertNotIn("evidence", inputs)
+        self.assertEqual(
+            self.models[EULA_APPEND]["permissions"], {"contents": "read"}
+        )
+        concurrency = self.models[EULA_APPEND]["concurrency"]
+        self.assertEqual(concurrency["group"], "eddies-app-review-eula-append")
+        self.assertIs(concurrency["cancel-in-progress"], False)
+
+    def test_the_eula_append_job_is_pinned_to_this_repository_and_main(self):
+        job = self.jobs(EULA_APPEND)["append"]
+        guard = " ".join(str(job.get("if", "")).split())
+        self.assertIn(REPOSITORY_GUARD, guard)
+        self.assertIn(DEFAULT_BRANCH_GUARD, guard)
+        self.assertEqual(job.get("permissions"), {"contents": "read"})
+        self.assertNotIn("environment", job)
+        self.assertNotIn("issues", job.get("permissions", {}))
+
+    def test_the_eula_append_maps_the_submit_key_into_exactly_one_step(self):
+        steps = steps_of(self.jobs(EULA_APPEND)["append"])
+        holding = [step for step in steps if secrets_of(step) & set(MUTATION_SECRETS)]
+        self.assertEqual(len(holding), 1)
+        self.assertEqual(secrets_of(holding[0]), set(MUTATION_SECRETS))
+        self.assertNotIn(VARIABLE_TOKEN, secrets_of(holding[0]))
+        self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(holding[0]))
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, secrets_of(holding[0]))
+        self.assertEqual(
+            holding[0]["env"]["EDDIES_EULA_APPEND_CONFIRM"],
+            "${{ inputs.confirm }}",
+        )
+        self.assertEqual(
+            holding[0]["run"].strip(),
+            "python3 tools/app-review/append_standard_eula.py",
+        )
+        blob = json.dumps(self.models[EULA_APPEND])
+        self.assertNotIn("submit.py", blob)
+        self.assertNotIn("reviewSubmissions", blob)
+        self.assertNotIn("pin_app_review_manifest.sh", blob)
+
+    def test_every_eula_append_action_is_pinned_and_leaves_no_git_credential(self):
+        for step in steps_of(self.jobs(EULA_APPEND)["append"]):
+            uses = step.get("uses")
+            if uses:
+                self.assertRegex(uses, PINNED_ACTION)
+            if str(step.get("uses", "")).startswith("actions/checkout@"):
+                self.assertIs(step["with"]["persist-credentials"], False)
+
+
 class ImportBoundaryTests(unittest.TestCase):
     """The read-only entrypoints cannot even load the mutation modules."""
 
@@ -574,6 +636,13 @@ class ImportBoundaryTests(unittest.TestCase):
                 self.assertIn("core", loaded)
                 self.assertNotIn("asc_write", loaded)
                 self.assertNotIn("submission", loaded)
+
+    def test_the_eula_append_script_never_loads_the_submission_write_boundary(self):
+        loaded = self.loaded_modules("append_standard_eula")
+        self.assertIn("asc_read", loaded)
+        self.assertNotIn("asc_write", loaded)
+        self.assertNotIn("submission", loaded)
+        self.assertNotIn("submit", loaded)
 
     def test_the_submission_engine_is_the_only_importer_of_the_write_boundary(self):
         importers = [

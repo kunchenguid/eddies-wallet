@@ -1,0 +1,52 @@
+name: App Review 3.1.2 EULA description append
+
+# One-shot Guideline 3.1.2 remediation for the rejected 0.1.17 en-US App
+# Description. It GETs the live localization, appends Apple's standard EULA
+# Terms of Use line when that URL is absent, PATCHes only `description`, then
+# GETs again to prove the prior copy is intact.
+#
+# This is not a listing-sync feature, not a submit, and not a listingPolicy
+# change. listingPolicy stays observe. The captain-approved manifest is not
+# rewritten here; a later submit reconcile will see the live description differ
+# until a new manifest that includes the EULA line is generated and approved.
+#
+# Credential lane: the same mutation-capable App Store Connect key the submit
+# job uses, mapped only into this workflow's one append step. Manual dispatch
+# on main, with an explicit APPEND-EULA confirm, is the whole gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type APPEND-EULA to confirm this one-shot 0.1.17 en-US description write
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eddies-app-review-eula-append
+  cancel-in-progress: false
+
+jobs:
+  append:
+    name: Append the standard EULA line to the 0.1.17 en-US description
+    if: github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: GET, maybe PATCH, and read back the en-US description
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          EDDIES_EULA_APPEND_CONFIRM: ${{ inputs.confirm }}
+        run: python3 tools/app-review/append_standard_eula.py

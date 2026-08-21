@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""The single mutation-capable App Store Connect boundary in this repository.
+"""The App Review submission mutation-capable App Store Connect boundary.
 
-Nothing else in `tools/app-review/` can send a non-GET request to Apple. Only
-`submission.py` imports this module, and only `submit.py --mode submit` reaches
-`submission.py`, so the mutation lane is one import edge wide and is checked by
-`test/app-review-lanes-test.py`.
+Only `submission.py` imports this module, and only `submit.py --mode submit`
+reaches `submission.py`, so the submission mutation lane is one import edge
+wide and is checked by `test/app-review-lanes-test.py`. A separate one-shot
+Guideline 3.1.2 script (`append_standard_eula.py`) sends its own description
+PATCH and does not import this boundary.
 
 Every write here is expressed as one exact App Store Connect resource document.
 There is no generic request helper, no DELETE, and no upload path: this boundary
