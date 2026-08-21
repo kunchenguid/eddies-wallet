@@ -32,8 +32,14 @@ DEMO_PREFLIGHT = "app-review-demo-preflight.yml"
 EULA_APPEND = "app-review-eula-append.yml"
 MONITOR = "app-review-monitor.yml"
 MONITOR_E2E = "app-review-monitor-e2e.yml"
+LIST_VERSIONS = "app-review-list-versions.yml"
 APP_REVIEW_WORKFLOWS = (PREPARE, SUBMIT, DEMO_PREFLIGHT)
-MODELED_WORKFLOWS = APP_REVIEW_WORKFLOWS + (MONITOR, MONITOR_E2E, EULA_APPEND)
+MODELED_WORKFLOWS = APP_REVIEW_WORKFLOWS + (
+    MONITOR,
+    MONITOR_E2E,
+    EULA_APPEND,
+    LIST_VERSIONS,
+)
 SHARED_TOOL_PIN = "216a65513dbde70d04d0efd021792743f094ed77"
 FIXED_MONITOR_ENGINE_SHA = "216a65513dbde70d04d0efd021792743f094ed77"
 SUBMIT_ENGINE_PIN = "84f0317d546ffafc0fbb794a05a22a3b50ac5097"
@@ -175,6 +181,7 @@ class CredentialLaneTests(WorkflowModelCase):
                     [
                         (DEMO_PREFLIGHT, "readiness"),
                         (EULA_APPEND, "append"),
+                        (LIST_VERSIONS, "list"),
                         (MONITOR_E2E, "observe"),
                         (MONITOR, "observe"),
                         (PREPARE, "preflight"),
@@ -648,6 +655,121 @@ class LiveMonitorProofTests(WorkflowModelCase):
         self.assertIn(r"^[0-9a-f]{40}$", command)
 
 
+class ListVersionsWorkflowTests(WorkflowModelCase):
+    """GET-only iOS version listing: classify baseline uniqueness, never submit."""
+
+    def test_the_listing_is_a_trusted_default_branch_dispatch(self):
+        triggers = self.models[LIST_VERSIONS]["on"]
+        self.assertEqual(list(triggers), ["workflow_dispatch"])
+        dispatch = triggers["workflow_dispatch"]
+        inputs = dispatch.get("inputs") if isinstance(dispatch, dict) else None
+        self.assertIn(dispatch, (None, True, {}, {"inputs": None}))
+        self.assertTrue(not inputs)
+        self.assertEqual(self.models[LIST_VERSIONS]["permissions"], {"contents": "read"})
+        concurrency = self.models[LIST_VERSIONS]["concurrency"]
+        self.assertEqual(concurrency["group"], "eddies-app-review-list-versions")
+        self.assertIs(concurrency["cancel-in-progress"], False)
+        job = self.jobs(LIST_VERSIONS)["list"]
+        guard = " ".join(str(job.get("if", "")).split())
+        self.assertIn(REPOSITORY_GUARD, guard)
+        self.assertIn(DEFAULT_BRANCH_GUARD, guard)
+        self.assertEqual(job.get("permissions"), {"contents": "read"})
+        self.assertNotIn("environment", job)
+        self.assertNotIn("issues", job.get("permissions", {}))
+        self.assertNotIn("issues", self.models[LIST_VERSIONS]["permissions"])
+
+    def test_the_listing_maps_the_submit_key_into_exactly_one_get_step(self):
+        steps = steps_of(self.jobs(LIST_VERSIONS)["list"])
+        holding = [step for step in steps if secrets_of(step) & set(MUTATION_SECRETS)]
+        self.assertEqual(len(holding), 1)
+        self.assertEqual(secrets_of(holding[0]), set(MUTATION_SECRETS))
+        self.assertNotIn(VARIABLE_TOKEN, secrets_of(holding[0]))
+        self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(holding[0]))
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, secrets_of(holding[0]))
+        self.assertNotIn("GITHUB_TOKEN", holding[0].get("env") or {})
+        self.assertEqual(
+            holding[0]["run"].strip(),
+            "python3 tools/app-review/list_app_store_versions.py",
+        )
+        blob = json.dumps(self.models[LIST_VERSIONS])
+        self.assertNotIn("submit.py", blob)
+        self.assertNotIn("assemble_only.js", blob)
+        self.assertNotIn("app_review_pipeline.js", blob)
+        self.assertNotIn("reviewSubmissions", blob)
+        self.assertNotIn("issues: write", blob)
+
+    def test_every_listing_action_is_pinned_and_leaves_no_git_credential(self):
+        for step in steps_of(self.jobs(LIST_VERSIONS)["list"]):
+            uses = step.get("uses")
+            if uses:
+                self.assertRegex(uses, PINNED_ACTION)
+            if str(step.get("uses", "")).startswith("actions/checkout@"):
+                self.assertIs(step["with"]["persist-credentials"], False)
+
+
+class ListVersionsScriptTests(unittest.TestCase):
+    """The listing printer reports every row a GET collection returned."""
+
+    def test_the_printer_emits_every_version_row_including_duplicates(self):
+        sys.path.insert(0, str(TOOLS))
+        self.addCleanup(sys.path.remove, str(TOOLS))
+        listing = importlib.import_module("list_app_store_versions")
+        rows = listing.rows_from(
+            [
+                {
+                    "type": "appStoreVersions",
+                    "id": "older-016",
+                    "attributes": {
+                        "versionString": "0.1.16",
+                        "appVersionState": "REPLACED_WITH_NEW_VERSION",
+                        "appStoreState": "REPLACED_WITH_NEW_VERSION",
+                        "createdDate": "2026-07-01T00:00:00Z",
+                    },
+                },
+                {
+                    "type": "appStoreVersions",
+                    "id": "live-016",
+                    "attributes": {
+                        "versionString": "0.1.16",
+                        "appVersionState": "READY_FOR_SALE",
+                        "appStoreState": "READY_FOR_SALE",
+                        "createdDate": "2026-07-02T00:00:00Z",
+                    },
+                },
+                {
+                    "type": "appStoreVersions",
+                    "id": "rejected-017",
+                    "attributes": {
+                        "versionString": "0.1.17",
+                        "appVersionState": "REJECTED",
+                        "appStoreState": "REJECTED",
+                        "createdDate": "2026-08-01T00:00:00Z",
+                    },
+                },
+            ]
+        )
+        table = listing.format_table(rows)
+        self.assertIn("count=3 writes=0 method=GET", table)
+        self.assertIn("filter[platform]=IOS", table)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(
+            [row["id"] for row in rows if row["versionString"] == "0.1.16"],
+            ["older-016", "live-016"],
+        )
+        self.assertIn(
+            "0.1.16\tREPLACED_WITH_NEW_VERSION\tREPLACED_WITH_NEW_VERSION\t2026-07-01T00:00:00Z\tolder-016",
+            table,
+        )
+        self.assertIn(
+            "0.1.16\tREADY_FOR_SALE\tREADY_FOR_SALE\t2026-07-02T00:00:00Z\tlive-016",
+            table,
+        )
+        self.assertIn(
+            "0.1.17\tREJECTED\tREJECTED\t2026-08-01T00:00:00Z\trejected-017",
+            table,
+        )
+
+
 class EulaAppendWorkflowTests(WorkflowModelCase):
     """The 3.1.2 EULA append is a bounded one-shot write, not listing-sync."""
 
@@ -727,7 +849,7 @@ class ImportBoundaryTests(unittest.TestCase):
         return set(completed.stdout.split())
 
     def test_the_read_only_entrypoints_never_load_a_mutation_module(self):
-        for entrypoint in ("prepare", "demo_preflight", "verify"):
+        for entrypoint in ("prepare", "demo_preflight", "verify", "list_app_store_versions"):
             with self.subTest(entrypoint=entrypoint):
                 loaded = self.loaded_modules(entrypoint)
                 self.assertIn("core", loaded)

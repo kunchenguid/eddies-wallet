@@ -39,7 +39,7 @@ forbid_grep() {
   fi
 }
 
-WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-review-monitor.yml .github/workflows/app-review-monitor-e2e.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml .github/workflows/app-review-eula-append.yml)
+WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-review-monitor.yml .github/workflows/app-review-monitor-e2e.yml .github/workflows/app-review-list-versions.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml .github/workflows/app-review-eula-append.yml)
 
 # --- Workflow syntax -------------------------------------------------------
 
@@ -284,6 +284,31 @@ require_grep 'kunchenguid/app-review-submit' "$REVIEW_E2E_WORKFLOW" "review moni
 require_grep '216a65513dbde70d04d0efd021792743f094ed77' "$REVIEW_E2E_WORKFLOW" "review monitor E2E defaults to the fixed multi-submission engine SHA"
 require_grep 'actions/checkout@[0-9a-f]{40}' "$REVIEW_E2E_WORKFLOW" "review monitor E2E pins checkout immutably"
 forbid_grep 'GITHUB_TOKEN' "$REVIEW_E2E_WORKFLOW" "review monitor E2E never maps GITHUB_TOKEN"
+
+# GET-only iOS App Store version listing. Encrypted submit-key credentials,
+# one GET step, no issue write, no submit, no shared-engine mutation.
+LIST_VERSIONS_WORKFLOW=.github/workflows/app-review-list-versions.yml
+require_grep '^  workflow_dispatch:$' "$LIST_VERSIONS_WORKFLOW" "version listing has a manual trigger"
+for forbidden in 'pull_request' 'pull_request_target' 'workflow_run' 'repository_dispatch' '^  push:' '^  schedule:'; do
+  forbid_grep "$forbidden" "$LIST_VERSIONS_WORKFLOW" "version listing excludes untrusted trigger ($forbidden)"
+done
+require_grep '^  contents: read$' "$LIST_VERSIONS_WORKFLOW" "version listing needs contents read only"
+forbid_grep '^  issues: write$' "$LIST_VERSIONS_WORKFLOW" "version listing never grants issue write"
+require_grep '^concurrency:$' "$LIST_VERSIONS_WORKFLOW" "version listing serializes live reads"
+require_grep '^  group: eddies-app-review-list-versions$' "$LIST_VERSIONS_WORKFLOW" "version listing uses its own concurrency group"
+require_grep '^  cancel-in-progress: false$' "$LIST_VERSIONS_WORKFLOW" "version listing does not cancel an in-flight read"
+forbid_grep '^[[:space:]]*(actions|pull-requests|checks|id-token|packages): write' "$LIST_VERSIONS_WORKFLOW" "version listing has no extra write permissions"
+require_grep 'APP_STORE_CONNECT_KEY_ID' "$LIST_VERSIONS_WORKFLOW" "version listing reuses the existing submit key ID"
+require_grep 'APP_STORE_CONNECT_ISSUER_ID' "$LIST_VERSIONS_WORKFLOW" "version listing reuses the existing submit issuer"
+require_grep 'APP_STORE_CONNECT_API_KEY' "$LIST_VERSIONS_WORKFLOW" "version listing reuses the existing submit API key"
+forbid_grep 'ASC_REVIEW_MONITOR_' "$LIST_VERSIONS_WORKFLOW" "version listing never references a dedicated monitor credential"
+forbid_grep 'app_review_pipeline\.js' "$LIST_VERSIONS_WORKFLOW" "version listing never invokes the shared pipeline CLI"
+forbid_grep 'assemble_only\.js' "$LIST_VERSIONS_WORKFLOW" "version listing never invokes assemble-only"
+forbid_grep 'submitted:true' "$LIST_VERSIONS_WORKFLOW" "version listing never submits"
+require_grep 'list_app_store_versions\.py' "$LIST_VERSIONS_WORKFLOW" "version listing runs the GET-only listing script"
+require_grep 'actions/checkout@[0-9a-f]{40}' "$LIST_VERSIONS_WORKFLOW" "version listing pins checkout immutably"
+forbid_grep 'GITHUB_TOKEN' "$LIST_VERSIONS_WORKFLOW" "version listing never maps GITHUB_TOKEN"
+forbid_grep 'APP_REVIEW_SUBMIT_READ_TOKEN' "$LIST_VERSIONS_WORKFLOW" "version listing never checks out the shared engine"
 for retired in \
   .github/workflows/app-store-review-status.yml \
   .github/scripts/app_store_review_monitor.py \
