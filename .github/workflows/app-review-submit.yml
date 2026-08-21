@@ -1,7 +1,7 @@
 name: App Review submission
 
-# Trusted default-branch submission of one captain-approved Eddie's Wallet App
-# Store version. The automation can only submit what the captain already
+# Trusted default-branch assembly of one captain-approved Eddie's Wallet App
+# Store version. The automation can only assemble what the captain already
 # approved: tools/app-review/manifests/<version>.json binds the exact version,
 # build, source commit, release behavior, listing copy, screenshot bytes, Cloud
 # in-app purchase review assets, and App Review notes by content hash, and every
@@ -13,16 +13,23 @@ name: App Review submission
 #   3. fresh readiness evidence from app-review-demo-preflight.yml must bind the
 #      same candidate, and
 #   4. the mutation-capable App Store Connect credential exists only inside the
-#      submit job's one mutating step.
+#      assemble job's one mutating step.
 #
 # Credential lanes, deliberately separated by job:
-#   verify - no App Store Connect credential and no variable token. The verify
-#            lane refuses to start if an App Store Connect credential is present.
-#   submit - the only job with mutation-capable App Store Connect credentials and
-#            the only job with the least-privilege repository-variable token used
-#            for the EDDIES_REVIEW_MONITOR_CYCLE handoff after Apple accepts.
+#   verify   - no App Store Connect credential and no variable token. The verify
+#              lane refuses to start if an App Store Connect credential is present.
+#   assemble - the only job with mutation-capable App Store Connect credentials.
+#              It checks out kunchenguid/app-review-submit@84f0317 and runs that
+#              engine's assemble-only API (`args.assembleOnly: true`). It creates
+#              or reuses the review submission and attaches the app version plus
+#              every non-APPROVED Cloud subscription, then hard-returns before
+#              submit(). It never PATCHes submitted:true, never arms the monitor,
+#              and never maps the monitor variable token.
 #
-# Submission is not release: the approved manifest may only choose MANUAL or
+# The captain's remaining action after a successful assemble is one Submit tap
+# in App Store Connect. This workflow has no auto-submit path.
+#
+# Assembly is not release: the approved manifest may only choose MANUAL or
 # AFTER_APPROVAL release behavior.
 
 on:
@@ -37,13 +44,13 @@ on:
         required: true
         type: string
       mode:
-        description: verify performs no App Store mutation; submit runs the bound submission
+        description: verify performs no App Store mutation; assemble stages the review submission and stops before Submit
         required: true
         default: verify
         type: choice
         options:
           - verify
-          - submit
+          - assemble
       evidence:
         description: Base64 readiness evidence from a fresh app-review-demo-preflight run
         required: true
@@ -77,26 +84,33 @@ jobs:
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
         run: .github/scripts/pin_app_review_manifest.sh
 
+      # Pin detaches to the last commit that changed the manifest, which may
+      # predate this verify entrypoint. Restore it from the dispatch SHA without
+      # moving HEAD, so the approved bytes stay pinned.
+      - name: Restore the verify entrypoint from the dispatch SHA
+        env:
+          DISPATCH_SHA: ${{ github.sha }}
+        run: git show "${DISPATCH_SHA}:tools/app-review/verify.py" > tools/app-review/verify.py
+
       - name: Refuse anything the captain did not approve
         env:
           GITHUB_TOKEN: ${{ github.token }}
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
           EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
           EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
-        run: python3 tools/app-review/submit.py verify
+        run: python3 tools/app-review/verify.py
 
-  submit:
-    name: Submit the captain-approved candidate
+  assemble:
+    name: Assemble the captain-approved candidate without submitting
     needs: verify
     if: >-
       github.repository == 'kunchenguid/eddies-wallet' &&
       github.ref == 'refs/heads/main' &&
-      inputs.mode == 'submit'
+      inputs.mode == 'assemble'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
       contents: read
-      issues: write
     steps:
       - name: Checkout trusted default branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -109,16 +123,32 @@ jobs:
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
         run: .github/scripts/pin_app_review_manifest.sh
 
+      - name: Restore the assemble-only adapter from the dispatch SHA
+        env:
+          DISPATCH_SHA: ${{ github.sha }}
+        run: git show "${DISPATCH_SHA}:tools/app-review/assemble_only.js" > tools/app-review/assemble_only.js
+
+      - name: Check out the shared review-submission CLI
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: kunchenguid/app-review-submit
+          # Pin: kunchenguid/app-review-submit#9 (assemble-only hard-return).
+          ref: 84f0317d546ffafc0fbb794a05a22a3b50ac5097
+          path: .app-review-submit
+          token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
+          persist-credentials: false
+
       # This is the only step in the repository that holds a mutation-capable
-      # App Store Connect credential together with the monitor variable token.
-      - name: Reconcile, submit idempotently, and hand off only after acceptance
+      # App Store Connect credential for App Review assembly. It never maps the
+      # monitor variable token and never PATCHes submitted:true.
+      - name: Assemble the review submission and stop before Submit
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-          EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN: ${{ secrets.EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
+          APP_REVIEW_CONFIG: ${{ github.workspace }}/tools/app-review/app-review.config.json
+          APP_REVIEW_ENGINE_DIR: ${{ github.workspace }}/.app-review-submit
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
           EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
           EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
-        run: python3 tools/app-review/submit.py submit
+        run: node tools/app-review/assemble_only.js --assemble-only

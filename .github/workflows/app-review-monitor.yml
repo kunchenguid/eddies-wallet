@@ -8,7 +8,8 @@ name: Monitor App Store review status
 # not keep the schedule red between cycles.
 #
 # This workflow does not submit, mutate, release, or touch a live App Review
-# submission. The Python submit engine (tools/app-review/) is a separate lane.
+# This workflow does not submit, mutate, release, or touch a live App Review
+# submission. Assemble-only mutation is a separate lane in app-review-submit.yml.
 #
 # The cadence is four-hourly and off the top of the hour: App Review states move
 # in hours, not minutes, and a quieter schedule keeps the notification worth

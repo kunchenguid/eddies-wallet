@@ -25,15 +25,16 @@ Submission is gated by two independent things, and both are the captain's.
 2. **The captain's explicit double-confirm dispatch.** `app-review-submit.yml`
    is manual only, requires the version to be typed twice, defaults to the
    `verify` dry run, and reaches its mutating job only when the dispatcher
-   explicitly chooses `mode=submit`.
+   explicitly chooses `mode=assemble`. That job is assemble-only: it stages the
+   review submission and stops before Submit. It never PATCHes `submitted: true`.
 
 There is deliberately **no protected GitHub Environment**. Adding one would give
 the captain a second approval prompt for a run the captain just started by hand,
 which is ceremony rather than a boundary. The manifest is the content gate and
 the dispatch is the intent gate.
 
-The App Review submission mutation credential belongs to
-`app-review-submit.yml`'s submit job; the GET-only shared monitor reuses that
+The App Review assemble mutation credential belongs to
+`app-review-submit.yml`'s assemble job; the GET-only shared monitor reuses that
 same submit key. A separate one-shot Guideline 3.1.2 workflow,
 `app-review-eula-append.yml`, maps that key to PATCH only the 0.1.17 en-US
 description. Preparation and readiness use the same shared credential only
@@ -51,9 +52,10 @@ if any App Store Connect credential is present at all.
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only. | The recovery issue only. |
 | 6. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered review assets, and the production service publishing Cloud activation with exactly those two products. Emits base64 readiness evidence. | Nothing. |
 | 7. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
-| 8. `app-review-submit.yml` with `mode=submit` | Aligns release behavior, bound build, and App Review notes to the manifest; reconciles; resumes or creates one review submission; submits; reads Apple back; then writes `EDDIES_REVIEW_MONITOR_CYCLE`. | App Store Connect, within the manifest only. |
-| 9. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; notifies on a terminal or sustained-unavailable observation. | One GitHub issue. |
-| 10. `app-review-monitor-e2e.yml` | GET-only live classification of a candidate `app-review-submit` SHA via `observeReviewStatus`. Proves a pin against real ASC state. | Nothing. |
+| 8. `app-review-submit.yml` with `mode=assemble` | Checks out `kunchenguid/app-review-submit@84f0317` and runs assemble-only: create or reuse one review submission, attach the app version plus both Cloud subscriptions, then hard-return before Submit (`status: assembled`, `submitted: false`, `remaining: submit`). | App Store Connect assembly only, never `submitted: true`. |
+| 9. Captain Submit tap in App Store Connect | The remaining human action after a successful assemble. | Apple's Submit for Review. |
+| 10. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; notifies on a terminal or sustained-unavailable observation. | One GitHub issue. |
+| 11. `app-review-monitor-e2e.yml` | GET-only live classification of a candidate `app-review-submit` SHA via `observeReviewStatus`. Proves a pin against real ASC state. | Nothing. |
 
 Steps 5 to 8 all take the same `version` twice. A mismatch refuses before
 anything else happens.
@@ -86,46 +88,35 @@ The prepare step opens one GitHub issue keyed by app, version, manifest binding
 hash, and manifest-approved commit, with a single mutable comment holding phase,
 reconciliation outcome, and timestamp. Nothing else is recorded there.
 
-Rerunning `mode=submit` after an interruption is safe. The engine reconciles
-against authoritative Apple state first: if Apple already holds the candidate as
-submitted it performs no write and completes only the monitor handoff. Otherwise
-it reuses the single open review submission only when that submission is still
-reusable and contains no item or only the exact candidate; an unrelated item,
-state, or additional open submission is a conflict. After creating a submission
-or attaching the candidate, the engine reads Apple back before proceeding. A
-failed attach whose readback contains the exact candidate is complete; an absent
-candidate is a bounded failure. An uncertain create is never replayed, so a
-rerun cannot create a second review submission.
+Rerunning `mode=assemble` after an interruption is safe. The shared engine
+reconciles against authoritative Apple state first: it creates or reuses one
+review submission, attaches the app version and every non-APPROVED Cloud
+subscription, then hard-returns before Submit. A leftover rejected submission
+in `UNRESOLVED_ISSUES` is a genuine conflict; deletion is captain App Store
+Connect UI, and this pipeline will not force it. An uncertain create is never
+replayed, so a rerun cannot create a second review submission.
 
-If Apple accepted the submission but the monitor handoff failed, rerun the same
-dispatch. Only the handoff is outstanding, and it is a `GET`, then write, then
-`GET` that is complete only when the variable reads back as the exact cycle.
+After a successful assemble the review submission is staged and unsubmitted
+(`status: assembled`, `submitted: false`, `remaining: submit`). The only
+remaining action is the captain's single Submit tap in App Store Connect
+(App Review > the staged submission > Submit for Review). This repository has
+no auto-submit path and does not arm the monitor from assemble-only.
 
 ## Captain setup
 
 Already in place and reused as-is: `APP_STORE_CONNECT_KEY_ID`,
 `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY` (the shared release
-and submit credential). The GET-only status monitor authenticates with that
-same submit key. Its checkout of the private shared tool uses the already-configured
+and assemble credential). The GET-only status monitor authenticates with that
+same key. Checkout of the private shared tool uses the already-configured
 `APP_REVIEW_SUBMIT_READ_TOKEN` (`contents:read` on `kunchenguid/app-review-submit`);
-that token is not an Apple credential and is not mapped into the poll step.
-Do not create a dedicated monitor user or any `ASC_REVIEW_MONITOR_*` secret.
-
-Still to create, before the first `mode=submit`:
-
-- **`EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN`** - a GitHub secret holding a
-  fine-grained token for this repository with **Variables: read and write** and
-  no other permission. The run's `GITHUB_TOKEN` cannot write Actions variables,
-  so the Python submit job needs this one to write `EDDIES_REVIEW_MONITOR_CYCLE`.
-  Until it exists, a submission that Apple accepts will refuse at the handoff
-  and say so; rerunning the same dispatch once the secret is set completes only
-  the handoff.
+that token is not an Apple credential and is not mapped into the assemble or
+poll steps. Do not create a dedicated monitor user or any `ASC_REVIEW_MONITOR_*`
+secret.
 
 The live scheduled monitor reads `APP_REVIEW_MONITOR_VERSION` (the exact
-marketing version). That variable is not written by the Python submit engine;
-arm it separately as `docs/app-store-review-monitor.md` describes. The Python
-submit handoff still writes `EDDIES_REVIEW_MONITOR_CYCLE` after Apple accepts.
-Do not introduce a dedicated `ASC_REVIEW_MONITOR_*` credential for either path.
+marketing version). Assemble-only does not write that variable; arm it
+separately as `docs/app-store-review-monitor.md` describes after the captain
+Submits. Do not introduce a dedicated `ASC_REVIEW_MONITOR_*` credential.
 
 ## What this pipeline will never do
 
@@ -143,4 +134,5 @@ Do not introduce a dedicated `ASC_REVIEW_MONITOR_*` credential for either path.
 - Put an Apple Account credential, parent PIN, session, purchase payload,
   receipt, raw Apple response, or reviewer contact detail into git, an issue, a
   log, an artifact, a workflow input, or a runner argument.
-- Fall back to a browser submission.
+- Fall back to a browser submission except for the captain's single Submit tap
+  after assemble-only has already staged the review submission.

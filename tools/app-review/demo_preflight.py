@@ -16,8 +16,7 @@ is actually open at submission time:
 It cannot perform Sign in with Apple or a purchase. That one functional proof is
 deliberately an attended pre-submission acceptance gate.
 
-Every read here is a GET. This entrypoint imports neither `asc_write` nor
-`submission`, so it holds no mutation capability at all.
+Every read here is a GET. This entrypoint imports no mutation module.
 """
 
 from __future__ import annotations
@@ -155,7 +154,7 @@ def main() -> int:
     runtime.emit(f"evidence_generated_utc={generated}")
     runtime.emit(f"evidence_valid_for_seconds={evidence.EVIDENCE_MAX_AGE_SECONDS}")
     runtime.block(
-        "Paste this into the submit dispatch's `evidence` input:", encoded
+        "Paste this into the assemble dispatch's `evidence` input:", encoded
     )
     print(encoded, flush=True)
     return 0

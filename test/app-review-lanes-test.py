@@ -36,6 +36,7 @@ APP_REVIEW_WORKFLOWS = (PREPARE, SUBMIT, DEMO_PREFLIGHT)
 MODELED_WORKFLOWS = APP_REVIEW_WORKFLOWS + (MONITOR, MONITOR_E2E, EULA_APPEND)
 SHARED_TOOL_PIN = "216a65513dbde70d04d0efd021792743f094ed77"
 FIXED_MONITOR_ENGINE_SHA = "216a65513dbde70d04d0efd021792743f094ed77"
+SUBMIT_ENGINE_PIN = "84f0317d546ffafc0fbb794a05a22a3b50ac5097"
 SHARED_TOOL_REPO = "kunchenguid/app-review-submit"
 MONITOR_CONFIG = TOOLS / "app-review.config.json"
 OBSERVE_HARNESS = "tools/app-review/observe_review_status.js"
@@ -134,14 +135,15 @@ class TriggerAndGuardTests(WorkflowModelCase):
 
     def test_the_submission_dispatch_defaults_to_the_dry_run_and_needs_evidence(self):
         inputs = self.models[SUBMIT]["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(inputs["mode"]["options"], ["verify", "submit"])
+        self.assertEqual(inputs["mode"]["options"], ["verify", "assemble"])
         self.assertEqual(inputs["mode"]["default"], "verify")
         self.assertTrue(inputs["evidence"]["required"])
 
-    def test_only_an_explicit_submit_mode_reaches_the_mutation_job(self):
-        guard = " ".join(str(self.jobs(SUBMIT)["submit"]["if"]).split())
-        self.assertIn("inputs.mode == 'submit'", guard)
-        self.assertEqual(self.jobs(SUBMIT)["submit"]["needs"], "verify")
+    def test_only_an_explicit_assemble_mode_reaches_the_mutation_job(self):
+        guard = " ".join(str(self.jobs(SUBMIT)["assemble"]["if"]).split())
+        self.assertIn("inputs.mode == 'assemble'", guard)
+        self.assertEqual(self.jobs(SUBMIT)["assemble"]["needs"], "verify")
+        self.assertNotIn("submit", self.jobs(SUBMIT))
 
     def test_the_pipeline_serializes_on_one_non_cancelling_group(self):
         for name in APP_REVIEW_WORKFLOWS:
@@ -176,23 +178,18 @@ class CredentialLaneTests(WorkflowModelCase):
                         (MONITOR_E2E, "observe"),
                         (MONITOR, "observe"),
                         (PREPARE, "preflight"),
-                        (SUBMIT, "submit"),
+                        (SUBMIT, "assemble"),
                     ],
                 )
 
     def test_exactly_one_step_can_mutate_app_store_connect(self):
         mutating = self.steps_holding("APP_STORE_CONNECT_API_KEY")
-        submitting = [entry for entry in mutating if entry[0] == SUBMIT]
-        self.assertEqual(len(submitting), 1)
-        self.assertEqual(submitting[0][1], "submit")
+        assembling = [entry for entry in mutating if entry[0] == SUBMIT]
+        self.assertEqual(len(assembling), 1)
+        self.assertEqual(assembling[0][1], "assemble")
 
-    def test_the_monitor_variable_token_reaches_only_the_submit_job(self):
-        self.assertEqual(
-            self.steps_holding(VARIABLE_TOKEN), [(SUBMIT, "submit", self._submit_step_name())]
-        )
-
-    def _submit_step_name(self):
-        return steps_of(self.jobs(SUBMIT)["submit"])[-1]["name"]
+    def test_the_monitor_variable_token_is_not_mapped_into_assemble_only(self):
+        self.assertEqual(self.steps_holding(VARIABLE_TOKEN), [])
 
     def test_every_verify_lane_is_credential_free(self):
         for name, job_name in ((PREPARE, "verify"), (SUBMIT, "verify")):
@@ -260,6 +257,9 @@ class PermissionAndPinTests(WorkflowModelCase):
         self.assertEqual(
             self.jobs(SUBMIT)["verify"]["permissions"]["issues"], "read"
         )
+        self.assertNotIn(
+            "issues", self.jobs(SUBMIT)["assemble"].get("permissions", {})
+        )
 
     def test_every_action_is_pinned_to_a_full_commit_sha(self):
         for name in APP_REVIEW_WORKFLOWS:
@@ -277,7 +277,10 @@ class PermissionAndPinTests(WorkflowModelCase):
                     if str(step.get("uses", "")).startswith("actions/checkout@"):
                         with self.subTest(workflow=name):
                             self.assertIs(step["with"]["persist-credentials"], False)
-                            self.assertEqual(step["with"]["fetch-depth"], 0)
+                            if (step.get("with") or {}).get("repository") == SHARED_TOOL_REPO:
+                                self.assertNotIn("fetch-depth", step.get("with") or {})
+                            else:
+                                self.assertEqual(step["with"]["fetch-depth"], 0)
 
     def test_every_app_review_run_pins_the_manifest_approved_commit_first(self):
         for name in APP_REVIEW_WORKFLOWS:
@@ -362,6 +365,12 @@ class SharedMonitorTests(WorkflowModelCase):
             located,
             [
                 (
+                    SUBMIT,
+                    "assemble",
+                    "Check out the shared review-submission CLI",
+                    "with",
+                ),
+                (
                     MONITOR,
                     "observe",
                     "Check out the shared review-submission CLI",
@@ -423,6 +432,94 @@ class SharedMonitorTests(WorkflowModelCase):
         blob = json.dumps(config)
         self.assertIsNone(DEDICATED_MONITOR_SECRET.search(blob))
         self.assertNotIn("EDDIES_REVIEW_MONITOR_CYCLE", blob)
+
+
+class AssembleEngineTests(WorkflowModelCase):
+    """The mutating submit job is Node assemble-only, never the Python submit engine."""
+
+    def test_assemble_checks_out_the_pinned_shared_tool(self):
+        checkouts = [
+            step
+            for step in steps_of(self.jobs(SUBMIT)["assemble"])
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        ]
+        self.assertEqual(len(checkouts), 2)
+        for step in checkouts:
+            self.assertRegex(step["uses"], PINNED_ACTION)
+            self.assertIs(step["with"]["persist-credentials"], False)
+        tool = next(
+            step
+            for step in checkouts
+            if (step.get("with") or {}).get("repository") == SHARED_TOOL_REPO
+        )
+        self.assertEqual(tool["with"]["ref"], SUBMIT_ENGINE_PIN)
+        self.assertEqual(tool["with"]["path"], ".app-review-submit")
+        self.assertEqual(
+            tool["with"]["token"],
+            "${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}",
+        )
+        local = next(
+            step
+            for step in checkouts
+            if (step.get("with") or {}).get("repository") != SHARED_TOOL_REPO
+        )
+        self.assertEqual(local["with"]["fetch-depth"], 0)
+        self.assertNotIn("token", local.get("with") or {})
+
+    def test_assemble_runs_the_node_adapter_with_assemble_only(self):
+        mutating = [
+            step
+            for step in steps_of(self.jobs(SUBMIT)["assemble"])
+            if "APP_STORE_CONNECT_API_KEY" in secrets_of(step)
+        ]
+        self.assertEqual(len(mutating), 1)
+        command = mutating[0]["run"]
+        self.assertIn("assemble_only.js --assemble-only", command)
+        self.assertNotIn("app_review_pipeline.js submit", command)
+        self.assertNotIn("submit.py", command)
+        self.assertNotIn("python3 tools/app-review/submit.py", command)
+        environment = mutating[0]["env"]
+        self.assertEqual(
+            environment["APP_REVIEW_CONFIG"],
+            "${{ github.workspace }}/tools/app-review/app-review.config.json",
+        )
+        self.assertEqual(
+            environment["APP_REVIEW_ENGINE_DIR"],
+            "${{ github.workspace }}/.app-review-submit",
+        )
+        self.assertNotIn("GITHUB_TOKEN", environment)
+        self.assertNotIn(VARIABLE_TOKEN, secrets_of(mutating[0]))
+        self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(mutating[0]))
+        self.assertEqual(
+            {name: environment[name] for name in MUTATION_SECRETS},
+            {
+                "APP_STORE_CONNECT_KEY_ID": "${{ secrets.APP_STORE_CONNECT_KEY_ID }}",
+                "APP_STORE_CONNECT_ISSUER_ID": "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}",
+                "APP_STORE_CONNECT_API_KEY": "${{ secrets.APP_STORE_CONNECT_API_KEY }}",
+            },
+        )
+
+    def test_the_workflow_has_no_auto_submit_path(self):
+        blob = json.dumps(self.models[SUBMIT])
+        self.assertNotIn("submitted:true", blob.replace(" ", ""))
+        self.assertNotIn("python3 tools/app-review/submit.py submit", blob)
+        self.assertNotIn("app_review_pipeline.js submit", blob)
+        self.assertIn("assemble_only.js --assemble-only", blob)
+
+    def test_the_committed_config_names_eddie_and_both_cloud_subscriptions(self):
+        config = json.loads(MONITOR_CONFIG.read_text())
+        self.assertEqual(config["app"]["appId"], "6795664301")
+        self.assertEqual(config["listingPolicy"], "observe")
+        self.assertEqual(config["commerce"]["kind"], "subscriptions")
+        self.assertEqual(
+            config["commerce"]["productIds"],
+            [
+                "com.kunchenguid.eddieswallet.cloud.monthly",
+                "com.kunchenguid.eddieswallet.cloud.annual",
+            ],
+        )
+        self.assertEqual(config["evidence"]["adapter"], "demoPreflight")
+        self.assertEqual(config["listing"]["approvedSubtitle"], "Virtual allowance practice")
 
 
 class LiveMonitorProofTests(WorkflowModelCase):
@@ -630,7 +727,7 @@ class ImportBoundaryTests(unittest.TestCase):
         return set(completed.stdout.split())
 
     def test_the_read_only_entrypoints_never_load_a_mutation_module(self):
-        for entrypoint in ("prepare", "demo_preflight"):
+        for entrypoint in ("prepare", "demo_preflight", "verify"):
             with self.subTest(entrypoint=entrypoint):
                 loaded = self.loaded_modules(entrypoint)
                 self.assertIn("core", loaded)
@@ -644,13 +741,16 @@ class ImportBoundaryTests(unittest.TestCase):
         self.assertNotIn("submission", loaded)
         self.assertNotIn("submit", loaded)
 
-    def test_the_submission_engine_is_the_only_importer_of_the_write_boundary(self):
+    def test_the_python_submit_engine_is_retired(self):
+        for name in ("submit.py", "submission.py", "asc_write.py"):
+            with self.subTest(name=name):
+                self.assertFalse((TOOLS / name).is_file())
         importers = [
             path.name
             for path in sorted(TOOLS.glob("*.py"))
             if re.search(r"^\s*import asc_write\b", path.read_text(), re.MULTILINE)
         ]
-        self.assertEqual(importers, ["submission.py", "submit.py"])
+        self.assertEqual(importers, [])
 
 
 class HttpBoundaryTests(unittest.TestCase):
@@ -660,7 +760,6 @@ class HttpBoundaryTests(unittest.TestCase):
         sys.path.insert(0, str(TOOLS))
         self.addCleanup(sys.path.remove, str(TOOLS))
         self.asc_read = importlib.import_module("asc_read")
-        self.asc_write = importlib.import_module("asc_write")
         self.sent = []
 
     class _Response:
@@ -715,30 +814,6 @@ class HttpBoundaryTests(unittest.TestCase):
         for name in ("post", "patch", "put", "delete", "upload", "request"):
             self.assertFalse(hasattr(session, name), f"read session exposes {name}")
 
-    def test_every_write_the_boundary_offers_is_a_post_or_patch(self):
-        change = self.asc_write.ChangeSession(self._Credential())
-        change._opener = self.opener()
-        change.set_release_type("ver-1", "MANUAL")
-        change.bind_build("ver-1", "build-1")
-        change.set_review_detail("detail-1", "notes")
-        change.create_review_submission("6795664301", "IOS")
-        change.add_version_item("rs-1", "ver-1")
-        change.submit_for_review("rs-1")
-        self.assertEqual(len(self.sent), 6)
-        for method, url, body in self.sent:
-            self.assertIn(method, ("POST", "PATCH"))
-            self.assertIsNotNone(body)
-            self.assertTrue(url.startswith("https://api.appstoreconnect.apple.com/v1/"))
-
-    def test_the_write_boundary_refuses_any_other_method(self):
-        change = self.asc_write.ChangeSession(self._Credential())
-        change._opener = self.opener()
-        for method in ("DELETE", "PUT", "GET"):
-            with self.subTest(method=method):
-                with self.assertRaises(self.asc_read.AppStoreConnectError):
-                    change._send(method, "/v1/appStoreVersions/ver-1", {})
-        self.assertEqual(self.sent, [], "a refused method must never reach the network")
-
     def test_neither_boundary_will_talk_to_another_host(self):
         session = self.asc_read.ReadSession(self._Credential())
         session._opener = self.opener()
@@ -761,15 +836,15 @@ class NegativeControlTests(WorkflowModelCase):
         )
         self.assertTrue(leaked, "the lane assertion must be able to see a leak")
 
-    def test_dropping_the_submit_mode_guard_would_be_caught(self):
+    def test_dropping_the_assemble_mode_guard_would_be_caught(self):
         model = parse_workflow(SUBMIT)
-        model["jobs"]["submit"]["if"] = REPOSITORY_GUARD
-        self.assertNotIn("inputs.mode == 'submit'", model["jobs"]["submit"]["if"])
+        model["jobs"]["assemble"]["if"] = REPOSITORY_GUARD
+        self.assertNotIn("inputs.mode == 'assemble'", model["jobs"]["assemble"]["if"])
 
     def test_adding_an_environment_would_be_caught(self):
         model = parse_workflow(SUBMIT)
-        model["jobs"]["submit"]["environment"] = "app-store-submission"
-        self.assertIn("environment", model["jobs"]["submit"])
+        model["jobs"]["assemble"]["environment"] = "app-store-submission"
+        self.assertIn("environment", model["jobs"]["assemble"])
 
     def test_dropping_the_shared_tool_checkout_token_would_be_caught(self):
         model = parse_workflow(MONITOR)

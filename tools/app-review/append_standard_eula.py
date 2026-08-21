@@ -5,8 +5,8 @@ Apple rejected 0.1.17 because the en-US App Description lacked a functional
 Terms of Use (EULA) link. Eddie uses Apple's standard EULA, so the required
 fix is this exact URL in the description, nothing else.
 
-This script is deliberately not a listing-sync feature and does not import
-`asc_write` or `submission`. It GETs the live 0.1.17 en-US localization,
+This script is deliberately not a listing-sync feature and does not import a
+Python mutation boundary. It GETs the live 0.1.17 en-US localization,
 appends one line after the subscription auto-renewal paragraph when that URL
 is absent, PATCHes only `description`, then GETs again to prove the prior
 copy is intact. `listingPolicy` stays `observe`. It never submits for review

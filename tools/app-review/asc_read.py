@@ -3,9 +3,8 @@
 
 This module is structurally read-only. Every request it can build is created
 with `method="GET"` and no body, so a credential handed to this module cannot
-change App Store Connect state even if the caller asks it to. `asc_write.py` is
-the only module in this tree that can mutate App Store Connect, and only
-`submission.py` imports it.
+change App Store Connect state even if the caller asks it to. Assemble-only
+mutation lives in the pinned shared Node engine, not in this Python tree.
 
 The credential is read from the environment, written to a mode-600 runner-temp
 file only for the lifetime of one signature, and never printed. Diagnostics are

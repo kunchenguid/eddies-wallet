@@ -7,11 +7,9 @@ Two boundaries live here, and they deliberately use different credentials.
 `GITHUB_TOKEN`. It writes only the durable, nonsecret recovery record and its one
 mutable journal comment.
 
-`MonitorCycleVariable` performs the post-acceptance handoff that arms the review
-monitor. `GITHUB_TOKEN` cannot write Actions variables, so this boundary uses the
-least-privilege `EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN`, which the submit job is
-the only job to receive. The handoff is GET, then write, then GET: it is complete
-only when the readback shows the exact cycle value.
+`MonitorCycleVariable` can write the post-acceptance handoff that arms the
+review monitor. Assemble-only does not call it; the captain arms
+`APP_REVIEW_MONITOR_VERSION` after Submit.
 """
 
 from __future__ import annotations
