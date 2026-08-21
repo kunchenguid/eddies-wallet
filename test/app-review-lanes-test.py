@@ -30,10 +30,13 @@ PREPARE = "app-review-prepare.yml"
 SUBMIT = "app-review-submit.yml"
 DEMO_PREFLIGHT = "app-review-demo-preflight.yml"
 MONITOR = "app-review-monitor.yml"
+MONITOR_E2E = "app-review-monitor-e2e.yml"
 APP_REVIEW_WORKFLOWS = (PREPARE, SUBMIT, DEMO_PREFLIGHT)
 SHARED_TOOL_PIN = "3f8886b00b160d4dc79997833df8dbbca9a54cee"
+FIXED_MONITOR_ENGINE_SHA = "216a65513dbde70d04d0efd021792743f094ed77"
 SHARED_TOOL_REPO = "kunchenguid/app-review-submit"
 MONITOR_CONFIG = TOOLS / "app-review.config.json"
+OBSERVE_HARNESS = "tools/app-review/observe_review_status.js"
 
 REPOSITORY_GUARD = "github.repository == 'kunchenguid/eddies-wallet'"
 DEFAULT_BRANCH_GUARD = "github.ref == 'refs/heads/main'"
@@ -97,7 +100,7 @@ class WorkflowModelCase(unittest.TestCase):
     def setUpClass(cls):
         cls.models = {
             name: parse_workflow(name)
-            for name in APP_REVIEW_WORKFLOWS + (MONITOR,)
+            for name in APP_REVIEW_WORKFLOWS + (MONITOR, MONITOR_E2E)
         }
 
     def jobs(self, name):
@@ -151,7 +154,7 @@ class CredentialLaneTests(WorkflowModelCase):
 
     def steps_holding(self, secret_name):
         located = []
-        for name in APP_REVIEW_WORKFLOWS + (MONITOR,):
+        for name in APP_REVIEW_WORKFLOWS + (MONITOR, MONITOR_E2E):
             for job_name, job in self.jobs(name).items():
                 for step in steps_of(job):
                     if secret_name in secrets_of(step):
@@ -167,6 +170,7 @@ class CredentialLaneTests(WorkflowModelCase):
                     ),
                     [
                         (DEMO_PREFLIGHT, "readiness"),
+                        (MONITOR_E2E, "observe"),
                         (MONITOR, "observe"),
                         (PREPARE, "preflight"),
                         (SUBMIT, "submit"),
@@ -344,7 +348,7 @@ class SharedMonitorTests(WorkflowModelCase):
 
     def test_the_shared_tool_read_token_reaches_only_the_private_checkout(self):
         located = []
-        for name in APP_REVIEW_WORKFLOWS + (MONITOR,):
+        for name in APP_REVIEW_WORKFLOWS + (MONITOR, MONITOR_E2E):
             for job_name, job in self.jobs(name).items():
                 for step in steps_of(job):
                     if SHARED_TOOL_READ_TOKEN in secrets_of(step):
@@ -359,7 +363,13 @@ class SharedMonitorTests(WorkflowModelCase):
                     "observe",
                     "Check out the shared review-submission CLI",
                     "with",
-                )
+                ),
+                (
+                    MONITOR_E2E,
+                    "observe",
+                    "Check out the shared review-submission CLI",
+                    "with",
+                ),
             ],
         )
 
@@ -410,6 +420,132 @@ class SharedMonitorTests(WorkflowModelCase):
         blob = json.dumps(config)
         self.assertIsNone(DEDICATED_MONITOR_SECRET.search(blob))
         self.assertNotIn("EDDIES_REVIEW_MONITOR_CYCLE", blob)
+
+
+class LiveMonitorProofTests(WorkflowModelCase):
+    """The live E2E gate classifies real ASC state without writing an issue."""
+
+    def test_the_proof_is_a_trusted_default_branch_dispatch(self):
+        triggers = self.models[MONITOR_E2E]["on"]
+        self.assertEqual(list(triggers), ["workflow_dispatch"])
+        inputs = triggers["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["engine_sha"]["default"], FIXED_MONITOR_ENGINE_SHA)
+        self.assertEqual(inputs["version"]["default"], "0.1.17")
+        self.assertEqual(inputs["expected_outcome"]["default"], "rejected")
+        self.assertEqual(
+            inputs["expected_outcome"]["options"],
+            ["rejected", "approved", "pending", "resolved_other", "unavailable"],
+        )
+        self.assertEqual(self.models[MONITOR_E2E]["permissions"], {"contents": "read"})
+        concurrency = self.models[MONITOR_E2E]["concurrency"]
+        self.assertEqual(concurrency["group"], "eddies-app-review-monitor-e2e")
+        self.assertIs(concurrency["cancel-in-progress"], False)
+        job = self.jobs(MONITOR_E2E)["observe"]
+        guard = " ".join(str(job.get("if", "")).split())
+        self.assertIn(REPOSITORY_GUARD, guard)
+        self.assertIn(DEFAULT_BRANCH_GUARD, guard)
+        self.assertEqual(job.get("permissions"), {"contents": "read"})
+        self.assertNotIn("environment", job)
+        self.assertNotIn("issues", job.get("permissions", {}))
+        self.assertNotIn("issues", self.models[MONITOR_E2E]["permissions"])
+
+    def test_the_proof_checks_out_the_requested_shared_tool_sha(self):
+        checkouts = [
+            step
+            for step in steps_of(self.jobs(MONITOR_E2E)["observe"])
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        ]
+        self.assertEqual(len(checkouts), 2)
+        for step in checkouts:
+            self.assertRegex(step["uses"], PINNED_ACTION)
+            self.assertIs(step["with"]["persist-credentials"], False)
+        tool = next(
+            step
+            for step in checkouts
+            if (step.get("with") or {}).get("repository") == SHARED_TOOL_REPO
+        )
+        self.assertEqual(tool["with"]["ref"], "${{ inputs.engine_sha }}")
+        self.assertEqual(tool["with"]["path"], ".app-review-submit")
+        self.assertEqual(
+            tool["with"]["token"],
+            "${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}",
+        )
+        local = next(
+            step
+            for step in checkouts
+            if (step.get("with") or {}).get("repository") != SHARED_TOOL_REPO
+        )
+        self.assertNotIn("token", local.get("with") or {})
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, with_secrets_of(local))
+
+    def test_the_proof_calls_observe_review_status_and_never_writes_an_issue(self):
+        observe_steps = [
+            step
+            for step in steps_of(self.jobs(MONITOR_E2E)["observe"])
+            if OBSERVE_HARNESS in str(step.get("run", ""))
+        ]
+        self.assertEqual(len(observe_steps), 1)
+        command = observe_steps[0]["run"]
+        self.assertIn("observe_review_status.js", command)
+        self.assertNotIn("app_review_pipeline.js", command)
+        self.assertNotIn(" runMonitor", command)
+        environment = observe_steps[0]["env"]
+        self.assertEqual(
+            environment["APP_REVIEW_CONFIG"],
+            "${{ github.workspace }}/tools/app-review/app-review.config.json",
+        )
+        self.assertEqual(
+            environment["APP_REVIEW_ENGINE_DIR"],
+            "${{ github.workspace }}/.app-review-submit",
+        )
+        self.assertEqual(environment["APP_REVIEW_ENGINE_SHA"], "${{ inputs.engine_sha }}")
+        self.assertEqual(environment["APP_REVIEW_OBSERVE_VERSION"], "${{ inputs.version }}")
+        self.assertEqual(
+            environment["APP_REVIEW_OBSERVE_EXPECTED"],
+            "${{ inputs.expected_outcome }}",
+        )
+        self.assertNotIn("GITHUB_TOKEN", environment)
+        self.assertNotIn("APP_REVIEW_MONITOR_VERSION", environment)
+        self.assertEqual(
+            {name: environment[name] for name in MUTATION_SECRETS},
+            {
+                "APP_STORE_CONNECT_KEY_ID": "${{ secrets.APP_STORE_CONNECT_KEY_ID }}",
+                "APP_STORE_CONNECT_ISSUER_ID": "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}",
+                "APP_STORE_CONNECT_API_KEY": "${{ secrets.APP_STORE_CONNECT_API_KEY }}",
+            },
+        )
+        self.assertNotIn(VARIABLE_TOKEN, secrets_of(observe_steps[0]))
+        self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(observe_steps[0]))
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, secrets_of(observe_steps[0]))
+        for step in steps_of(self.jobs(MONITOR_E2E)["observe"]):
+            blob = json.dumps(step)
+            self.assertIsNone(DEDICATED_MONITOR_SECRET.search(blob))
+            self.assertNotIn("app_review_pipeline.js monitor", blob)
+            self.assertNotIn("app_review_pipeline.js status", blob)
+            self.assertNotIn("app_review_pipeline.js submit", blob)
+
+    def test_the_proof_rejects_a_non_sha_engine_pin_before_checkout(self):
+        steps = steps_of(self.jobs(MONITOR_E2E)["observe"])
+        validate = next(
+            index
+            for index, step in enumerate(steps)
+            if "non-SHA" in str(step.get("name", ""))
+        )
+        tool = next(
+            index
+            for index, step in enumerate(steps)
+            if (step.get("with") or {}).get("repository") == SHARED_TOOL_REPO
+        )
+        observe = next(
+            index
+            for index, step in enumerate(steps)
+            if OBSERVE_HARNESS in str(step.get("run", ""))
+        )
+        self.assertLess(validate, tool)
+        self.assertLess(tool, observe)
+        command = steps[validate]["run"]
+        self.assertIn("engine_sha must be a git SHA", command)
+        self.assertIn(r"^[0-9a-f]{7,40}$", command)
 
 
 class ImportBoundaryTests(unittest.TestCase):

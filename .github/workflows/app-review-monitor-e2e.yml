@@ -1,0 +1,93 @@
+name: Prove App Review monitor against live ASC
+
+# GET-only live proof that a candidate app-review-submit SHA classifies
+# Eddie's real App Store review state. It checks out that SHA, reconstructs
+# the read-only ASC client, and calls observeReviewStatus. It does not run
+# `pipeline monitor` or `status`, does not create a GitHub issue, and does
+# not mutate any App Store Connect resource.
+#
+# Default fixture: marketing version 0.1.17 against engine SHA 216a655
+# (kunchenguid/app-review-submit#7). Dispatch from main after this workflow
+# is merged. Prefer this over the scheduled monitor when proving a pin.
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine_sha:
+        description: app-review-submit git SHA to classify against (default 216a655, PR #7)
+        required: false
+        type: string
+        default: 216a65513dbde70d04d0efd021792743f094ed77
+      version:
+        description: Exact App Store marketing version to classify
+        required: false
+        type: string
+        default: "0.1.17"
+      expected_outcome:
+        description: Classified outcome the live engine must return
+        required: false
+        type: choice
+        options:
+          - rejected
+          - approved
+          - pending
+          - resolved_other
+          - unavailable
+        default: rejected
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eddies-app-review-monitor-e2e
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    name: Classify the live App Review cycle
+    if: github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Reject a non-SHA engine pin or malformed version
+        env:
+          ENGINE_SHA: ${{ inputs.engine_sha }}
+          OBSERVE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$ENGINE_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "engine_sha must be a git SHA" >&2
+            exit 1
+          fi
+          if ! [[ "$OBSERVE_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+            echo "version must be an exact marketing version, for example 0.1.17" >&2
+            exit 1
+          fi
+
+      - name: Check out the shared review-submission CLI
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: kunchenguid/app-review-submit
+          ref: ${{ inputs.engine_sha }}
+          path: .app-review-submit
+          token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Classify live review status without writing an issue
+        env:
+          APP_REVIEW_CONFIG: ${{ github.workspace }}/tools/app-review/app-review.config.json
+          APP_REVIEW_ENGINE_DIR: ${{ github.workspace }}/.app-review-submit
+          APP_REVIEW_ENGINE_SHA: ${{ inputs.engine_sha }}
+          APP_REVIEW_OBSERVE_VERSION: ${{ inputs.version }}
+          APP_REVIEW_OBSERVE_EXPECTED: ${{ inputs.expected_outcome }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: node tools/app-review/observe_review_status.js

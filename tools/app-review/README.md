@@ -13,6 +13,7 @@ Run the deterministic suites locally:
 python3 test/app-review-core-test.py
 python3 test/app-review-pipeline-test.py
 python3 test/app-review-lanes-test.py
+python3 test/observe-review-status-test.py
 ```
 
 None of them reads a credential, contacts a network endpoint, or touches App

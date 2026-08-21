@@ -51,6 +51,7 @@ lanes refuse to start if any App Store Connect credential is present at all.
 | 7. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
 | 8. `app-review-submit.yml` with `mode=submit` | Aligns release behavior, bound build, and App Review notes to the manifest; reconciles; resumes or creates one review submission; submits; reads Apple back; then writes `EDDIES_REVIEW_MONITOR_CYCLE`. | App Store Connect, within the manifest only. |
 | 9. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; notifies on a terminal or sustained-unavailable observation. | One GitHub issue. |
+| 10. `app-review-monitor-e2e.yml` | GET-only live classification of a candidate `app-review-submit` SHA via `observeReviewStatus`. Proves a pin against real ASC state. | Nothing. |
 
 Steps 5 to 8 all take the same `version` twice. A mismatch refuses before
 anything else happens.

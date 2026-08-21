@@ -39,7 +39,7 @@ forbid_grep() {
   fi
 }
 
-WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-review-monitor.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml)
+WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-review-monitor.yml .github/workflows/app-review-monitor-e2e.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml)
 
 # --- Workflow syntax -------------------------------------------------------
 
@@ -260,6 +260,30 @@ require_grep 'app_review_pipeline\.js monitor' "$REVIEW_WORKFLOW" "review monito
 require_grep 'kunchenguid/app-review-submit' "$REVIEW_WORKFLOW" "review monitor checks out the shared app-review-submit tool"
 require_grep '3f8886b00b160d4dc79997833df8dbbca9a54cee' "$REVIEW_WORKFLOW" "review monitor pins the shared tool at the GET-only monitor SHA"
 require_grep 'actions/checkout@[0-9a-f]{40}' "$REVIEW_WORKFLOW" "review monitor pins checkout immutably"
+
+# The live GET-only proof classifies a candidate engine SHA against real ASC
+# state without writing the exact-cycle GitHub issue or mutating Apple.
+REVIEW_E2E_WORKFLOW=.github/workflows/app-review-monitor-e2e.yml
+require_grep '^  workflow_dispatch:$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E has a manual trigger"
+for forbidden in 'pull_request' 'pull_request_target' 'workflow_run' 'repository_dispatch' '^  push:' '^  schedule:'; do
+  forbid_grep "$forbidden" "$REVIEW_E2E_WORKFLOW" "review monitor E2E excludes untrusted trigger ($forbidden)"
+done
+require_grep '^  contents: read$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E needs contents read only"
+forbid_grep '^  issues: write$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E never grants issue write"
+require_grep '^concurrency:$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E serializes live proofs"
+require_grep '^  group: eddies-app-review-monitor-e2e$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E uses its own concurrency group"
+require_grep '^  cancel-in-progress: false$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E does not cancel an in-flight proof"
+forbid_grep '^[[:space:]]*(actions|pull-requests|checks|id-token|packages): write' "$REVIEW_E2E_WORKFLOW" "review monitor E2E has no extra write permissions"
+require_grep 'APP_STORE_CONNECT_KEY_ID' "$REVIEW_E2E_WORKFLOW" "review monitor E2E reuses the existing submit key ID"
+require_grep 'APP_STORE_CONNECT_ISSUER_ID' "$REVIEW_E2E_WORKFLOW" "review monitor E2E reuses the existing submit issuer"
+require_grep 'APP_STORE_CONNECT_API_KEY' "$REVIEW_E2E_WORKFLOW" "review monitor E2E reuses the existing submit API key"
+forbid_grep 'ASC_REVIEW_MONITOR_' "$REVIEW_E2E_WORKFLOW" "review monitor E2E never references a dedicated monitor credential"
+forbid_grep 'app_review_pipeline\.js' "$REVIEW_E2E_WORKFLOW" "review monitor E2E never invokes the shared pipeline CLI"
+require_grep 'observe_review_status\.js' "$REVIEW_E2E_WORKFLOW" "review monitor E2E runs the GET-only observe harness"
+require_grep 'kunchenguid/app-review-submit' "$REVIEW_E2E_WORKFLOW" "review monitor E2E checks out the shared app-review-submit tool"
+require_grep '216a65513dbde70d04d0efd021792743f094ed77' "$REVIEW_E2E_WORKFLOW" "review monitor E2E defaults to the fixed multi-submission engine SHA"
+require_grep 'actions/checkout@[0-9a-f]{40}' "$REVIEW_E2E_WORKFLOW" "review monitor E2E pins checkout immutably"
+forbid_grep 'GITHUB_TOKEN' "$REVIEW_E2E_WORKFLOW" "review monitor E2E never maps GITHUB_TOKEN"
 for retired in \
   .github/workflows/app-store-review-status.yml \
   .github/scripts/app_store_review_monitor.py \
@@ -295,6 +319,11 @@ if python3 test/app-review-lanes-test.py >/dev/null 2>&1; then
   pass "App Review workflow credential-lane tests"
 else
   fail "App Review workflow credential-lane tests"
+fi
+if python3 test/observe-review-status-test.py >/dev/null 2>&1; then
+  pass "App Review live-observe harness fake-engine tests"
+else
+  fail "App Review live-observe harness fake-engine tests"
 fi
 
 # The submission gate is the captain-approved manifest plus a double-confirm
