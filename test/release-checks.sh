@@ -258,7 +258,7 @@ forbid_grep 'ASC_REVIEW_MONITOR_' "$REVIEW_WORKFLOW" "review monitor never refer
 forbid_grep 'app_review_pipeline\.js submit' "$REVIEW_WORKFLOW" "review monitor never invokes the shared submit command"
 require_grep 'app_review_pipeline\.js monitor' "$REVIEW_WORKFLOW" "review monitor runs the shared GET-only monitor command"
 require_grep 'kunchenguid/app-review-submit' "$REVIEW_WORKFLOW" "review monitor checks out the shared app-review-submit tool"
-require_grep '3f8886b00b160d4dc79997833df8dbbca9a54cee' "$REVIEW_WORKFLOW" "review monitor pins the shared tool at the GET-only monitor SHA"
+require_grep '216a65513dbde70d04d0efd021792743f094ed77' "$REVIEW_WORKFLOW" "review monitor pins the shared tool at the live-proven multi-submission SHA"
 require_grep 'actions/checkout@[0-9a-f]{40}' "$REVIEW_WORKFLOW" "review monitor pins checkout immutably"
 
 # The live GET-only proof classifies a candidate engine SHA against real ASC

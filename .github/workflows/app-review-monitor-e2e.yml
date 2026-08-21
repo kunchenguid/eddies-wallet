@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       engine_sha:
-        description: app-review-submit git SHA to classify against (default 216a655, PR #7)
+        description: Full 40-hex app-review-submit git SHA to classify against (default 216a655, PR #7)
         required: false
         type: string
         default: 216a65513dbde70d04d0efd021792743f094ed77
@@ -62,8 +62,8 @@ jobs:
           OBSERVE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if ! [[ "$ENGINE_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
-            echo "engine_sha must be a git SHA" >&2
+          if ! [[ "$ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "engine_sha must be a full 40-hex git SHA" >&2
             exit 1
           fi
           if ! [[ "$OBSERVE_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then

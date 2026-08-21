@@ -42,8 +42,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: merge of kunchenguid/app-review-submit#2 (GET-only monitor).
-          ref: 3f8886b00b160d4dc79997833df8dbbca9a54cee
+          # Pin: kunchenguid/app-review-submit#7 (multi-submission classification).
+          # Proven live against Eddie 0.1.17 REJECTED by app-review-monitor-e2e.yml.
+          ref: 216a65513dbde70d04d0efd021792743f094ed77
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
