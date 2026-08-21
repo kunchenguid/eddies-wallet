@@ -16,7 +16,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const VERSION_PATTERN = /^[0-9]+(?:\.[0-9]+){1,2}$/u;
-const SHA_PATTERN = /^[0-9a-f]{7,40}$/u;
+const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const OUTCOMES = new Set([
   "pending",
   "approved",

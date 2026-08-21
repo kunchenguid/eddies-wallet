@@ -32,7 +32,7 @@ DEMO_PREFLIGHT = "app-review-demo-preflight.yml"
 MONITOR = "app-review-monitor.yml"
 MONITOR_E2E = "app-review-monitor-e2e.yml"
 APP_REVIEW_WORKFLOWS = (PREPARE, SUBMIT, DEMO_PREFLIGHT)
-SHARED_TOOL_PIN = "3f8886b00b160d4dc79997833df8dbbca9a54cee"
+SHARED_TOOL_PIN = "216a65513dbde70d04d0efd021792743f094ed77"
 FIXED_MONITOR_ENGINE_SHA = "216a65513dbde70d04d0efd021792743f094ed77"
 SHARED_TOOL_REPO = "kunchenguid/app-review-submit"
 MONITOR_CONFIG = TOOLS / "app-review.config.json"
@@ -544,8 +544,8 @@ class LiveMonitorProofTests(WorkflowModelCase):
         self.assertLess(validate, tool)
         self.assertLess(tool, observe)
         command = steps[validate]["run"]
-        self.assertIn("engine_sha must be a git SHA", command)
-        self.assertIn(r"^[0-9a-f]{7,40}$", command)
+        self.assertIn("engine_sha must be a full 40-hex git SHA", command)
+        self.assertIn(r"^[0-9a-f]{40}$", command)
 
 
 class ImportBoundaryTests(unittest.TestCase):

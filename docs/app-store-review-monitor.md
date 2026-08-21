@@ -26,7 +26,7 @@ Those are also the workflow defaults. Bump the scheduled monitor pin in `app-rev
 The workflow follows the shared tool's pinned-checkout consumption model:
 
 1. Check out this repository (for `tools/app-review/app-review.config.json`).
-2. Check out `kunchenguid/app-review-submit` at the exact 40-hex commit in the workflow `ref:` (`3f8886b00b160d4dc79997833df8dbbca9a54cee`, the merge of that repo's GET-only monitor PR) into `.app-review-submit`, using the already-configured `APP_REVIEW_SUBMIT_READ_TOKEN` and `persist-credentials: false`. That secret is a fine-grained PAT with `contents:read` on the private tool repo. The default `github.token` is scoped to this public repository and cannot clone it.
+2. Check out `kunchenguid/app-review-submit` at the exact 40-hex commit in the workflow `ref:` (`216a65513dbde70d04d0efd021792743f094ed77`, the merge of that repo's multi-submission classification fix, [PR #7](https://github.com/kunchenguid/app-review-submit/pull/7)) into `.app-review-submit`, using the already-configured `APP_REVIEW_SUBMIT_READ_TOKEN` and `persist-credentials: false`. That secret is a fine-grained PAT with `contents:read` on the private tool repo. The default `github.token` is scoped to this public repository and cannot clone it.
 3. Run `node .app-review-submit/app_review_pipeline.js monitor` with `APP_REVIEW_CONFIG` pointing at the committed Eddie config.
 
 Bump the pin only after a live `app-review-monitor-e2e.yml` run against Eddie's real App Store state classifies the expected terminal outcome, and after that repo's tests are green on the new commit. Reverting the pin restores the previous engine. Do not vendor the tool into this repository.
