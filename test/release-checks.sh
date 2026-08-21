@@ -39,7 +39,7 @@ forbid_grep() {
   fi
 }
 
-WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-review-monitor.yml .github/workflows/app-review-monitor-e2e.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml)
+WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-review-monitor.yml .github/workflows/app-review-monitor-e2e.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml .github/workflows/app-review-eula-append.yml)
 
 # --- Workflow syntax -------------------------------------------------------
 
@@ -320,6 +320,11 @@ if python3 test/app-review-lanes-test.py >/dev/null 2>&1; then
 else
   fail "App Review workflow credential-lane tests"
 fi
+if python3 test/app-review-eula-append-test.py >/dev/null 2>&1; then
+  pass "App Review 3.1.2 EULA-append fake-boundary tests"
+else
+  fail "App Review 3.1.2 EULA-append fake-boundary tests"
+fi
 if python3 test/observe-review-status-test.py >/dev/null 2>&1; then
   pass "App Review live-observe harness fake-engine tests"
 else
@@ -345,6 +350,18 @@ forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-
 forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-demo-preflight.yml "the readiness preflight never receives the monitor variable token"
 forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/prepare.py "preparation contains no Apple submission path"
 forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/demo_preflight.py "the readiness preflight contains no Apple submission path"
+forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/append_standard_eula.py "the EULA append never submits for review"
+EULA_APPEND_WORKFLOW=.github/workflows/app-review-eula-append.yml
+forbid_grep '^[[:space:]]*environment:' "$EULA_APPEND_WORKFLOW" "the EULA append uses no GitHub Environment"
+require_grep "^  group: eddies-app-review-eula-append$" "$EULA_APPEND_WORKFLOW" "the EULA append uses its own concurrency group"
+require_grep 'append_standard_eula\.py' "$EULA_APPEND_WORKFLOW" "the EULA append runs the one-shot script"
+forbid_grep 'pin_app_review_manifest\.sh' "$EULA_APPEND_WORKFLOW" "the EULA append does not pin a manifest commit"
+forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' "$EULA_APPEND_WORKFLOW" "the EULA append never receives the monitor variable token"
+require_grep "github.ref == 'refs/heads/main'" "$EULA_APPEND_WORKFLOW" "the EULA append is pinned to main"
+require_grep 'APPEND-EULA' "$EULA_APPEND_WORKFLOW" "the EULA append requires an explicit confirm token"
+for forbidden in 'pull_request' 'workflow_run' 'repository_dispatch' '^  push:' '^  schedule:'; do
+  forbid_grep "$forbidden" "$EULA_APPEND_WORKFLOW" "EULA append excludes untrusted trigger ($forbidden)"
+done
 if [ -x .github/scripts/pin_app_review_manifest.sh ]; then
   pass "App Review manifest pin script is executable"
 else

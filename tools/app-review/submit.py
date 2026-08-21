@@ -8,12 +8,14 @@ variable token, and it refuses to start if one is present. It re-checks the
 double-confirm dispatch, the captain-approved manifest, the approved bytes, and
 that preparation already opened the durable record.
 
-`submit` is the only mutation lane in this repository. It is reachable only from
+`submit` is the App Review submission mutation lane. It is reachable only from
 `app-review-submit.yml`'s `submit` job, which runs only when the dispatcher chose
 `mode=submit` and typed the version twice. It imports `submission`, which is the
 only importer of `asc_write`. Apple's acceptance is read back before the review
 monitor is armed, so an unaccepted submission can never arm the monitor and an
-interrupted handoff resumes without submitting twice.
+interrupted handoff resumes without submitting twice. A separate one-shot
+Guideline 3.1.2 workflow (`app-review-eula-append.yml`) may PATCH only the
+pinned 0.1.17 en-US description and does not import this entrypoint.
 """
 
 from __future__ import annotations
