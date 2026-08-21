@@ -52,7 +52,7 @@ if any App Store Connect credential is present at all.
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only. | The recovery issue only. |
 | 6. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered review assets, and the production service publishing Cloud activation with exactly those two products. Emits base64 readiness evidence. | Nothing. |
 | 7. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
-| 8. `app-review-submit.yml` with `mode=assemble` | Checks out `kunchenguid/app-review-submit@84f0317` and runs assemble-only: create or reuse one review submission, attach the app version plus both Cloud subscriptions, then hard-return before Submit (`status: assembled`, `submitted: false`, `remaining: submit`). | App Store Connect assembly only, never `submitted: true`. |
+| 8. `app-review-submit.yml` with `mode=assemble` | Checks out `kunchenguid/app-review-submit@16df9345` and runs assemble-only first-release (`--assemble-only --first-release`): 0.1.17 has no live baseline. The engine accepts a `REJECTED` target, reuses the unresolved review submission by readback, attaches the app version plus both Cloud subscriptions, then hard-returns before Submit (`status: assembled`, `submitted: false`, `remaining: submit`). | App Store Connect assembly only, never `submitted: true`. |
 | 9. Captain Submit tap in App Store Connect | The remaining human action after a successful assemble. | Apple's Submit for Review. |
 | 10. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; notifies on a terminal or sustained-unavailable observation. | One GitHub issue. |
 | 11. `app-review-monitor-e2e.yml` | GET-only live classification of a candidate `app-review-submit` SHA via `observeReviewStatus`. Proves a pin against real ASC state. | Nothing. |
@@ -89,12 +89,15 @@ hash, and manifest-approved commit, with a single mutable comment holding phase,
 reconciliation outcome, and timestamp. Nothing else is recorded there.
 
 Rerunning `mode=assemble` after an interruption is safe. The shared engine
-reconciles against authoritative Apple state first: it creates or reuses one
-review submission, attaches the app version and every non-APPROVED Cloud
-subscription, then hard-returns before Submit. A leftover rejected submission
-in `UNRESOLVED_ISSUES` is a genuine conflict; deletion is captain App Store
-Connect UI, and this pipeline will not force it. An uncertain create is never
-replayed, so a rerun cannot create a second review submission.
+reconciles against authoritative Apple state first. 0.1.17 is Eddie's first
+App Store version: the captain-approved manifest is first-release (no
+`baselineVersion`), and assemble-only passes `--first-release`. That engine
+accepts a `REJECTED` target and reuses the leftover `UNRESOLVED_ISSUES`
+submission by readback, attaches the app version and every non-APPROVED Cloud
+subscription, then hard-returns before Submit. Python prepare's GET reconcile
+still refuses `REJECTED` as an unsupported draft state; that does not block
+assemble-only. An uncertain create is never replayed, so a rerun cannot create
+a second review submission.
 
 After a successful assemble the review submission is staged and unsubmitted
 (`status: assembled`, `submitted: false`, `remaining: submit`). The only

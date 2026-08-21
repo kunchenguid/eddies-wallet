@@ -387,12 +387,34 @@ def materialize_source_content(
 
 
 def _validate_candidate(value: object) -> Mapping[str, Any]:
-    candidate = _exact_keys(
-        value,
-        ("version", "build", "baselineVersion", "sourceCommit", "releaseType"),
-        "candidate",
-        "E_MANIFEST",
-    )
+    require(isinstance(value, dict), "E_MANIFEST", "candidate is invalid")
+    first_release = value.get("firstRelease") is True
+    if first_release:
+        candidate = _exact_keys(
+            value,
+            ("version", "build", "firstRelease", "sourceCommit", "releaseType"),
+            "candidate",
+            "E_MANIFEST",
+        )
+        require(
+            candidate["firstRelease"] is True,
+            "E_MANIFEST",
+            "candidate firstRelease must be true",
+        )
+    else:
+        candidate = _exact_keys(
+            value,
+            ("version", "build", "baselineVersion", "sourceCommit", "releaseType"),
+            "candidate",
+            "E_MANIFEST",
+        )
+        require(
+            isinstance(candidate["baselineVersion"], str)
+            and VERSION_RE.fullmatch(candidate["baselineVersion"]) is not None
+            and candidate["baselineVersion"] != candidate["version"],
+            "E_MANIFEST",
+            "candidate baseline version is invalid",
+        )
     require(
         isinstance(candidate["version"], str)
         and VERSION_RE.fullmatch(candidate["version"]) is not None,
@@ -404,13 +426,6 @@ def _validate_candidate(value: object) -> Mapping[str, Any]:
         and BUILD_RE.fullmatch(candidate["build"]) is not None,
         "E_MANIFEST",
         "candidate build is invalid",
-    )
-    require(
-        isinstance(candidate["baselineVersion"], str)
-        and VERSION_RE.fullmatch(candidate["baselineVersion"]) is not None
-        and candidate["baselineVersion"] != candidate["version"],
-        "E_MANIFEST",
-        "candidate baseline version is invalid",
     )
     require(
         isinstance(candidate["sourceCommit"], str)

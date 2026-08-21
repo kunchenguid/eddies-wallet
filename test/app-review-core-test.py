@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import json
 import pathlib
 import sys
 import tempfile
@@ -206,6 +207,35 @@ class AppReviewCoreTests(unittest.TestCase):
             content = self.reviewed_content(directory)
             content["appReview"]["demoAccountRequired"] = True
             self.assert_refusal("E_MANIFEST", lambda: core.source_content_hash(content))
+
+    def test_a_first_release_manifest_omits_baseline_and_refuses_a_bogus_one(self):
+        with tempfile.TemporaryDirectory() as directory:
+            content = self.reviewed_content(directory)
+            first = {
+                "version": "0.1.17",
+                "build": "19.1",
+                "firstRelease": True,
+                "sourceCommit": "a" * 40,
+                "releaseType": "AFTER_APPROVAL",
+            }
+            manifest = core.build_manifest(
+                first,
+                content,
+                approved_utc="2026-08-21T23:55:00Z",
+                approval_statement="First App Store version has no live baseline.",
+            )
+            self.assertIs(manifest["candidate"]["firstRelease"], True)
+            self.assertNotIn("baselineVersion", manifest["candidate"])
+            with_baseline = copy.deepcopy(manifest)
+            with_baseline["candidate"]["baselineVersion"] = "0.1.16"
+            self.assert_refusal("E_MANIFEST", lambda: core.validate_manifest(with_baseline))
+            live = json.loads(
+                (pathlib.Path(__file__).resolve().parents[1] / "tools/app-review/manifests/0.1.17.json").read_text()
+            )
+            validated = core.validate_manifest(live)
+            self.assertIs(validated["candidate"]["firstRelease"], True)
+            self.assertNotIn("baselineVersion", validated["candidate"])
+            self.assertIs(validated["content"]["appReview"]["demoAccountRequired"], False)
 
     def test_trusted_context_requires_repo_default_branch_dispatch_and_captain_when_requested(
         self,

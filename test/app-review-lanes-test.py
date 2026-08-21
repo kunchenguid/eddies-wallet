@@ -42,7 +42,7 @@ MODELED_WORKFLOWS = APP_REVIEW_WORKFLOWS + (
 )
 SHARED_TOOL_PIN = "216a65513dbde70d04d0efd021792743f094ed77"
 FIXED_MONITOR_ENGINE_SHA = "216a65513dbde70d04d0efd021792743f094ed77"
-SUBMIT_ENGINE_PIN = "84f0317d546ffafc0fbb794a05a22a3b50ac5097"
+SUBMIT_ENGINE_PIN = "16df9345ada8d50f4e1f7637839b8f2616c54ddb"
 SHARED_TOOL_REPO = "kunchenguid/app-review-submit"
 MONITOR_CONFIG = TOOLS / "app-review.config.json"
 OBSERVE_HARNESS = "tools/app-review/observe_review_status.js"
@@ -481,7 +481,7 @@ class AssembleEngineTests(WorkflowModelCase):
         ]
         self.assertEqual(len(mutating), 1)
         command = mutating[0]["run"]
-        self.assertIn("assemble_only.js --assemble-only", command)
+        self.assertIn("assemble_only.js --assemble-only --first-release", command)
         self.assertNotIn("app_review_pipeline.js submit", command)
         self.assertNotIn("submit.py", command)
         self.assertNotIn("python3 tools/app-review/submit.py", command)
@@ -527,6 +527,17 @@ class AssembleEngineTests(WorkflowModelCase):
         )
         self.assertEqual(config["evidence"]["adapter"], "demoPreflight")
         self.assertEqual(config["listing"]["approvedSubtitle"], "Virtual allowance practice")
+        self.assertEqual(config["reviewDetails"]["demoAccountRequired"], False)
+        self.assertNotIn("demoAccountName", config["reviewDetails"])
+        self.assertNotIn("demoAccountPassword", config["reviewDetails"])
+        self.assertEqual(config["reviewDetails"]["contactFirstName"], "Kun")
+        self.assertEqual(config["reviewDetails"]["contactLastName"], "Chen")
+        self.assertEqual(config["reviewDetails"]["contactEmail"], "kun@kunchenguid.com")
+        self.assertEqual(config["reviewDetails"]["contactPhone"], "4259992724")
+        self.assertIn("Sign in with Apple", config["reviewDetails"]["notes"])
+        blob = json.dumps(config["reviewDetails"])
+        self.assertNotIn("demoAccountName", blob)
+        self.assertNotIn("demoAccountPassword", blob)
 
 
 class LiveMonitorProofTests(WorkflowModelCase):

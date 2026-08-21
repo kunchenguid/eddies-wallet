@@ -19,12 +19,13 @@ name: App Review submission
 #   verify   - no App Store Connect credential and no variable token. The verify
 #              lane refuses to start if an App Store Connect credential is present.
 #   assemble - the only job with mutation-capable App Store Connect credentials.
-#              It checks out kunchenguid/app-review-submit@84f0317 and runs that
-#              engine's assemble-only API (`args.assembleOnly: true`). It creates
-#              or reuses the review submission and attaches the app version plus
-#              every non-APPROVED Cloud subscription, then hard-returns before
-#              submit(). It never PATCHes submitted:true, never arms the monitor,
-#              and never maps the monitor variable token.
+#              It checks out kunchenguid/app-review-submit@16df9345 and runs that
+#              engine's assemble-only API (`args.assembleOnly: true`) in
+#              first-release mode (`args.firstRelease: true`, no baseline). It
+#              creates or reuses the review submission and attaches the app
+#              version plus every non-APPROVED Cloud subscription, then
+#              hard-returns before submit(). It never PATCHes submitted:true,
+#              never arms the monitor, and never maps the monitor variable token.
 #
 # The captain's remaining action after a successful assemble is one Submit tap
 # in App Store Connect. This workflow has no auto-submit path.
@@ -132,8 +133,8 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit#9 (assemble-only hard-return).
-          ref: 84f0317d546ffafc0fbb794a05a22a3b50ac5097
+          # Pin: kunchenguid/app-review-submit#10 (first-release + REJECTED reuse).
+          ref: 16df9345ada8d50f4e1f7637839b8f2616c54ddb
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -151,4 +152,4 @@ jobs:
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
           EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
           EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
-        run: node tools/app-review/assemble_only.js --assemble-only
+        run: node tools/app-review/assemble_only.js --assemble-only --first-release
