@@ -1,0 +1,42 @@
+name: App Review iOS version listing
+
+# GET-only listing of every iOS App Store version for Eddie's Wallet. It
+# prints versionString, appVersionState, appStoreState, and createdDate for
+# each row so a baseline uniqueness refusal can be classified as terminal
+# replaced rows versus two active versions. It performs NO mutation and NO
+# submission.
+#
+# Pattern matches app-review-monitor-e2e.yml: workflow_dispatch, contents:read
+# only, no issues:write, no GitHub Environment, gated to this repository and
+# main, encrypted APP_STORE_CONNECT_* mapped into one GET step.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eddies-app-review-list-versions
+  cancel-in-progress: false
+
+jobs:
+  list:
+    name: List every iOS App Store version
+    if: github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: List iOS App Store versions (GET-only)
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: python3 tools/app-review/list_app_store_versions.py
