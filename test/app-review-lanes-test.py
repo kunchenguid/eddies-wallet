@@ -568,7 +568,7 @@ class ImportBoundaryTests(unittest.TestCase):
         return set(completed.stdout.split())
 
     def test_the_read_only_entrypoints_never_load_a_mutation_module(self):
-        for entrypoint in ("prepare", "demo_preflight"):
+        for entrypoint in ("prepare", "demo_preflight", "read_en_us_version_description"):
             with self.subTest(entrypoint=entrypoint):
                 loaded = self.loaded_modules(entrypoint)
                 self.assertIn("core", loaded)

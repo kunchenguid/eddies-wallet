@@ -6,11 +6,16 @@ name: App Review submit-read diagnostic
 # submission.SubmissionEngine._align_candidate() performs and prints Apple's raw
 # errors[] body, which the structurally read-only client discards.
 #
-# This workflow performs NO mutation and NO submission. It runs the standalone
-# GET-only tools/app-review/diagnose_submit_reads.py, which imports neither the
-# mutation boundary (asc_write) nor the submission engine. App Review is HELD.
+# This workflow performs NO mutation and NO submission. It runs two standalone
+# GET-only scripts, each of which imports neither the mutation boundary
+# (asc_write) nor the submission engine. App Review is HELD.
 #
-# It checks out the DEFAULT branch (not a pinned manifest commit) so the
+#   * tools/app-review/read_en_us_version_description.py prints the live 0.1.17
+#     appStoreVersion id, en-US localization id, and verbatim App Description
+#     so a captain can edit listing copy by hand.
+#   * tools/app-review/diagnose_submit_reads.py reissues the submit-path reads.
+#
+# It checks out the dispatched ref (not a pinned manifest commit) so the
 # diagnostic reflects current code, and wires the three read credentials exactly
 # as app-review-demo-preflight.yml does.
 
@@ -36,6 +41,13 @@ jobs:
 
       # ubuntu-latest ships python3, used directly by every other App Review
       # workflow in this repo (app-review-demo-preflight.yml, -submit.yml).
+      - name: Read the 0.1.17 en-US App Description (GET-only)
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: python3 tools/app-review/read_en_us_version_description.py
+
       - name: Reissue the submit-phase reads and print Apple's errors[]
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}

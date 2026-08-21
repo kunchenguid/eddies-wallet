@@ -13,11 +13,12 @@ Run the deterministic suites locally:
 python3 test/app-review-core-test.py
 python3 test/app-review-pipeline-test.py
 python3 test/app-review-lanes-test.py
+python3 test/app-review-read-description-test.py
 python3 test/observe-review-status-test.py
 ```
 
 None of them reads a credential, contacts a network endpoint, or touches App
-Store Connect. `test/release-checks.sh` runs all three.
+Store Connect. `test/release-checks.sh` runs the same suites.
 
 ## Modules
 
@@ -32,6 +33,7 @@ Store Connect. `test/release-checks.sh` runs all three.
 | `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by submission. |
 | `submission.py` | The idempotent submission engine: align to the manifest, reconcile authoritatively, resume or create one review submission, submit, read Apple back. |
 | `prepare.py`, `demo_preflight.py`, `submit.py` | The workflow entrypoints. |
+| `read_en_us_version_description.py` | GET-only live readout of the 0.1.17 en-US App Description. Imports neither `asc_write` nor `submission`. |
 
 ## The mutation lane
 

@@ -320,6 +320,11 @@ if python3 test/app-review-lanes-test.py >/dev/null 2>&1; then
 else
   fail "App Review workflow credential-lane tests"
 fi
+if python3 test/app-review-read-description-test.py >/dev/null 2>&1; then
+  pass "App Review GET-only description readout fake-boundary tests"
+else
+  fail "App Review GET-only description readout fake-boundary tests"
+fi
 if python3 test/observe-review-status-test.py >/dev/null 2>&1; then
   pass "App Review live-observe harness fake-engine tests"
 else
@@ -345,6 +350,8 @@ forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-
 forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-demo-preflight.yml "the readiness preflight never receives the monitor variable token"
 forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/prepare.py "preparation contains no Apple submission path"
 forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/demo_preflight.py "the readiness preflight contains no Apple submission path"
+forbid_grep 'import asc_write' tools/app-review/read_en_us_version_description.py "the description readout never imports the mutation boundary"
+forbid_grep 'method="(POST|PATCH|PUT|DELETE)"' tools/app-review/read_en_us_version_description.py "the description readout sends no mutating HTTP method"
 if [ -x .github/scripts/pin_app_review_manifest.sh ]; then
   pass "App Review manifest pin script is executable"
 else
