@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """GET-only diagnostic for the App Review SUBMIT-path App Store Connect reads.
 
-`app-review-submit.yml` mode=submit once failed reproducibly, a few seconds in,
+`app-review-submit.yml` once failed reproducibly, a few seconds in,
 with `App Store Connect read request failed with status 400`. The structurally
 read-only client in `asc_read.py` deliberately never surfaces Apple's response
 body, so the offending `errors[]` code/title/detail is invisible. The GET-only
@@ -55,12 +55,9 @@ see whether the leftover is the 0.1.17 candidate and whether its state looks
 resumable or terminal. It still mutates nothing.
 
 Hard safety, non-negotiable, this handles a live credential:
-  * It is GET-only. It imports neither `asc_write` nor `submission` (which
-    imports the mutation boundary). Because `submission.py` imports `asc_write`,
-    its query shapes cannot be imported without pulling in the mutation
-    boundary, so they are reconstructed inline here from `core` constants and
-    from verbatim copies of `submission.py` constants, and MUST stay identical
-    to `submission.py`. It submits nothing; App Review is HELD.
+  * It is GET-only. It imports neither a mutation boundary nor a submission
+    engine. Query shapes are reconstructed inline from `core` constants and from
+    the historical submit-path reads. It submits nothing.
   * It never prints, echoes, logs, or writes the API key, private key PEM,
     issuer id, key id, signed JWT/bearer token, the `Authorization` header, any
     request header, or any environment variable value. Its only output is
@@ -90,13 +87,10 @@ import runtime  # noqa: E402
 
 VERSION = "0.1.17"
 
-# Reconstructed verbatim from submission.py's OPEN_SUBMISSION_STATES and the
-# submit-path read query shapes. Copied inline, not imported, because
-# submission.py imports the mutation boundary asc_write and this diagnostic must
-# import neither asc_write nor the mutating engine. Each query below MUST stay
-# identical to the matching read in submission.py. Every submit read now sends
-# NO `fields[...]` sparse-field restriction (Apple defaults), matching SSHHIP's
-# proven tool; that is what removes the invalid-field 400s.
+# Reconstructed from the historical Python submit-path read query shapes.
+# Copied inline, not imported, because that engine is retired. Each query below
+# MUST stay identical to the matching SSHHIP/shared-tool GET. Every submit read
+# now sends NO `fields[...]` sparse-field restriction (Apple defaults).
 OPEN_SUBMISSION_STATES = (
     "READY_FOR_REVIEW",
     "WAITING_FOR_REVIEW",

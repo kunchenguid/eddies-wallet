@@ -12,8 +12,8 @@ recovery record.
 credential through the deterministic core's structurally GET-only client and
 records the authoritative reconciliation outcome in the same record.
 
-Neither lane imports `asc_write` or `submission`, so neither can reach a
-mutation, and `test/app-review-lanes-test.py` proves that import boundary.
+Neither lane imports a mutation module, so neither can reach an App Store
+write, and `test/app-review-lanes-test.py` proves that import boundary.
 """
 
 from __future__ import annotations

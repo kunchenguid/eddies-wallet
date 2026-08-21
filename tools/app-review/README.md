@@ -5,9 +5,10 @@ manual submission workflows. A fourth manual workflow,
 `app-review-eula-append.yml`, is a one-shot Guideline 3.1.2 description PATCH
 and is not part of that submission gate. The scheduled review-status monitor is
 the shared `app-review-submit` GET-only tool, documented in
-`docs/app-store-review-monitor.md`; this Python engine does not own that poll.
-`docs/app-review.md` is the operating guide - the gate, the order of dispatches,
-and what stays attended. This file owns the module boundaries.
+`docs/app-store-review-monitor.md`. Assemble-only mutation is the same shared
+Node engine, pinned in `app-review-submit.yml`; this Python tree no longer owns
+a submit path. `docs/app-review.md` is the operating guide - the gate, the order
+of dispatches, and what stays attended. This file owns the module boundaries.
 
 Run the deterministic suites locally:
 
@@ -17,6 +18,7 @@ python3 test/app-review-pipeline-test.py
 python3 test/app-review-lanes-test.py
 python3 test/app-review-eula-append-test.py
 python3 test/observe-review-status-test.py
+node test/app-review-assemble-test.js
 ```
 
 None of them reads a credential, contacts a network endpoint, or touches App
@@ -27,29 +29,28 @@ Store Connect. `test/release-checks.sh` runs these suites.
 | Module | Owns |
 | --- | --- |
 | `core.py` | The credential-free deterministic core: manifest schema and self-binding hashes, reviewed-content hashing, trusted-context assertions, the GET-only App Store Connect client type, exact manifest-versus-live reconciliation, and the durable GitHub issue journal. It has no environment, credential, network, or mutation path. |
-| `runtime.py` | The dispatch gate every entrypoint applies first: trusted repository, default branch, manual dispatch, the double-confirm version, the manifest-approved commit the workflow pinned, and loading the approved manifest. |
+| `runtime.py` | The dispatch gate every Python entrypoint applies first: trusted repository, default branch, manual dispatch, the double-confirm version, the manifest-approved commit the workflow pinned, and loading the approved manifest. |
 | `content.py` | The two byte-level bindings: recomputing every approved image's bytes from the pinned commit, and normalizing live App Store Connect state into the exact document shape `core` reconciles. |
 | `asc_read.py` | The GET-only App Store Connect boundary - credential loading, JWT signing, URL safety, pagination. It can construct no other method. |
-| `asc_write.py` | The submission mutation-capable boundary. POST and PATCH only, one method per exact resource change, no DELETE and no upload. |
-| `github_api.py` | The durable issue-record boundary on `GITHUB_TOKEN`, and the `EDDIES_REVIEW_MONITOR_CYCLE` handoff on its own least-privilege token. |
-| `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by submission. |
-| `submission.py` | The idempotent submission engine: align to the manifest, reconcile authoritatively, resume or create one review submission, submit, read Apple back. |
-| `prepare.py`, `demo_preflight.py`, `submit.py` | The workflow entrypoints. |
-| `append_standard_eula.py` | One-shot Guideline 3.1.2 remediation: GET the 0.1.17 en-US description, append Apple's standard EULA line if absent, PATCH only that field, GET to verify. It does not import `asc_write` or `submission`. |
+| `github_api.py` | The durable issue-record boundary on `GITHUB_TOKEN`. The post-acceptance monitor-variable handoff remains in this module but is not wired into assemble-only; the captain Submit tap is outside this repository. |
+| `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by verify and assemble. |
+| `prepare.py`, `demo_preflight.py`, `verify.py` | The Python workflow entrypoints. Verify is credential-free. |
+| `assemble_only.js` | Eddie's adapter onto `kunchenguid/app-review-submit`. It maps the captain-approved Eddie manifest, demo-preflight evidence, and Cloud product ids onto `runSubmission({ assembleOnly: true })`, then refuses any result other than `status: assembled` / `submitted: false`. |
+| `append_standard_eula.py` | One-shot Guideline 3.1.2 remediation: GET the 0.1.17 en-US description, append Apple's standard EULA line if absent, PATCH only that field, GET to verify. It does not import a Python write boundary. |
 
 ## The mutation lane
 
-`asc_write.py` is imported only by `submission.py`, and `submission.py` is
-imported only inside `submit.py`'s `submit` mode. `prepare.py` and
-`demo_preflight.py` therefore cannot load a mutation capability at all, and
-`test/app-review-lanes-test.py` proves it by importing them in a fresh
-interpreter and inspecting the loaded modules. The workflow half of the same
-boundary - which job's step may map which secret - is proven against a parsed
-model of the workflows in the same suite.
+The vendored Python submit engine (`submit.py`, `submission.py`, `asc_write.py`)
+is retired. Assemble-only mutation is the pinned shared Node engine. The
+workflow checks out `kunchenguid/app-review-submit@84f0317` into
+`.app-review-submit` and runs `node tools/app-review/assemble_only.js --assemble-only`.
+That adapter always sets `assembleOnly: true` and never calls the pipeline
+`submit` command. `test/app-review-lanes-test.py` and
+`test/app-review-assemble-test.js` prove the lane and the hard return.
 
 A separate one-shot write, `append_standard_eula.py` via
-`app-review-eula-append.yml`, sends its own description PATCH and does not
-import `asc_write`. `listingPolicy` stays `observe`.
+`app-review-eula-append.yml`, sends its own description PATCH.
+`listingPolicy` stays `observe`.
 
 ## What this pipeline deliberately does not do
 
@@ -62,3 +63,5 @@ import `asc_write`. `listingPolicy` stays `observe`.
   reviewer signs in with their own Apple Account and buys a Cloud plan through
   Apple's review or sandbox flow, so those fields are outside the schema.
 - It never releases. The manifest may only choose `MANUAL` or `AFTER_APPROVAL`.
+- It never PATCHes `submitted: true`. After assemble-only, the remaining action
+  is the captain's single Submit tap in App Store Connect.

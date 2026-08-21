@@ -8,8 +8,8 @@ name: App Review reviewer-path preflight
 #
 # It is entirely read-only: the shared release App Store Connect credential is
 # used through the structurally GET-only client, and the production service is
-# read unauthenticated. tools/app-review/demo_preflight.py imports neither the
-# mutation boundary nor the submission engine.
+# read unauthenticated. tools/app-review/demo_preflight.py imports no mutation
+# module.
 #
 # The one functional proof a runner cannot perform - native Sign in with Apple
 # and a real StoreKit purchase - stays an attended pre-submission acceptance

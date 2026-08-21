@@ -320,6 +320,11 @@ if python3 test/app-review-lanes-test.py >/dev/null 2>&1; then
 else
   fail "App Review workflow credential-lane tests"
 fi
+if node test/app-review-assemble-test.js >/dev/null; then
+  pass "App Review assemble-only adapter tests"
+else
+  fail "App Review assemble-only adapter tests"
+fi
 if python3 test/app-review-eula-append-test.py >/dev/null 2>&1; then
   pass "App Review 3.1.2 EULA-append fake-boundary tests"
 else
@@ -345,9 +350,14 @@ for workflow in "${APP_REVIEW_WORKFLOWS[@]}"; do
 done
 # app-review-lanes-test.py owns the per-step credential-lane model; these are
 # the coarse whole-file invariants that must hold however the jobs are shaped.
-require_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-submit.yml "submit hands off the monitor cycle with its own least-privilege token"
+forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-submit.yml "assemble-only never receives the monitor variable token"
 forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-prepare.yml "preparation never receives the monitor variable token"
 forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-demo-preflight.yml "the readiness preflight never receives the monitor variable token"
+require_grep 'assemble_only.js --assemble-only' .github/workflows/app-review-submit.yml "submit workflow runs Node assemble-only"
+require_grep '84f0317d546ffafc0fbb794a05a22a3b50ac5097' .github/workflows/app-review-submit.yml "submit workflow pins app-review-submit assemble-only SHA"
+forbid_grep 'app_review_pipeline.js submit' .github/workflows/app-review-submit.yml "submit workflow never invokes the Node pipeline submit command"
+forbid_grep 'python3 tools/app-review/submit.py' .github/workflows/app-review-submit.yml "submit workflow never invokes the retired Python submit engine"
+forbid_grep 'submitted: true' .github/workflows/app-review-submit.yml "submit workflow never PATCHes submitted true"
 forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/prepare.py "preparation contains no Apple submission path"
 forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/demo_preflight.py "the readiness preflight contains no Apple submission path"
 forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/append_standard_eula.py "the EULA append never submits for review"

@@ -4,7 +4,9 @@ This repository's scheduled monitor is `.github/workflows/app-review-monitor.yml
 
 Merging the PR that adds this code does **not** create an App Store Connect key, install secrets, submit a version, choose a live cycle, release a build, or enable App Review. It does not change the captain-only release PR or release flow. It does not touch a live App Review submission.
 
-The Python submit engine in `tools/app-review/` is a separate lane and is not this monitor.
+The Python tree in `tools/app-review/` is GET-only plus the one-shot EULA append.
+Assemble-only mutation is the pinned shared Node engine, not a vendored submit
+path.
 
 ## Live classification proof
 
@@ -45,7 +47,11 @@ Do not create a dedicated Developer-role monitor user. Do not add `ASC_REVIEW_MO
 
 Arming is the per-app Actions variable `APP_REVIEW_MONITOR_VERSION`. Its value is the exact submitted marketing version, for example `0.1.17`. An empty or unset variable is the deliberate state between cycles: the run reports `not_armed`, contacts Apple not at all, and **succeeds**, so the schedule does not stay permanently red between cycles. A reshaped value (anything that is not a one-to-three-component numeric version) **fails visibly** rather than being guessed at.
 
-The shared config names `APP_REVIEW_MONITOR_VARIABLE_TOKEN` as the secret the shared submit path would use to write that arming variable. This monitor workflow is GET-only and does not receive that token. The Python submit engine still writes `EDDIES_REVIEW_MONITOR_CYCLE` after Apple accepts (`tools/app-review/github_api.py`); that handoff is not this monitor and is not migrated here.
+The shared config names `APP_REVIEW_MONITOR_VARIABLE_TOKEN` as the secret a
+full submit path would use to write that arming variable. This monitor workflow
+is GET-only and does not receive that token. Eddie's assemble-only job also
+does not write `APP_REVIEW_MONITOR_VERSION` or `EDDIES_REVIEW_MONITOR_CYCLE`;
+arm the scheduled monitor separately after the captain Submits.
 
 ## Verify and operate
 
