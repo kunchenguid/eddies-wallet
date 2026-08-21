@@ -6,6 +6,21 @@ Merging the PR that adds this code does **not** create an App Store Connect key,
 
 The Python submit engine in `tools/app-review/` is a separate lane and is not this monitor.
 
+## Live classification proof
+
+`.github/workflows/app-review-monitor-e2e.yml` is the reusable GET-only gate that proves a candidate `app-review-submit` SHA against Eddie's real App Store Connect state. It checks out that SHA, reconstructs the read-only client, and runs `tools/app-review/observe_review_status.js`, which calls the engine's exported `observeReviewStatus`. It does **not** run `app_review_pipeline.js monitor` or `status`, does not create a GitHub issue, and does not mutate any App Store Connect resource.
+
+Dispatch it from `main` after the workflow itself is merged:
+
+```sh
+gh workflow run app-review-monitor-e2e.yml -R kunchenguid/eddies-wallet --ref main \
+  -f engine_sha=216a65513dbde70d04d0efd021792743f094ed77 \
+  -f version=0.1.17 \
+  -f expected_outcome=rejected
+```
+
+Those are also the workflow defaults. Bump the scheduled monitor pin in `app-review-monitor.yml` only after this live run classifies the armed version as the expected terminal class. A unit test, mock, or argument is not that proof.
+
 ## Pin and consumption
 
 The workflow follows the shared tool's pinned-checkout consumption model:
@@ -14,7 +29,7 @@ The workflow follows the shared tool's pinned-checkout consumption model:
 2. Check out `kunchenguid/app-review-submit` at the exact 40-hex commit in the workflow `ref:` (`3f8886b00b160d4dc79997833df8dbbca9a54cee`, the merge of that repo's GET-only monitor PR) into `.app-review-submit`, using the already-configured `APP_REVIEW_SUBMIT_READ_TOKEN` and `persist-credentials: false`. That secret is a fine-grained PAT with `contents:read` on the private tool repo. The default `github.token` is scoped to this public repository and cannot clone it.
 3. Run `node .app-review-submit/app_review_pipeline.js monitor` with `APP_REVIEW_CONFIG` pointing at the committed Eddie config.
 
-Bump the pin only after that repo's tests are green on the new commit. Reverting the pin restores the previous engine. Do not vendor the tool into this repository.
+Bump the pin only after a live `app-review-monitor-e2e.yml` run against Eddie's real App Store state classifies the expected terminal outcome, and after that repo's tests are green on the new commit. Reverting the pin restores the previous engine. Do not vendor the tool into this repository.
 
 ## Captain setup
 
@@ -45,3 +60,5 @@ An empty `APP_REVIEW_MONITOR_VERSION` disarms the schedule. To stop the workflow
 The workflow has only `contents: read` and `issues: write` permission. The latter is required solely for the one bounded exact-cycle issue. It is triggered only by `schedule` and `workflow_dispatch`; it has no pull-request, workflow-run, repository-dispatch, or other untrusted-code trigger. GitHub schedules execute the committed default-branch workflow. The job is gated to `github.repository == 'kunchenguid/eddies-wallet'` and `github.ref == 'refs/heads/main'`; the shared tool also fail-closes on any other repository, ref, or event.
 
 Do not run this workflow from a pull request, and do not invoke the shared tool's `submit` command from this workflow.
+
+The live proof workflow has only `contents: read`. It is `workflow_dispatch` only, gated to this repository and `main`, and must not be given `issues: write` or a `GITHUB_TOKEN`. Do not run it from a pull request.
