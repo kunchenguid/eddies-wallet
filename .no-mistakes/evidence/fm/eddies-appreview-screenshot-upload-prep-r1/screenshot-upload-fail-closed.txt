@@ -1,0 +1,4 @@
+Fail-closed upload adapter demonstration:
+error:
+  message: "screenshot upload CLI is not pinned; waiting for the engine SHA. Set SCREENSHOT_UPLOAD_ENGINE_ARGV to a JSON array of strings. Do not invent engine flags."
+exit_code=2

@@ -1,0 +1,1 @@
+screenshot preflight ok displayTypes=APP_IPHONE_67,APP_IPAD_PRO_3GEN_129 files=10 unique RGB8 checksums match
