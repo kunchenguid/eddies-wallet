@@ -634,6 +634,41 @@ class LiveReconciliationTests(FixtureCase):
         self.assertEqual(caught.exception.code, "E_ASC_READ")
         self.assertIn("does not match exactly one approved file", str(caught.exception))
 
+    def test_listing_screenshot_drift_is_readable_when_listing_match_is_deferred(self):
+        fake = FakeAppStoreConnect(self.fixture)
+        fake.screenshot_sets[0]["screenshots"][0]["sourceFileChecksum"] = "0" * 32
+        live = core.ReadOnlyASCClient(
+            content.CandidateReadTransport(
+                fake,
+                self.fixture.candidate,
+                self.fixture.verified,
+                match_listing_screenshots=False,
+            )
+        ).read_candidate(self.fixture.candidate)
+        self.assertEqual(live.version, self.fixture.candidate["version"])
+        self.assertEqual(live.build, self.fixture.candidate["build"])
+        self.assertEqual(live.content["screenshots"], [])
+        self.assertEqual(len(live.content["inAppPurchases"]), 2)
+        self.assertEqual(fake.writes, [])
+
+    def test_deferred_listing_match_still_requires_delivered_iap_review_assets(self):
+        fake = FakeAppStoreConnect(self.fixture)
+        fake.screenshot_sets[0]["screenshots"][0]["sourceFileChecksum"] = "0" * 32
+        fake.subscriptions[core.CLOUD_PRODUCT_IDS[0]]["screenshot"][
+            "assetDeliveryState"
+        ] = {"state": "UPLOAD_COMPLETE"}
+        with self.assertRaises(core.AppReviewError) as caught:
+            core.ReadOnlyASCClient(
+                content.CandidateReadTransport(
+                    fake,
+                    self.fixture.candidate,
+                    self.fixture.verified,
+                    match_listing_screenshots=False,
+                )
+            ).read_candidate(self.fixture.candidate)
+        self.assertEqual(caught.exception.code, "E_ASC_READ")
+        self.assertIn("not fully delivered", str(caught.exception))
+
     def test_an_undelivered_review_asset_refuses(self):
         fake = FakeAppStoreConnect(self.fixture)
         fake.subscriptions[core.CLOUD_PRODUCT_IDS[0]]["screenshot"][

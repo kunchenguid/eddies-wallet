@@ -13,6 +13,10 @@ is actually open at submission time:
 - the production service is healthy and publishes Cloud activation with exactly
   those two product identifiers.
 
+When `listing.screenshotWrites` is true, this preflight does not require live
+listing screenshots to match the approved set. That match is the dedicated
+upload step after assemble. In-app purchase review screenshots still must match.
+
 It cannot perform Sign in with Apple or a purchase. That one functional proof is
 deliberately an attended pre-submission acceptance gate.
 
@@ -81,16 +85,21 @@ def main() -> int:
     runtime.trusted_context()
     version = runtime.confirmed_version()
     manifest = runtime.load_manifest(version)
-    files = content.verify_manifest_files(
-        manifest, Path.cwd(), config=runtime.load_config()
-    )
+    config = runtime.load_config()
+    files = content.verify_manifest_files(manifest, Path.cwd(), config=config)
     candidate = manifest["candidate"]
+    screenshot_writes = (config.get("listing") or {}).get("screenshotWrites") is True
 
     session = asc_read.ReadSession(asc_read.Credential.from_environment())
     checks: dict[str, str] = {}
 
     live = core.ReadOnlyASCClient(
-        content.CandidateReadTransport(session, candidate, files)
+        content.CandidateReadTransport(
+            session,
+            candidate,
+            files,
+            match_listing_screenshots=not screenshot_writes,
+        )
     ).read_candidate(candidate)
     if live.state == "ABSENT":
         raise PreflightError("the approved candidate does not exist on App Store Connect")
