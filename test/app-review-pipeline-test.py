@@ -45,6 +45,7 @@ content = load("content")
 evidence = load("evidence")
 github_api = load("github_api")
 runtime = load("runtime")
+demo_preflight = load("demo_preflight")
 
 APP_ID = core.APP_ID
 LISTING = {
@@ -603,6 +604,131 @@ class ReviewedByteBindingTests(FixtureCase):
             )
 
 
+class DemoPreflightPolicyTests(FixtureCase):
+    def test_preflight_emits_readiness_evidence_before_listing_screenshot_upload(self):
+        manifest = core.build_manifest(
+            self.fixture.candidate,
+            self.fixture.content,
+            approved_utc=utc(NOW - timedelta(days=1)),
+            approval_statement="Captain approved listing screenshot upload.",
+            listing={"screenshotWrites": True},
+        )
+        config = {
+            "listing": {"screenshotWrites": True},
+            "content": {"screenshotDirectory": list(SCREENSHOT_DIRECTORY)},
+        }
+        fake = FakeAppStoreConnect(self.fixture)
+        fake.screenshot_sets[0]["screenshots"][0]["sourceFileChecksum"] = "0" * 32
+
+        with (
+            unittest.mock.patch.object(demo_preflight.runtime, "heading"),
+            unittest.mock.patch.object(demo_preflight.runtime, "trusted_context"),
+            unittest.mock.patch.object(
+                demo_preflight.runtime,
+                "confirmed_version",
+                return_value=self.fixture.candidate["version"],
+            ),
+            unittest.mock.patch.object(
+                demo_preflight.runtime, "load_manifest", return_value=manifest
+            ),
+            unittest.mock.patch.object(
+                demo_preflight.runtime, "load_config", return_value=config
+            ),
+            unittest.mock.patch.object(
+                demo_preflight.content,
+                "verify_manifest_files",
+                return_value=self.fixture.verified,
+            ),
+            unittest.mock.patch.object(
+                demo_preflight.asc_read.Credential,
+                "from_environment",
+                return_value=object(),
+            ),
+            unittest.mock.patch.object(
+                demo_preflight.asc_read, "ReadSession", return_value=fake
+            ),
+            unittest.mock.patch.object(
+                demo_preflight,
+                "public_get",
+                side_effect=[
+                    (200, {}),
+                    (
+                        200,
+                        {
+                            "cloudActivationAvailable": True,
+                            "cloudServiceAvailable": True,
+                            "products": list(core.CLOUD_PRODUCT_IDS),
+                        },
+                    ),
+                ],
+            ),
+            unittest.mock.patch.object(demo_preflight.runtime, "emit"),
+            unittest.mock.patch.object(demo_preflight.runtime, "block"),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.assertEqual(demo_preflight.main(), 0)
+
+        document = evidence.decode(stdout.getvalue())
+        self.assertEqual(document["version"], self.fixture.candidate["version"])
+        self.assertEqual(document["build"], self.fixture.candidate["build"])
+        self.assertEqual(
+            document["checks"],
+            {name: evidence.PASS for name in evidence.REQUIRED_CHECKS},
+        )
+        self.assertFalse(
+            any(path.endswith("/appScreenshotSets") for path in fake.reads)
+        )
+        self.assertEqual(
+            sum(path.endswith("/appStoreReviewScreenshot") for path in fake.reads),
+            len(core.CLOUD_PRODUCT_IDS),
+        )
+        self.assertEqual(fake.writes, [])
+
+    def test_config_and_approved_manifest_must_agree_on_screenshot_writes(self):
+        for config_writes, manifest_writes in ((True, False), (False, True)):
+            with self.subTest(
+                config_writes=config_writes, manifest_writes=manifest_writes
+            ):
+                manifest = copy.deepcopy(self.fixture.manifest)
+                manifest["listing"]["screenshotWrites"] = manifest_writes
+                config = {
+                    "listing": {"screenshotWrites": config_writes},
+                    "content": {"screenshotDirectory": list(SCREENSHOT_DIRECTORY)},
+                }
+                with (
+                    unittest.mock.patch.object(demo_preflight.runtime, "heading"),
+                    unittest.mock.patch.object(
+                        demo_preflight.runtime, "trusted_context"
+                    ),
+                    unittest.mock.patch.object(
+                        demo_preflight.runtime,
+                        "confirmed_version",
+                        return_value=self.fixture.candidate["version"],
+                    ),
+                    unittest.mock.patch.object(
+                        demo_preflight.runtime,
+                        "load_manifest",
+                        return_value=manifest,
+                    ),
+                    unittest.mock.patch.object(
+                        demo_preflight.runtime, "load_config", return_value=config
+                    ),
+                    unittest.mock.patch.object(
+                        demo_preflight.content,
+                        "verify_manifest_files",
+                        return_value=self.fixture.verified,
+                    ),
+                    unittest.mock.patch.object(
+                        demo_preflight.asc_read.Credential,
+                        "from_environment",
+                        side_effect=AssertionError("credential access was reached"),
+                    ),
+                ):
+                    with self.assertRaises(demo_preflight.PreflightError) as caught:
+                        demo_preflight.main()
+                self.assertIn("must match", str(caught.exception))
+
+
 class LiveReconciliationTests(FixtureCase):
     def client(self, fake):
         return core.ReadOnlyASCClient(
@@ -633,6 +759,41 @@ class LiveReconciliationTests(FixtureCase):
             core.reconcile_authoritatively(self.fixture.manifest, self.client(fake))
         self.assertEqual(caught.exception.code, "E_ASC_READ")
         self.assertIn("does not match exactly one approved file", str(caught.exception))
+
+    def test_listing_screenshot_drift_is_readable_when_listing_match_is_deferred(self):
+        fake = FakeAppStoreConnect(self.fixture)
+        fake.screenshot_sets[0]["screenshots"][0]["sourceFileChecksum"] = "0" * 32
+        live = core.ReadOnlyASCClient(
+            content.CandidateReadTransport(
+                fake,
+                self.fixture.candidate,
+                self.fixture.verified,
+                match_listing_screenshots=False,
+            )
+        ).read_candidate(self.fixture.candidate)
+        self.assertEqual(live.version, self.fixture.candidate["version"])
+        self.assertEqual(live.build, self.fixture.candidate["build"])
+        self.assertEqual(live.content["screenshots"], [])
+        self.assertEqual(len(live.content["inAppPurchases"]), 2)
+        self.assertEqual(fake.writes, [])
+
+    def test_deferred_listing_match_still_requires_delivered_iap_review_assets(self):
+        fake = FakeAppStoreConnect(self.fixture)
+        fake.screenshot_sets[0]["screenshots"][0]["sourceFileChecksum"] = "0" * 32
+        fake.subscriptions[core.CLOUD_PRODUCT_IDS[0]]["screenshot"][
+            "assetDeliveryState"
+        ] = {"state": "UPLOAD_COMPLETE"}
+        with self.assertRaises(core.AppReviewError) as caught:
+            core.ReadOnlyASCClient(
+                content.CandidateReadTransport(
+                    fake,
+                    self.fixture.candidate,
+                    self.fixture.verified,
+                    match_listing_screenshots=False,
+                )
+            ).read_candidate(self.fixture.candidate)
+        self.assertEqual(caught.exception.code, "E_ASC_READ")
+        self.assertIn("not fully delivered", str(caught.exception))
 
     def test_an_undelivered_review_asset_refuses(self):
         fake = FakeAppStoreConnect(self.fixture)

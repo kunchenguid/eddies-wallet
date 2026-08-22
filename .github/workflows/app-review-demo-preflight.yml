@@ -54,6 +54,13 @@ jobs:
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
         run: .github/scripts/pin_app_review_manifest.sh
 
+      - name: Restore the reviewer-path reader from the dispatch SHA
+        env:
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          git show "${DISPATCH_SHA}:tools/app-review/demo_preflight.py" > tools/app-review/demo_preflight.py
+          git show "${DISPATCH_SHA}:tools/app-review/content.py" > tools/app-review/content.py
+
       - name: Read App Store Connect and the public service, then emit evidence
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}

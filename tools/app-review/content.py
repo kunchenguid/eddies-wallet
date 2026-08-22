@@ -127,20 +127,34 @@ class CandidateReadTransport:
     hands back a `core.LiveReadState`. This transport therefore performs the
     whole read and returns the normalized state document, never a raw Apple
     payload. It exposes no other method, so the client cannot widen it.
+
+    `match_listing_screenshots` defaults to true so prepare still refuses live
+    listing drift. Demo-preflight sets it false when `listing.screenshotWrites`
+    is on: that match is the later upload step. In-app purchase review
+    screenshots still must be delivered and match.
     """
 
-    __slots__ = ("_session", "_candidate", "_verified_files", "_reads")
+    __slots__ = (
+        "_session",
+        "_candidate",
+        "_verified_files",
+        "_reads",
+        "_match_listing_screenshots",
+    )
 
     def __init__(
         self,
         session: asc_read.ReadSession,
         candidate: Mapping[str, Any],
         verified_files: Mapping[str, Mapping[str, Any]],
+        *,
+        match_listing_screenshots: bool = True,
     ):
         self._session = session
         self._candidate = dict(candidate)
         self._verified_files = verified_files
         self._reads = 0
+        self._match_listing_screenshots = match_listing_screenshots is True
 
     @property
     def reads(self) -> int:
@@ -258,7 +272,11 @@ class CandidateReadTransport:
                 "supportUrl": asc_read.text(localization[1], "supportUrl"),
                 "whatsNew": asc_read.text(localization[1], "whatsNew"),
             },
-            "screenshots": self._screenshots(localization[0]),
+            "screenshots": (
+                self._screenshots(localization[0])
+                if self._match_listing_screenshots
+                else []
+            ),
             "inAppPurchases": self._in_app_purchases(),
             "appReview": self._app_review_detail(version_id),
         }
