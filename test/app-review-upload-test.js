@@ -102,6 +102,42 @@ async function main() {
     assert.equal(calls[0].dependencies.monitorVariable, undefined);
   });
 
+  await test("main prints engine SafeError fields to stdout", async () => {
+    const chunks = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk, encoding, callback) => {
+      chunks.push(typeof chunk === "string" ? chunk : chunk.toString());
+      if (typeof encoding === "function") encoding();
+      if (typeof callback === "function") callback();
+      return true;
+    };
+    let exitCode;
+    try {
+      exitCode = await adapter.main(["--upload-screenshots"], {
+        runScreenshotUpload: async () => {
+          const error = new Error("internal");
+          error.safeMessage = "App Store Connect rejected the bounded operation";
+          error.code = "E_API";
+          error.operation = "POST /v1/appScreenshots";
+          error.httpStatus = 409;
+          error.appleCode = "ENTITY_ERROR.RELATIONSHIP.INVALID";
+          error.detail = "The request cannot be fulfilled because of a conflict.";
+          throw error;
+        },
+      });
+    } finally {
+      process.stdout.write = write;
+    }
+    const output = chunks.join("");
+    assert.equal(exitCode, 1);
+    assert.match(output, /code: "E_API"/);
+    assert.match(output, /operation: "POST \/v1\/appScreenshots"/);
+    assert.match(output, /message: "App Store Connect rejected the bounded operation"/);
+    assert.match(output, /httpStatus: 409/);
+    assert.match(output, /appleCode: "ENTITY_ERROR.RELATIONSHIP.INVALID"/);
+    assert.match(output, /detail: "The request cannot be fulfilled because of a conflict."/);
+  });
+
   await test("runScreenshotUpload refuses a submitted result", async () => {
     await assert.rejects(
       () => adapter.runScreenshotUpload({

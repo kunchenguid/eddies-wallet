@@ -220,6 +220,22 @@ async function main() {
   );
 });
 
+  await test("formatEngineError prints SafeError operation httpStatus appleCode and detail", () => {
+    const error = new Error("internal");
+    error.safeMessage = "App Store Connect rejected the bounded operation";
+    error.code = "E_API";
+    error.operation = "POST /v1/appScreenshots";
+    error.httpStatus = 409;
+    error.appleCode = "ENTITY_ERROR.RELATIONSHIP.INVALID";
+    error.detail = "The request cannot be fulfilled because of a conflict.";
+    const output = adapter.formatEngineError(error, "assemble-only failed safely");
+    assert.match(output, /code: "E_API"/);
+    assert.match(output, /operation: "POST \/v1\/appScreenshots"/);
+    assert.match(output, /httpStatus: 409/);
+    assert.match(output, /appleCode: "ENTITY_ERROR.RELATIONSHIP.INVALID"/);
+    assert.match(output, /detail: "The request cannot be fulfilled because of a conflict."/);
+  });
+
   await test("listing screenshot preflight accepts every approved display type", () => {
   const result = spawnSync("python3", ["tools/app-review/screenshot_preflight.py"], {
     cwd: ROOT,

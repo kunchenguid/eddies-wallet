@@ -87,9 +87,10 @@ async function runScreenshotUpload({
   });
 }
 
-async function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2), deps = {}) {
+  const run = deps.runScreenshotUpload || runScreenshotUpload;
   try {
-    const uploaded = await runScreenshotUpload({ argv });
+    const uploaded = await run({ argv });
     process.stdout.write(uploaded.output);
     process.stdout.write(
       "help: Listing screenshots were uploaded without submitting. "
@@ -97,11 +98,7 @@ async function main(argv = process.argv.slice(2)) {
     );
     return 0;
   } catch (error) {
-    const message = error instanceof assemble.AssembleError
-      ? error.message
-      : (error && error.safeMessage) || "screenshot upload failed safely";
-    process.stdout.write(`error:\n  message: ${JSON.stringify(message)}\n`);
-    return error instanceof assemble.AssembleError ? error.exitCode : 1;
+    return assemble.writeEngineError(error, "screenshot upload failed safely");
   }
 }
 
