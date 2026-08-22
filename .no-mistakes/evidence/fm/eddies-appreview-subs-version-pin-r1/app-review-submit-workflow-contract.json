@@ -1,0 +1,34 @@
+{
+  "workflow": "App Review submission",
+  "trigger": "workflow_dispatch",
+  "mode_options": [
+    "verify",
+    "assemble",
+    "upload",
+    "submit"
+  ],
+  "default_mode": "verify",
+  "mutation_jobs": {
+    "assemble": {
+      "guard": "github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main' && inputs.mode == 'assemble'",
+      "engine_repository": "kunchenguid/app-review-submit",
+      "engine_ref": "551e653171fe004024baf23b3990f00b385abe3c",
+      "operation": "node tools/app-review/assemble_only.js --assemble-only --first-release",
+      "monitor_write_token_present": false
+    },
+    "upload": {
+      "guard": "github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main' && inputs.mode == 'upload'",
+      "engine_repository": "kunchenguid/app-review-submit",
+      "engine_ref": "551e653171fe004024baf23b3990f00b385abe3c",
+      "operation": "node tools/app-review/upload_screenshots.js --upload-screenshots --first-release",
+      "monitor_write_token_present": false
+    },
+    "submit": {
+      "guard": "github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main' && inputs.mode == 'submit'",
+      "engine_repository": "kunchenguid/app-review-submit",
+      "engine_ref": "551e653171fe004024baf23b3990f00b385abe3c",
+      "operation": "node tools/app-review/full_submit.js --submit --first-release",
+      "monitor_write_token_present": true
+    }
+  }
+}
