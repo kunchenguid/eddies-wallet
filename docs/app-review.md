@@ -30,8 +30,8 @@ Submission is gated by two independent things, and both are the captain's.
    `runSubmission({ uploadScreenshots: true })`, with
    `SCREENSHOT_UPLOAD_ENGINE_ARGV` pinned to
    `["node","app_review_pipeline.js","upload-screenshots"]`). Assemble,
-   upload, and submit all check out `551e6531`, the merge of
-   [`kunchenguid/app-review-submit#15`](https://github.com/kunchenguid/app-review-submit/pull/15).
+   upload, and submit all check out `72a517e3`, the merge of
+   [`kunchenguid/app-review-submit#16`](https://github.com/kunchenguid/app-review-submit/pull/16).
    `mode=submit` is a separate captain-gated dispatch that asks
    the engine to submit for review. Default remains `verify`.
 
@@ -104,7 +104,11 @@ copy is never written. Do not add `screenshots` to `alignmentWrites`. Asset path
 is `{sourceRoot}/{listing.screenshotDirectory joined}/{fileName}`. Manifest
 `content.screenshots[]` is `{displayType,width,height,files[{fileName,fileSize,sha256}]}`.
 The engine computes MD5 of those bytes as Apple's `sourceFileChecksum`. This
-lane uses the same shared-engine pin as assemble and submit.
+lane uses the same shared-engine pin as assemble and submit. Replacement
+reserves under a unique staging `fileName` (a set cannot hold two screenshots
+with the same name), proves the reservation from the POST 201 body, commits
+and polls `assetDeliveryState.state` to `COMPLETE`, then deletes the old
+same-slot occupant and restores declared order.
 
 ### API-able, live already matches, no captain console this cycle
 
