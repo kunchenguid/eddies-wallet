@@ -68,10 +68,16 @@ async function main() {
   assert.equal(source.screenshots[0].files[0].fileSize, 497759);
   assert.equal(source.screenshots[0].files[0].width, 1320);
   assert.equal(source.screenshots[0].files[0].height, 2868);
+  assert.equal(
+    source.screenshots[0].files[0].filePath,
+    path.join(ROOT, "tools", "app-review", "assets", "screenshots", "0.1.17", "iphone-6.9-kid-home.png"),
+  );
+  assert.match(source.screenshots[0].files[0].md5, /^[0-9a-f]{32}$/u);
   assert.equal(source.listing.screenshotWrites, true);
   assert.equal(source.content.screenshots[0].files[0].fileName, "iphone-6.9-kid-home.png");
   assert.equal(source.content.screenshots[0].files[0].sha256.length, 64);
   assert.equal("md5" in source.content.screenshots[0].files[0], false);
+  assert.equal("filePath" in source.content.screenshots[0].files[0], false);
   assert.equal("path" in source.content.screenshots[0].files[0], false);
   assert.equal(source.screenshots[1].files[0].fileName, "ipad-13-kid-home.png");
   assert.equal(source.screenshots[1].files[0].fileSize, 365017);
@@ -85,6 +91,22 @@ async function main() {
   assert.equal(config.reviewDetails.demoAccountName, undefined);
   assert.equal(config.reviewDetails.demoAccountPassword, undefined);
   assert.equal(config.reviewDetails.contactEmail, "kun@kunchenguid.com");
+});
+
+  await test("engine source refuses screenshot order not approved by the manifest", () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(ROOT, "tools", "app-review", "manifests", "0.1.17.json"),
+    "utf8",
+  ));
+  const config = JSON.parse(fs.readFileSync(
+    path.join(ROOT, "tools", "app-review", "app-review.config.json"),
+    "utf8",
+  ));
+  config.listing.screenshotSpecs[0].files.reverse();
+  assert.throws(
+    () => adapter.buildEngineSource(ROOT, manifest, config),
+    /screenshot order must match the captain-approved manifest/,
+  );
 });
 
   await test("runAssemble always passes assembleOnly:true and refuses a submitted result", async () => {

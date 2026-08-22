@@ -216,16 +216,29 @@ function buildEngineSource(sourceRoot, manifest, config) {
   const directory = Array.isArray(config.listing.screenshotDirectory)
     ? config.listing.screenshotDirectory
     : [];
-  const approved = screenshotPathByName(manifest);
-  const screenshots = config.listing.screenshotSpecs.map((spec) => {
-    const bound = manifest.content.screenshots.find((set) => set.displayType === spec.displayType);
-    if (!bound) fail(`manifest is missing screenshot displayType ${spec.displayType}`);
+  screenshotPathByName(manifest);
+  const specs = config.listing.screenshotSpecs;
+  const approvedSets = manifest.content.screenshots;
+  if (specs.length !== approvedSets.length) {
+    fail("config screenshot slots must exactly match the captain-approved manifest");
+  }
+  const screenshots = specs.map((spec, setIndex) => {
+    const bound = approvedSets[setIndex];
+    if (bound.displayType !== spec.displayType) {
+      fail("config screenshot slot order must match the captain-approved manifest");
+    }
     if (bound.width !== spec.width || bound.height !== spec.height) {
       fail(`manifest dimensions do not match screenshot spec ${spec.displayType}`);
     }
-    const files = spec.files.map((fileName) => {
-      const descriptor = approved.get(fileName);
-      if (!descriptor) fail(`config screenshot ${fileName} is not in the captain-approved manifest`);
+    const approvedNames = bound.files.map((file) => file.fileName);
+    if (
+      spec.files.length !== approvedNames.length
+      || spec.files.some((fileName, index) => fileName !== approvedNames[index])
+    ) {
+      fail(`config screenshot order must match the captain-approved manifest for ${spec.displayType}`);
+    }
+    const files = spec.files.map((fileName, fileIndex) => {
+      const descriptor = bound.files[fileIndex];
       const relativePath = [...directory, fileName].join("/");
       const file = fileDescriptor(sourceRoot, relativePath, {
         bytes: descriptor.fileSize,
@@ -235,7 +248,9 @@ function buildEngineSource(sourceRoot, manifest, config) {
       const dimensions = inspectPng(file.bytes, spec.width, spec.height, fileName);
       return Object.freeze({
         fileName,
+        filePath: file.filePath,
         fileSize: file.bytes.length,
+        md5: file.md5,
         sha256: file.sha256,
         ...dimensions,
       });
