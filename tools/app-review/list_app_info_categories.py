@@ -51,7 +51,7 @@ class CategoryReadSession(Protocol):
 def configured_categories(path: Path = CONFIG_PATH) -> tuple[str, str]:
     document = json.loads(path.read_text())
     protected = document["protected"]
-    return str(protected["primaryCategory"]), str(protected["secondaryCategory"])
+    return str(protected["primaryCategory"]), str(protected.get("secondaryCategory") or "")
 
 
 def _relationship_id(resource: Optional[Mapping[str, Any]]) -> str:
