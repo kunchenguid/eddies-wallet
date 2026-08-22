@@ -528,6 +528,9 @@ class AssembleEngineTests(WorkflowModelCase):
                 "com.kunchenguid.eddieswallet.cloud.annual",
             ],
         )
+        self.assertEqual(config["protected"]["primaryCategory"], "EDUCATION")
+        self.assertEqual(config["protected"]["secondaryCategory"], "FINANCE")
+        self.assertEqual(config["listing"]["alignmentWrites"], ["releaseType", "build", "reviewNotes"])
         self.assertEqual(config["evidence"]["adapter"], "demoPreflight")
         self.assertEqual(config["listing"]["approvedSubtitle"], "Virtual allowance practice")
         self.assertEqual(config["reviewDetails"]["demoAccountRequired"], False)
