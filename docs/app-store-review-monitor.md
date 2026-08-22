@@ -48,10 +48,11 @@ Do not create a dedicated Developer-role monitor user. Do not add `ASC_REVIEW_MO
 Arming is the per-app Actions variable `APP_REVIEW_MONITOR_VERSION`. Its value is the exact submitted marketing version, for example `0.1.17`. An empty or unset variable is the deliberate state between cycles: the run reports `not_armed`, contacts Apple not at all, and **succeeds**, so the schedule does not stay permanently red between cycles. A reshaped value (anything that is not a one-to-three-component numeric version) **fails visibly** rather than being guessed at.
 
 The shared config names `APP_REVIEW_MONITOR_VARIABLE_TOKEN` as the secret a
-full submit path would use to write that arming variable. This monitor workflow
+full submit path uses to write that arming variable. This monitor workflow
 is GET-only and does not receive that token. Eddie's assemble-only job also
-does not write `APP_REVIEW_MONITOR_VERSION` or `EDDIES_REVIEW_MONITOR_CYCLE`;
-arm the scheduled monitor separately after the captain Submits.
+does not write `APP_REVIEW_MONITOR_VERSION` or `EDDIES_REVIEW_MONITOR_CYCLE`.
+The gated `app-review-submit.yml` `mode=submit` job maps that token and the
+engine writes `APP_REVIEW_MONITOR_VERSION` after Apple accepts.
 
 ## Verify and operate
 

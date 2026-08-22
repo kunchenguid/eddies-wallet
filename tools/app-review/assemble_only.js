@@ -2,17 +2,13 @@
 
 "use strict";
 
-// Eddie adapter onto the shared Node app-review-submit engine.
+// Eddie assemble-only adapter onto the shared Node app-review-submit engine.
 //
-// The engine's Actions pipeline (`app_review_pipeline.js submit`) always
-// submits. Assemble-only lives on `runSubmission({ assembleOnly: true })` and
-// the attended CLI `--assemble-only` flag. This adapter is the only Eddie
-// mutation entry: it maps the captain-approved Eddie manifest, demo-preflight
-// evidence, and Cloud product ids onto that API, then hard-refuses anything
-// other than `status: assembled` / `submitted: false`.
-//
-// It never invokes `app_review_pipeline.js submit`, never omits assemble-only,
-// and never treats `submitted: true` as success.
+// The engine's Actions pipeline (`app_review_pipeline.js submit`) expects the
+// shared manifest shape. Eddie maps its captain-approved manifest onto
+// `runSubmission`. This CLI is assemble-only: it requires `--assemble-only`
+// and hard-refuses `--submit`. Full submit is a separate gated adapter,
+// `full_submit.js`.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -294,9 +290,34 @@ function assertAssembled(result) {
   }
 }
 
-async function runAssemble({ argv, env, runSubmission, loadEngineModules, verifyEvidence } = {}) {
+function assertSubmitted(result) {
+  const accepted = result && (result.status === "submitted" || result.status === "already_submitted");
+  if (!accepted || result.submitted === false) {
+    fail(
+      "full submit did not prove Apple accepted the review submission "
+      + `(status=${result && result.status}, submitted=${result && result.submitted})`,
+    );
+  }
+}
+
+function loadMonitorVariable(engineDir, token) {
+  const pipeline = require(path.join(engineDir, "app_review_pipeline.js"));
+  return new pipeline.MonitorVariableClient(new pipeline.GitHubRecordClient(token));
+}
+
+async function runEngine({
+  firstRelease: firstReleaseFlag,
+  assembleOnly,
+  env,
+  runSubmission,
+  loadEngineModules,
+  verifyEvidence,
+  monitorVariable,
+} = {}) {
+  if (assembleOnly !== true && assembleOnly !== false) {
+    fail("assembleOnly must be an explicit boolean");
+  }
   const processEnv = env || process.env;
-  const parsed = parseAssembleArgv(argv || process.argv.slice(2));
   trustedContext(processEnv);
   const version = confirmedVersion(processEnv);
   const sourceRoot = fs.realpathSync(requiredEnv(processEnv, "GITHUB_WORKSPACE"));
@@ -306,7 +327,7 @@ async function runAssemble({ argv, env, runSubmission, loadEngineModules, verify
   const config = loadConfig(configPath);
   const manifest = loadManifest(sourceRoot, version);
   const firstRelease = manifest.candidate.firstRelease === true;
-  if (firstRelease !== parsed.firstRelease) {
+  if (firstRelease !== Boolean(firstReleaseFlag)) {
     fail(
       firstRelease
         ? "first-release manifest requires --first-release"
@@ -324,7 +345,7 @@ async function runAssemble({ argv, env, runSubmission, loadEngineModules, verify
 
   const scratch = ownerOnlyDirectory(path.join(
     processEnv.RUNNER_TEMP || path.join(sourceRoot, ".build"),
-    "eddies-app-review-assemble",
+    assembleOnly ? "eddies-app-review-assemble" : "eddies-app-review-submit",
   ));
   const journal = path.join(scratch, "journal.json");
   const evidencePath = writeOwnerOnlyFile(path.join(scratch, "evidence.json"), "{}\n");
@@ -351,10 +372,10 @@ async function runAssemble({ argv, env, runSubmission, loadEngineModules, verify
     diagnosticTraceDir: null,
     expectedReleaseType: manifest.candidate.releaseType,
     preflight: false,
-    assembleOnly: true,
+    assembleOnly,
     resume: false,
   });
-  if (args.assembleOnly !== true) fail("internal adapter dropped assembleOnly");
+  if (args.assembleOnly !== assembleOnly) fail("internal adapter dropped assembleOnly");
   if (firstRelease && (args.firstRelease !== true || args.baselineVersion !== null)) {
     fail("internal adapter dropped first-release mode");
   }
@@ -362,6 +383,12 @@ async function runAssemble({ argv, env, runSubmission, loadEngineModules, verify
   const engine = loadEngineModules
     ? loadEngineModules()
     : loadEngine(engineDir, configPath);
+  let handoff = monitorVariable;
+  if (!assembleOnly && !handoff) {
+    const tokenName = config.env && config.env.monitorVariableToken;
+    if (!tokenName) fail("config.env.monitorVariableToken is required for full submit");
+    handoff = loadMonitorVariable(engineDir, requiredEnv(processEnv, tokenName));
+  }
   const submit = runSubmission || engine.runSubmission;
   const credentials = Object.freeze({
     apiKey: requiredEnv(processEnv, "APP_STORE_CONNECT_API_KEY"),
@@ -372,9 +399,11 @@ async function runAssemble({ argv, env, runSubmission, loadEngineModules, verify
     source,
     env: {},
     verifyEvidence: () => true,
+    ...(assembleOnly ? {} : { monitorVariable: handoff }),
   });
   const result = outcome && outcome.result ? outcome.result : outcome;
-  assertAssembled(result);
+  if (assembleOnly) assertAssembled(result);
+  else assertSubmitted(result);
   const output = engine && engine.formatSuccess
     ? engine.formatSuccess(result, journal)
     : JSON.stringify({
@@ -387,13 +416,26 @@ async function runAssemble({ argv, env, runSubmission, loadEngineModules, verify
   return Object.freeze({ args, result, output, source });
 }
 
+async function runAssemble({ argv, env, runSubmission, loadEngineModules, verifyEvidence, monitorVariable } = {}) {
+  const parsed = parseAssembleArgv(argv || process.argv.slice(2));
+  return runEngine({
+    firstRelease: parsed.firstRelease,
+    assembleOnly: true,
+    env,
+    runSubmission,
+    loadEngineModules,
+    verifyEvidence,
+    monitorVariable,
+  });
+}
+
 async function main(argv = process.argv.slice(2)) {
   try {
     const assembled = await runAssemble({ argv });
     process.stdout.write(assembled.output);
     process.stdout.write(
       "help: Review submission is assembled and unsubmitted. "
-      + "The captain's remaining action is one Submit tap in App Store Connect.\n",
+      + "The remaining action is a captain-gated mode=submit dispatch.\n",
     );
     return 0;
   } catch (error) {
@@ -410,10 +452,13 @@ module.exports = {
   EULA_LINE,
   EULA_URL,
   AssembleError,
+  assertAssembled,
+  assertSubmitted,
   buildEngineSource,
   descriptionWithAppliedEula,
   parseAssembleArgv,
   runAssemble,
+  runEngine,
   main,
 };
 

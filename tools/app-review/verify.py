@@ -7,8 +7,8 @@ one is present. It re-checks the double-confirm dispatch, the captain-approved
 manifest, the approved bytes, fresh readiness evidence, and that preparation
 already opened the durable record.
 
-The shared Node engine owns assemble-only mutation. This entrypoint cannot
-create a review submission or PATCH `submitted: true`.
+The shared Node engine owns Apple mutation. This entrypoint cannot
+create a review submission or submit for review.
 """
 
 from __future__ import annotations
