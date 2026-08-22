@@ -24,11 +24,22 @@ import append_standard_eula as eula  # noqa: E402
 import asc_read  # noqa: E402
 
 
-def manifest_description() -> str:
+def approved_description() -> str:
     document = json.loads(
         (ROOT / "tools" / "app-review" / "manifests" / "0.1.17.json").read_text()
     )
     return document["content"]["listing"]["description"]
+
+
+def pre_eula_description() -> str:
+    """The 0.1.17 listing before the one-shot live ASC EULA append."""
+    current = approved_description()
+    marker = "\n\n" + eula.EULA_LINE
+    if eula.eula_present(current):
+        if marker not in current:
+            raise AssertionError("approved description has the EULA URL in an unexpected place")
+        return current.replace(marker, "", 1)
+    return current
 
 
 def version_resource(version_string="0.1.17", state="REJECTED"):
@@ -93,8 +104,15 @@ class FakeSession:
 
 
 class AppendLogicTests(unittest.TestCase):
+    def test_the_approved_0117_listing_matches_the_already_applied_eula_line(self):
+        self.assertTrue(eula.eula_present(approved_description()))
+        self.assertEqual(
+            approved_description(),
+            eula.append_eula_line(pre_eula_description()),
+        )
+
     def test_the_approved_0117_description_accepts_the_standard_eula_line(self):
-        original = manifest_description()
+        original = pre_eula_description()
         self.assertFalse(eula.eula_present(original))
         self.assertIn(eula.ANCHOR, original)
         updated = eula.append_eula_line(original)
@@ -113,7 +131,7 @@ class AppendLogicTests(unittest.TestCase):
         )
 
     def test_append_is_refused_when_the_link_is_already_present(self):
-        original = eula.append_eula_line(manifest_description())
+        original = eula.append_eula_line(pre_eula_description())
         with self.assertRaises(eula.CannotAppend):
             eula.append_eula_line(original)
         self.assertTrue(eula.prior_copy_intact(original, original))
@@ -131,7 +149,7 @@ class AppendLogicTests(unittest.TestCase):
 
 class RemediateTests(unittest.TestCase):
     def test_a_missing_eula_is_appended_and_read_back(self):
-        original = manifest_description()
+        original = pre_eula_description()
         session = FakeSession(original)
         report = eula.remediate(session, confirm=eula.CONFIRM_VALUE)
         self.assertEqual(report.action, "patched")
@@ -162,7 +180,7 @@ class RemediateTests(unittest.TestCase):
         self.assertIn("prior_copy_intact=yes", eula.format_report(report))
 
     def test_a_second_run_is_a_no_op(self):
-        original = eula.append_eula_line(manifest_description())
+        original = eula.append_eula_line(pre_eula_description())
         session = FakeSession(original)
         report = eula.remediate(session, confirm=eula.CONFIRM_VALUE)
         self.assertEqual(report.action, "already-present")
@@ -174,26 +192,26 @@ class RemediateTests(unittest.TestCase):
         self.assertTrue(report.other_fields_unchanged)
 
     def test_wrong_confirm_never_reaches_apple(self):
-        session = FakeSession(manifest_description())
+        session = FakeSession(pre_eula_description())
         with self.assertRaises(eula.ConfirmError):
             eula.remediate(session, confirm="please")
         self.assertEqual(session.gets, [])
         self.assertEqual(session.patches, [])
 
     def test_the_wrong_version_is_refused_before_a_write(self):
-        session = FakeSession(manifest_description(), version="0.1.16")
+        session = FakeSession(pre_eula_description(), version="0.1.16")
         with self.assertRaises(eula.BoundMismatch):
             eula.remediate(session, confirm=eula.CONFIRM_VALUE)
         self.assertEqual(session.patches, [])
 
     def test_the_wrong_locale_is_refused_before_a_write(self):
-        session = FakeSession(manifest_description(), locale="en-GB")
+        session = FakeSession(pre_eula_description(), locale="en-GB")
         with self.assertRaises(eula.BoundMismatch):
             eula.remediate(session, confirm=eula.CONFIRM_VALUE)
         self.assertEqual(session.patches, [])
 
     def test_a_changed_non_description_field_fails_the_readback(self):
-        original = manifest_description()
+        original = pre_eula_description()
         session = FakeSession(original)
 
         def patch_and_clobber(path, document):

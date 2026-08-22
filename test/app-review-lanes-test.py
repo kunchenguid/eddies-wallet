@@ -624,6 +624,14 @@ class AssembleEngineTests(WorkflowModelCase):
         self.assertEqual(config["protected"]["primaryCategory"], "EDUCATION")
         self.assertEqual(config["protected"]["secondaryCategory"], "FINANCE")
         self.assertEqual(config["reviewDetails"]["copyright"], "© 2026 Kun Chen")
+        listing = json.loads(
+            (TOOLS / "manifests" / "0.1.17.json").read_text()
+        )["content"]["listing"]
+        self.assertIn(
+            "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+            listing["description"],
+        )
+        self.assertEqual(listing["whatsNew"], "")
         self.assertEqual(config["listing"]["alignmentWrites"], ["releaseType", "build", "reviewNotes"])
         self.assertEqual(config["evidence"]["adapter"], "demoPreflight")
         self.assertEqual(config["listing"]["approvedSubtitle"], "Virtual allowance practice")

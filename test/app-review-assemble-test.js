@@ -54,7 +54,9 @@ async function main() {
   const source = adapter.buildEngineSource(ROOT, manifest, config);
   assert.equal(source.metadata.appName, "Eddie's Wallet");
   assert.equal(source.metadata.subtitle, "Virtual allowance practice");
+  assert.equal(source.metadata.description, manifest.content.listing.description);
   assert.match(source.metadata.description, /Terms of Use \(EULA\): https:\/\/www\.apple\.com\/legal\/internet-services\/itunes\/dev\/stdeula\//);
+  assert.equal(source.metadata.whatsNew, null);
   assert.equal(source.metadata.marketingUrl, "");
   assert.equal(source.screenshots.length, 2);
   assert.equal(source.screenshots[0].displayType, "APP_IPHONE_67");

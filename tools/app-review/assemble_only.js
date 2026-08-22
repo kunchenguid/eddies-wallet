@@ -173,7 +173,7 @@ function screenshotPathByName(manifest) {
 }
 
 function sha256Text(value) {
-  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+  return crypto.createHash("sha256").update(value ?? "", "utf8").digest("hex");
 }
 
 function stableHash(value) {
@@ -198,7 +198,7 @@ function buildEngineSource(sourceRoot, manifest, config) {
     privacyPolicyUrl: listing.privacyPolicyUrl,
     supportUrl: listing.supportUrl,
     marketingUrl: listing.marketingUrl || "",
-    whatsNew: listing.whatsNew || "",
+    whatsNew: listing.whatsNew || null,
   });
   const approved = screenshotPathByName(manifest);
   const screenshots = config.listing.screenshotSpecs.map((spec) => {
@@ -351,7 +351,7 @@ async function runEngine({
   const evidencePath = writeOwnerOnlyFile(path.join(scratch, "evidence.json"), "{}\n");
   const whatsNewFile = writeOwnerOnlyFile(
     path.join(scratch, "whats-new.txt"),
-    `${source.metadata.whatsNew}\n`,
+    `${source.metadata.whatsNew ?? ""}\n`,
   );
   const sourceCommit = (
     processEnv.EDDIES_APP_REVIEW_APPROVED_COMMIT
