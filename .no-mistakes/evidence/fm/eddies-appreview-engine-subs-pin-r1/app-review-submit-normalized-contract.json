@@ -1,0 +1,33 @@
+{
+  "artifact": "Normalized GitHub Actions dispatch contract",
+  "trigger": [
+    "workflow_dispatch"
+  ],
+  "default_mode": "verify",
+  "available_modes": [
+    "verify",
+    "assemble",
+    "upload",
+    "submit"
+  ],
+  "mutation_jobs": {
+    "assemble": {
+      "guard": "github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main' && inputs.mode == 'assemble'",
+      "engine_ref": "0d8b4a8cabffca931ff414c22c7b9b208da2470f",
+      "command": "node tools/app-review/assemble_only.js --assemble-only --first-release",
+      "monitor_token_mapped": false
+    },
+    "upload": {
+      "guard": "github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main' && inputs.mode == 'upload'",
+      "engine_ref": "0d8b4a8cabffca931ff414c22c7b9b208da2470f",
+      "command": "node tools/app-review/upload_screenshots.js --upload-screenshots --first-release",
+      "monitor_token_mapped": false
+    },
+    "submit": {
+      "guard": "github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main' && inputs.mode == 'submit'",
+      "engine_ref": "0d8b4a8cabffca931ff414c22c7b9b208da2470f",
+      "command": "node tools/app-review/full_submit.js --submit --first-release",
+      "monitor_token_mapped": true
+    }
+  }
+}

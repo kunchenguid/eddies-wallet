@@ -1,0 +1,3 @@
+Remote refs proving the configured engine commit is the current shared-engine main:
+0d8b4a8cabffca931ff414c22c7b9b208da2470f	HEAD
+0d8b4a8cabffca931ff414c22c7b9b208da2470f	refs/heads/main
