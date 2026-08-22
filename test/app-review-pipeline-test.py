@@ -45,6 +45,7 @@ content = load("content")
 evidence = load("evidence")
 github_api = load("github_api")
 runtime = load("runtime")
+demo_preflight = load("demo_preflight")
 
 APP_ID = core.APP_ID
 LISTING = {
@@ -601,6 +602,52 @@ class ReviewedByteBindingTests(FixtureCase):
             content.verify_manifest_files(
                 self.fixture.manifest, self.root, screenshot_directory=SCREENSHOT_DIRECTORY
             )
+
+
+class DemoPreflightPolicyTests(FixtureCase):
+    def test_config_and_approved_manifest_must_agree_on_screenshot_writes(self):
+        for config_writes, manifest_writes in ((True, False), (False, True)):
+            with self.subTest(
+                config_writes=config_writes, manifest_writes=manifest_writes
+            ):
+                manifest = copy.deepcopy(self.fixture.manifest)
+                manifest["listing"]["screenshotWrites"] = manifest_writes
+                config = {
+                    "listing": {"screenshotWrites": config_writes},
+                    "content": {"screenshotDirectory": list(SCREENSHOT_DIRECTORY)},
+                }
+                with (
+                    unittest.mock.patch.object(demo_preflight.runtime, "heading"),
+                    unittest.mock.patch.object(
+                        demo_preflight.runtime, "trusted_context"
+                    ),
+                    unittest.mock.patch.object(
+                        demo_preflight.runtime,
+                        "confirmed_version",
+                        return_value=self.fixture.candidate["version"],
+                    ),
+                    unittest.mock.patch.object(
+                        demo_preflight.runtime,
+                        "load_manifest",
+                        return_value=manifest,
+                    ),
+                    unittest.mock.patch.object(
+                        demo_preflight.runtime, "load_config", return_value=config
+                    ),
+                    unittest.mock.patch.object(
+                        demo_preflight.content,
+                        "verify_manifest_files",
+                        return_value=self.fixture.verified,
+                    ),
+                    unittest.mock.patch.object(
+                        demo_preflight.asc_read.Credential,
+                        "from_environment",
+                        side_effect=AssertionError("credential access was reached"),
+                    ),
+                ):
+                    with self.assertRaises(demo_preflight.PreflightError) as caught:
+                        demo_preflight.main()
+                self.assertIn("must match", str(caught.exception))
 
 
 class LiveReconciliationTests(FixtureCase):

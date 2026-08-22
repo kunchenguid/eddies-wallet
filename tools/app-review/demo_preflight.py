@@ -88,7 +88,15 @@ def main() -> int:
     config = runtime.load_config()
     files = content.verify_manifest_files(manifest, Path.cwd(), config=config)
     candidate = manifest["candidate"]
-    screenshot_writes = (config.get("listing") or {}).get("screenshotWrites") is True
+    config_screenshot_writes = (
+        (config.get("listing") or {}).get("screenshotWrites") is True
+    )
+    manifest_screenshot_writes = manifest["listing"]["screenshotWrites"] is True
+    if config_screenshot_writes != manifest_screenshot_writes:
+        raise PreflightError(
+            "config.listing.screenshotWrites must match the captain-approved "
+            "manifest listing.screenshotWrites"
+        )
 
     session = asc_read.ReadSession(asc_read.Credential.from_environment())
     checks: dict[str, str] = {}
@@ -98,7 +106,7 @@ def main() -> int:
             session,
             candidate,
             files,
-            match_listing_screenshots=not screenshot_writes,
+            match_listing_screenshots=not manifest_screenshot_writes,
         )
     ).read_candidate(candidate)
     if live.state == "ABSENT":
