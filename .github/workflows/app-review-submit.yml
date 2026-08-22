@@ -23,7 +23,7 @@ name: App Review submission
 #              lane refuses to start if an App Store Connect credential is present.
 #              It also runs the Eddie-side listing-screenshot preflight.
 #   assemble - mutation-capable App Store Connect credentials. It checks out
-#              kunchenguid/app-review-submit@0d8b4a8c and runs assemble-only
+#              kunchenguid/app-review-submit@551e6531 and runs assemble-only
 #              first-release (`args.assembleOnly: true`). The engine aligns
 #              App Info categories from config (EDUCATION + FINANCE), attaches
 #              the app version plus both Cloud subscriptions, then hard-returns
@@ -156,9 +156,10 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit#14 (authoritative subscription-item
-          # readback and fail-closed conflict recovery).
-          ref: 0d8b4a8cabffca931ff414c22c7b9b208da2470f
+          # Pin: kunchenguid/app-review-submit#15 (create+prove via
+          # subscriptionVersion/subscriptionGroupVersion; include=
+          # appStoreVersion,subscriptionVersion,subscriptionGroupVersion).
+          ref: 551e653171fe004024baf23b3990f00b385abe3c
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -215,7 +216,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 0d8b4a8cabffca931ff414c22c7b9b208da2470f
+          ref: 551e653171fe004024baf23b3990f00b385abe3c
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -279,7 +280,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 0d8b4a8cabffca931ff414c22c7b9b208da2470f
+          ref: 551e653171fe004024baf23b3990f00b385abe3c
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false

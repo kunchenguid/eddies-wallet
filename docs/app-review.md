@@ -30,8 +30,8 @@ Submission is gated by two independent things, and both are the captain's.
    `runSubmission({ uploadScreenshots: true })`, with
    `SCREENSHOT_UPLOAD_ENGINE_ARGV` pinned to
    `["node","app_review_pipeline.js","upload-screenshots"]`). Assemble,
-   upload, and submit all check out `0d8b4a8c`, the merge of
-   [`kunchenguid/app-review-submit#14`](https://github.com/kunchenguid/app-review-submit/pull/14).
+   upload, and submit all check out `551e6531`, the merge of
+   [`kunchenguid/app-review-submit#15`](https://github.com/kunchenguid/app-review-submit/pull/15).
    `mode=submit` is a separate captain-gated dispatch that asks
    the engine to submit for review. Default remains `verify`.
 
