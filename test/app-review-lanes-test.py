@@ -623,6 +623,7 @@ class AssembleEngineTests(WorkflowModelCase):
         )
         self.assertEqual(config["protected"]["primaryCategory"], "EDUCATION")
         self.assertEqual(config["protected"]["secondaryCategory"], "FINANCE")
+        self.assertEqual(config["reviewDetails"]["copyright"], "© 2026 Kun Chen")
         self.assertEqual(config["listing"]["alignmentWrites"], ["releaseType", "build", "reviewNotes"])
         self.assertEqual(config["evidence"]["adapter"], "demoPreflight")
         self.assertEqual(config["listing"]["approvedSubtitle"], "Virtual allowance practice")

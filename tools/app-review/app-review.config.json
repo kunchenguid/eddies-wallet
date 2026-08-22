@@ -92,6 +92,6 @@
     "contactEmail": "kun@kunchenguid.com",
     "demoAccountRequired": false,
     "notes": "Eddie's Wallet has no shared demo account, username, password, or supplied PIN. Please use your own Apple Account in the native Sign in with Apple sheet and create synthetic data on the review device.\n\n1. Launch the app and choose Sign in with Apple. The child does not sign in.\n2. Create a synthetic child nickname and a new four-digit parent PIN. Both are chosen on the review device.\n3. The app opens to the child's read-only wallet. Tap Parent, enter the PIN you chose, and use the Parent area to set an allowance or record a virtual deposit, withdrawal, loan, or repayment.\n4. To review the optional subscription, open Cloud backup & sync in the Parent area. Choose either Cloud monthly or Cloud annual and use Apple's App Review or sandbox purchase flow with your own Apple Account. Cloud is optional and the free wallet remains usable without it.\n5. A Cloud purchase is confirmed by the service before backup and sync activate. If a plan does not load, use Check again on the Cloud card; do not use a shared account or credential.\n\nAll balances and money actions in this app are virtual, pretend, and nonredeemable. The app does not connect to banks, cards, payment processors, cash-out, or real-money transfers. Parent access is a device-local PIN gate that ends when the app backgrounds.",
-    "copyright": "2026 Kun Chen"
+    "copyright": "© 2026 Kun Chen"
   }
 }
