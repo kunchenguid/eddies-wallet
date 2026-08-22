@@ -19,6 +19,25 @@ and bytes; the attended App Store Connect upload used this same set.
 | `ipad-13-money-flow-review.png` | iPad 13" | Money flow review |
 | `ipad-13-cloud-plans.png` | iPad 13" | Cloud plans |
 
+These listing files are produced by `EvidenceCaptureUITests.testAppStoreListingScreenshots`
+on the matching simulator (iPhone 6.9" and iPad 13"), then copied here as RGB8 PNG.
+The locked 0.1.17 bytes stay until a captain-approved rebind after the new iPad
+set is live in App Store Connect. Until then the captain uploads the five files
+in `ipad-asc-upload/` onto the live `APP_IPAD_PRO_3GEN_129` slots of the same
+file names.
+
+| Slot | Scenario | Evidence name |
+| --- | --- | --- |
+| kid-home | `configured` kid home | `listing-kid-home` |
+| parent-area | `configured` parent area | `listing-parent-area` |
+| parent-loan-payments | `loan-installments-missed` parent area | `listing-parent-loan-payments` |
+| money-flow-review | `configured` deposit review | `listing-money-flow-review` |
+| cloud-plans | `cloud-plans-no-price` | `listing-cloud-plans` |
+
+Parent-area and parent-loan-payments must never be byte-identical. On iPad 13"
+the missed-loan card is already fully on screen, so two captures of that same
+viewport collapse and the assemble engine refuses them.
+
 Do not replace a file in place. A later version gets its own directory.
 
 ## Cloud subscription review screenshots

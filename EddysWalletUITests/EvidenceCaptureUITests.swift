@@ -96,6 +96,22 @@ final class EvidenceCaptureUITests: XCTestCase {
         return element
     }
 
+    private func assertCapturedFilesDiffer(_ left: String, _ right: String) {
+        guard let evidenceDirectory else { return }
+        let idiom = isPad ? "ipad" : "iphone"
+        let leftURL = evidenceDirectory.appendingPathComponent("\(left)-\(idiom).png")
+        let rightURL = evidenceDirectory.appendingPathComponent("\(right)-\(idiom).png")
+        let leftData = try? Data(contentsOf: leftURL)
+        let rightData = try? Data(contentsOf: rightURL)
+        XCTAssertNotNil(leftData, "expected evidence file \(leftURL.lastPathComponent)")
+        XCTAssertNotNil(rightData, "expected evidence file \(rightURL.lastPathComponent)")
+        XCTAssertNotEqual(
+            leftData,
+            rightData,
+            "\(left) and \(right) must not be byte-identical listing slots"
+        )
+    }
+
     /// iPad's software keyboard covers the form sheet and is captured into
     /// App Store screenshots. Dismiss it only at call sites that have finished
     /// typing - the autofocus evidence capture must keep the keyboard up.
@@ -1061,5 +1077,85 @@ final class EvidenceCaptureUITests: XCTestCase {
         capture("parent-area-empty-handoff")
         app.buttons["Show Eddie's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
+    }
+
+    /// App Store listing slots. Parent-area is the configured overview;
+    /// parent-loan-payments is the missed-loan parent area. Those must stay
+    /// distinct: on iPad 13" the missed-loan card is already on screen, so two
+    /// captures of that same viewport are byte-identical and break assemble.
+    func testAppStoreListingScreenshots() throws {
+        var app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        capture("listing-kid-home")
+
+        unlockParentArea(app)
+        XCTAssertTrue(app.staticTexts["Eddie's virtual balance"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Missed payments"].exists)
+        capture("listing-parent-area")
+
+        app.buttons["Add deposit"].tap()
+        let amountField = app.textFields["Amount in virtual dollars"]
+        XCTAssertTrue(amountField.waitForExistence(timeout: 5))
+        amountField.tap()
+        amountField.typeText("5.25")
+        dismissKeyboardForCapture(in: app)
+        app.buttons["Review"].tap()
+        if !app.staticTexts["Review before recording"].waitForExistence(timeout: 3) {
+            app.buttons["Review"].tap()
+        }
+        XCTAssertTrue(app.staticTexts["Review before recording"].waitForExistence(timeout: 5))
+        capture("listing-money-flow-review")
+        app.terminate()
+
+        app = launch("loan-installments-missed")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+        XCTAssertTrue(app.staticTexts["Missed payments"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["3 missed"].exists)
+        XCTAssertTrue(app.buttons["Pay missed payments"].waitForExistence(timeout: 5))
+        capture("listing-parent-loan-payments")
+        assertCapturedFilesDiffer("listing-parent-area", "listing-parent-loan-payments")
+        app.terminate()
+
+        app = launch("cloud-plans-no-price")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+        let monthly = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"]
+        let annual = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"]
+        scrollIntoCaptureFrame(monthly, in: app)
+        scrollIntoCaptureFrame(annual, in: app)
+        capture("listing-cloud-plans")
+
+        assertListingCaptureUniqueness()
+    }
+
+    private func assertListingCaptureUniqueness() {
+        guard let evidenceDirectory else { return }
+        let idiom = isPad ? "ipad" : "iphone"
+        let names = [
+            "listing-kid-home",
+            "listing-parent-area",
+            "listing-parent-loan-payments",
+            "listing-money-flow-review",
+            "listing-cloud-plans",
+        ]
+        var files: [(String, Data)] = []
+        for name in names {
+            let url = evidenceDirectory.appendingPathComponent("\(name)-\(idiom).png")
+            guard let data = try? Data(contentsOf: url) else {
+                XCTFail("expected listing capture \(url.lastPathComponent)")
+                continue
+            }
+            files.append((name, data))
+        }
+        for index in files.indices {
+            for other in (index + 1)..<files.count {
+                XCTAssertNotEqual(
+                    files[index].1,
+                    files[other].1,
+                    "listing captures \(files[index].0) and \(files[other].0) are byte-identical"
+                )
+            }
+        }
     }
 }
