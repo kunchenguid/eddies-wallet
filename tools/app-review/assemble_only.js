@@ -39,8 +39,12 @@ function fail(message, exitCode = 1) {
   throw new AssembleError(message, exitCode);
 }
 
+const ASSEMBLE_FLAGS = new Set(["--assemble-only", "--no-submit", "--first-release"]);
+
 function parseAssembleArgv(argv) {
   const flags = argv.filter((value) => typeof value === "string" && value.startsWith("-"));
+  const unknown = flags.filter((flag) => !ASSEMBLE_FLAGS.has(flag) && !flag.startsWith("--submit"));
+  if (unknown.length > 0) fail(`unknown option ${unknown[0]}`, 2);
   const assembleOnly = flags.includes("--assemble-only") || flags.includes("--no-submit");
   if (flags.includes("--submit") || flags.includes("--submit=true")) {
     fail("refusing a submit flag; this adapter is assemble-only", 2);
@@ -48,7 +52,10 @@ function parseAssembleArgv(argv) {
   if (!assembleOnly) {
     fail("assemble-only is required (--assemble-only or --no-submit); refusing to invoke a submitting command", 2);
   }
-  return Object.freeze({ assembleOnly: true });
+  return Object.freeze({
+    assembleOnly: true,
+    firstRelease: flags.includes("--first-release"),
+  });
 }
 
 function requiredEnv(env, name) {
@@ -92,6 +99,14 @@ function loadConfig(configPath) {
   const productIds = parsed.commerce.productIds;
   if (!Array.isArray(productIds) || productIds.length !== 2) {
     fail("config must name both Cloud subscriptions");
+  }
+  const details = parsed.reviewDetails;
+  if (!details || typeof details !== "object") fail("config.reviewDetails is required for first-release assembly");
+  if (details.demoAccountRequired !== false) {
+    fail("config.reviewDetails.demoAccountRequired must be false; Eddie uses reviewer-owned Sign in with Apple");
+  }
+  if (details.demoAccountName || details.demoAccountPassword) {
+    fail("config.reviewDetails must not include a demo account name or password");
   }
   return parsed;
 }
@@ -281,7 +296,7 @@ function assertAssembled(result) {
 
 async function runAssemble({ argv, env, runSubmission, loadEngineModules, verifyEvidence } = {}) {
   const processEnv = env || process.env;
-  parseAssembleArgv(argv || process.argv.slice(2));
+  const parsed = parseAssembleArgv(argv || process.argv.slice(2));
   trustedContext(processEnv);
   const version = confirmedVersion(processEnv);
   const sourceRoot = fs.realpathSync(requiredEnv(processEnv, "GITHUB_WORKSPACE"));
@@ -290,6 +305,20 @@ async function runAssemble({ argv, env, runSubmission, loadEngineModules, verify
   const toolsDir = path.join(sourceRoot, "tools", "app-review");
   const config = loadConfig(configPath);
   const manifest = loadManifest(sourceRoot, version);
+  const firstRelease = manifest.candidate.firstRelease === true;
+  if (firstRelease !== parsed.firstRelease) {
+    fail(
+      firstRelease
+        ? "first-release manifest requires --first-release"
+        : "--first-release is only valid for a first-release manifest",
+    );
+  }
+  if (firstRelease && manifest.candidate.baselineVersion != null) {
+    fail("first-release manifest must omit baselineVersion");
+  }
+  if (!firstRelease && (manifest.candidate.baselineVersion == null || manifest.candidate.baselineVersion === "")) {
+    fail("update manifest requires baselineVersion");
+  }
   (verifyEvidence || verifyEddieEvidence)(processEnv, toolsDir);
   const source = buildEngineSource(sourceRoot, manifest, config);
 
@@ -311,7 +340,8 @@ async function runAssemble({ argv, env, runSubmission, loadEngineModules, verify
   const args = Object.freeze({
     version,
     build: manifest.candidate.build,
-    baselineVersion: manifest.candidate.baselineVersion,
+    baselineVersion: firstRelease ? null : manifest.candidate.baselineVersion,
+    firstRelease,
     reviewCycle: version,
     sourceRoot,
     sourceCommit,
@@ -325,6 +355,9 @@ async function runAssemble({ argv, env, runSubmission, loadEngineModules, verify
     resume: false,
   });
   if (args.assembleOnly !== true) fail("internal adapter dropped assembleOnly");
+  if (firstRelease && (args.firstRelease !== true || args.baselineVersion !== null)) {
+    fail("internal adapter dropped first-release mode");
+  }
 
   const engine = loadEngineModules
     ? loadEngineModules()

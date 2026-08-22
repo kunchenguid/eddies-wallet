@@ -20,8 +20,12 @@ async function main() {
   assert.throws(() => adapter.parseAssembleArgv([]), /assemble-only is required/);
   assert.throws(() => adapter.parseAssembleArgv(["submit"]), /assemble-only is required/);
   assert.throws(() => adapter.parseAssembleArgv(["--submit"]), /refusing a submit flag/);
-  assert.deepEqual(adapter.parseAssembleArgv(["--assemble-only"]), { assembleOnly: true });
-  assert.deepEqual(adapter.parseAssembleArgv(["--no-submit"]), { assembleOnly: true });
+  assert.deepEqual(adapter.parseAssembleArgv(["--assemble-only"]), { assembleOnly: true, firstRelease: false });
+  assert.deepEqual(adapter.parseAssembleArgv(["--no-submit"]), { assembleOnly: true, firstRelease: false });
+  assert.deepEqual(
+    adapter.parseAssembleArgv(["--assemble-only", "--first-release"]),
+    { assembleOnly: true, firstRelease: true },
+  );
 });
 
   await test("the already-applied EULA line is appended exactly once", () => {
@@ -63,6 +67,12 @@ async function main() {
     config.commerce.productIds.join(" "),
     "com.kunchenguid.eddieswallet.cloud.monthly com.kunchenguid.eddieswallet.cloud.annual",
   );
+  assert.equal(manifest.candidate.firstRelease, true);
+  assert.equal(manifest.candidate.baselineVersion, undefined);
+  assert.equal(config.reviewDetails.demoAccountRequired, false);
+  assert.equal(config.reviewDetails.demoAccountName, undefined);
+  assert.equal(config.reviewDetails.demoAccountPassword, undefined);
+  assert.equal(config.reviewDetails.contactEmail, "kun@kunchenguid.com");
 });
 
   await test("runAssemble always passes assembleOnly:true and refuses a submitted result", async () => {
@@ -88,7 +98,7 @@ async function main() {
 
   try {
     await adapter.runAssemble({
-      argv: ["--assemble-only"],
+      argv: ["--assemble-only", "--first-release"],
       env,
       verifyEvidence: () => undefined,
       loadEngineModules: () => ({
@@ -97,9 +107,12 @@ async function main() {
       runSubmission: async (args) => {
         calls.push(args);
         assert.equal(args.assembleOnly, true);
+        assert.equal(args.firstRelease, true);
+        assert.equal(args.baselineVersion, null);
         assert.equal(args.preflight, false);
         assert.equal(args.version, "0.1.17");
         assert.equal(args.build, manifest.candidate.build);
+        assert.equal(args.expectedReleaseType, "AFTER_APPROVAL");
         return {
           result: {
             status: "assembled",
@@ -114,10 +127,12 @@ async function main() {
     });
     assert.equal(calls.length, 1);
     assert.equal(calls[0].assembleOnly, true);
+    assert.equal(calls[0].firstRelease, true);
+    assert.equal(calls[0].baselineVersion, null);
 
     await assert.rejects(
       () => adapter.runAssemble({
-        argv: ["--assemble-only"],
+        argv: ["--assemble-only", "--first-release"],
         env,
         verifyEvidence: () => undefined,
         loadEngineModules: () => ({ formatSuccess: () => "" }),
@@ -141,6 +156,31 @@ async function main() {
   await assert.rejects(
     () => adapter.runAssemble({ argv: [], env: { GITHUB_REPOSITORY: "kunchenguid/eddies-wallet" } }),
     /assemble-only is required/,
+  );
+});
+
+  await test("a first-release manifest without --first-release is refused", async () => {
+  const env = {
+    GITHUB_REPOSITORY: "kunchenguid/eddies-wallet",
+    GITHUB_REF: "refs/heads/main",
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_WORKSPACE: ROOT,
+    EDDIES_APP_REVIEW_VERSION: "0.1.17",
+    EDDIES_APP_REVIEW_CONFIRM: "0.1.17",
+    APP_STORE_CONNECT_API_KEY: "test-key",
+    APP_STORE_CONNECT_ISSUER_ID: "test-issuer",
+    APP_STORE_CONNECT_KEY_ID: "test-key-id",
+  };
+  await assert.rejects(
+    () => adapter.runAssemble({
+      argv: ["--assemble-only"],
+      env,
+      verifyEvidence: () => undefined,
+      runSubmission: async () => {
+        throw new Error("must not reach the engine");
+      },
+    }),
+    /first-release manifest requires --first-release/,
   );
 });
 

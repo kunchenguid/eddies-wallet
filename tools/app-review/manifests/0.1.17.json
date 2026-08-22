@@ -8,7 +8,7 @@
   "candidate": {
     "version": "0.1.17",
     "build": "19.1",
-    "baselineVersion": "0.1.16",
+    "firstRelease": true,
     "sourceCommit": "93de157eb502d105dcc0621bbb23d50d2ad06a73",
     "releaseType": "AFTER_APPROVAL"
   },
@@ -117,11 +117,11 @@
   "approval": {
     "approved": true,
     "approvedBy": "kunchenguid",
-    "approvedUtc": "2026-08-20T18:34:46Z",
-    "statement": "Resubmission of 0.1.17 after Guideline 2.3.6 and 2.1(b) rejection. Content unchanged from the captain-approved 0.1.17 listing, screenshots, and Cloud IAP review assets. Candidate build updated to the fresh TestFlight binary 19.1 (VALID). Not submitted."
+    "approvedUtc": "2026-08-21T23:55:00Z",
+    "statement": "Resubmission of 0.1.17 after Guideline 2.3.6 and 2.1(b) rejection. First App Store version: no live baseline (0.1.16 does not exist). Content unchanged from the captain-approved 0.1.17 listing, screenshots, and Cloud IAP review assets. Candidate build 19.1 (VALID). Not submitted."
   },
   "binding": {
     "algorithm": "eddies-wallet-app-review-manifest-v1",
-    "manifestHash": "8f398ab9ee60bd802a345deee6beb70ec41b1a70b83005450693f83b26d51d84"
+    "manifestHash": "68f4a425b5d0d2dba8d59bb16463ba730bbe2ef90f404c9ae72454bc1fdfc3b8"
   }
 }

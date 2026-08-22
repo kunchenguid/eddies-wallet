@@ -42,11 +42,15 @@ Store Connect. `test/release-checks.sh` runs these suites.
 
 The vendored Python submit engine (`submit.py`, `submission.py`, `asc_write.py`)
 is retired. Assemble-only mutation is the pinned shared Node engine. The
-workflow checks out `kunchenguid/app-review-submit@84f0317` into
-`.app-review-submit` and runs `node tools/app-review/assemble_only.js --assemble-only`.
-That adapter always sets `assembleOnly: true` and never calls the pipeline
-`submit` command. `test/app-review-lanes-test.py` and
-`test/app-review-assemble-test.js` prove the lane and the hard return.
+workflow checks out `kunchenguid/app-review-submit@16df9345` into
+`.app-review-submit` and runs
+`node tools/app-review/assemble_only.js --assemble-only --first-release`.
+That adapter always sets `assembleOnly: true` and `firstRelease: true` for
+the 0.1.17 first App Store version, with `baselineVersion` null, and never
+calls the pipeline `submit` command. `config.reviewDetails.demoAccountRequired`
+is JSON `false`: Eddie uses reviewer-owned Sign in with Apple and a sandbox
+Cloud purchase, never a password demo account. `test/app-review-lanes-test.py`
+and `test/app-review-assemble-test.js` prove the lane and the hard return.
 
 A separate one-shot write, `append_standard_eula.py` via
 `app-review-eula-append.yml`, sends its own description PATCH.
@@ -54,9 +58,11 @@ A separate one-shot write, `append_standard_eula.py` via
 
 ## What this pipeline deliberately does not do
 
-- It never creates listing copy, screenshots, in-app purchase records, App
-  Review contact details, or the App Store version itself. Those are attended
-  App Store Connect work; the engine can only observe them and refuse.
+- It never creates listing copy, screenshots, in-app purchase records, or the
+  App Store version itself. Those are attended App Store Connect work. First-release
+  assemble writes review contact, notes, and `demoAccountRequired: false` from
+  `config.reviewDetails` because there is no live baseline to copy; it still
+  never invents a password demo account.
 - It never uses a protected GitHub Environment. The gate is the captain-approved
   manifest merged on `main` plus the captain's double-confirm dispatch.
 - It never adds a password-based reviewer account or a demo credential. The
