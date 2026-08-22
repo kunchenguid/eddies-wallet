@@ -17,9 +17,11 @@ python3 test/app-review-core-test.py
 python3 test/app-review-pipeline-test.py
 python3 test/app-review-lanes-test.py
 python3 test/app-review-eula-append-test.py
+python3 test/app-review-screenshot-preflight-test.py
 python3 test/observe-review-status-test.py
 node test/app-review-assemble-test.js
 node test/app-review-full-submit-test.js
+node test/app-review-upload-test.js
 ```
 
 None of them reads a credential, contacts a network endpoint, or touches App
@@ -36,10 +38,12 @@ Store Connect. `test/release-checks.sh` runs these suites.
 | `github_api.py` | The durable issue-record boundary on `GITHUB_TOKEN`. The post-acceptance monitor-variable handoff is in the Node engine, injected only on the gated submit job. |
 | `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by verify, assemble, and submit. |
 | `prepare.py`, `demo_preflight.py`, `verify.py` | The Python workflow entrypoints. Verify is credential-free. |
+| `screenshot_preflight.py` | Eddie-side listing-screenshot validation before any live write: required display types, RGB8 dimensions, unique bytes per size, and checksums matching the captain-approved manifest. |
 | `list_app_store_versions.py` | GET-only iOS App Store version listing. |
 | `list_app_info_categories.py` | GET-only App Info primary and secondary category listing. |
 | `assemble_only.js` | Eddie's assemble-only adapter onto `kunchenguid/app-review-submit`. It maps the captain-approved Eddie manifest, demo-preflight evidence, and Cloud product ids onto `runSubmission({ assembleOnly: true })`, then refuses any result other than `status: assembled` / `submitted: false`. It hard-refuses `--submit`. |
 | `full_submit.js` | Eddie's gated full-submit adapter. It requires `--submit`, refuses assemble-only flags, maps onto `runSubmission({ assembleOnly: false })`, injects `MonitorVariableClient` from `APP_REVIEW_MONITOR_VARIABLE_TOKEN`, and refuses any result that is not `submitted` or `already_submitted`. |
+| `upload_screenshots.js` | Eddie's screenshot-upload adapter. It refuses `--submit`. Exact engine argv is `SCREENSHOT_UPLOAD_ENGINE_ARGV` (JSON array of strings) and stays unset until the screenshot-upload SHA lands, so the adapter fails closed rather than inventing flags. |
 | `append_standard_eula.py` | One-shot Guideline 3.1.2 remediation: GET the 0.1.17 en-US description, append Apple's standard EULA line if absent, PATCH only that field, GET to verify. It does not import a Python write boundary. |
 
 ## The mutation lane
@@ -57,7 +61,14 @@ calls the pipeline `submit` command. Engine #12 writes App Info categories from
 `node tools/app-review/full_submit.js --submit --first-release`, which calls
 `runSubmission({ assembleOnly: false })` and injects the monitor-variable
 client so Apple-accept cannot split from `APP_REVIEW_MONITOR_VERSION` handoff.
-`config.reviewDetails.demoAccountRequired` is JSON `false`: Eddie uses
+`mode=upload` runs `node tools/app-review/upload_screenshots.js` after a
+credential-free screenshot preflight. It does not submit. The engine CLI is
+parameterized through `SCREENSHOT_UPLOAD_ENGINE_ARGV` and is unset until the
+screenshot-upload SHA lands. `listingPolicy` stays `observe` and
+`alignmentWrites` does not include `screenshots`: the current pin would write
+screenshots during assemble if that key were added, and there is not yet a
+write-screenshots-only policy key. `config.reviewDetails.demoAccountRequired`
+is JSON `false`: Eddie uses
 reviewer-owned Sign in with Apple and a sandbox Cloud purchase, never a
 password demo account. `test/app-review-lanes-test.py`,
 `test/app-review-assemble-test.js`, and `test/app-review-full-submit-test.js`
@@ -69,8 +80,10 @@ A separate one-shot write, `append_standard_eula.py` via
 
 ## What this pipeline deliberately does not do
 
-- It never creates listing copy, screenshots, in-app purchase records, or the
-  App Store version itself. Those are attended App Store Connect work. First-release
+- It never creates listing copy, in-app purchase records, or the
+  App Store version itself. Those are attended App Store Connect work. Listing
+  screenshot upload is pre-wired as `mode=upload` and fails closed until the
+  engine SHA pins the CLI; listing copy stays `observe`. First-release
   assemble writes review contact, notes, and `demoAccountRequired: false` from
   `config.reviewDetails` because there is no live baseline to copy; it still
   never invents a password demo account.

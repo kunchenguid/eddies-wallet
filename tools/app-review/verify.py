@@ -14,6 +14,7 @@ create a review submission or submit for review.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import sys
@@ -28,6 +29,7 @@ import core  # noqa: E402
 import evidence  # noqa: E402
 import github_api  # noqa: E402
 import runtime  # noqa: E402
+import screenshot_preflight  # noqa: E402
 
 
 def fresh_evidence(manifest) -> str:
@@ -51,6 +53,9 @@ def main() -> int:
     manifest = runtime.load_manifest(version)
     commit = runtime.approved_commit()
     files = content.verify_manifest_files(manifest, Path.cwd())
+    config_path = Path("tools/app-review/app-review.config.json")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    screenshot_preflight.preflight_listing_screenshots(Path.cwd(), manifest, config)
     generated = fresh_evidence(manifest)
 
     journal = core.GitHubIssueJournal(
@@ -62,6 +67,7 @@ def main() -> int:
     runtime.emit(f"approved_commit={commit}")
     runtime.emit(f"content_hash={manifest['contentHash']}")
     runtime.emit(f"reviewed_files={len(files)} all bytes match the approved manifest")
+    runtime.emit("listing_screenshots=preflight unique RGB8 checksums match")
     runtime.emit(f"readiness_evidence=fresh generated_utc={generated}")
     runtime.emit(
         "record=present resumable="

@@ -166,7 +166,14 @@ function screenshotPathByName(manifest) {
   const found = new Map();
   for (const set of manifest.content.screenshots) {
     for (const file of set.files) {
-      found.set(path.posix.basename(file.path), file);
+      const basename = path.posix.basename(file.path);
+      const fileName = typeof file.fileName === "string" && file.fileName.length > 0
+        ? file.fileName
+        : basename;
+      if (fileName !== basename) {
+        fail(`screenshot fileName does not match path basename: ${file.path}`);
+      }
+      found.set(fileName, file);
     }
   }
   return found;
@@ -455,10 +462,16 @@ module.exports = {
   assertAssembled,
   assertSubmitted,
   buildEngineSource,
+  confirmedVersion,
   descriptionWithAppliedEula,
+  fail,
+  loadConfig,
+  loadManifest,
   parseAssembleArgv,
+  requiredEnv,
   runAssemble,
   runEngine,
+  trustedContext,
   main,
 };
 

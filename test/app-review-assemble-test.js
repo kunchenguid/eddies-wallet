@@ -3,7 +3,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const crypto = require("node:crypto");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -65,7 +65,11 @@ async function main() {
   assert.equal(source.screenshots[1].displayType, "APP_IPAD_PRO_3GEN_129");
   assert.equal(source.screenshots[1].files.length, 5);
   assert.equal(source.screenshots[0].files[0].fileName, "iphone-6.9-kid-home.png");
-  assert.equal(source.screenshots[0].files[0].fileSize, 497984);
+  assert.equal(source.screenshots[0].files[0].fileSize, 497759);
+  assert.equal(source.screenshots[0].files[0].width, 1320);
+  assert.equal(source.screenshots[0].files[0].height, 2868);
+  assert.equal(source.screenshots[1].files[0].fileName, "ipad-13-kid-home.png");
+  assert.equal(source.screenshots[1].files[0].fileSize, 365017);
   assert.equal(
     config.commerce.productIds.join(" "),
     "com.kunchenguid.eddieswallet.cloud.monthly com.kunchenguid.eddieswallet.cloud.annual",
@@ -188,28 +192,15 @@ async function main() {
   );
 });
 
-  await test("pending iPad ASC upload screenshots are unique RGB8 2064x2752 files", () => {
-  const directory = path.join(ROOT, "tools", "app-review", "assets", "screenshots", "0.1.17", "ipad-asc-upload");
-  const names = [
-    "ipad-13-kid-home.png",
-    "ipad-13-parent-area.png",
-    "ipad-13-parent-loan-payments.png",
-    "ipad-13-money-flow-review.png",
-    "ipad-13-cloud-plans.png",
-  ];
-  const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-  const seen = new Map();
-  for (const name of names) {
-    const bytes = fs.readFileSync(path.join(directory, name));
-    assert.ok(bytes.subarray(0, 8).equals(PNG_SIGNATURE), `${name} is not PNG`);
-    assert.equal(bytes.readUInt32BE(16), 2064, `${name} width`);
-    assert.equal(bytes.readUInt32BE(20), 2752, `${name} height`);
-    assert.equal(bytes[24], 8, `${name} bit depth`);
-    assert.equal(bytes[25], 2, `${name} must be RGB8 without alpha`);
-    const md5 = crypto.createHash("md5").update(bytes).digest("hex");
-    assert.ok(!seen.has(md5), `${seen.get(md5)} and ${name} are byte-identical`);
-    seen.set(md5, name);
-  }
+  await test("listing screenshot preflight accepts every approved display type", () => {
+  const result = spawnSync("python3", ["tools/app-review/screenshot_preflight.py"], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /APP_IPHONE_67/);
+  assert.match(result.stdout, /APP_IPAD_PRO_3GEN_129/);
+  assert.match(result.stdout, /files=10/);
 });
 
   process.stdout.write("all assemble-only adapter tests passed\n");

@@ -380,6 +380,16 @@ if node test/app-review-full-submit-test.js >/dev/null; then
 else
   fail "App Review full-submit adapter tests"
 fi
+if node test/app-review-upload-test.js >/dev/null; then
+  pass "App Review screenshot-upload adapter tests"
+else
+  fail "App Review screenshot-upload adapter tests"
+fi
+if python3 test/app-review-screenshot-preflight-test.py >/dev/null 2>&1; then
+  pass "App Review listing-screenshot preflight tests"
+else
+  fail "App Review listing-screenshot preflight tests"
+fi
 if python3 test/app-review-eula-append-test.py >/dev/null 2>&1; then
   pass "App Review 3.1.2 EULA-append fake-boundary tests"
 else

@@ -52,6 +52,7 @@ BUILD_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){0,2}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 HEX_256_RE = re.compile(r"^[0-9a-f]{64}$")
 SAFE_SLOT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 SAFE_ACTOR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
 
 DRAFT_STATES = frozenset(("PREPARE_FOR_SUBMISSION", "READY_FOR_REVIEW"))
@@ -151,8 +152,15 @@ def _validate_relative_path(value: object, name: str) -> str:
     return value
 
 
-def _validate_file_descriptor(value: object, name: str) -> Mapping[str, Any]:
-    descriptor = _exact_keys(value, ("path", "bytes", "sha256"), name, "E_MANIFEST")
+def _validate_file_descriptor(
+    value: object, name: str, *, require_file_name: bool = False
+) -> Mapping[str, Any]:
+    keys = (
+        ("path", "bytes", "sha256", "fileName")
+        if require_file_name
+        else ("path", "bytes", "sha256")
+    )
+    descriptor = _exact_keys(value, keys, name, "E_MANIFEST")
     _validate_relative_path(descriptor["path"], name)
     require(
         isinstance(descriptor["bytes"], int)
@@ -171,6 +179,18 @@ def _validate_file_descriptor(value: object, name: str) -> Mapping[str, Any]:
         "E_MANIFEST",
         f"{name} hash is invalid",
     )
+    if require_file_name:
+        file_name = descriptor["fileName"]
+        require(
+            isinstance(file_name, str) and SAFE_FILENAME_RE.fullmatch(file_name) is not None,
+            "E_MANIFEST",
+            f"{name} fileName is invalid",
+        )
+        require(
+            file_name == PurePosixPath(descriptor["path"]).name,
+            "E_MANIFEST",
+            f"{name} fileName does not match its path",
+        )
     return descriptor
 
 
@@ -216,7 +236,9 @@ def validate_source_content(value: object) -> Mapping[str, Any]:
         seen_paths = set()
         for file_index, file in enumerate(files):
             descriptor = _validate_file_descriptor(
-                file, f"screenshot {slot} file {file_index}"
+                file,
+                f"screenshot {slot} file {file_index}",
+                require_file_name=True,
             )
             require(
                 descriptor["path"] not in seen_paths,
@@ -288,7 +310,9 @@ def source_content_hash(content: object) -> str:
     return stable_hash(content)
 
 
-def _safe_file_descriptor(source_root: Path, relative_path: str) -> Mapping[str, Any]:
+def _safe_file_descriptor(
+    source_root: Path, relative_path: str, *, include_file_name: bool = False
+) -> Mapping[str, Any]:
     _validate_relative_path(relative_path, "reviewed file")
     root = source_root.resolve()
     require(root.is_dir(), "E_SOURCE", "review source root is not a directory")
@@ -303,11 +327,14 @@ def _safe_file_descriptor(source_root: Path, relative_path: str) -> Mapping[str,
     require(current.is_file(), "E_SOURCE", "reviewed file is missing or not regular")
     data = current.read_bytes()
     require(len(data) > 0, "E_SOURCE", "reviewed file is empty")
-    return {
+    descriptor = {
         "path": relative_path,
         "bytes": len(data),
         "sha256": hashlib.sha256(data).hexdigest(),
     }
+    if include_file_name:
+        descriptor["fileName"] = PurePosixPath(relative_path).name
+    return descriptor
 
 
 def materialize_source_content(
@@ -335,7 +362,8 @@ def materialize_source_content(
             {
                 "slot": item["slot"],
                 "files": [
-                    _safe_file_descriptor(source_root, path) for path in item["files"]
+                    _safe_file_descriptor(source_root, path, include_file_name=True)
+                    for path in item["files"]
                 ],
             }
         )

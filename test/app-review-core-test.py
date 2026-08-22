@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import pathlib
@@ -207,6 +208,25 @@ class AppReviewCoreTests(unittest.TestCase):
             content = self.reviewed_content(directory)
             content["appReview"]["demoAccountRequired"] = True
             self.assert_refusal("E_MANIFEST", lambda: core.source_content_hash(content))
+
+    def test_listing_screenshot_files_bind_file_name_path_and_checksum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            content = self.reviewed_content(directory)
+            child = content["screenshots"][0]["files"][0]
+            self.assertEqual(child["fileName"], "child-home.png")
+            self.assertEqual(child["path"], "screenshots/child-home.png")
+            self.assertEqual(
+                child["sha256"],
+                hashlib.sha256(b"child home screenshot bytes").hexdigest(),
+            )
+            purchase = content["inAppPurchases"][0]["reviewScreenshot"]
+            self.assertNotIn("fileName", purchase)
+            missing_name = copy.deepcopy(content)
+            del missing_name["screenshots"][0]["files"][0]["fileName"]
+            self.assert_refusal("E_MANIFEST", lambda: core.validate_source_content(missing_name))
+            mismatched = copy.deepcopy(content)
+            mismatched["screenshots"][0]["files"][0]["fileName"] = "other.png"
+            self.assert_refusal("E_MANIFEST", lambda: core.validate_source_content(mismatched))
 
     def test_a_first_release_manifest_omits_baseline_and_refuses_a_bogus_one(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -143,18 +143,25 @@ class TriggerAndGuardTests(WorkflowModelCase):
 
     def test_the_submission_dispatch_defaults_to_the_dry_run_and_needs_evidence(self):
         inputs = self.models[SUBMIT]["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(inputs["mode"]["options"], ["verify", "assemble", "submit"])
+        self.assertEqual(inputs["mode"]["options"], ["verify", "assemble", "upload", "submit"])
         self.assertEqual(inputs["mode"]["default"], "verify")
         self.assertTrue(inputs["evidence"]["required"])
 
-    def test_only_an_explicit_assemble_or_submit_mode_reaches_its_mutation_job(self):
+    def test_only_an_explicit_assemble_upload_or_submit_mode_reaches_its_mutation_job(self):
         assemble = " ".join(str(self.jobs(SUBMIT)["assemble"]["if"]).split())
+        upload = " ".join(str(self.jobs(SUBMIT)["upload"]["if"]).split())
         submit = " ".join(str(self.jobs(SUBMIT)["submit"]["if"]).split())
         self.assertIn("inputs.mode == 'assemble'", assemble)
         self.assertNotIn("inputs.mode == 'submit'", assemble)
+        self.assertNotIn("inputs.mode == 'upload'", assemble)
+        self.assertIn("inputs.mode == 'upload'", upload)
+        self.assertNotIn("inputs.mode == 'assemble'", upload)
+        self.assertNotIn("inputs.mode == 'submit'", upload)
         self.assertIn("inputs.mode == 'submit'", submit)
         self.assertNotIn("inputs.mode == 'assemble'", submit)
+        self.assertNotIn("inputs.mode == 'upload'", submit)
         self.assertEqual(self.jobs(SUBMIT)["assemble"]["needs"], "verify")
+        self.assertEqual(self.jobs(SUBMIT)["upload"]["needs"], "verify")
         self.assertEqual(self.jobs(SUBMIT)["submit"]["needs"], "verify")
 
     def test_the_pipeline_serializes_on_one_non_cancelling_group(self):
@@ -194,13 +201,14 @@ class CredentialLaneTests(WorkflowModelCase):
                         (PREPARE, "preflight"),
                         (SUBMIT, "assemble"),
                         (SUBMIT, "submit"),
+                        (SUBMIT, "upload"),
                     ],
                 )
 
-    def test_exactly_two_submit_workflow_steps_can_mutate_app_store_connect(self):
+    def test_exactly_three_submit_workflow_steps_can_mutate_app_store_connect(self):
         mutating = self.steps_holding("APP_STORE_CONNECT_API_KEY")
         holders = sorted(job for workflow, job, _ in mutating if workflow == SUBMIT)
-        self.assertEqual(holders, ["assemble", "submit"])
+        self.assertEqual(holders, ["assemble", "submit", "upload"])
 
     def test_the_legacy_monitor_variable_token_is_never_mapped(self):
         self.assertEqual(self.steps_holding(VARIABLE_TOKEN), [])
@@ -211,9 +219,9 @@ class CredentialLaneTests(WorkflowModelCase):
             for workflow, job, _ in self.steps_holding(MONITOR_VARIABLE_TOKEN)
         ]
         self.assertEqual(holders, [(SUBMIT, "submit")])
-        assemble_steps = steps_of(self.jobs(SUBMIT)["assemble"])
-        for step in assemble_steps:
-            self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(step))
+        for job_name in ("assemble", "upload"):
+            for step in steps_of(self.jobs(SUBMIT)[job_name]):
+                self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(step))
 
     def test_every_verify_lane_is_credential_free(self):
         for name, job_name in ((PREPARE, "verify"), (SUBMIT, "verify")):
@@ -285,6 +293,9 @@ class PermissionAndPinTests(WorkflowModelCase):
         )
         self.assertNotIn(
             "issues", self.jobs(SUBMIT)["assemble"].get("permissions", {})
+        )
+        self.assertNotIn(
+            "issues", self.jobs(SUBMIT)["upload"].get("permissions", {})
         )
         self.assertNotIn(
             "issues", self.jobs(SUBMIT)["submit"].get("permissions", {})
@@ -401,6 +412,12 @@ class SharedMonitorTests(WorkflowModelCase):
                 ),
                 (
                     SUBMIT,
+                    "upload",
+                    "Check out the shared review-submission CLI",
+                    "with",
+                ),
+                (
+                    SUBMIT,
                     "submit",
                     "Check out the shared review-submission CLI",
                     "with",
@@ -504,6 +521,9 @@ class AssembleEngineTests(WorkflowModelCase):
     def test_assemble_checks_out_the_pinned_shared_tool(self):
         self._shared_tool_checkout("assemble")
 
+    def test_upload_checks_out_the_pinned_shared_tool(self):
+        self._shared_tool_checkout("upload")
+
     def test_submit_checks_out_the_pinned_shared_tool(self):
         self._shared_tool_checkout("submit")
 
@@ -541,6 +561,39 @@ class AssembleEngineTests(WorkflowModelCase):
             },
         )
 
+    def test_upload_runs_the_parameterized_adapter_and_never_submits(self):
+        mutating = [
+            step
+            for step in steps_of(self.jobs(SUBMIT)["upload"])
+            if "APP_STORE_CONNECT_API_KEY" in secrets_of(step)
+        ]
+        self.assertEqual(len(mutating), 1)
+        command = mutating[0]["run"]
+        self.assertIn("upload_screenshots.js", command)
+        self.assertNotIn("--submit", command)
+        self.assertNotIn("full_submit.js", command)
+        self.assertNotIn("assemble_only.js --assemble-only", command)
+        environment = mutating[0]["env"]
+        self.assertNotIn("SCREENSHOT_UPLOAD_ENGINE_ARGV", environment)
+        self.assertNotIn("GITHUB_TOKEN", environment)
+        self.assertNotIn(VARIABLE_TOKEN, secrets_of(mutating[0]))
+        self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(mutating[0]))
+        self.assertEqual(
+            {name: environment[name] for name in MUTATION_SECRETS},
+            {
+                "APP_STORE_CONNECT_KEY_ID": "${{ secrets.APP_STORE_CONNECT_KEY_ID }}",
+                "APP_STORE_CONNECT_ISSUER_ID": "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}",
+                "APP_STORE_CONNECT_API_KEY": "${{ secrets.APP_STORE_CONNECT_API_KEY }}",
+            },
+        )
+        preflight = [
+            step
+            for step in steps_of(self.jobs(SUBMIT)["upload"])
+            if str(step.get("run", "")).strip().startswith("python3 tools/app-review/screenshot_preflight.py")
+        ]
+        self.assertEqual(len(preflight), 1)
+        self.assertFalse(secrets_of(preflight[0]) & set(MUTATION_SECRETS))
+
     def test_submit_runs_the_gated_full_submit_adapter(self):
         mutating = [
             step
@@ -577,9 +630,18 @@ class AssembleEngineTests(WorkflowModelCase):
             },
         )
 
-    def test_assemble_and_submit_restore_dispatch_sha_config_after_the_manifest_pin(self):
+    def test_assemble_upload_and_submit_restore_dispatch_sha_config_after_the_manifest_pin(self):
         for job_name, required in (
             ("assemble", ("assemble_only.js", "app-review.config.json")),
+            (
+                "upload",
+                (
+                    "assemble_only.js",
+                    "upload_screenshots.js",
+                    "screenshot_preflight.py",
+                    "app-review.config.json",
+                ),
+            ),
             ("submit", ("assemble_only.js", "full_submit.js", "app-review.config.json")),
         ):
             with self.subTest(job=job_name):
@@ -604,6 +666,7 @@ class AssembleEngineTests(WorkflowModelCase):
         self.assertNotIn("python3 tools/app-review/submit.py submit", blob)
         self.assertNotIn("app_review_pipeline.js submit", blob)
         self.assertIn("assemble_only.js --assemble-only", blob)
+        self.assertIn("upload_screenshots.js", blob)
         self.assertIn("full_submit.js --submit --first-release", blob)
         inputs = self.models[SUBMIT]["on"]["workflow_dispatch"]["inputs"]
         self.assertEqual(inputs["mode"]["default"], "verify")
@@ -1161,6 +1224,7 @@ class ImportBoundaryTests(unittest.TestCase):
             "prepare",
             "demo_preflight",
             "verify",
+            "screenshot_preflight",
             "list_app_store_versions",
             "list_app_info_categories",
         ):
@@ -1281,6 +1345,11 @@ class NegativeControlTests(WorkflowModelCase):
         model = parse_workflow(SUBMIT)
         model["jobs"]["submit"]["if"] = REPOSITORY_GUARD
         self.assertNotIn("inputs.mode == 'submit'", model["jobs"]["submit"]["if"])
+
+    def test_dropping_the_upload_mode_guard_would_be_caught(self):
+        model = parse_workflow(SUBMIT)
+        model["jobs"]["upload"]["if"] = REPOSITORY_GUARD
+        self.assertNotIn("inputs.mode == 'upload'", model["jobs"]["upload"]["if"])
 
     def test_adding_an_environment_would_be_caught(self):
         model = parse_workflow(SUBMIT)

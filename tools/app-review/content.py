@@ -74,7 +74,9 @@ def verify_manifest_files(
             "bytes": len(data),
             "sha256": descriptor["sha256"],
             "md5": hashlib.md5(data).hexdigest(),
-            "name": PurePosixPath(path).name,
+            "name": descriptor["fileName"]
+            if "fileName" in descriptor
+            else PurePosixPath(path).name,
         }
     return verified
 
@@ -394,7 +396,7 @@ class CandidateReadTransport:
             raise asc_read.AppStoreConnectError(
                 f"App Store Connect omitted an included {label} asset"
             )
-        return self._match_asset(found, label)
+        return self._match_asset(found, label, include_file_name=True)
 
     def _match_asset(
         self,
@@ -402,6 +404,7 @@ class CandidateReadTransport:
         label: str,
         *,
         allow_source_filename: bool = False,
+        include_file_name: bool = False,
     ) -> Mapping[str, Any]:
         """Map one uploaded Apple asset back to the exact approved local file.
 
@@ -435,7 +438,14 @@ class CandidateReadTransport:
                 f"an uploaded {label} asset does not match exactly one approved file"
             )
         path, verified = matches[0]
-        return {"path": path, "bytes": verified["bytes"], "sha256": verified["sha256"]}
+        bound = {
+            "path": path,
+            "bytes": verified["bytes"],
+            "sha256": verified["sha256"],
+        }
+        if include_file_name:
+            bound["fileName"] = verified["name"]
+        return bound
 
 
 def _ordered_linkage(
