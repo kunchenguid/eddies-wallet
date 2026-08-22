@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import pathlib
@@ -129,7 +130,9 @@ class AppReviewCoreTests(unittest.TestCase):
             },
             [
                 {
-                    "slot": "iphone-6.9",
+                    "displayType": "iphone-6.9",
+                    "width": 8,
+                    "height": 8,
                     "files": [
                         "screenshots/child-home.png",
                         "screenshots/parent-area.png",
@@ -208,6 +211,30 @@ class AppReviewCoreTests(unittest.TestCase):
             content["appReview"]["demoAccountRequired"] = True
             self.assert_refusal("E_MANIFEST", lambda: core.source_content_hash(content))
 
+    def test_listing_screenshot_files_bind_file_name_size_and_checksum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            content = self.reviewed_content(directory)
+            child = content["screenshots"][0]["files"][0]
+            self.assertEqual(content["screenshots"][0]["displayType"], "iphone-6.9")
+            self.assertEqual(content["screenshots"][0]["width"], 8)
+            self.assertEqual(content["screenshots"][0]["height"], 8)
+            self.assertEqual(child["fileName"], "child-home.png")
+            self.assertEqual(child["fileSize"], len(b"child home screenshot bytes"))
+            self.assertNotIn("path", child)
+            self.assertEqual(
+                child["sha256"],
+                hashlib.sha256(b"child home screenshot bytes").hexdigest(),
+            )
+            purchase = content["inAppPurchases"][0]["reviewScreenshot"]
+            self.assertNotIn("fileName", purchase)
+            missing_name = copy.deepcopy(content)
+            del missing_name["screenshots"][0]["files"][0]["fileName"]
+            self.assert_refusal("E_MANIFEST", lambda: core.validate_source_content(missing_name))
+            mismatched = copy.deepcopy(content)
+            mismatched["screenshots"][0]["files"][0]["fileName"] = "other.png"
+            # fileName is free of path coupling; a wrong name is still a distinct binding.
+            core.validate_source_content(mismatched)
+
     def test_a_first_release_manifest_omits_baseline_and_refuses_a_bogus_one(self):
         with tempfile.TemporaryDirectory() as directory:
             content = self.reviewed_content(directory)
@@ -236,6 +263,14 @@ class AppReviewCoreTests(unittest.TestCase):
             self.assertIs(validated["candidate"]["firstRelease"], True)
             self.assertNotIn("baselineVersion", validated["candidate"])
             self.assertIs(validated["content"]["appReview"]["demoAccountRequired"], False)
+            self.assertIs(validated["listing"]["screenshotWrites"], True)
+            self.assertEqual(
+                validated["content"]["screenshots"][0]["displayType"], "APP_IPHONE_67"
+            )
+            self.assertEqual(
+                set(validated["content"]["screenshots"][0]["files"][0]),
+                {"fileName", "fileSize", "sha256"},
+            )
 
     def test_trusted_context_requires_repo_default_branch_dispatch_and_captain_when_requested(
         self,

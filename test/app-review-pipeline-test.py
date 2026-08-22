@@ -19,7 +19,6 @@ import json
 import os
 import pathlib
 import re
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -59,6 +58,7 @@ LISTING = {
     "whatsNew": "Cloud backup and sync is now optional for parents.",
 }
 SCREENSHOT_SLOT = "APP_IPHONE_67"
+SCREENSHOT_DIRECTORY = ("docs", "app-store", "screenshots", "iphone-67")
 NOW = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
 
 
@@ -87,10 +87,12 @@ class Fixture:
             LISTING,
             [
                 {
-                    "slot": SCREENSHOT_SLOT,
+                    "displayType": SCREENSHOT_SLOT,
+                    "width": 8,
+                    "height": 8,
                     "files": [
-                        "docs/app-store/screenshots/iphone-67/01-wallet.png",
-                        "docs/app-store/screenshots/iphone-67/02-parent.png",
+                        "01-wallet.png",
+                        "02-parent.png",
                     ],
                 }
             ],
@@ -107,6 +109,7 @@ class Fixture:
                 },
             ],
             "Sign in with Apple with your own Apple Account, then set any PIN.",
+            screenshot_directory=SCREENSHOT_DIRECTORY,
         )
         self.candidate = {
             "version": "0.2.0",
@@ -125,7 +128,9 @@ class Fixture:
         manifest_path = root / runtime.MANIFEST_DIRECTORY / "0.2.0.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(self.manifest, indent=2), encoding="utf-8")
-        self.verified = content.verify_manifest_files(self.manifest, root)
+        self.verified = content.verify_manifest_files(
+            self.manifest, root, screenshot_directory=SCREENSHOT_DIRECTORY
+        )
 
 
 def descriptor_asset(fixture: Fixture, path: str) -> dict:
@@ -569,7 +574,9 @@ class DispatchGateTests(FixtureCase):
 
 class ReviewedByteBindingTests(FixtureCase):
     def test_approved_bytes_are_recomputed_not_trusted(self):
-        verified = content.verify_manifest_files(self.fixture.manifest, self.root)
+        verified = content.verify_manifest_files(
+            self.fixture.manifest, self.root, screenshot_directory=SCREENSHOT_DIRECTORY
+        )
         self.assertEqual(len(verified), 4)
         for path, entry in verified.items():
             self.assertEqual(
@@ -583,13 +590,17 @@ class ReviewedByteBindingTests(FixtureCase):
         target = self.root / "docs/app-store/screenshots/iphone-67/01-wallet.png"
         target.write_bytes(b"kid wallet png byte!")  # same length, different bytes
         with self.assertRaises(content.ContentError) as caught:
-            content.verify_manifest_files(self.fixture.manifest, self.root)
+            content.verify_manifest_files(
+                self.fixture.manifest, self.root, screenshot_directory=SCREENSHOT_DIRECTORY
+            )
         self.assertIn("changed content since approval", str(caught.exception))
 
     def test_a_missing_reviewed_file_refuses(self):
         (self.root / "docs/app-store/iap/cloud-annual.png").unlink()
         with self.assertRaises(content.ContentError):
-            content.verify_manifest_files(self.fixture.manifest, self.root)
+            content.verify_manifest_files(
+                self.fixture.manifest, self.root, screenshot_directory=SCREENSHOT_DIRECTORY
+            )
 
 
 class LiveReconciliationTests(FixtureCase):

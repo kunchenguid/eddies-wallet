@@ -32,12 +32,13 @@ App Store Connect holds **one** iOS App Store version record: marketing version 
 
 All uploaded builds declare `usesNonExemptEncryption = false`, so export compliance is already answered at the build level and App Review does not ask again.
 
-### Review preparation blocked outside this repository
+### Review preparation
 
-The `en-US` listing now has the privacy policy URL https://eddies-wallet.kunchenguid.com/privacy/ (policy published via GitHub Pages: `site/` and `.github/workflows/pages.yml`). Two review-preparation items still cannot be completed truthfully from this repository:
+The `en-US` listing now has the privacy policy URL https://eddies-wallet.kunchenguid.com/privacy/ (policy published via GitHub Pages: `site/` and `.github/workflows/pages.yml`).
 
-- **App Privacy (data collection) answers** have no public API surface; they are entered in the App Store Connect console.
-- **App Review contact details** (name, email, phone) are the captain's real contact information. They must never be invented, and no synthetic value belongs in that field.
+**App Privacy (data collection) answers** have no public API surface. They are the remaining App Store Connect UI irreducible for 0.1.17. See `docs/app-review.md` Hands-off bar. Do not treat listing copy, review contact, categories, IAP review screenshots, or age rating as console work: those are API-able, already live-matching, or an engine gap.
+
+App Review contact details (name, email, phone) are the captain's real contact information in `tools/app-review/app-review.config.json` `reviewDetails`. First-release assemble writes them. They must never be invented, and no synthetic value belongs in that field.
 
 Guideline 3.1.2 also requires the in-app purchase surface itself to show subscription title, length, and price alongside links to the privacy policy and the terms of use, plus the auto-renewal disclosure. `CloudStatusView`'s plans card shows all of it: title, price, and period per plan; an auto-renewal disclosure; and functional links to the privacy policy (https://eddies-wallet.kunchenguid.com/) and the terms of use, which is Apple's Standard EULA (https://www.apple.com/legal/internet-services/itunes/dev/stdeula/) since the app ships no custom EULA.
 

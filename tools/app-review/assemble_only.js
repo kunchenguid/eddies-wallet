@@ -4,11 +4,11 @@
 
 // Eddie assemble-only adapter onto the shared Node app-review-submit engine.
 //
-// The engine's Actions pipeline (`app_review_pipeline.js submit`) expects the
+// The engine's Actions pipeline (`app_review_pipeline.js assemble`) expects the
 // shared manifest shape. Eddie maps its captain-approved manifest onto
-// `runSubmission`. This CLI is assemble-only: it requires `--assemble-only`
-// and hard-refuses `--submit`. Full submit is a separate gated adapter,
-// `full_submit.js`.
+// `runSubmission({ assembleOnly: true })`. This CLI is assemble-only: it
+// requires `--assemble-only` and hard-refuses `--submit`. Screenshot upload and
+// full submit are separate gated adapters.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -166,7 +166,12 @@ function screenshotPathByName(manifest) {
   const found = new Map();
   for (const set of manifest.content.screenshots) {
     for (const file of set.files) {
-      found.set(path.posix.basename(file.path), file);
+      const fileName = file.fileName;
+      if (typeof fileName !== "string" || fileName.length < 1) {
+        fail("screenshot fileName is missing");
+      }
+      if (found.has(fileName)) fail(`screenshot fileName is duplicated: ${fileName}`);
+      found.set(fileName, file);
     }
   }
   return found;
@@ -200,12 +205,46 @@ function buildEngineSource(sourceRoot, manifest, config) {
     marketingUrl: listing.marketingUrl || "",
     whatsNew: listing.whatsNew || null,
   });
-  const approved = screenshotPathByName(manifest);
-  const screenshots = config.listing.screenshotSpecs.map((spec) => {
-    const files = spec.files.map((fileName) => {
-      const descriptor = approved.get(fileName);
-      if (!descriptor) fail(`config screenshot ${fileName} is not in the captain-approved manifest`);
-      const file = fileDescriptor(sourceRoot, descriptor.path, descriptor);
+  const screenshotWrites = config.listing && config.listing.screenshotWrites === true;
+  const manifestWrites = manifest.listing && manifest.listing.screenshotWrites === true;
+  if (screenshotWrites !== manifestWrites) {
+    fail("config.listing.screenshotWrites must match the captain-approved manifest listing.screenshotWrites");
+  }
+  if (config.listingPolicy !== "observe") {
+    fail("listingPolicy must stay observe so listing copy is never written");
+  }
+  const directory = Array.isArray(config.listing.screenshotDirectory)
+    ? config.listing.screenshotDirectory
+    : [];
+  screenshotPathByName(manifest);
+  const specs = config.listing.screenshotSpecs;
+  const approvedSets = manifest.content.screenshots;
+  if (specs.length !== approvedSets.length) {
+    fail("config screenshot slots must exactly match the captain-approved manifest");
+  }
+  const screenshots = specs.map((spec, setIndex) => {
+    const bound = approvedSets[setIndex];
+    if (bound.displayType !== spec.displayType) {
+      fail("config screenshot slot order must match the captain-approved manifest");
+    }
+    if (bound.width !== spec.width || bound.height !== spec.height) {
+      fail(`manifest dimensions do not match screenshot spec ${spec.displayType}`);
+    }
+    const approvedNames = bound.files.map((file) => file.fileName);
+    if (
+      spec.files.length !== approvedNames.length
+      || spec.files.some((fileName, index) => fileName !== approvedNames[index])
+    ) {
+      fail(`config screenshot order must match the captain-approved manifest for ${spec.displayType}`);
+    }
+    const files = spec.files.map((fileName, fileIndex) => {
+      const descriptor = bound.files[fileIndex];
+      const relativePath = [...directory, fileName].join("/");
+      const file = fileDescriptor(sourceRoot, relativePath, {
+        bytes: descriptor.fileSize,
+        sha256: descriptor.sha256,
+      });
+      if (file.fileName !== fileName) fail(`screenshot fileName does not match path basename: ${relativePath}`);
       const dimensions = inspectPng(file.bytes, spec.width, spec.height, fileName);
       return Object.freeze({
         fileName,
@@ -216,7 +255,12 @@ function buildEngineSource(sourceRoot, manifest, config) {
         ...dimensions,
       });
     });
-    return Object.freeze({ ...spec, files: Object.freeze(files) });
+    return Object.freeze({
+      displayType: spec.displayType,
+      width: spec.width,
+      height: spec.height,
+      files: Object.freeze(files),
+    });
   });
   const content = Object.freeze({
     metadataHashes: Object.freeze(Object.fromEntries(
@@ -238,6 +282,7 @@ function buildEngineSource(sourceRoot, manifest, config) {
     screenshots: Object.freeze(screenshots),
     content,
     contentHash: stableHash(content),
+    listing: Object.freeze({ screenshotWrites }),
   });
 }
 
@@ -281,10 +326,20 @@ function loadEngine(engineDir, configPath) {
   return require(path.join(engineDir, "app_review_submit.js"));
 }
 
-function assertAssembled(result) {
-  if (!result || result.status !== "assembled" || result.submitted !== false || result.remaining !== "submit") {
+function assertAssembled(result, { screenshotWrites = false } = {}) {
+  const remaining = screenshotWrites ? "upload-screenshots" : "submit";
+  if (!result || result.status !== "assembled" || result.submitted !== false || result.remaining !== remaining) {
     fail(
       "assemble-only did not prove an unsubmitted review submission "
+      + `(status=${result && result.status}, submitted=${result && result.submitted}, remaining=${result && result.remaining})`,
+    );
+  }
+}
+
+function assertUploaded(result) {
+  if (!result || result.status !== "screenshots_uploaded" || result.submitted !== false || result.remaining !== "submit") {
+    fail(
+      "screenshot upload did not prove an unsubmitted review submission "
       + `(status=${result && result.status}, submitted=${result && result.submitted}, remaining=${result && result.remaining})`,
     );
   }
@@ -308,6 +363,7 @@ function loadMonitorVariable(engineDir, token) {
 async function runEngine({
   firstRelease: firstReleaseFlag,
   assembleOnly,
+  uploadScreenshots = false,
   env,
   runSubmission,
   loadEngineModules,
@@ -316,6 +372,9 @@ async function runEngine({
 } = {}) {
   if (assembleOnly !== true && assembleOnly !== false) {
     fail("assembleOnly must be an explicit boolean");
+  }
+  if (uploadScreenshots && assembleOnly) {
+    fail("screenshot upload cannot be combined with assemble-only");
   }
   const processEnv = env || process.env;
   trustedContext(processEnv);
@@ -345,7 +404,9 @@ async function runEngine({
 
   const scratch = ownerOnlyDirectory(path.join(
     processEnv.RUNNER_TEMP || path.join(sourceRoot, ".build"),
-    assembleOnly ? "eddies-app-review-assemble" : "eddies-app-review-submit",
+    uploadScreenshots
+      ? "eddies-app-review-upload"
+      : (assembleOnly ? "eddies-app-review-assemble" : "eddies-app-review-submit"),
   ));
   const journal = path.join(scratch, "journal.json");
   const evidencePath = writeOwnerOnlyFile(path.join(scratch, "evidence.json"), "{}\n");
@@ -373,9 +434,16 @@ async function runEngine({
     expectedReleaseType: manifest.candidate.releaseType,
     preflight: false,
     assembleOnly,
+    uploadScreenshots: Boolean(uploadScreenshots),
     resume: false,
   });
   if (args.assembleOnly !== assembleOnly) fail("internal adapter dropped assembleOnly");
+  if (args.uploadScreenshots !== Boolean(uploadScreenshots)) {
+    fail("internal adapter dropped uploadScreenshots");
+  }
+  if (uploadScreenshots && source.listing.screenshotWrites !== true) {
+    fail("screenshot upload requires listing.screenshotWrites=true");
+  }
   if (firstRelease && (args.firstRelease !== true || args.baselineVersion !== null)) {
     fail("internal adapter dropped first-release mode");
   }
@@ -384,7 +452,7 @@ async function runEngine({
     ? loadEngineModules()
     : loadEngine(engineDir, configPath);
   let handoff = monitorVariable;
-  if (!assembleOnly && !handoff) {
+  if (!assembleOnly && !uploadScreenshots && !handoff) {
     const tokenName = config.env && config.env.monitorVariableToken;
     if (!tokenName) fail("config.env.monitorVariableToken is required for full submit");
     handoff = loadMonitorVariable(engineDir, requiredEnv(processEnv, tokenName));
@@ -399,11 +467,13 @@ async function runEngine({
     source,
     env: {},
     verifyEvidence: () => true,
-    ...(assembleOnly ? {} : { monitorVariable: handoff }),
+    ...(assembleOnly || uploadScreenshots ? {} : { monitorVariable: handoff }),
   });
   const result = outcome && outcome.result ? outcome.result : outcome;
-  if (assembleOnly) assertAssembled(result);
-  else assertSubmitted(result);
+  if (uploadScreenshots) assertUploaded(result);
+  else if (assembleOnly) {
+    assertAssembled(result, { screenshotWrites: source.listing.screenshotWrites === true });
+  } else assertSubmitted(result);
   const output = engine && engine.formatSuccess
     ? engine.formatSuccess(result, journal)
     : JSON.stringify({
@@ -433,9 +503,12 @@ async function main(argv = process.argv.slice(2)) {
   try {
     const assembled = await runAssemble({ argv });
     process.stdout.write(assembled.output);
+    const next = assembled.source && assembled.source.listing && assembled.source.listing.screenshotWrites
+      ? "a captain-gated mode=upload dispatch"
+      : "a captain-gated mode=submit dispatch";
     process.stdout.write(
       "help: Review submission is assembled and unsubmitted. "
-      + "The remaining action is a captain-gated mode=submit dispatch.\n",
+      + `The remaining action is ${next}.\n`,
     );
     return 0;
   } catch (error) {
@@ -453,12 +526,19 @@ module.exports = {
   EULA_URL,
   AssembleError,
   assertAssembled,
+  assertUploaded,
   assertSubmitted,
   buildEngineSource,
+  confirmedVersion,
   descriptionWithAppliedEula,
+  fail,
+  loadConfig,
+  loadManifest,
   parseAssembleArgv,
+  requiredEnv,
   runAssemble,
   runEngine,
+  trustedContext,
   main,
 };
 

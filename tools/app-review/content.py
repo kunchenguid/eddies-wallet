@@ -23,7 +23,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path, PurePosixPath
 import sys
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence
 
 _HERE = str(Path(__file__).resolve().parent)
 if _HERE not in sys.path:
@@ -48,22 +48,47 @@ class ContentError(core.BoundedError):
 
 
 def verify_manifest_files(
-    manifest: Mapping[str, Any], source_root: Path
+    manifest: Mapping[str, Any],
+    source_root: Path,
+    *,
+    config: Mapping[str, Any] | None = None,
+    screenshot_directory: Sequence[str] | None = None,
 ) -> Mapping[str, Mapping[str, Any]]:
     """Prove every approved image still has exactly the approved bytes.
 
-    Returns one entry per reviewed path carrying the recomputed size, SHA-256,
-    and the MD5 App Store Connect reports for the same upload.
+    Listing screenshots live at `{screenshotDirectory}/{fileName}`. In-app
+    purchase review screenshots still bind by their approved path. Returns one
+    entry per reviewed path carrying the recomputed size, SHA-256, and the MD5
+    App Store Connect reports for the same upload.
     """
     approved = core.validate_manifest(manifest)
-    descriptors: list[Mapping[str, Any]] = []
-    for screenshot in approved["content"]["screenshots"]:
-        descriptors.extend(screenshot["files"])
-    for purchase in approved["content"]["inAppPurchases"]:
-        descriptors.append(purchase["reviewScreenshot"])
+    directory: tuple[str, ...]
+    if screenshot_directory is not None:
+        directory = tuple(screenshot_directory)
+    elif config is not None:
+        directory = core.listing_screenshot_directory(config)
+    else:
+        raise ContentError("listing screenshot directory is required to verify files")
 
     verified: dict[str, Mapping[str, Any]] = {}
-    for descriptor in descriptors:
+    for screenshot in approved["content"]["screenshots"]:
+        for descriptor in screenshot["files"]:
+            path = core.listing_screenshot_relative_path(directory, descriptor["fileName"])
+            data = _read_reviewed_file(source_root, path)
+            if len(data) != descriptor["fileSize"]:
+                raise ContentError(f"reviewed file changed size since approval: {path}")
+            if hashlib.sha256(data).hexdigest() != descriptor["sha256"]:
+                raise ContentError(f"reviewed file changed content since approval: {path}")
+            verified[path] = {
+                "bytes": len(data),
+                "sha256": descriptor["sha256"],
+                "md5": hashlib.md5(data).hexdigest(),
+                "name": descriptor["fileName"],
+                "width": screenshot["width"],
+                "height": screenshot["height"],
+            }
+    for purchase in approved["content"]["inAppPurchases"]:
+        descriptor = purchase["reviewScreenshot"]
         path = descriptor["path"]
         data = _read_reviewed_file(source_root, path)
         if len(data) != descriptor["bytes"]:
@@ -310,12 +335,33 @@ class CandidateReadTransport:
         }
         collected: list[Mapping[str, Any]] = []
         for entry in sets:
-            slot = asc_read.text(asc_read.attributes(entry), "screenshotDisplayType")
-            files = [
-                self._reviewed_asset(assets, identifier, f"screenshot {slot}")
+            display_type = asc_read.text(
+                asc_read.attributes(entry), "screenshotDisplayType"
+            )
+            mapped = [
+                self._listing_screenshot_asset(
+                    assets, identifier, f"screenshot {display_type}"
+                )
                 for identifier in _ordered_linkage(entry, "appScreenshots", "appScreenshots")
             ]
-            collected.append({"slot": slot, "files": files})
+            if not mapped:
+                raise asc_read.AppStoreConnectError(
+                    f"screenshot {display_type} has no delivered files"
+                )
+            widths = {item["width"] for item in mapped}
+            heights = {item["height"] for item in mapped}
+            if len(widths) != 1 or len(heights) != 1:
+                raise asc_read.AppStoreConnectError(
+                    f"screenshot {display_type} dimensions are not uniform"
+                )
+            collected.append(
+                {
+                    "displayType": display_type,
+                    "width": mapped[0]["width"],
+                    "height": mapped[0]["height"],
+                    "files": [item["file"] for item in mapped],
+                }
+            )
         return collected
 
     def _in_app_purchases(self) -> list[Mapping[str, Any]]:
@@ -386,6 +432,25 @@ class CandidateReadTransport:
 
     # -- asset identity -----------------------------------------------------
 
+    def _listing_screenshot_asset(
+        self, assets: Mapping[str, Mapping[str, Any]], identifier: str, label: str
+    ) -> Mapping[str, Any]:
+        bound = self._reviewed_asset(assets, identifier, label)
+        verified = self._verified_files.get(bound["path"])
+        if verified is None or "width" not in verified or "height" not in verified:
+            raise asc_read.AppStoreConnectError(
+                f"an uploaded {label} asset does not match a listing screenshot"
+            )
+        return {
+            "width": verified["width"],
+            "height": verified["height"],
+            "file": {
+                "fileName": bound["fileName"],
+                "fileSize": bound["bytes"],
+                "sha256": bound["sha256"],
+            },
+        }
+
     def _reviewed_asset(
         self, assets: Mapping[str, Mapping[str, Any]], identifier: str, label: str
     ) -> Mapping[str, Any]:
@@ -394,7 +459,7 @@ class CandidateReadTransport:
             raise asc_read.AppStoreConnectError(
                 f"App Store Connect omitted an included {label} asset"
             )
-        return self._match_asset(found, label)
+        return self._match_asset(found, label, include_file_name=True)
 
     def _match_asset(
         self,
@@ -402,6 +467,7 @@ class CandidateReadTransport:
         label: str,
         *,
         allow_source_filename: bool = False,
+        include_file_name: bool = False,
     ) -> Mapping[str, Any]:
         """Map one uploaded Apple asset back to the exact approved local file.
 
@@ -435,7 +501,14 @@ class CandidateReadTransport:
                 f"an uploaded {label} asset does not match exactly one approved file"
             )
         path, verified = matches[0]
-        return {"path": path, "bytes": verified["bytes"], "sha256": verified["sha256"]}
+        bound = {
+            "path": path,
+            "bytes": verified["bytes"],
+            "sha256": verified["sha256"],
+        }
+        if include_file_name:
+            bound["fileName"] = verified["name"]
+        return bound
 
 
 def _ordered_linkage(

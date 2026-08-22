@@ -402,7 +402,9 @@ def _run_content_reconcile(
     repo_root = Path(__file__).resolve().parents[2]
     try:
         manifest = runtime.load_manifest(VERSION, root=repo_root)
-        verified_files = content.verify_manifest_files(manifest, repo_root)
+        verified_files = content.verify_manifest_files(
+            manifest, repo_root, config=runtime.load_config(repo_root)
+        )
     except Exception as error:
         # A local manifest/asset problem is not the Apple 400 under
         # investigation; report it bounded and do not count it as an HTTP read

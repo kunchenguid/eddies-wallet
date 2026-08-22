@@ -1,30 +1,27 @@
 # 0.1.17 App Store listing screenshots
 
-Captain-approved submission set, 2026-08-13. These ten PNGs are the locked
-listing screenshots for Eddie's Wallet 0.1.17: the same five screens on iPhone
-6.9" (1320x2868) and iPad 13" (2064x2752). The approved `0.1.17` App Review
-manifest (`tools/app-review/manifests/0.1.17.json`) now binds these exact paths
-and bytes; the attended App Store Connect upload used this same set.
+Live 0.1.17 en-US screenshot sets (GET, run 32555245100): only
+`APP_IPHONE_67` and `APP_IPAD_PRO_3GEN_129` have screenshots. Those are the
+display types this directory binds.
 
-| File | Device | Screen |
-| --- | --- | --- |
-| `iphone-6.9-kid-home.png` | iPhone 6.9" | Kid home |
-| `iphone-6.9-parent-area.png` | iPhone 6.9" | Parent area |
-| `iphone-6.9-parent-loan-payments.png` | iPhone 6.9" | Parent loan payments |
-| `iphone-6.9-money-flow-review.png` | iPhone 6.9" | Money flow review |
-| `iphone-6.9-cloud-plans.png` | iPhone 6.9" | Cloud plans |
-| `ipad-13-kid-home.png` | iPad 13" | Kid home |
-| `ipad-13-parent-area.png` | iPad 13" | Parent area |
-| `ipad-13-parent-loan-payments.png` | iPad 13" | Parent loan payments |
-| `ipad-13-money-flow-review.png` | iPad 13" | Money flow review |
-| `ipad-13-cloud-plans.png` | iPad 13" | Cloud plans |
+Engine asset path is `{sourceRoot}/{listing.screenshotDirectory joined}/{fileName}`.
+This directory is `listing.screenshotDirectory`. The captain-approved manifest
+binds `{displayType,width,height,files[{fileName,fileSize,sha256}]}`. The engine
+computes MD5 of those bytes as Apple's `sourceFileChecksum`. Do not assemble,
+upload, or submit 0.1.17 while it is HELD.
+
+| File prefix | Display type | Size | Format |
+| --- | --- | --- | --- |
+| `iphone-6.9-*.png` | `APP_IPHONE_67` | 1320x2868 | RGB8 PNG, no alpha |
+| `ipad-13-*.png` | `APP_IPAD_PRO_3GEN_129` | 2064x2752 | RGB8 PNG, no alpha |
+
+`python3 tools/app-review/screenshot_preflight.py` proves every required slot
+is present, the PNG is the approved size and format, no two files in a size
+are byte-identical, and checksums match the manifest.
 
 These listing files are produced by `EvidenceCaptureUITests.testAppStoreListingScreenshots`
-on the matching simulator (iPhone 6.9" and iPad 13"), then copied here as RGB8 PNG.
-The locked 0.1.17 bytes stay until a captain-approved rebind after the new iPad
-set is live in App Store Connect. Until then the captain uploads the five files
-in `ipad-asc-upload/` onto the live `APP_IPAD_PRO_3GEN_129` slots of the same
-file names.
+on the matching simulator (iPhone 6.9" / iPhone 17 Pro Max, and iPad 13"),
+then copied here as RGB8 PNG.
 
 | Slot | Scenario | Evidence name |
 | --- | --- | --- |
@@ -38,8 +35,6 @@ Parent-area and parent-loan-payments must never be byte-identical. On iPad 13"
 the missed-loan card is already fully on screen, so two captures of that same
 viewport collapse and the assemble engine refuses them.
 
-Do not replace a file in place. A later version gets its own directory.
-
 ## Cloud subscription review screenshots
 
 These two `iap-review-cloud-plans-priced-*` files are the Cloud subscription
@@ -52,6 +47,3 @@ prices.
 | --- | --- | --- |
 | `iap-review-cloud-plans-priced-iphone-6.9.png` | iPhone 6.9" (1320x2868) | Uploaded to App Store Connect on both Cloud monthly and Cloud annual. The 0.1.17 App Review manifest binds this file as `inAppPurchases[].reviewScreenshot` for both products. |
 | `iap-review-cloud-plans-priced-ipad-13.png` | iPad 13" (2064x2752) | Alternate capture. Committed for completeness; not currently uploaded to App Store Connect and not the file the manifest binds. |
-
-Byte-for-byte these must match what is uploaded to App Store Connect. Do not
-replace a file in place.

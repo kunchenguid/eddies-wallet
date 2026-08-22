@@ -15,18 +15,31 @@ name: App Review submission
 #   3. fresh readiness evidence from app-review-demo-preflight.yml must bind the
 #      same candidate, and
 #   4. the mutation-capable App Store Connect credential exists only inside the
-#      assemble and submit jobs' one mutating step each. Those jobs are
-#      mutually exclusive: only the dispatched mode runs.
+#      assemble, upload, and submit jobs' one mutating step each. Those jobs are
+#      mutually exclusive: only the dispatched mode runs. Upload never submits.
 #
 # Credential lanes, deliberately separated by job:
 #   verify   - no App Store Connect credential and no variable token. The verify
 #              lane refuses to start if an App Store Connect credential is present.
+#              It also runs the Eddie-side listing-screenshot preflight.
 #   assemble - mutation-capable App Store Connect credentials. It checks out
-#              kunchenguid/app-review-submit@62bfbc3b and runs assemble-only
+#              kunchenguid/app-review-submit@4e463856 and runs assemble-only
 #              first-release (`args.assembleOnly: true`). The engine aligns
 #              App Info categories from config (EDUCATION + FINANCE), attaches
 #              the app version plus both Cloud subscriptions, then hard-returns
-#              before submit. It never maps the monitor variable token.
+#              before submit (remaining: upload-screenshots when
+#              listing.screenshotWrites is on). It never maps the monitor
+#              variable token.
+#   upload   - the same App Store Connect credentials as assemble, never the
+#              monitor variable token. Positioned after assemble and before
+#              submit as a separate dispatch. Runs
+#              tools/app-review/upload_screenshots.js --upload-screenshots
+#              --first-release onto runSubmission({ uploadScreenshots: true }).
+#              SCREENSHOT_UPLOAD_ENGINE_ARGV is the engine CLI
+#              ["node","app_review_pipeline.js","upload-screenshots"].
+#              listingPolicy stays observe. Opt-in is
+#              listing.screenshotWrites=true on the captain-approved manifest
+#              and config. Do not add screenshots to alignmentWrites.
 #   submit   - the same App Store Connect credentials plus
 #              APP_REVIEW_MONITOR_VARIABLE_TOKEN. It runs
 #              tools/app-review/full_submit.js --submit --first-release, which
@@ -49,13 +62,14 @@ on:
         required: true
         type: string
       mode:
-        description: verify performs no App Store mutation; assemble stages the review submission and stops; submit asks the engine to submit for review
+        description: verify performs no App Store mutation; assemble stages the review submission and stops; upload writes listing screenshots after assemble without submitting; submit asks the engine to submit for review
         required: true
         default: verify
         type: choice
         options:
           - verify
           - assemble
+          - upload
           - submit
       evidence:
         description: Base64 readiness evidence from a fresh app-review-demo-preflight run
@@ -96,7 +110,9 @@ jobs:
       - name: Restore the verify entrypoint from the dispatch SHA
         env:
           DISPATCH_SHA: ${{ github.sha }}
-        run: git show "${DISPATCH_SHA}:tools/app-review/verify.py" > tools/app-review/verify.py
+        run: |
+          git show "${DISPATCH_SHA}:tools/app-review/verify.py" > tools/app-review/verify.py
+          git show "${DISPATCH_SHA}:tools/app-review/screenshot_preflight.py" > tools/app-review/screenshot_preflight.py
 
       - name: Refuse anything the captain did not approve
         env:
@@ -140,8 +156,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit#12 (category alignment from config).
-          ref: 62bfbc3bf941d2bcb85be6ccb1ad083463b89427
+          # Pin: kunchenguid/app-review-submit@4e463856 (screenshot upload:
+          # assemble, upload-screenshots, and submit as distinct steps).
+          ref: 4e4638568bc74f4689c812a9b6a76edd4e438095
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -160,6 +177,72 @@ jobs:
           EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
           EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
         run: node tools/app-review/assemble_only.js --assemble-only --first-release
+
+  upload:
+    name: Upload listing screenshots without submitting
+    needs: verify
+    if: >-
+      github.repository == 'kunchenguid/eddies-wallet' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.mode == 'upload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pin the manifest-approved commit
+        env:
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+        run: .github/scripts/pin_app_review_manifest.sh
+
+      - name: Restore the upload adapter and preflight from the dispatch SHA
+        env:
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          git show "${DISPATCH_SHA}:tools/app-review/assemble_only.js" > tools/app-review/assemble_only.js
+          git show "${DISPATCH_SHA}:tools/app-review/upload_screenshots.js" > tools/app-review/upload_screenshots.js
+          git show "${DISPATCH_SHA}:tools/app-review/screenshot_preflight.py" > tools/app-review/screenshot_preflight.py
+          git show "${DISPATCH_SHA}:tools/app-review/app-review.config.json" > tools/app-review/app-review.config.json
+
+      - name: Check out the shared review-submission CLI
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: kunchenguid/app-review-submit
+          # Pin: kunchenguid/app-review-submit@4e463856 (screenshot upload:
+          # assemble, upload-screenshots, and submit as distinct steps).
+          ref: 4e4638568bc74f4689c812a9b6a76edd4e438095
+          path: .app-review-submit
+          token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Preflight listing screenshot slots
+        env:
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+        run: python3 tools/app-review/screenshot_preflight.py --version "${EDDIES_APP_REVIEW_VERSION}"
+
+      # Mutation-capable App Store Connect credential for screenshot upload
+      # only. It never maps the monitor variable token and never asks the
+      # engine to submit for review. Engine contract: --upload-screenshots
+      # onto runSubmission({ uploadScreenshots: true }). The argv pin is
+      # node app_review_pipeline.js upload-screenshots.
+      - name: Upload listing screenshots and stop before Submit
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_REVIEW_CONFIG: ${{ github.workspace }}/tools/app-review/app-review.config.json
+          APP_REVIEW_ENGINE_DIR: ${{ github.workspace }}/.app-review-submit
+          SCREENSHOT_UPLOAD_ENGINE_ARGV: '["node","app_review_pipeline.js","upload-screenshots"]'
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+          EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
+          EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
+        run: node tools/app-review/upload_screenshots.js --upload-screenshots --first-release
 
   submit:
     name: Submit the captain-approved candidate for App Review
@@ -196,8 +279,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit#12 (category alignment from config).
-          ref: 62bfbc3bf941d2bcb85be6ccb1ad083463b89427
+          # Pin: kunchenguid/app-review-submit@4e463856 (screenshot upload:
+          # assemble, upload-screenshots, and submit as distinct steps).
+          ref: 4e4638568bc74f4689c812a9b6a76edd4e438095
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
