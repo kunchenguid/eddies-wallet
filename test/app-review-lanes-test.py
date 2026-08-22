@@ -341,6 +341,34 @@ class PermissionAndPinTests(WorkflowModelCase):
                     self.assertTrue(entrypoints)
                     self.assertLess(pin, min(entrypoints))
 
+    def test_demo_preflight_restores_its_reader_from_dispatch_after_pinning(self):
+        steps = steps_of(self.jobs(DEMO_PREFLIGHT)["readiness"])
+        pin = next(
+            index
+            for index, step in enumerate(steps)
+            if "pin_app_review_manifest.sh" in step.get("run", "")
+        )
+        restore = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("env", {}).get("DISPATCH_SHA") == "${{ github.sha }}"
+        )
+        read = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("run", "").strip()
+            == "python3 tools/app-review/demo_preflight.py"
+        )
+        self.assertLess(pin, restore)
+        self.assertLess(restore, read)
+        self.assertEqual(
+            steps[restore]["run"].strip().splitlines(),
+            [
+                'git show "${DISPATCH_SHA}:tools/app-review/demo_preflight.py" > tools/app-review/demo_preflight.py',
+                'git show "${DISPATCH_SHA}:tools/app-review/content.py" > tools/app-review/content.py',
+            ],
+        )
+
 
 class SharedMonitorTests(WorkflowModelCase):
     """The scheduled monitor is the pinned shared GET-only tool, not the old dedicated-key poll."""
