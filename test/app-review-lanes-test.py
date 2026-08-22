@@ -33,12 +33,14 @@ EULA_APPEND = "app-review-eula-append.yml"
 MONITOR = "app-review-monitor.yml"
 MONITOR_E2E = "app-review-monitor-e2e.yml"
 LIST_VERSIONS = "app-review-list-versions.yml"
+LIST_APP_INFO = "app-review-list-app-info.yml"
 APP_REVIEW_WORKFLOWS = (PREPARE, SUBMIT, DEMO_PREFLIGHT)
 MODELED_WORKFLOWS = APP_REVIEW_WORKFLOWS + (
     MONITOR,
     MONITOR_E2E,
     EULA_APPEND,
     LIST_VERSIONS,
+    LIST_APP_INFO,
 )
 SHARED_TOOL_PIN = "216a65513dbde70d04d0efd021792743f094ed77"
 FIXED_MONITOR_ENGINE_SHA = "216a65513dbde70d04d0efd021792743f094ed77"
@@ -181,6 +183,7 @@ class CredentialLaneTests(WorkflowModelCase):
                     [
                         (DEMO_PREFLIGHT, "readiness"),
                         (EULA_APPEND, "append"),
+                        (LIST_APP_INFO, "list"),
                         (LIST_VERSIONS, "list"),
                         (MONITOR_E2E, "observe"),
                         (MONITOR, "observe"),
@@ -781,6 +784,193 @@ class ListVersionsScriptTests(unittest.TestCase):
         )
 
 
+class ListAppInfoWorkflowTests(WorkflowModelCase):
+    """GET-only App Info category listing: classify E_PROTECTED, never submit."""
+
+    def test_the_listing_is_a_trusted_default_branch_dispatch(self):
+        triggers = self.models[LIST_APP_INFO]["on"]
+        self.assertEqual(list(triggers), ["workflow_dispatch"])
+        dispatch = triggers["workflow_dispatch"]
+        inputs = dispatch.get("inputs") if isinstance(dispatch, dict) else None
+        self.assertIn(dispatch, (None, True, {}, {"inputs": None}))
+        self.assertTrue(not inputs)
+        self.assertEqual(self.models[LIST_APP_INFO]["permissions"], {"contents": "read"})
+        concurrency = self.models[LIST_APP_INFO]["concurrency"]
+        self.assertEqual(concurrency["group"], "eddies-app-review-list-app-info")
+        self.assertIs(concurrency["cancel-in-progress"], False)
+        job = self.jobs(LIST_APP_INFO)["list"]
+        guard = " ".join(str(job.get("if", "")).split())
+        self.assertIn(REPOSITORY_GUARD, guard)
+        self.assertIn(DEFAULT_BRANCH_GUARD, guard)
+        self.assertEqual(job.get("permissions"), {"contents": "read"})
+        self.assertNotIn("environment", job)
+        self.assertNotIn("issues", job.get("permissions", {}))
+        self.assertNotIn("issues", self.models[LIST_APP_INFO]["permissions"])
+
+    def test_the_listing_maps_the_submit_key_into_exactly_one_get_step(self):
+        steps = steps_of(self.jobs(LIST_APP_INFO)["list"])
+        holding = [step for step in steps if secrets_of(step) & set(MUTATION_SECRETS)]
+        self.assertEqual(len(holding), 1)
+        self.assertEqual(secrets_of(holding[0]), set(MUTATION_SECRETS))
+        self.assertNotIn(VARIABLE_TOKEN, secrets_of(holding[0]))
+        self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(holding[0]))
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, secrets_of(holding[0]))
+        self.assertNotIn("GITHUB_TOKEN", holding[0].get("env") or {})
+        self.assertEqual(
+            holding[0]["run"].strip(),
+            "python3 tools/app-review/list_app_info_categories.py",
+        )
+        blob = json.dumps(self.models[LIST_APP_INFO])
+        self.assertNotIn("submit.py", blob)
+        self.assertNotIn("assemble_only.js", blob)
+        self.assertNotIn("app_review_pipeline.js", blob)
+        self.assertNotIn("reviewSubmissions", blob)
+        self.assertNotIn("issues: write", blob)
+
+    def test_every_listing_action_is_pinned_and_leaves_no_git_credential(self):
+        for step in steps_of(self.jobs(LIST_APP_INFO)["list"]):
+            uses = step.get("uses")
+            if uses:
+                self.assertRegex(uses, PINNED_ACTION)
+            if str(step.get("uses", "")).startswith("actions/checkout@"):
+                self.assertIs(step["with"]["persist-credentials"], False)
+
+
+class ListAppInfoScriptTests(unittest.TestCase):
+    """The printer reports every App Info row's resolved category ids."""
+
+    def setUp(self):
+        sys.path.insert(0, str(TOOLS))
+        self.addCleanup(sys.path.remove, str(TOOLS))
+        self.listing = importlib.import_module("list_app_info_categories")
+
+    def test_the_printer_resolves_relationship_ids_to_category_resource_ids(self):
+        class Session:
+            def __init__(self):
+                self.paths = []
+
+            def collection(self, path, query):
+                self.paths.append(("collection", path, dict(query)))
+                return (
+                    [
+                        {
+                            "type": "appInfos",
+                            "id": "info-live",
+                            "attributes": {"state": "READY_FOR_DISTRIBUTION"},
+                        },
+                        {
+                            "type": "appInfos",
+                            "id": "info-edit",
+                            "attributes": {"state": "PREPARE_FOR_SUBMISSION"},
+                        },
+                    ],
+                    [],
+                )
+
+            def optional_single(self, path, query):
+                self.paths.append(("optional_single", path, dict(query)))
+                mapping = {
+                    "/v1/appInfos/info-live/relationships/primaryCategory": {
+                        "type": "appCategories",
+                        "id": "EDUCATION",
+                    },
+                    "/v1/appInfos/info-live/relationships/secondaryCategory": {
+                        "type": "appCategories",
+                        "id": "PRODUCTIVITY",
+                    },
+                    "/v1/appInfos/info-edit/relationships/primaryCategory": {
+                        "type": "appCategories",
+                        "id": "FINANCE",
+                    },
+                    "/v1/appInfos/info-edit/relationships/secondaryCategory": {
+                        "type": "appCategories",
+                        "id": "PRODUCTIVITY",
+                    },
+                }
+                return mapping[path]
+
+            def get(self, path, query):
+                self.paths.append(("get", path, dict(query)))
+                identifier = path.rsplit("/", 1)[-1]
+                return {
+                    "data": {
+                        "type": "appCategories",
+                        "id": identifier,
+                        "attributes": {"platforms": ["IOS"]},
+                    }
+                }
+
+        session = Session()
+        rows = self.listing.collect_rows(session)
+        table = self.listing.format_table(rows, ("FINANCE", "PRODUCTIVITY"))
+        self.assertEqual(
+            [(method, path) for method, path, _query in session.paths if method != "collection"],
+            [
+                ("optional_single", "/v1/appInfos/info-live/relationships/primaryCategory"),
+                ("optional_single", "/v1/appInfos/info-live/relationships/secondaryCategory"),
+                ("get", "/v1/appCategories/EDUCATION"),
+                ("get", "/v1/appCategories/PRODUCTIVITY"),
+                ("optional_single", "/v1/appInfos/info-edit/relationships/primaryCategory"),
+                ("optional_single", "/v1/appInfos/info-edit/relationships/secondaryCategory"),
+                ("get", "/v1/appCategories/FINANCE"),
+                ("get", "/v1/appCategories/PRODUCTIVITY"),
+            ],
+        )
+        self.assertIn("count=2 writes=0 method=GET", table)
+        self.assertIn("configured.primary=FINANCE configured.secondary=PRODUCTIVITY", table)
+        self.assertIn(
+            "info-live\tREADY_FOR_DISTRIBUTION\tEDUCATION\tEDUCATION\tPRODUCTIVITY\tPRODUCTIVITY",
+            table,
+        )
+        self.assertIn(
+            "info-edit\tPREPARE_FOR_SUBMISSION\tFINANCE\tFINANCE\tPRODUCTIVITY\tPRODUCTIVITY",
+            table,
+        )
+        self.assertEqual(
+            self.listing.live_summary(rows),
+            "live.primary=EDUCATION,FINANCE live.secondary=PRODUCTIVITY appInfos=2",
+        )
+
+    def test_a_null_category_relationship_prints_as_empty_not_a_guess(self):
+        class Session:
+            def collection(self, path, query):
+                return (
+                    [
+                        {
+                            "type": "appInfos",
+                            "id": "info-empty",
+                            "attributes": {"state": "PREPARE_FOR_SUBMISSION"},
+                        }
+                    ],
+                    [],
+                )
+
+            def optional_single(self, path, query):
+                return None
+
+            def get(self, path, query):
+                raise AssertionError(f"must not resolve a missing category: {path}")
+
+        rows = self.listing.collect_rows(Session())
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "appInfoId": "info-empty",
+                    "state": "PREPARE_FOR_SUBMISSION",
+                    "primaryId": "",
+                    "primaryName": "",
+                    "secondaryId": "",
+                    "secondaryName": "",
+                }
+            ],
+        )
+        self.assertEqual(
+            self.listing.live_summary(rows),
+            "live.primary= live.secondary= appInfos=1",
+        )
+
+
 class EulaAppendWorkflowTests(WorkflowModelCase):
     """The 3.1.2 EULA append is a bounded one-shot write, not listing-sync."""
 
@@ -860,7 +1050,13 @@ class ImportBoundaryTests(unittest.TestCase):
         return set(completed.stdout.split())
 
     def test_the_read_only_entrypoints_never_load_a_mutation_module(self):
-        for entrypoint in ("prepare", "demo_preflight", "verify", "list_app_store_versions"):
+        for entrypoint in (
+            "prepare",
+            "demo_preflight",
+            "verify",
+            "list_app_store_versions",
+            "list_app_info_categories",
+        ):
             with self.subTest(entrypoint=entrypoint):
                 loaded = self.loaded_modules(entrypoint)
                 self.assertIn("core", loaded)

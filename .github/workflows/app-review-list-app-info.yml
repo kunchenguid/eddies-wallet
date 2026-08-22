@@ -1,0 +1,42 @@
+name: App Review App Info categories
+
+# GET-only listing of every App Info row's primary and secondary category.
+# It prints Apple's category resource ids (FINANCE, EDUCATION, PRODUCTIVITY)
+# so a first-release E_PROTECTED category mismatch can be classified against
+# tools/app-review/app-review.config.json. It performs NO mutation and NO
+# submission.
+#
+# Pattern matches app-review-list-versions.yml: workflow_dispatch,
+# contents:read only, no issues:write, no GitHub Environment, gated to this
+# repository and main, encrypted APP_STORE_CONNECT_* mapped into one GET step.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eddies-app-review-list-app-info
+  cancel-in-progress: false
+
+jobs:
+  list:
+    name: List live App Info categories
+    if: github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: List App Info categories (GET-only)
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: python3 tools/app-review/list_app_info_categories.py

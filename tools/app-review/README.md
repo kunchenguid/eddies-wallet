@@ -35,6 +35,8 @@ Store Connect. `test/release-checks.sh` runs these suites.
 | `github_api.py` | The durable issue-record boundary on `GITHUB_TOKEN`. The post-acceptance monitor-variable handoff remains in this module but is not wired into assemble-only; the captain Submit tap is outside this repository. |
 | `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by verify and assemble. |
 | `prepare.py`, `demo_preflight.py`, `verify.py` | The Python workflow entrypoints. Verify is credential-free. |
+| `list_app_store_versions.py` | GET-only iOS App Store version listing. |
+| `list_app_info_categories.py` | GET-only App Info primary and secondary category listing. |
 | `assemble_only.js` | Eddie's adapter onto `kunchenguid/app-review-submit`. It maps the captain-approved Eddie manifest, demo-preflight evidence, and Cloud product ids onto `runSubmission({ assembleOnly: true })`, then refuses any result other than `status: assembled` / `submitted: false`. |
 | `append_standard_eula.py` | One-shot Guideline 3.1.2 remediation: GET the 0.1.17 en-US description, append Apple's standard EULA line if absent, PATCH only that field, GET to verify. It does not import a Python write boundary. |
 
