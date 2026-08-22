@@ -30,9 +30,9 @@ jobs:
 
       # ubuntu-latest ships python3, used directly by every other App Review
       # workflow in this repo (app-review-demo-preflight.yml, -submit.yml).
-      - name: Probe listing screenshot reserve shape (GET-only)
+      - name: Probe full 0.1.17 ASC create/prove shape catalog (GET-only)
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-        run: python3 tools/app-review/probe_screenshot_reserve_shape.py
+        run: python3 tools/app-review/probe_asc_shape_catalog.py
