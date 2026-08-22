@@ -156,8 +156,8 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit@0d8b4a8c (screenshot upload:
-          # assemble, upload-screenshots, and submit as distinct steps).
+          # Pin: kunchenguid/app-review-submit#14 (authoritative subscription-item
+          # readback and fail-closed conflict recovery).
           ref: 0d8b4a8cabffca931ff414c22c7b9b208da2470f
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
@@ -214,8 +214,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit@0d8b4a8c (screenshot upload:
-          # assemble, upload-screenshots, and submit as distinct steps).
+          # Same shared-engine pin as assemble.
           ref: 0d8b4a8cabffca931ff414c22c7b9b208da2470f
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
@@ -279,8 +278,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit@0d8b4a8c (screenshot upload:
-          # assemble, upload-screenshots, and submit as distinct steps).
+          # Same shared-engine pin as assemble.
           ref: 0d8b4a8cabffca931ff414c22c7b9b208da2470f
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
