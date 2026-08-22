@@ -81,9 +81,9 @@ for `kunchenguid/app-review-submit`, not a console chore.
   `config.reviewDetails`.
 - Copyright on version create from `config.reviewDetails.copyright`. 0.1.17
   already carries it.
-- Create or reuse the review submission; attach the app version and both Cloud
-  subscriptions. Subscription items are proven through authoritative
-  subscription-relationship readback.
+- Create or reuse the review submission; attach the app version, both Cloud
+  subscription versions, and their subscription group version. Every item is
+  proven through authoritative relationship readback before assembly succeeds.
 - Reuse a leftover `UNRESOLVED_ISSUES` submission by readback. A subscription
   attach conflict is accepted as idempotent only when readback positively finds
   the intended item; otherwise the pending mutation stays unresolved and no
@@ -146,7 +146,7 @@ Eddie-side flags for them, and do not ask the captain to do them in the UI.
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only, including the default exact live listing-screenshot match. | The recovery issue only. |
 | 6. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered matching review assets, and the production service publishing Cloud activation with exactly those two products. When `listing.screenshotWrites` is true, it defers only the live listing-screenshot match because the later `mode=upload` owns that live write. Emits base64 readiness evidence. | Nothing. |
 | 7. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the listing-screenshot preflight, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
-| 8. `app-review-submit.yml` with `mode=assemble` | Checks out the pinned shared engine and runs assemble-only first-release (`--assemble-only --first-release`): 0.1.17 has no live baseline. The engine accepts a `REJECTED` target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version plus both Cloud subscriptions, proves the subscription items by authoritative readback, then hard-returns before Submit (`status: assembled`, `submitted: false`, `remaining: upload-screenshots`). | App Store Connect assembly only. |
+| 8. `app-review-submit.yml` with `mode=assemble` | Checks out the pinned shared engine and runs assemble-only first-release (`--assemble-only --first-release`): 0.1.17 has no live baseline. The engine accepts a `REJECTED` target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version, both Cloud subscription versions, and their subscription group version, proves every item by authoritative readback, then hard-returns before Submit (`status: assembled`, `submitted: false`, `remaining: upload-screenshots`). | App Store Connect assembly only. |
 | 9. `app-review-submit.yml` with `mode=upload` | After assemble, before submit. Runs the Eddie-side screenshot preflight, then `upload_screenshots.js --upload-screenshots --first-release` onto `runSubmission({ uploadScreenshots: true })` with `SCREENSHOT_UPLOAD_ENGINE_ARGV` set to `["node","app_review_pipeline.js","upload-screenshots"]`. It never submits. `listingPolicy` stays `observe`. `listing.screenshotWrites` is true. | Listing screenshots only. |
 | 10. `app-review-submit.yml` with `mode=submit` | Same pin. Runs `full_submit.js --submit --first-release`, which calls `runSubmission({ assembleOnly: false })`. After Apple accepts, the engine writes `APP_REVIEW_MONITOR_VERSION`. 0.1.17 stays HELD: do not submit. | Apple's Submit for Review, plus monitor arming. |
 | 11. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; notifies on a terminal or sustained-unavailable observation. | One GitHub issue. |
@@ -186,14 +186,14 @@ reconciles against authoritative Apple state first. 0.1.17 is Eddie's first
 App Store version: the captain-approved manifest is first-release (no
 `baselineVersion`), and assemble-only passes `--first-release`. That engine
 accepts a `REJECTED` target and reuses the leftover `UNRESOLVED_ISSUES`
-submission by readback, attaches the app version and every non-APPROVED Cloud
-subscription, proving each subscription item through an authoritative
-subscription-relationship readback, then hard-returns before Submit. Python
-prepare's GET reconcile still refuses `REJECTED` as an unsupported draft state;
-that does not block assemble-only. A subscription create conflict clears only
-when readback finds the intended item; an unproven create remains pending and is
-not replayed. A rerun therefore cannot create a duplicate review item or a
-second review submission.
+submission by readback, attaches the app version, every non-APPROVED Cloud
+subscription version, and their subscription group version, proving every item
+through authoritative relationship readback, then hard-returns before Submit.
+Python prepare's GET reconcile still refuses `REJECTED` as an unsupported
+draft state; that does not block assemble-only. A subscription create conflict
+clears only when readback finds the intended item; an unproven create remains
+pending and is not replayed. A rerun therefore cannot create a duplicate review
+item or a second review submission.
 
 After a successful assemble the review submission is staged and unsubmitted
 (`status: assembled`, `submitted: false`, `remaining: upload-screenshots`). The

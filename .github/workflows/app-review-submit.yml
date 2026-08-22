@@ -26,8 +26,9 @@ name: App Review submission
 #              kunchenguid/app-review-submit@551e6531 and runs assemble-only
 #              first-release (`args.assembleOnly: true`). The engine aligns
 #              App Info categories from config (EDUCATION + FINANCE), attaches
-#              the app version plus both Cloud subscriptions, then hard-returns
-#              before submit (remaining: upload-screenshots when
+#              the app version, both Cloud subscription versions, and their
+#              subscription group version, then hard-returns before submit
+#              (remaining: upload-screenshots when
 #              listing.screenshotWrites is on). It never maps the monitor
 #              variable token.
 #   upload   - the same App Store Connect credentials as assemble, never the
