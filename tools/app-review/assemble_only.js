@@ -31,6 +31,31 @@ class AssembleError extends Error {
   }
 }
 
+function formatEngineError(error, fallbackMessage) {
+  if (error instanceof AssembleError) {
+    return `error:\n  message: ${JSON.stringify(error.message)}\n`;
+  }
+  const message = (error && error.safeMessage) || fallbackMessage;
+  const lines = ["error:"];
+  const push = (key, value) => {
+    lines.push(`  ${key}: ${typeof value === "number" ? String(value) : JSON.stringify(value)}`);
+  };
+  if (error && typeof error.code === "string" && error.code) push("code", error.code);
+  if (error && typeof error.operation === "string" && error.operation) push("operation", error.operation);
+  push("message", message);
+  if (error && Number.isInteger(error.httpStatus) && error.httpStatus > 0) push("httpStatus", error.httpStatus);
+  if (error && typeof error.appleCode === "string" && error.appleCode && error.appleCode !== "NONE") {
+    push("appleCode", error.appleCode);
+  }
+  if (error && typeof error.detail === "string" && error.detail) push("detail", error.detail);
+  return `${lines.join("\n")}\n`;
+}
+
+function writeEngineError(error, fallbackMessage) {
+  process.stdout.write(formatEngineError(error, fallbackMessage));
+  return error instanceof AssembleError ? error.exitCode : 1;
+}
+
 function fail(message, exitCode = 1) {
   throw new AssembleError(message, exitCode);
 }
@@ -512,11 +537,7 @@ async function main(argv = process.argv.slice(2)) {
     );
     return 0;
   } catch (error) {
-    const message = error instanceof AssembleError
-      ? error.message
-      : (error && error.safeMessage) || "assemble-only failed safely";
-    process.stdout.write(`error:\n  message: ${JSON.stringify(message)}\n`);
-    return error instanceof AssembleError ? error.exitCode : 1;
+    return writeEngineError(error, "assemble-only failed safely");
   }
 }
 
@@ -525,6 +546,8 @@ module.exports = {
   EULA_LINE,
   EULA_URL,
   AssembleError,
+  formatEngineError,
+  writeEngineError,
   assertAssembled,
   assertUploaded,
   assertSubmitted,

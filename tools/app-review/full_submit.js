@@ -66,11 +66,7 @@ async function main(argv = process.argv.slice(2)) {
     );
     return 0;
   } catch (error) {
-    const message = error instanceof assemble.AssembleError
-      ? error.message
-      : (error && error.safeMessage) || "full submit failed safely";
-    process.stdout.write(`error:\n  message: ${JSON.stringify(message)}\n`);
-    return error instanceof assemble.AssembleError ? error.exitCode : 1;
+    return assemble.writeEngineError(error, "full submit failed safely");
   }
 }
 
