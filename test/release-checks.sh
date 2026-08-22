@@ -375,6 +375,11 @@ if node test/app-review-assemble-test.js >/dev/null; then
 else
   fail "App Review assemble-only adapter tests"
 fi
+if node test/app-review-full-submit-test.js >/dev/null; then
+  pass "App Review full-submit adapter tests"
+else
+  fail "App Review full-submit adapter tests"
+fi
 if python3 test/app-review-eula-append-test.py >/dev/null 2>&1; then
   pass "App Review 3.1.2 EULA-append fake-boundary tests"
 else
@@ -404,10 +409,11 @@ forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-
 forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-prepare.yml "preparation never receives the monitor variable token"
 forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-demo-preflight.yml "the readiness preflight never receives the monitor variable token"
 require_grep 'assemble_only.js --assemble-only --first-release' .github/workflows/app-review-submit.yml "submit workflow runs Node assemble-only first-release"
-require_grep '16df9345ada8d50f4e1f7637839b8f2616c54ddb' .github/workflows/app-review-submit.yml "submit workflow pins app-review-submit first-release SHA"
+require_grep 'full_submit.js --submit --first-release' .github/workflows/app-review-submit.yml "submit workflow runs Node full-submit first-release when mode=submit"
+require_grep '62bfbc3bf941d2bcb85be6ccb1ad083463b89427' .github/workflows/app-review-submit.yml "submit workflow pins app-review-submit category-alignment SHA"
 forbid_grep 'app_review_pipeline.js submit' .github/workflows/app-review-submit.yml "submit workflow never invokes the Node pipeline submit command"
 forbid_grep 'python3 tools/app-review/submit.py' .github/workflows/app-review-submit.yml "submit workflow never invokes the retired Python submit engine"
-forbid_grep 'submitted: true' .github/workflows/app-review-submit.yml "submit workflow never PATCHes submitted true"
+forbid_grep '16df9345ada8d50f4e1f7637839b8f2616c54ddb' .github/workflows/app-review-submit.yml "submit workflow no longer pins the superseded first-release-only SHA"
 forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/prepare.py "preparation contains no Apple submission path"
 forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/demo_preflight.py "the readiness preflight contains no Apple submission path"
 forbid_grep 'appStoreVersionSubmissions|reviewSubmissions' tools/app-review/append_standard_eula.py "the EULA append never submits for review"

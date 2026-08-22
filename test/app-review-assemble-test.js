@@ -104,7 +104,7 @@ async function main() {
       loadEngineModules: () => ({
         formatSuccess: (result) => `status: ${result.status}\nsubmitted: ${result.submitted}\n`,
       }),
-      runSubmission: async (args) => {
+      runSubmission: async (args, credentials, dependencies) => {
         calls.push(args);
         assert.equal(args.assembleOnly, true);
         assert.equal(args.firstRelease, true);
@@ -113,6 +113,7 @@ async function main() {
         assert.equal(args.version, "0.1.17");
         assert.equal(args.build, manifest.candidate.build);
         assert.equal(args.expectedReleaseType, "AFTER_APPROVAL");
+        assert.equal(dependencies.monitorVariable, undefined);
         return {
           result: {
             status: "assembled",

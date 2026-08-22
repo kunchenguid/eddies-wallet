@@ -14,7 +14,7 @@ version, another manifest, or hours ago cannot authorize a submission.
 What this deliberately is not: proof of authorship. There is no shared signing
 secret here, because the dispatcher is already the captain and adding a secret
 would create custody work without adding a real boundary. The captain's explicit
-`mode=assemble` dispatch remains the gate.
+`mode=assemble` or `mode=submit` dispatch remains the gate.
 
 The document carries only allowlisted check names and pass/fail words. It can
 never carry an Apple payload, account value, session, purchase, or contact.
