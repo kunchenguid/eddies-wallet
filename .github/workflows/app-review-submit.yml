@@ -24,7 +24,7 @@ name: App Review submission
 #   assemble - mutation-capable App Store Connect credentials. It checks out
 #              kunchenguid/app-review-submit@62bfbc3b and runs assemble-only
 #              first-release (`args.assembleOnly: true`). The engine aligns
-#              App Info categories from config (EDUCATION, no secondary), attaches
+#              App Info categories from config (EDUCATION + FINANCE), attaches
 #              the app version plus both Cloud subscriptions, then hard-returns
 #              before submit. It never maps the monitor variable token.
 #   submit   - the same App Store Connect credentials plus

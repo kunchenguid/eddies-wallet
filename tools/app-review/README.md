@@ -52,7 +52,7 @@ workflow checks out `kunchenguid/app-review-submit@62bfbc3b` into
 That adapter always sets `assembleOnly: true` and `firstRelease: true` for
 the 0.1.17 first App Store version, with `baselineVersion` null, and never
 calls the pipeline `submit` command. Engine #12 writes App Info categories from
-`config.protected` (EDUCATION, no secondary) during assemble even when
+`config.protected` (EDUCATION + FINANCE) during assemble even when
 `listingPolicy` is `observe`. Gated `mode=submit` runs
 `node tools/app-review/full_submit.js --submit --first-release`, which calls
 `runSubmission({ assembleOnly: false })` and injects the monitor-variable

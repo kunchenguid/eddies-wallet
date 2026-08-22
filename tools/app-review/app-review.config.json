@@ -67,7 +67,8 @@
   "protected": {
     "contentRightsDeclaration": "DOES_NOT_USE_THIRD_PARTY_CONTENT",
     "isOrEverWasMadeForKids": false,
-    "primaryCategory": "EDUCATION"
+    "primaryCategory": "EDUCATION",
+    "secondaryCategory": "FINANCE"
   },
   "evidence": {
     "adapter": "demoPreflight",
