@@ -30,7 +30,7 @@ Submission is gated by two independent things, and both are the captain's.
    `runSubmission({ uploadScreenshots: true })`, with
    `SCREENSHOT_UPLOAD_ENGINE_ARGV` pinned to
    `["node","app_review_pipeline.js","upload-screenshots"]`). Checkout pin is
-   `4e463856`.
+   `0d8b4a8c`.
    `mode=submit` is a separate captain-gated dispatch that asks
    the engine to submit for review. Default remains `verify`.
 
@@ -71,7 +71,7 @@ for `kunchenguid/app-review-submit`, not a console chore.
 - Pasting demo-preflight evidence into the GitHub dispatch `evidence` input.
   That is a GitHub gate, not App Store Connect.
 
-### Automated on pin `4e463856` (assemble / upload / submit)
+### Automated on pin `0d8b4a8c` (assemble / upload / submit)
 
 - App Info categories `EDUCATION` + `FINANCE`, even under `listingPolicy:
   observe`.
@@ -100,7 +100,7 @@ copy is never written. Do not add `screenshots` to `alignmentWrites`. Asset path
 is `{sourceRoot}/{listing.screenshotDirectory joined}/{fileName}`. Manifest
 `content.screenshots[]` is `{displayType,width,height,files[{fileName,fileSize,sha256}]}`.
 The engine computes MD5 of those bytes as Apple's `sourceFileChecksum`. Checkout
-pin is `4e463856`.
+pin is `0d8b4a8c`.
 
 ### API-able, live already matches, no captain console this cycle
 
@@ -142,7 +142,7 @@ Eddie-side flags for them, and do not ask the captain to do them in the UI.
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only, including the default exact live listing-screenshot match. | The recovery issue only. |
 | 6. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered matching review assets, and the production service publishing Cloud activation with exactly those two products. When `listing.screenshotWrites` is true, it defers only the live listing-screenshot match because the later `mode=upload` owns that live write. Emits base64 readiness evidence. | Nothing. |
 | 7. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the listing-screenshot preflight, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
-| 8. `app-review-submit.yml` with `mode=assemble` | Checks out `kunchenguid/app-review-submit@4e463856` and runs assemble-only first-release (`--assemble-only --first-release`): 0.1.17 has no live baseline. The engine accepts a `REJECTED` target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version plus both Cloud subscriptions, then hard-returns before Submit (`status: assembled`, `submitted: false`, `remaining: upload-screenshots`). | App Store Connect assembly only. |
+| 8. `app-review-submit.yml` with `mode=assemble` | Checks out `kunchenguid/app-review-submit@0d8b4a8c` and runs assemble-only first-release (`--assemble-only --first-release`): 0.1.17 has no live baseline. The engine accepts a `REJECTED` target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version plus both Cloud subscriptions, then hard-returns before Submit (`status: assembled`, `submitted: false`, `remaining: upload-screenshots`). | App Store Connect assembly only. |
 | 9. `app-review-submit.yml` with `mode=upload` | After assemble, before submit. Runs the Eddie-side screenshot preflight, then `upload_screenshots.js --upload-screenshots --first-release` onto `runSubmission({ uploadScreenshots: true })` with `SCREENSHOT_UPLOAD_ENGINE_ARGV` set to `["node","app_review_pipeline.js","upload-screenshots"]`. It never submits. `listingPolicy` stays `observe`. `listing.screenshotWrites` is true. | Listing screenshots only. |
 | 10. `app-review-submit.yml` with `mode=submit` | Same pin. Runs `full_submit.js --submit --first-release`, which calls `runSubmission({ assembleOnly: false })`. After Apple accepts, the engine writes `APP_REVIEW_MONITOR_VERSION`. 0.1.17 stays HELD: do not submit. | Apple's Submit for Review, plus monitor arming. |
 | 11. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; notifies on a terminal or sustained-unavailable observation. | One GitHub issue. |
@@ -226,7 +226,7 @@ marketing version). Assemble-only does not write that variable; the gated
   assemble writes review contact, notes, and `demoAccountRequired: false`.
   Listing screenshot upload is a separate `mode=upload` job that does not
   submit (`--upload-screenshots`). `listing.screenshotWrites` is true;
-  `listingPolicy` stays `observe`. Checkout pin is `4e463856`. A
+  `listingPolicy` stays `observe`. Checkout pin is `0d8b4a8c`. A
   captain-directed one-shot exception lives in `app-review-eula-append.yml`: it
   may PATCH only the 0.1.17 en-US description to append Apple's standard EULA
   link. That is not listing-sync and does not submit for review. The 0.1.17
