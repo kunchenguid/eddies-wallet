@@ -83,6 +83,24 @@ def _row(field: str, config_value: str, live_value: str) -> str:
     return "\t".join((field, config_value, live_value, _match(config_value, live_value)))
 
 
+def _optional(session: asc_read.ReadSession, path: str, query: Optional[Mapping[str, str]] = None):
+    try:
+        return session.optional_single(path, query or {})
+    except asc_read.AppStoreConnectError as error:
+        if "status 404" in str(error):
+            return None
+        raise
+
+
+def _collection(session: asc_read.ReadSession, path: str, query: Mapping[str, str]):
+    try:
+        return session.collection(path, query)
+    except asc_read.AppStoreConnectError as error:
+        if "status 404" in str(error):
+            return [], []
+        raise
+
+
 def load_config() -> dict[str, Any]:
     return json.loads(CONFIG_PATH.read_text())
 
@@ -180,15 +198,13 @@ def main() -> int:
     info_id = str(info.get("id") or "") if info else ""
     info_state = _attr(info, "state") if info else "missing"
     if info_id:
-        primary = session.optional_single(
-            f"/v1/appInfos/{info_id}/relationships/primaryCategory", {}
+        primary = _optional(
+            session, f"/v1/appInfos/{info_id}/relationships/primaryCategory"
         )
-        secondary = session.optional_single(
-            f"/v1/appInfos/{info_id}/relationships/secondaryCategory", {}
+        secondary = _optional(
+            session, f"/v1/appInfos/{info_id}/relationships/secondaryCategory"
         )
-        age = session.optional_single(
-            f"/v1/appInfos/{info_id}/ageRatingDeclaration", {}
-        )
+        age = _optional(session, f"/v1/appInfos/{info_id}/ageRatingDeclaration")
         live_primary = _relationship_id(primary)
         live_secondary = _relationship_id(secondary)
         if age:
@@ -255,7 +271,7 @@ def main() -> int:
         )
     )
 
-    schedule = session.optional_single(f"/v1/apps/{APP_ID}/appPriceSchedule", {})
+    schedule = _optional(session, f"/v1/apps/{APP_ID}/appPriceSchedule")
     if not schedule:
         lines.append(
             _row(
@@ -266,11 +282,10 @@ def main() -> int:
         )
     else:
         schedule_id = str(schedule.get("id") or "")
-        base = session.optional_single(
-            f"/v1/appPriceSchedules/{schedule_id}/baseTerritory", {}
-        )
-        base_id = _relationship_id(base) or _attr(base, "currency") or str(base.get("id") or "")
-        manual, _ = session.collection(
+        base = _optional(session, f"/v1/appPriceSchedules/{schedule_id}/baseTerritory")
+        base_id = _relationship_id(base) or _attr(base, "currency") or (str(base.get("id") or "") if base else "")
+        manual, _ = _collection(
+            session,
             f"/v1/appPriceSchedules/{schedule_id}/manualPrices",
             {"limit": "200"},
         )
@@ -309,13 +324,12 @@ def main() -> int:
             )
         )
 
-    availability = session.optional_single(
-        f"/v1/apps/{APP_ID}/appAvailabilityV2", {}
-    )
+    availability = _optional(session, f"/v1/apps/{APP_ID}/appAvailabilityV2")
     if availability:
         avail_id = str(availability.get("id") or "")
         available_in_new = _attr(availability, "availableInNewTerritories")
-        territories, _ = session.collection(
+        territories, _ = _collection(
+            session,
             f"/v1/appAvailabilities/{avail_id}/territoryAvailabilities",
             {"limit": "200"},
         )
