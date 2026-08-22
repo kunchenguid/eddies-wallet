@@ -25,13 +25,17 @@ Submission is gated by two independent things, and both are the captain's.
 2. **The captain's explicit double-confirm dispatch.** `app-review-submit.yml`
    is manual only, requires the version to be typed twice, and defaults to the
    `verify` dry run. `mode=assemble` stages the review submission and stops
-   before Submit. `mode=upload` writes listing screenshots after assemble and
-   does not submit (`upload_screenshots.js --upload-screenshots` onto
+   before Submit. `mode=upload` writes listing screenshots while the version is
+   editable, before assemble attaches it, and does not submit
+   (`upload_screenshots.js --upload-screenshots` onto
    `runSubmission({ uploadScreenshots: true })`, with
    `SCREENSHOT_UPLOAD_ENGINE_ARGV` pinned to
-   `["node","app_review_pipeline.js","upload-screenshots"]`). Assemble,
-   upload, and submit all check out `72a517e3`, the merge of
-   [`kunchenguid/app-review-submit#16`](https://github.com/kunchenguid/app-review-submit/pull/16).
+   `["node","app_review_pipeline.js","upload-screenshots"]`). If the version is
+   already on an unsubmitted review submission, upload deletes only that version
+   `reviewSubmissionItem` (Cloud items survive), then reserve/upload/commit and
+   verify-before-live. Assemble, upload, and submit all check out `7053c9b6`,
+   the merge of
+   [`kunchenguid/app-review-submit#17`](https://github.com/kunchenguid/app-review-submit/pull/17).
    `mode=submit` is a separate captain-gated dispatch that asks
    the engine to submit for review. Default remains `verify`.
 
@@ -94,8 +98,9 @@ for `kunchenguid/app-review-submit`, not a console chore.
 
 ### Screenshot upload
 
-Listing screenshot reserve, upload, and commit is `mode=upload` after assemble
-and before submit. Eddie maps onto `runSubmission({ uploadScreenshots: true })`
+Listing screenshot reserve, upload, and commit is `mode=upload` before assemble
+attaches the version (screenshots are locked once the version is
+`READY_FOR_REVIEW`). Eddie maps onto `runSubmission({ uploadScreenshots: true })`
 via `upload_screenshots.js --upload-screenshots`. The shared engine CLI, pinned
 as `SCREENSHOT_UPLOAD_ENGINE_ARGV`, is `node app_review_pipeline.js
 upload-screenshots`. Opt-in is `listing.screenshotWrites=true` on the
@@ -150,9 +155,9 @@ Eddie-side flags for them, and do not ask the captain to do them in the UI.
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only, including the default exact live listing-screenshot match. | The recovery issue only. |
 | 6. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered matching review assets, and the production service publishing Cloud activation with exactly those two products. When `listing.screenshotWrites` is true, it defers only the live listing-screenshot match because the later `mode=upload` owns that live write. Emits base64 readiness evidence. | Nothing. |
 | 7. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the listing-screenshot preflight, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
-| 8. `app-review-submit.yml` with `mode=assemble` | Checks out the pinned shared engine and runs assemble-only first-release (`--assemble-only --first-release`): 0.1.17 has no live baseline. The engine accepts a `REJECTED` target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version, both Cloud subscription versions, and their subscription group version, proves every item by authoritative readback, then hard-returns before Submit (`status: assembled`, `submitted: false`, `remaining: upload-screenshots`). | App Store Connect assembly only. |
-| 9. `app-review-submit.yml` with `mode=upload` | After assemble, before submit. Runs the Eddie-side screenshot preflight, then `upload_screenshots.js --upload-screenshots --first-release` onto `runSubmission({ uploadScreenshots: true })` with `SCREENSHOT_UPLOAD_ENGINE_ARGV` set to `["node","app_review_pipeline.js","upload-screenshots"]`. It never submits. `listingPolicy` stays `observe`. `listing.screenshotWrites` is true. | Listing screenshots only. |
-| 10. `app-review-submit.yml` with `mode=submit` | Same pin. Runs `full_submit.js --submit --first-release`, which calls `runSubmission({ assembleOnly: false })`. After Apple accepts, the engine writes `APP_REVIEW_MONITOR_VERSION`. 0.1.17 stays HELD: do not submit. | Apple's Submit for Review, plus monitor arming. |
+| 8. `app-review-submit.yml` with `mode=upload` | Before assemble, while the version is editable. Runs the Eddie-side screenshot preflight, then `upload_screenshots.js --upload-screenshots --first-release` onto `runSubmission({ uploadScreenshots: true })` with `SCREENSHOT_UPLOAD_ENGINE_ARGV` set to `["node","app_review_pipeline.js","upload-screenshots"]`. If the version is already on an unsubmitted review submission, the engine deletes only that version item (Cloud items survive), then reserve/upload/commit and verify-before-live. It never submits. `listingPolicy` stays `observe`. `listing.screenshotWrites` is true. | Listing screenshots only. Version-item detach when recovering an already-assembled draft. |
+| 9. `app-review-submit.yml` with `mode=assemble` | Checks out the pinned shared engine and runs assemble-only first-release (`--assemble-only --first-release`): 0.1.17 has no live baseline. The engine accepts a `REJECTED` target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version, both Cloud subscription versions, and their subscription group version, proves every item by authoritative readback, then hard-returns before Submit (`status: assembled`, `submitted: false`). After upload, this re-attaches the version; Cloud items already on the draft stay. | App Store Connect assembly only. |
+| 10. `app-review-submit.yml` with `mode=submit` | Same pin. Runs `full_submit.js --submit --first-release`, which calls `runSubmission({ assembleOnly: false })`. After Apple accepts, the engine writes `APP_REVIEW_MONITOR_VERSION`. | Apple's Submit for Review, plus monitor arming. |
 | 11. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; notifies on a terminal or sustained-unavailable observation. | One GitHub issue. |
 | 12. `app-review-monitor-e2e.yml` | GET-only live classification of a candidate `app-review-submit` SHA via `observeReviewStatus`. Proves a pin against real ASC state. | Nothing. |
 
@@ -199,12 +204,12 @@ clears only when readback finds the intended item; an unproven create remains
 pending and is not replayed. A rerun therefore cannot create a duplicate review
 item or a second review submission.
 
-After a successful assemble the review submission is staged and unsubmitted
-(`status: assembled`, `submitted: false`, `remaining: upload-screenshots`). The
-remaining action is a captain-gated `mode=upload` dispatch, then `mode=submit`.
-Upload writes listing screenshots only (`status: screenshots_uploaded`,
-`submitted: false`, `remaining: submit`). Submit asks the engine to submit for
-review and arms `APP_REVIEW_MONITOR_VERSION` after Apple accepts. Assemble and
+When `listing.screenshotWrites` is true, upload runs before assemble so listing
+images write while the version is editable. Upload writes listing screenshots
+only (`status: screenshots_uploaded`, `submitted: false`). After a successful
+assemble the review submission is staged and unsubmitted (`status: assembled`,
+`submitted: false`). Submit asks the engine to submit for review and arms
+`APP_REVIEW_MONITOR_VERSION` after Apple accepts. Assemble and
 upload never map the monitor variable token and never ask the engine to submit.
 Eddie never invokes the shared pipeline submit subcommand; the adapters map onto
 `runSubmission`.

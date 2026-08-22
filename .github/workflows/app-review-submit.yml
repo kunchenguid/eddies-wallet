@@ -23,18 +23,21 @@ name: App Review submission
 #              lane refuses to start if an App Store Connect credential is present.
 #              It also runs the Eddie-side listing-screenshot preflight.
 #   assemble - mutation-capable App Store Connect credentials. It checks out
-#              kunchenguid/app-review-submit@72a517e3 and runs assemble-only
+#              kunchenguid/app-review-submit@7053c9b6 and runs assemble-only
 #              first-release (`args.assembleOnly: true`). The engine aligns
 #              App Info categories from config (EDUCATION + FINANCE), attaches
 #              the app version, both Cloud subscription versions, and their
-#              subscription group version, then hard-returns before submit
-#              (remaining: upload-screenshots when
-#              listing.screenshotWrites is on). It never maps the monitor
-#              variable token.
+#              subscription group version, then hard-returns before submit.
+#              When listing.screenshotWrites is on, assemble runs after
+#              mode=upload so the version attaches only once screenshots are
+#              live. It never maps the monitor variable token.
 #   upload   - the same App Store Connect credentials as assemble, never the
-#              monitor variable token. Positioned after assemble and before
-#              submit as a separate dispatch. Runs
-#              tools/app-review/upload_screenshots.js --upload-screenshots
+#              monitor variable token. Positioned before assemble so listing
+#              screenshots write while the version is editable. If the version
+#              is already on an unsubmitted review submission, the engine
+#              deletes only that version reviewSubmissionItem (Cloud items
+#              survive), then reserve/upload/commit and verify-before-live.
+#              Runs tools/app-review/upload_screenshots.js --upload-screenshots
 #              --first-release onto runSubmission({ uploadScreenshots: true }).
 #              SCREENSHOT_UPLOAD_ENGINE_ARGV is the engine CLI
 #              ["node","app_review_pipeline.js","upload-screenshots"].
@@ -63,7 +66,7 @@ on:
         required: true
         type: string
       mode:
-        description: verify performs no App Store mutation; assemble stages the review submission and stops; upload writes listing screenshots after assemble without submitting; submit asks the engine to submit for review
+        description: verify performs no App Store mutation; upload writes listing screenshots while the version is editable; assemble attaches the version (and Cloud items) without submitting; submit asks the engine to submit for review
         required: true
         default: verify
         type: choice
@@ -157,10 +160,11 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit#16 (real-ASC screenshot
-          # replacement: unique staging fileName, 201-body reserve proof,
-          # commit poll COMPLETE, then delete old same-slot occupant).
-          ref: 72a517e304c280cd8854709895bc73aa09ff88ee
+          # Pin: kunchenguid/app-review-submit#17 (upload-before-attach:
+          # screenshots while the version is editable; ensure-editable
+          # deletes only the version reviewSubmissionItem, Cloud items
+          # survive).
+          ref: 7053c9b6bb670689e0882ffe8a44835fe3ff3ec3
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -217,7 +221,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 72a517e304c280cd8854709895bc73aa09ff88ee
+          ref: 7053c9b6bb670689e0882ffe8a44835fe3ff3ec3
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -281,7 +285,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 72a517e304c280cd8854709895bc73aa09ff88ee
+          ref: 7053c9b6bb670689e0882ffe8a44835fe3ff3ec3
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false

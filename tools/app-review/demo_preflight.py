@@ -15,7 +15,7 @@ is actually open at submission time:
 
 When `listing.screenshotWrites` is true, this preflight does not require live
 listing screenshots to match the approved set. That match is the dedicated
-upload step after assemble. In-app purchase review screenshots still must match.
+upload step before assemble. In-app purchase review screenshots still must match.
 
 It cannot perform Sign in with Apple or a purchase. That one functional proof is
 deliberately an attended pre-submission acceptance gate.

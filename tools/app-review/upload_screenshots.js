@@ -94,7 +94,7 @@ async function main(argv = process.argv.slice(2), deps = {}) {
     process.stdout.write(uploaded.output);
     process.stdout.write(
       "help: Listing screenshots were uploaded without submitting. "
-        + "The remaining action is a captain-gated mode=submit dispatch.\n",
+        + "The remaining action is a captain-gated mode=assemble dispatch.\n",
     );
     return 0;
   } catch (error) {
