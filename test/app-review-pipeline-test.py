@@ -605,6 +605,85 @@ class ReviewedByteBindingTests(FixtureCase):
 
 
 class DemoPreflightPolicyTests(FixtureCase):
+    def test_preflight_emits_readiness_evidence_before_listing_screenshot_upload(self):
+        manifest = core.build_manifest(
+            self.fixture.candidate,
+            self.fixture.content,
+            approved_utc=utc(NOW - timedelta(days=1)),
+            approval_statement="Captain approved listing screenshot upload.",
+            listing={"screenshotWrites": True},
+        )
+        config = {
+            "listing": {"screenshotWrites": True},
+            "content": {"screenshotDirectory": list(SCREENSHOT_DIRECTORY)},
+        }
+        fake = FakeAppStoreConnect(self.fixture)
+        fake.screenshot_sets[0]["screenshots"][0]["sourceFileChecksum"] = "0" * 32
+
+        with (
+            unittest.mock.patch.object(demo_preflight.runtime, "heading"),
+            unittest.mock.patch.object(demo_preflight.runtime, "trusted_context"),
+            unittest.mock.patch.object(
+                demo_preflight.runtime,
+                "confirmed_version",
+                return_value=self.fixture.candidate["version"],
+            ),
+            unittest.mock.patch.object(
+                demo_preflight.runtime, "load_manifest", return_value=manifest
+            ),
+            unittest.mock.patch.object(
+                demo_preflight.runtime, "load_config", return_value=config
+            ),
+            unittest.mock.patch.object(
+                demo_preflight.content,
+                "verify_manifest_files",
+                return_value=self.fixture.verified,
+            ),
+            unittest.mock.patch.object(
+                demo_preflight.asc_read.Credential,
+                "from_environment",
+                return_value=object(),
+            ),
+            unittest.mock.patch.object(
+                demo_preflight.asc_read, "ReadSession", return_value=fake
+            ),
+            unittest.mock.patch.object(
+                demo_preflight,
+                "public_get",
+                side_effect=[
+                    (200, {}),
+                    (
+                        200,
+                        {
+                            "cloudActivationAvailable": True,
+                            "cloudServiceAvailable": True,
+                            "products": list(core.CLOUD_PRODUCT_IDS),
+                        },
+                    ),
+                ],
+            ),
+            unittest.mock.patch.object(demo_preflight.runtime, "emit"),
+            unittest.mock.patch.object(demo_preflight.runtime, "block"),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.assertEqual(demo_preflight.main(), 0)
+
+        document = evidence.decode(stdout.getvalue())
+        self.assertEqual(document["version"], self.fixture.candidate["version"])
+        self.assertEqual(document["build"], self.fixture.candidate["build"])
+        self.assertEqual(
+            document["checks"],
+            {name: evidence.PASS for name in evidence.REQUIRED_CHECKS},
+        )
+        self.assertFalse(
+            any(path.endswith("/appScreenshotSets") for path in fake.reads)
+        )
+        self.assertEqual(
+            sum(path.endswith("/appStoreReviewScreenshot") for path in fake.reads),
+            len(core.CLOUD_PRODUCT_IDS),
+        )
+        self.assertEqual(fake.writes, [])
+
     def test_config_and_approved_manifest_must_agree_on_screenshot_writes(self):
         for config_writes, manifest_writes in ((True, False), (False, True)):
             with self.subTest(
