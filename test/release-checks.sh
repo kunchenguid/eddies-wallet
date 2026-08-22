@@ -39,7 +39,7 @@ forbid_grep() {
   fi
 }
 
-WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-review-monitor.yml .github/workflows/app-review-monitor-e2e.yml .github/workflows/app-review-list-versions.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml .github/workflows/app-review-eula-append.yml)
+WORKFLOWS=(.github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-please.yml .github/workflows/asc-build-status.yml .github/workflows/app-review-monitor.yml .github/workflows/app-review-monitor-e2e.yml .github/workflows/app-review-list-versions.yml .github/workflows/app-review-list-app-info.yml .github/workflows/app-review-prepare.yml .github/workflows/app-review-submit.yml .github/workflows/app-review-demo-preflight.yml .github/workflows/app-review-eula-append.yml)
 
 # --- Workflow syntax -------------------------------------------------------
 
@@ -309,6 +309,31 @@ require_grep 'list_app_store_versions\.py' "$LIST_VERSIONS_WORKFLOW" "version li
 require_grep 'actions/checkout@[0-9a-f]{40}' "$LIST_VERSIONS_WORKFLOW" "version listing pins checkout immutably"
 forbid_grep 'GITHUB_TOKEN' "$LIST_VERSIONS_WORKFLOW" "version listing never maps GITHUB_TOKEN"
 forbid_grep 'APP_REVIEW_SUBMIT_READ_TOKEN' "$LIST_VERSIONS_WORKFLOW" "version listing never checks out the shared engine"
+
+# GET-only App Info category listing. Encrypted submit-key credentials,
+# one GET step, no issue write, no submit, no shared-engine mutation.
+LIST_APP_INFO_WORKFLOW=.github/workflows/app-review-list-app-info.yml
+require_grep '^  workflow_dispatch:$' "$LIST_APP_INFO_WORKFLOW" "App Info listing has a manual trigger"
+for forbidden in 'pull_request' 'pull_request_target' 'workflow_run' 'repository_dispatch' '^  push:' '^  schedule:'; do
+  forbid_grep "$forbidden" "$LIST_APP_INFO_WORKFLOW" "App Info listing excludes untrusted trigger ($forbidden)"
+done
+require_grep '^  contents: read$' "$LIST_APP_INFO_WORKFLOW" "App Info listing needs contents read only"
+forbid_grep '^  issues: write$' "$LIST_APP_INFO_WORKFLOW" "App Info listing never grants issue write"
+require_grep '^concurrency:$' "$LIST_APP_INFO_WORKFLOW" "App Info listing serializes live reads"
+require_grep '^  group: eddies-app-review-list-app-info$' "$LIST_APP_INFO_WORKFLOW" "App Info listing uses its own concurrency group"
+require_grep '^  cancel-in-progress: false$' "$LIST_APP_INFO_WORKFLOW" "App Info listing does not cancel an in-flight read"
+forbid_grep '^[[:space:]]*(actions|pull-requests|checks|id-token|packages): write' "$LIST_APP_INFO_WORKFLOW" "App Info listing has no extra write permissions"
+require_grep 'APP_STORE_CONNECT_KEY_ID' "$LIST_APP_INFO_WORKFLOW" "App Info listing reuses the existing submit key ID"
+require_grep 'APP_STORE_CONNECT_ISSUER_ID' "$LIST_APP_INFO_WORKFLOW" "App Info listing reuses the existing submit issuer"
+require_grep 'APP_STORE_CONNECT_API_KEY' "$LIST_APP_INFO_WORKFLOW" "App Info listing reuses the existing submit API key"
+forbid_grep 'ASC_REVIEW_MONITOR_' "$LIST_APP_INFO_WORKFLOW" "App Info listing never references a dedicated monitor credential"
+forbid_grep 'app_review_pipeline\.js' "$LIST_APP_INFO_WORKFLOW" "App Info listing never invokes the shared pipeline CLI"
+forbid_grep 'assemble_only\.js' "$LIST_APP_INFO_WORKFLOW" "App Info listing never invokes assemble-only"
+forbid_grep 'submitted:true' "$LIST_APP_INFO_WORKFLOW" "App Info listing never submits"
+require_grep 'list_app_info_categories\.py' "$LIST_APP_INFO_WORKFLOW" "App Info listing runs the GET-only category script"
+require_grep 'actions/checkout@[0-9a-f]{40}' "$LIST_APP_INFO_WORKFLOW" "App Info listing pins checkout immutably"
+forbid_grep 'GITHUB_TOKEN' "$LIST_APP_INFO_WORKFLOW" "App Info listing never maps GITHUB_TOKEN"
+forbid_grep 'APP_REVIEW_SUBMIT_READ_TOKEN' "$LIST_APP_INFO_WORKFLOW" "App Info listing never checks out the shared engine"
 for retired in \
   .github/workflows/app-store-review-status.yml \
   .github/scripts/app_store_review_monitor.py \
