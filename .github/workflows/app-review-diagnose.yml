@@ -30,9 +30,9 @@ jobs:
 
       # ubuntu-latest ships python3, used directly by every other App Review
       # workflow in this repo (app-review-demo-preflight.yml, -submit.yml).
-      - name: Reissue the submit-phase reads and print Apple's errors[]
+      - name: Probe listing screenshot reserve shape (GET-only)
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-        run: python3 tools/app-review/diagnose_submit_reads.py
+        run: python3 tools/app-review/probe_screenshot_reserve_shape.py
