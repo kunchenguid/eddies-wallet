@@ -44,7 +44,8 @@ MODELED_WORKFLOWS = APP_REVIEW_WORKFLOWS + (
 )
 SHARED_TOOL_PIN = "216a65513dbde70d04d0efd021792743f094ed77"
 FIXED_MONITOR_ENGINE_SHA = "216a65513dbde70d04d0efd021792743f094ed77"
-SUBMIT_ENGINE_PIN = "62bfbc3bf941d2bcb85be6ccb1ad083463b89427"
+SUBMIT_ENGINE_PIN = "4e4638568bc74f4689c812a9b6a76edd4e438095"
+SCREENSHOT_UPLOAD_ENGINE_ARGV = ["node", "app_review_pipeline.js", "upload-screenshots"]
 SHARED_TOOL_REPO = "kunchenguid/app-review-submit"
 MONITOR_CONFIG = TOOLS / "app-review.config.json"
 OBSERVE_HARNESS = "tools/app-review/observe_review_status.js"
@@ -575,7 +576,10 @@ class AssembleEngineTests(WorkflowModelCase):
         self.assertNotIn("assemble_only.js --assemble-only", command)
         self.assertNotIn("app_review_pipeline.js submit", command)
         environment = mutating[0]["env"]
-        self.assertNotIn("SCREENSHOT_UPLOAD_ENGINE_ARGV", environment)
+        self.assertEqual(
+            json.loads(environment["SCREENSHOT_UPLOAD_ENGINE_ARGV"]),
+            SCREENSHOT_UPLOAD_ENGINE_ARGV,
+        )
         self.assertNotIn("GITHUB_TOKEN", environment)
         self.assertNotIn(VARIABLE_TOKEN, secrets_of(mutating[0]))
         self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(mutating[0]))

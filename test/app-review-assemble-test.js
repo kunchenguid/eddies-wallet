@@ -131,7 +131,7 @@ async function main() {
           result: {
             status: "assembled",
             submitted: false,
-            remaining: "submit",
+            remaining: "upload-screenshots",
             version: args.version,
             build: args.build,
             mutations: 3,

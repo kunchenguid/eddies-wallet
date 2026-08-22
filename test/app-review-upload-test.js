@@ -29,6 +29,7 @@ function baseEnv() {
     APP_STORE_CONNECT_ISSUER_ID: "test-issuer",
     APP_STORE_CONNECT_KEY_ID: "test-key-id",
     APP_REVIEW_CONFIG: path.join(ROOT, "tools", "app-review", "app-review.config.json"),
+    SCREENSHOT_UPLOAD_ENGINE_ARGV: JSON.stringify(adapter.EXPECTED_ENGINE_ARGV),
   };
 }
 
@@ -43,7 +44,27 @@ async function main() {
     assert.throws(() => adapter.parseUploadArgv(["--mystery"]), /unknown option/);
     assert.deepEqual(
       adapter.parseUploadArgv(["--upload-screenshots", "--first-release"]),
-      { assembleOnly: true, uploadScreenshots: true, firstRelease: true },
+      { assembleOnly: false, uploadScreenshots: true, firstRelease: true },
+    );
+  });
+
+  await test("SCREENSHOT_UPLOAD_ENGINE_ARGV must be the engine upload-screenshots CLI", () => {
+    assert.throws(() => adapter.parseEngineArgv({}), /SCREENSHOT_UPLOAD_ENGINE_ARGV is required/);
+    assert.throws(
+      () => adapter.parseEngineArgv({ SCREENSHOT_UPLOAD_ENGINE_ARGV: "not-json" }),
+      /must be a JSON argv array/,
+    );
+    assert.throws(
+      () => adapter.parseEngineArgv({
+        SCREENSHOT_UPLOAD_ENGINE_ARGV: JSON.stringify(["node", "app_review_pipeline.js", "submit"]),
+      }),
+      /must be \["node","app_review_pipeline.js","upload-screenshots"\]/,
+    );
+    assert.deepEqual(
+      adapter.parseEngineArgv({
+        SCREENSHOT_UPLOAD_ENGINE_ARGV: '["node","app_review_pipeline.js","upload-screenshots"]',
+      }),
+      adapter.EXPECTED_ENGINE_ARGV,
     );
   });
 
@@ -59,14 +80,14 @@ async function main() {
       }),
       runSubmission: async (args, credentials, dependencies) => {
         calls.push({ args, dependencies });
-        assert.equal(args.assembleOnly, true);
+        assert.equal(args.assembleOnly, false);
         assert.equal(args.uploadScreenshots, true);
         assert.equal(args.firstRelease, true);
         assert.equal(args.baselineVersion, null);
         assert.equal(dependencies.monitorVariable, undefined);
         return {
           result: {
-            status: "assembled",
+            status: "screenshots_uploaded",
             submitted: false,
             remaining: "submit",
             version: args.version,
@@ -77,7 +98,7 @@ async function main() {
     });
     assert.equal(calls.length, 1);
     assert.equal(calls[0].args.uploadScreenshots, true);
-    assert.equal(calls[0].args.assembleOnly, true);
+    assert.equal(calls[0].args.assembleOnly, false);
     assert.equal(calls[0].dependencies.monitorVariable, undefined);
   });
 
