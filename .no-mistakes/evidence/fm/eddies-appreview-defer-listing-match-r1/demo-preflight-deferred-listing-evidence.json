@@ -1,0 +1,33 @@
+{
+  "demoPreflightExitCode": 0,
+  "iapReviewScreenshotReads": [
+    "/v1/subscriptions/sub-monthly/appStoreReviewScreenshot",
+    "/v1/subscriptions/sub-annual/appStoreReviewScreenshot"
+  ],
+  "listingScreenshotEndpointsRead": [],
+  "listingScreenshotWrites": true,
+  "mutationCalls": [],
+  "readinessEvidence": {
+    "appId": "6795664301",
+    "binding": {
+      "algorithm": "eddies-wallet-app-review-evidence-v1",
+      "evidenceHash": "120aba3def6ea0cb7ebe671eb78fe763f97065543d7381875671a5f2b96c932c"
+    },
+    "build": "19.1",
+    "checks": {
+      "asc.boundBuildValid": "pass",
+      "asc.candidateVersion": "pass",
+      "asc.cloudProductsReviewable": "pass",
+      "asc.iapReviewAssetsDelivered": "pass",
+      "public.cloudActivationAvailable": "pass",
+      "public.exactCloudProducts": "pass",
+      "public.serviceHealthy": "pass"
+    },
+    "contentHash": "40d917aba6f89faa3e99c9a4311bb9b22c61509647b5766d538fd2ff64b5e6d9",
+    "generatedUtc": "2026-08-22T11:03:12Z",
+    "manifestHash": "391f59a27f706a3670260cf4b35c79b80ee8b68de2983f0b8c72a59fcb02c5e4",
+    "schemaVersion": 1,
+    "version": "0.1.17"
+  },
+  "scenario": "0.1.17 live listing screenshot checksum differs before dedicated upload"
+}
