@@ -1176,6 +1176,103 @@ class ListAppInfoScriptTests(unittest.TestCase):
         )
 
 
+class ProbeReviewItemShapeTests(unittest.TestCase):
+    """The GET-only probe reports live JSON:API linkage, not source guesses."""
+
+    def setUp(self):
+        sys.path.insert(0, str(TOOLS))
+        self.addCleanup(sys.path.remove, str(TOOLS))
+        self.probe = importlib.import_module("probe_review_item_shape")
+
+    def test_decode_item_id_splits_the_base64_composite(self):
+        item_id = (
+            "OGU5ZmJkMTgtNjY0MS00MjcwLWIxYzUtYWNiYzkyYmU3NDBlfDE4fGU4NzM5MjU4LWExNGUt"
+            "NGRiYy1iNWNkLTBjNzBiODNkZmRlNg"
+        )
+        decoded = self.probe.decode_item_id(item_id)
+        self.assertEqual(decoded["typeCode"], "18")
+        self.assertEqual(decoded["resource"], "e8739258-a14e-4dbc-b5cd-0c70b83dfde6")
+        self.assertEqual(decoded["submission"], "8e9fbd18-6641-4270-b1c5-acbc92be740e")
+
+    def test_summarize_items_document_reports_subscriptionVersion_linkage(self):
+        payload = {
+            "data": [
+                {
+                    "type": "reviewSubmissionItems",
+                    "id": "version-item",
+                    "attributes": {"state": "REMOVED"},
+                    "relationships": {
+                        "appStoreVersion": {
+                            "data": {
+                                "type": "appStoreVersions",
+                                "id": "e81dafd9-25cb-438e-8240-4764dbdc0675",
+                            }
+                        },
+                        "subscriptionVersion": {"data": None},
+                    },
+                },
+                {
+                    "type": "reviewSubmissionItems",
+                    "id": (
+                        "OGU5ZmJkMTgtNjY0MS00MjcwLWIxYzUtYWNiYzkyYmU3NDBlfDE4fGU4NzM5MjU4LWExNGUt"
+                        "NGRiYy1iNWNkLTBjNzBiODNkZmRlNg"
+                    ),
+                    "attributes": {"state": "REMOVED"},
+                    "relationships": {
+                        "appStoreVersion": {"data": None},
+                        "subscriptionVersion": {
+                            "data": {
+                                "type": "subscriptionVersions",
+                                "id": "sub-version-month",
+                            }
+                        },
+                    },
+                },
+            ],
+            "included": [
+                {
+                    "type": "subscriptionVersions",
+                    "id": "sub-version-month",
+                    "attributes": {"state": "READY_FOR_REVIEW", "version": "1"},
+                    "relationships": {
+                        "subscription": {
+                            "data": {
+                                "type": "subscriptions",
+                                "id": "e8739258-a14e-4dbc-b5cd-0c70b83dfde6",
+                            }
+                        }
+                    },
+                }
+            ],
+        }
+        summary = self.probe.summarize_items_document(payload)
+        self.assertEqual(summary["itemCount"], 2)
+        self.assertEqual(summary["includedTypes"], ["subscriptionVersions"])
+        sub_item = summary["items"][1]
+        self.assertEqual(sub_item["decoded"]["typeCode"], "18")
+        self.assertIn("subscriptionVersion", sub_item["relationshipKeys"])
+        populated = self.probe.populated_linkage_names(summary)
+        self.assertEqual(populated, ["appStoreVersion", "subscriptionVersion"])
+        report = "\n".join(self.probe.format_summary(summary))
+        self.assertIn("subscriptionVersion: to-one type=subscriptionVersions", report)
+        self.assertIn("decoded.typeCode: 18", report)
+        self.assertNotIn("relationships.subscription:", report)
+        self.assertIn("included 1:", report)
+        self.assertIn("type=subscriptions", report)
+
+    def test_the_query_matrix_contrasts_the_engine_include_with_apples_names(self):
+        names = [name for name, _query in self.probe.ITEMS_QUERIES]
+        self.assertIn("include-subscription", names)
+        self.assertIn("include-subscriptionVersion", names)
+        self.assertIn("include-subscriptionGroupVersion", names)
+        self.assertIn("include-appStoreVersion", names)
+        queries = {name: dict(query) for name, query in self.probe.ITEMS_QUERIES}
+        self.assertEqual(queries["include-subscription"]["include"], "subscription")
+        self.assertEqual(
+            queries["include-subscriptionVersion"]["include"], "subscriptionVersion"
+        )
+
+
 class EulaAppendWorkflowTests(WorkflowModelCase):
     """The 3.1.2 EULA append is a bounded one-shot write, not listing-sync."""
 
@@ -1262,6 +1359,7 @@ class ImportBoundaryTests(unittest.TestCase):
             "screenshot_preflight",
             "list_app_store_versions",
             "list_app_info_categories",
+            "probe_review_item_shape",
         ):
             with self.subTest(entrypoint=entrypoint):
                 loaded = self.loaded_modules(entrypoint)
