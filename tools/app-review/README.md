@@ -36,7 +36,7 @@ Store Connect. `test/release-checks.sh` runs these suites.
 | `content.py` | The two byte-level bindings: recomputing every approved image's bytes from the pinned commit, and normalizing live App Store Connect state into the exact document shape `core` reconciles. |
 | `asc_read.py` | The GET-only App Store Connect boundary - credential loading, JWT signing, URL safety, pagination. It can construct no other method. |
 | `github_api.py` | The durable issue-record boundary on `GITHUB_TOKEN`. The post-acceptance monitor-variable handoff is in the Node engine, injected only on the gated submit job. |
-| `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by verify, assemble, and submit. |
+| `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by verify, assemble, upload, and submit. |
 | `prepare.py`, `demo_preflight.py`, `verify.py` | The Python workflow entrypoints. Verify is credential-free. |
 | `screenshot_preflight.py` | Eddie-side listing-screenshot validation before any live write: required display types, RGB8 dimensions, unique bytes per size, and checksums matching the captain-approved manifest. |
 | `list_app_store_versions.py` | GET-only iOS App Store version listing. |
@@ -46,50 +46,13 @@ Store Connect. `test/release-checks.sh` runs these suites.
 | `upload_screenshots.js` | Eddie's screenshot-upload adapter. It requires `--upload-screenshots`, refuses `--submit` and assemble-only flags, requires `SCREENSHOT_UPLOAD_ENGINE_ARGV` to be `["node","app_review_pipeline.js","upload-screenshots"]`, and maps onto `runSubmission({ uploadScreenshots: true })`. |
 | `append_standard_eula.py` | One-shot Guideline 3.1.2 remediation: GET the 0.1.17 en-US description, append Apple's standard EULA line if absent, PATCH only that field, GET to verify. It does not import a Python write boundary. |
 
-## The mutation lane
+## Mutation boundary
 
 The vendored Python submit engine (`submit.py`, `submission.py`, `asc_write.py`)
-is retired. Apple mutation is the pinned shared Node engine. The
-workflow checks out `kunchenguid/app-review-submit@4e463856` into
-`.app-review-submit`. Assemble runs
-`node tools/app-review/assemble_only.js --assemble-only --first-release`.
-That adapter always sets `assembleOnly: true` and `firstRelease: true` for
-the 0.1.17 first App Store version, with `baselineVersion` null, and never
-calls the pipeline `submit` command. The pinned engine writes App Info
-categories from `config.protected` (EDUCATION + FINANCE) during assemble even
-when `listingPolicy` is `observe`. Gated `mode=submit` runs
-`node tools/app-review/full_submit.js --submit --first-release`, which calls
-`runSubmission({ assembleOnly: false })` and injects the monitor-variable
-client so Apple-accept cannot split from `APP_REVIEW_MONITOR_VERSION` handoff.
-`mode=upload` runs `node tools/app-review/upload_screenshots.js --upload-screenshots --first-release`, which requires `SCREENSHOT_UPLOAD_ENGINE_ARGV` to be `["node","app_review_pipeline.js","upload-screenshots"]` and maps onto `runSubmission({ uploadScreenshots: true })`. It does not submit. Opt-in is `listing.screenshotWrites=true` on the captain-approved manifest and config. `listingPolicy` stays `observe` and `alignmentWrites` does not include `screenshots`. `config.reviewDetails.demoAccountRequired`
-is JSON `false`: Eddie uses
-reviewer-owned Sign in with Apple and a sandbox Cloud purchase, never a
-password demo account. `test/app-review-lanes-test.py`,
-`test/app-review-assemble-test.js`, and `test/app-review-full-submit-test.js`
-prove the lanes.
+is retired. Apple mutation uses the pinned shared Node engine through the three
+adapters documented above. `append_standard_eula.py` remains a separate,
+one-shot description PATCH.
 
-A separate one-shot write, `append_standard_eula.py` via
-`app-review-eula-append.yml`, sends its own description PATCH.
-`listingPolicy` stays `observe`.
-
-## What this pipeline deliberately does not do
-
-- It never sends the captain to App Store Connect for an API-able step.
-  `docs/app-review.md` owns the hands-off classification: automated on the
-  current pin, observe-because-live
-  matches, engine tooling gap, or true irreducible. Listing screenshot upload
-  is `mode=upload` onto `runSubmission({ uploadScreenshots: true })`.
-  `listing.screenshotWrites` is true; listing copy stays `observe`.
-  First-release assemble writes review contact, notes, and
-  `demoAccountRequired: false` from `config.reviewDetails`; it still never
-  invents a password demo account. App Privacy answers remain UI-only (no
-  public API).
-- It never uses a protected GitHub Environment. The gate is the captain-approved
-  manifest merged on `main` plus the captain's double-confirm dispatch.
-- It never adds a password-based reviewer account or a demo credential. The
-  reviewer signs in with their own Apple Account and buys a Cloud plan through
-  Apple's review or sandbox flow, so those fields are outside the schema.
-- It never releases. The manifest may only choose `MANUAL` or `AFTER_APPROVAL`.
-- Assemble-only never asks the engine to submit. Full submit is a separate
-  captain-gated `mode=submit` dispatch, default remains `verify`, and Eddie
-  never invokes the shared pipeline submit subcommand.
+`docs/app-review.md` is authoritative for the engine pin, dispatch order,
+credential lanes, hands-off classification, listing policy, and operations that
+must never occur. `test/app-review-lanes-test.py` pins those workflow boundaries.
