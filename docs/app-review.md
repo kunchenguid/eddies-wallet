@@ -134,10 +134,8 @@ marketing version). Assemble-only does not write that variable; the gated
   the App Store version. It refuses instead, naming what is missing. A
   captain-directed one-shot exception lives in `app-review-eula-append.yml`: it
   may PATCH only the 0.1.17 en-US description to append Apple's standard EULA
-  link. That is not listing-sync and does not submit for review. The next
-  submit reconcile will see live description differ from
-  `tools/app-review/manifests/0.1.17.json` until a new manifest that includes
-  the line is generated and approved.
+  link. That is not listing-sync and does not submit for review. The 0.1.17
+  captain-approved manifest listing description matches that already-live copy.
 - Put an Apple Account credential, parent PIN, session, purchase payload,
   receipt, raw Apple response, or reviewer contact detail into git, an issue, a
   log, an artifact, a workflow input, or a runner argument.
