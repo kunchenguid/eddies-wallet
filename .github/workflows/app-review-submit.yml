@@ -23,7 +23,7 @@ name: App Review submission
 #              lane refuses to start if an App Store Connect credential is present.
 #              It also runs the Eddie-side listing-screenshot preflight.
 #   assemble - mutation-capable App Store Connect credentials. It checks out
-#              kunchenguid/app-review-submit@7053c9b6 and runs assemble-only
+#              kunchenguid/app-review-submit@ea05e1fe and runs assemble-only
 #              first-release (`args.assembleOnly: true`). The engine aligns
 #              App Info categories from config (EDUCATION + FINANCE), attaches
 #              the app version, both Cloud subscription versions, and their
@@ -160,11 +160,10 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit#17 (upload-before-attach:
-          # screenshots while the version is editable; ensure-editable
-          # deletes only the version reviewSubmissionItem, Cloud items
-          # survive).
-          ref: 7053c9b6bb670689e0882ffe8a44835fe3ff3ec3
+          # Pin: kunchenguid/app-review-submit#18 (editable recovery proves
+          # DEVELOPER_REJECTED/REJECTED as well as PREPARE_FOR_SUBMISSION;
+          # upload-before-attach from #17).
+          ref: ea05e1fe6de3f4d667b2376450f3289a60a2623b
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -221,7 +220,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 7053c9b6bb670689e0882ffe8a44835fe3ff3ec3
+          ref: ea05e1fe6de3f4d667b2376450f3289a60a2623b
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -285,7 +284,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 7053c9b6bb670689e0882ffe8a44835fe3ff3ec3
+          ref: ea05e1fe6de3f4d667b2376450f3289a60a2623b
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
