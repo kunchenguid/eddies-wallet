@@ -351,9 +351,8 @@ function loadEngine(engineDir, configPath) {
   return require(path.join(engineDir, "app_review_submit.js"));
 }
 
-function assertAssembled(result, { screenshotWrites = false } = {}) {
-  const remaining = screenshotWrites ? "upload-screenshots" : "submit";
-  if (!result || result.status !== "assembled" || result.submitted !== false || result.remaining !== remaining) {
+function assertAssembled(result) {
+  if (!result || result.status !== "assembled" || result.submitted !== false || result.remaining !== "submit") {
     fail(
       "assemble-only did not prove an unsubmitted review submission "
       + `(status=${result && result.status}, submitted=${result && result.submitted}, remaining=${result && result.remaining})`,
@@ -497,7 +496,7 @@ async function runEngine({
   const result = outcome && outcome.result ? outcome.result : outcome;
   if (uploadScreenshots) assertUploaded(result);
   else if (assembleOnly) {
-    assertAssembled(result, { screenshotWrites: source.listing.screenshotWrites === true });
+    assertAssembled(result);
   } else assertSubmitted(result);
   const output = engine && engine.formatSuccess
     ? engine.formatSuccess(result, journal)
@@ -528,12 +527,9 @@ async function main(argv = process.argv.slice(2)) {
   try {
     const assembled = await runAssemble({ argv });
     process.stdout.write(assembled.output);
-    const next = assembled.source && assembled.source.listing && assembled.source.listing.screenshotWrites
-      ? "a captain-gated mode=upload dispatch"
-      : "a captain-gated mode=submit dispatch";
     process.stdout.write(
       "help: Review submission is assembled and unsubmitted. "
-      + `The remaining action is ${next}.\n`,
+      + "The remaining action is a captain-gated mode=submit dispatch.\n",
     );
     return 0;
   } catch (error) {
