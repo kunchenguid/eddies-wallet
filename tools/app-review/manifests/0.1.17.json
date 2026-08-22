@@ -12,6 +12,9 @@
     "sourceCommit": "93de157eb502d105dcc0621bbb23d50d2ad06a73",
     "releaseType": "AFTER_APPROVAL"
   },
+  "listing": {
+    "screenshotWrites": true
+  },
   "content": {
     "listing": {
       "appName": "Eddie's Wallet",
@@ -25,72 +28,66 @@
     },
     "screenshots": [
       {
-        "slot": "APP_IPHONE_67",
+        "displayType": "APP_IPHONE_67",
+        "width": 1320,
+        "height": 2868,
         "files": [
           {
-            "path": "tools/app-review/assets/screenshots/0.1.17/APP_IPHONE_67-asc-upload/iphone-6.9-kid-home.png",
-            "bytes": 497759,
-            "sha256": "9c8723efec0528f056fb16fde8cc419de8cacb4321da9cf1272d8758baf29cbb",
-            "fileName": "iphone-6.9-kid-home.png"
+            "fileName": "iphone-6.9-kid-home.png",
+            "fileSize": 497759,
+            "sha256": "9c8723efec0528f056fb16fde8cc419de8cacb4321da9cf1272d8758baf29cbb"
           },
           {
-            "path": "tools/app-review/assets/screenshots/0.1.17/APP_IPHONE_67-asc-upload/iphone-6.9-parent-area.png",
-            "bytes": 668221,
-            "sha256": "cde8f95207952d20dcbf9e6839187e9b453702283bdd3838b36541f4d42810fe",
-            "fileName": "iphone-6.9-parent-area.png"
+            "fileName": "iphone-6.9-parent-area.png",
+            "fileSize": 668221,
+            "sha256": "cde8f95207952d20dcbf9e6839187e9b453702283bdd3838b36541f4d42810fe"
           },
           {
-            "path": "tools/app-review/assets/screenshots/0.1.17/APP_IPHONE_67-asc-upload/iphone-6.9-parent-loan-payments.png",
-            "bytes": 686304,
-            "sha256": "2e579bb92d845275fa918cbc433e85801df62346f5328446de9e8f741598ed69",
-            "fileName": "iphone-6.9-parent-loan-payments.png"
+            "fileName": "iphone-6.9-parent-loan-payments.png",
+            "fileSize": 686304,
+            "sha256": "2e579bb92d845275fa918cbc433e85801df62346f5328446de9e8f741598ed69"
           },
           {
-            "path": "tools/app-review/assets/screenshots/0.1.17/APP_IPHONE_67-asc-upload/iphone-6.9-money-flow-review.png",
-            "bytes": 311979,
-            "sha256": "861c26931e961a1c4bc7d18417d47a98e2174bdc1fe8d471438d7daae94003b8",
-            "fileName": "iphone-6.9-money-flow-review.png"
+            "fileName": "iphone-6.9-money-flow-review.png",
+            "fileSize": 311979,
+            "sha256": "861c26931e961a1c4bc7d18417d47a98e2174bdc1fe8d471438d7daae94003b8"
           },
           {
-            "path": "tools/app-review/assets/screenshots/0.1.17/APP_IPHONE_67-asc-upload/iphone-6.9-cloud-plans.png",
-            "bytes": 717046,
-            "sha256": "2cd297b50319b2c389bbe8db444c85b0782ee5997b1e2dd8fd8c21bd76c44cf1",
-            "fileName": "iphone-6.9-cloud-plans.png"
+            "fileName": "iphone-6.9-cloud-plans.png",
+            "fileSize": 717046,
+            "sha256": "2cd297b50319b2c389bbe8db444c85b0782ee5997b1e2dd8fd8c21bd76c44cf1"
           }
         ]
       },
       {
-        "slot": "APP_IPAD_PRO_3GEN_129",
+        "displayType": "APP_IPAD_PRO_3GEN_129",
+        "width": 2064,
+        "height": 2752,
         "files": [
           {
-            "path": "tools/app-review/assets/screenshots/0.1.17/APP_IPAD_PRO_3GEN_129-asc-upload/ipad-13-kid-home.png",
-            "bytes": 365017,
-            "sha256": "e2c81d0b9317b9353a01e77342f576211a7b34b7a5dd48aa632a7cb52f558588",
-            "fileName": "ipad-13-kid-home.png"
+            "fileName": "ipad-13-kid-home.png",
+            "fileSize": 365017,
+            "sha256": "e2c81d0b9317b9353a01e77342f576211a7b34b7a5dd48aa632a7cb52f558588"
           },
           {
-            "path": "tools/app-review/assets/screenshots/0.1.17/APP_IPAD_PRO_3GEN_129-asc-upload/ipad-13-parent-area.png",
-            "bytes": 815265,
-            "sha256": "4c55875b8da02fd297affdf413daf15f9235ca46c5cb23077309d1ad52e97351",
-            "fileName": "ipad-13-parent-area.png"
+            "fileName": "ipad-13-parent-area.png",
+            "fileSize": 815265,
+            "sha256": "4c55875b8da02fd297affdf413daf15f9235ca46c5cb23077309d1ad52e97351"
           },
           {
-            "path": "tools/app-review/assets/screenshots/0.1.17/APP_IPAD_PRO_3GEN_129-asc-upload/ipad-13-parent-loan-payments.png",
-            "bytes": 831823,
-            "sha256": "9cea646b7ef9974b050138b9797063c5cc680f13193336eb6d4d5f44f7e6de06",
-            "fileName": "ipad-13-parent-loan-payments.png"
+            "fileName": "ipad-13-parent-loan-payments.png",
+            "fileSize": 831823,
+            "sha256": "9cea646b7ef9974b050138b9797063c5cc680f13193336eb6d4d5f44f7e6de06"
           },
           {
-            "path": "tools/app-review/assets/screenshots/0.1.17/APP_IPAD_PRO_3GEN_129-asc-upload/ipad-13-money-flow-review.png",
-            "bytes": 973497,
-            "sha256": "55d617af41b1a7e3b5667fe6fbadf091a3cc043cc51d9f05c6b23cb54e0ee922",
-            "fileName": "ipad-13-money-flow-review.png"
+            "fileName": "ipad-13-money-flow-review.png",
+            "fileSize": 973497,
+            "sha256": "55d617af41b1a7e3b5667fe6fbadf091a3cc043cc51d9f05c6b23cb54e0ee922"
           },
           {
-            "path": "tools/app-review/assets/screenshots/0.1.17/APP_IPAD_PRO_3GEN_129-asc-upload/ipad-13-cloud-plans.png",
-            "bytes": 572411,
-            "sha256": "c7e26efd773f4b267765a11f1cbf301c8330ae256845d8e8ae09a72879e39c7e",
-            "fileName": "ipad-13-cloud-plans.png"
+            "fileName": "ipad-13-cloud-plans.png",
+            "fileSize": 572411,
+            "sha256": "c7e26efd773f4b267765a11f1cbf301c8330ae256845d8e8ae09a72879e39c7e"
           }
         ]
       }
@@ -123,15 +120,15 @@
       "cloudPurchase": "APPLE_REVIEW_OR_SANDBOX"
     }
   },
-  "contentHash": "00d220a701911f0d55f27568a680c89917ba88c3b4d3fd114093a85ef5a1a9a8",
+  "contentHash": "badeacd41e72c04e5eddc7613e4ee82087d1ab240cb8445e20e18db30b76cf4a",
   "approval": {
     "approved": true,
     "approvedBy": "kunchenguid",
-    "approvedUtc": "2026-08-22T05:12:00Z",
-    "statement": "Resubmission of 0.1.17 after Guideline 2.3.6, 2.1(b), and 3.1.2 rejection. First App Store version: no live baseline. Listing description matches live ASC, including the already-applied standard EULA line. Distinct EvidenceCapture listing screenshots are bound per live display type (APP_IPHONE_67 and APP_IPAD_PRO_3GEN_129) with fileName, path, and checksum. Candidate build 19.1 (VALID). Not submitted."
+    "approvedUtc": "2026-08-22T07:50:00Z",
+    "statement": "Resubmission of 0.1.17 after Guideline 2.3.6, 2.1(b), and 3.1.2 rejection. First App Store version: no live baseline. Listing description matches live ASC, including the already-applied standard EULA line. Distinct EvidenceCapture listing screenshots are bound per live display type (APP_IPHONE_67 and APP_IPAD_PRO_3GEN_129) as displayType/width/height plus fileName/fileSize/sha256. listing.screenshotWrites is true; listingPolicy stays observe. Candidate build 19.1 (VALID). Not submitted."
   },
   "binding": {
     "algorithm": "eddies-wallet-app-review-manifest-v1",
-    "manifestHash": "0aa74eda851ad71bbb283a4dfef030fc37adbe6618b8971b3c66a6b6079e31a7"
+    "manifestHash": "e8343ea26b39df17603d2377be4a0bcd93f511b70054289e242f09c4bdc25f00"
   }
 }

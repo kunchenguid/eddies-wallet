@@ -28,6 +28,7 @@ if _HERE not in sys.path:
 import core  # noqa: E402
 
 MANIFEST_DIRECTORY = Path("tools/app-review/manifests")
+CONFIG_PATH = Path("tools/app-review/app-review.config.json")
 
 
 class GateError(core.BoundedError):
@@ -91,6 +92,17 @@ def load_manifest(version: str, root: Optional[Path] = None) -> Mapping[str, Any
     if manifest["candidate"]["version"] != version:
         raise GateError("the captain-approved manifest pins a different version")
     return manifest
+
+
+def load_config(root: Optional[Path] = None) -> Mapping[str, Any]:
+    path = (root or Path.cwd()) / CONFIG_PATH
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raise GateError("app-review.config.json is missing or not valid JSON")
+    if not isinstance(document, dict):
+        raise GateError("app-review.config.json is not an object")
+    return document
 
 
 def emit(line: str) -> None:

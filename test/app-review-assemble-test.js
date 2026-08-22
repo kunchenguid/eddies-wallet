@@ -68,6 +68,11 @@ async function main() {
   assert.equal(source.screenshots[0].files[0].fileSize, 497759);
   assert.equal(source.screenshots[0].files[0].width, 1320);
   assert.equal(source.screenshots[0].files[0].height, 2868);
+  assert.equal(source.listing.screenshotWrites, true);
+  assert.equal(source.content.screenshots[0].files[0].fileName, "iphone-6.9-kid-home.png");
+  assert.equal(source.content.screenshots[0].files[0].sha256.length, 64);
+  assert.equal("md5" in source.content.screenshots[0].files[0], false);
+  assert.equal("path" in source.content.screenshots[0].files[0], false);
   assert.equal(source.screenshots[1].files[0].fileName, "ipad-13-kid-home.png");
   assert.equal(source.screenshots[1].files[0].fileSize, 365017);
   assert.equal(
@@ -114,6 +119,7 @@ async function main() {
       runSubmission: async (args, credentials, dependencies) => {
         calls.push(args);
         assert.equal(args.assembleOnly, true);
+        assert.equal(args.uploadScreenshots, false);
         assert.equal(args.firstRelease, true);
         assert.equal(args.baselineVersion, null);
         assert.equal(args.preflight, false);

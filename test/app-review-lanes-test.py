@@ -569,10 +569,11 @@ class AssembleEngineTests(WorkflowModelCase):
         ]
         self.assertEqual(len(mutating), 1)
         command = mutating[0]["run"]
-        self.assertIn("upload_screenshots.js", command)
+        self.assertIn("upload_screenshots.js --upload-screenshots --first-release", command)
         self.assertNotIn("--submit", command)
         self.assertNotIn("full_submit.js", command)
         self.assertNotIn("assemble_only.js --assemble-only", command)
+        self.assertNotIn("app_review_pipeline.js submit", command)
         environment = mutating[0]["env"]
         self.assertNotIn("SCREENSHOT_UPLOAD_ENGINE_ARGV", environment)
         self.assertNotIn("GITHUB_TOKEN", environment)
@@ -676,6 +677,8 @@ class AssembleEngineTests(WorkflowModelCase):
         config = json.loads(MONITOR_CONFIG.read_text())
         self.assertEqual(config["app"]["appId"], "6795664301")
         self.assertEqual(config["listingPolicy"], "observe")
+        self.assertIs(config["listing"]["screenshotWrites"], True)
+        self.assertNotIn("screenshots", config["listing"]["alignmentWrites"])
         self.assertEqual(config["commerce"]["kind"], "subscriptions")
         self.assertEqual(
             config["commerce"]["productIds"],

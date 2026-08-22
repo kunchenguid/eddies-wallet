@@ -28,6 +28,7 @@
   "listing": {
     "sourcePath": ["docs", "appstore", "listing.md"],
     "screenshotDirectory": ["tools", "app-review", "assets", "screenshots", "0.1.17"],
+    "screenshotWrites": true,
     "approvedSubtitle": "Virtual allowance practice",
     "alignmentWrites": ["releaseType", "build", "reviewNotes"],
     "screenshotSpecs": [

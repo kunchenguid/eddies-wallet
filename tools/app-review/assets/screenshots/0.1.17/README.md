@@ -4,14 +4,16 @@ Live 0.1.17 en-US screenshot sets (GET, run 32555245100): only
 `APP_IPHONE_67` and `APP_IPAD_PRO_3GEN_129` have screenshots. Those are the
 display types this directory binds.
 
-The captain-approved upload sets live under the display-type directories.
-`tools/app-review/manifests/0.1.17.json` binds `fileName`, repo path, bytes,
-and SHA-256 per slot. Do not assemble or submit 0.1.17 while it is HELD.
+Engine asset path is `{sourceRoot}/{listing.screenshotDirectory joined}/{fileName}`.
+This directory is `listing.screenshotDirectory`. The captain-approved manifest
+binds `{displayType,width,height,files[{fileName,fileSize,sha256}]}`. The engine
+computes MD5 of those bytes as Apple's `sourceFileChecksum`. Do not assemble,
+upload, or submit 0.1.17 while it is HELD.
 
-| Directory | Display type | Size | Format |
+| File prefix | Display type | Size | Format |
 | --- | --- | --- | --- |
-| `APP_IPHONE_67-asc-upload/` | `APP_IPHONE_67` | 1320x2868 | RGB8 PNG, no alpha |
-| `APP_IPAD_PRO_3GEN_129-asc-upload/` | `APP_IPAD_PRO_3GEN_129` | 2064x2752 | RGB8 PNG, no alpha |
+| `iphone-6.9-*.png` | `APP_IPHONE_67` | 1320x2868 | RGB8 PNG, no alpha |
+| `ipad-13-*.png` | `APP_IPAD_PRO_3GEN_129` | 2064x2752 | RGB8 PNG, no alpha |
 
 `python3 tools/app-review/screenshot_preflight.py` proves every required slot
 is present, the PNG is the approved size and format, no two files in a size
@@ -32,11 +34,6 @@ then copied here as RGB8 PNG.
 Parent-area and parent-loan-payments must never be byte-identical. On iPad 13"
 the missed-loan card is already fully on screen, so two captures of that same
 viewport collapse and the assemble engine refuses them.
-
-The PNGs at the listing-directory root are the previous locked 0.1.17 bytes
-(including the byte-identical iPad parent pair that is still live on App Store
-Connect). They are not the bound upload set. Do not replace a file in place.
-A later version gets its own directory.
 
 ## Cloud subscription review screenshots
 

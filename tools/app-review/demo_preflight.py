@@ -81,7 +81,9 @@ def main() -> int:
     runtime.trusted_context()
     version = runtime.confirmed_version()
     manifest = runtime.load_manifest(version)
-    files = content.verify_manifest_files(manifest, Path.cwd())
+    files = content.verify_manifest_files(
+        manifest, Path.cwd(), config=runtime.load_config()
+    )
     candidate = manifest["candidate"]
 
     session = asc_read.ReadSession(asc_read.Credential.from_environment())

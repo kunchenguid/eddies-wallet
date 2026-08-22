@@ -56,21 +56,17 @@ class ScreenshotPreflightTests(unittest.TestCase):
             if duplicate
             else rgb8_png(width, height, (0, 255, 0)),
         }
-        upload = root / "tools/app-review/assets/screenshots/0.1.17/APP_IPHONE_67-asc-upload"
+        upload = root / "tools/app-review/assets/screenshots/0.1.17"
         upload.mkdir(parents=True)
         relative = []
         for name, data in files.items():
             (upload / name).write_bytes(data)
-            relative.append(
-                f"tools/app-review/assets/screenshots/0.1.17/APP_IPHONE_67-asc-upload/{name}"
-            )
-        iap = root / "tools/app-review/assets/screenshots/0.1.17"
-        iap.mkdir(parents=True, exist_ok=True)
-        (iap / "iap.png").write_bytes(b"iap review screenshot bytes")
+            relative.append(name)
+        (upload / "iap.png").write_bytes(b"iap review screenshot bytes")
         content = core.materialize_source_content(
             root,
             LISTING,
-            [{"slot": "APP_IPHONE_67", "files": relative}],
+            [{"displayType": "APP_IPHONE_67", "width": 8, "height": 8, "files": relative}],
             [
                 {
                     "productId": core.CLOUD_PRODUCT_IDS[0],
@@ -84,6 +80,13 @@ class ScreenshotPreflightTests(unittest.TestCase):
                 },
             ],
             "Reviewers sign in with their own Apple Account.",
+            screenshot_directory=[
+                "tools",
+                "app-review",
+                "assets",
+                "screenshots",
+                "0.1.17",
+            ],
         )
         manifest = core.build_manifest(
             {
@@ -171,7 +174,7 @@ class ScreenshotPreflightTests(unittest.TestCase):
             manifest, config = self.write_tree(root)
             drifted = (
                 root
-                / "tools/app-review/assets/screenshots/0.1.17/APP_IPHONE_67-asc-upload/iphone-6.9-kid-home.png"
+                / "tools/app-review/assets/screenshots/0.1.17/iphone-6.9-kid-home.png"
             )
             drifted.write_bytes(rgb8_png(8, 8, (0, 0, 255)))
             with self.assertRaises(screenshot_preflight.ScreenshotPreflightError) as caught:

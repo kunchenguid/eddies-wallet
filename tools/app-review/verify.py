@@ -14,7 +14,6 @@ create a review submission or submit for review.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 import os
 from pathlib import Path
 import sys
@@ -52,9 +51,8 @@ def main() -> int:
         )
     manifest = runtime.load_manifest(version)
     commit = runtime.approved_commit()
-    files = content.verify_manifest_files(manifest, Path.cwd())
-    config_path = Path("tools/app-review/app-review.config.json")
-    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config = runtime.load_config()
+    files = content.verify_manifest_files(manifest, Path.cwd(), config=config)
     screenshot_preflight.preflight_listing_screenshots(Path.cwd(), manifest, config)
     generated = fresh_evidence(manifest)
 

@@ -3,6 +3,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -20,69 +21,82 @@ function baseEnv() {
     GITHUB_REF: "refs/heads/main",
     GITHUB_EVENT_NAME: "workflow_dispatch",
     GITHUB_WORKSPACE: ROOT,
-    RUNNER_TEMP: os.tmpdir(),
+    RUNNER_TEMP: fs.mkdtempSync(path.join(os.tmpdir(), "eddies-upload-")),
     EDDIES_APP_REVIEW_VERSION: "0.1.17",
     EDDIES_APP_REVIEW_CONFIRM: "0.1.17",
-    APP_REVIEW_ENGINE_DIR: "/tmp/app-review-engine-not-used",
+    EDDIES_APP_REVIEW_EVIDENCE: "not-used-when-verifyEvidence-is-injected",
     APP_STORE_CONNECT_API_KEY: "test-key",
     APP_STORE_CONNECT_ISSUER_ID: "test-issuer",
     APP_STORE_CONNECT_KEY_ID: "test-key-id",
+    APP_REVIEW_CONFIG: path.join(ROOT, "tools", "app-review", "app-review.config.json"),
   };
 }
 
 async function main() {
-  await test("upload refuses submit and assemble-only flags", () => {
+  await test("upload requires --upload-screenshots and refuses submit", () => {
+    assert.throws(() => adapter.parseUploadArgv([]), /screenshot upload is required/);
     assert.throws(() => adapter.parseUploadArgv(["--submit"]), /refusing a submit flag/);
     assert.throws(
-      () => adapter.parseUploadArgv(["--assemble-only"]),
+      () => adapter.parseUploadArgv(["--upload-screenshots", "--assemble-only"]),
       /refusing an assemble-only flag/,
     );
     assert.throws(() => adapter.parseUploadArgv(["--mystery"]), /unknown option/);
-    assert.deepEqual(adapter.parseUploadArgv([]), { upload: true });
-  });
-
-  await test("unpinned engine argv refuses closed instead of inventing flags", () => {
-    assert.throws(
-      () => adapter.pinnedEngineArgv({}),
-      /screenshot upload CLI is not pinned/,
-    );
-    assert.throws(
-      () => adapter.pinnedEngineArgv({ SCREENSHOT_UPLOAD_ENGINE_ARGV: "not-json" }),
-      /JSON array of strings/,
-    );
-    assert.throws(
-      () => adapter.pinnedEngineArgv({ SCREENSHOT_UPLOAD_ENGINE_ARGV: '["--submit"]' }),
-      /refusing a submit flag/,
-    );
     assert.deepEqual(
-      adapter.pinnedEngineArgv({ SCREENSHOT_UPLOAD_ENGINE_ARGV: '["node","upload.js"]' }),
-      ["node", "upload.js"],
+      adapter.parseUploadArgv(["--upload-screenshots", "--first-release"]),
+      { assembleOnly: true, uploadScreenshots: true, firstRelease: true },
     );
   });
 
-  await test("runScreenshotUpload execs the pinned argv and never submits", async () => {
-    const env = {
-      ...baseEnv(),
-      SCREENSHOT_UPLOAD_ENGINE_ARGV: JSON.stringify(["node", "upload-screenshots.js", "--once"]),
-    };
+  await test("runScreenshotUpload passes uploadScreenshots and never submits", async () => {
+    const env = baseEnv();
     const calls = [];
     await adapter.runScreenshotUpload({
-      argv: [],
+      argv: ["--upload-screenshots", "--first-release"],
       env,
-      runPinned: (processEnv, argv) => {
-        calls.push({ argv, hasSubmitToken: Boolean(processEnv.APP_REVIEW_MONITOR_VARIABLE_TOKEN) });
-        return { status: 0 };
+      verifyEvidence: () => undefined,
+      loadEngineModules: () => ({
+        formatSuccess: (result) => `status: ${result.status}\nsubmitted: ${result.submitted}\n`,
+      }),
+      runSubmission: async (args, credentials, dependencies) => {
+        calls.push({ args, dependencies });
+        assert.equal(args.assembleOnly, true);
+        assert.equal(args.uploadScreenshots, true);
+        assert.equal(args.firstRelease, true);
+        assert.equal(args.baselineVersion, null);
+        assert.equal(dependencies.monitorVariable, undefined);
+        return {
+          result: {
+            status: "assembled",
+            submitted: false,
+            remaining: "submit",
+            version: args.version,
+            build: args.build,
+          },
+        };
       },
     });
-    assert.deepEqual(calls, [{ argv: ["node", "upload-screenshots.js", "--once"], hasSubmitToken: false }]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].args.uploadScreenshots, true);
+    assert.equal(calls[0].args.assembleOnly, true);
+    assert.equal(calls[0].dependencies.monitorVariable, undefined);
   });
 
-  await test("runScreenshotUpload refuses when the CLI is not pinned", async () => {
+  await test("runScreenshotUpload refuses a submitted result", async () => {
     await assert.rejects(
-      () => adapter.runScreenshotUpload({ argv: [], env: baseEnv(), runPinned: () => {
-        throw new Error("must not start the engine");
-      } }),
-      /screenshot upload CLI is not pinned/,
+      () => adapter.runScreenshotUpload({
+        argv: ["--upload-screenshots", "--first-release"],
+        env: baseEnv(),
+        verifyEvidence: () => undefined,
+        loadEngineModules: () => ({ formatSuccess: () => "" }),
+        runSubmission: async () => ({
+          result: {
+            status: "submitted",
+            submitted: true,
+            remaining: null,
+          },
+        }),
+      }),
+      /did not prove an unsubmitted/,
     );
   });
 

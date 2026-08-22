@@ -55,7 +55,9 @@ def verify() -> int:
         )
     manifest = runtime.load_manifest(version)
     commit = runtime.approved_commit()
-    files = content.verify_manifest_files(manifest, Path.cwd())
+    files = content.verify_manifest_files(
+        manifest, Path.cwd(), config=runtime.load_config()
+    )
 
     journal = journal_for(manifest, commit)
     opened = journal.open(create=True)
@@ -80,7 +82,9 @@ def preflight() -> int:
     version = runtime.confirmed_version()
     manifest = runtime.load_manifest(version)
     commit = runtime.approved_commit()
-    files = content.verify_manifest_files(manifest, Path.cwd())
+    files = content.verify_manifest_files(
+        manifest, Path.cwd(), config=runtime.load_config()
+    )
 
     session = asc_read.ReadSession(asc_read.Credential.from_environment())
     transport = content.CandidateReadTransport(session, manifest["candidate"], files)

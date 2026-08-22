@@ -30,12 +30,14 @@ name: App Review submission
 #              before submit. It never maps the monitor variable token.
 #   upload   - the same App Store Connect credentials as assemble, never the
 #              monitor variable token. Positioned after assemble and before
-#              submit as a separate dispatch. Exact engine argv is TBD until
-#              the screenshot-upload SHA lands: SCREENSHOT_UPLOAD_ENGINE_ARGV
-#              stays unset so the adapter fails closed rather than inventing
-#              flags. listingPolicy stays observe; the write-screenshots-only
-#              policy key is also TBD with that SHA. Do not add screenshots
-#              to alignmentWrites on this pin: that would write during assemble.
+#              submit as a separate dispatch. Runs
+#              tools/app-review/upload_screenshots.js --upload-screenshots
+#              --first-release onto runSubmission({ uploadScreenshots: true,
+#              assembleOnly: true }). listingPolicy stays observe. Opt-in is
+#              listing.screenshotWrites=true on the captain-approved manifest
+#              and config. Checkout pin stays 62bfbc3b until the screenshot-
+#              upload engine merge SHA is provided. Do not add screenshots to
+#              alignmentWrites: that is not this contract.
 #   submit   - the same App Store Connect credentials plus
 #              APP_REVIEW_MONITOR_VARIABLE_TOKEN. It runs
 #              tools/app-review/full_submit.js --submit --first-release, which
@@ -222,8 +224,9 @@ jobs:
 
       # Mutation-capable App Store Connect credential for screenshot upload
       # only. It never maps the monitor variable token and never asks the
-      # engine to submit for review. SCREENSHOT_UPLOAD_ENGINE_ARGV is the
-      # parameterized engine CLI; leave it unset until the SHA lands.
+      # engine to submit for review. Engine contract: --upload-screenshots
+      # onto runSubmission({ uploadScreenshots: true }). Pin stays 62bfbc3b
+      # until the screenshot-upload merge SHA is provided.
       - name: Upload listing screenshots and stop before Submit
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -234,7 +237,7 @@ jobs:
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
           EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
           EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
-        run: node tools/app-review/upload_screenshots.js
+        run: node tools/app-review/upload_screenshots.js --upload-screenshots --first-release
 
   submit:
     name: Submit the captain-approved candidate for App Review

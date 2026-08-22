@@ -26,8 +26,10 @@ Submission is gated by two independent things, and both are the captain's.
    is manual only, requires the version to be typed twice, and defaults to the
    `verify` dry run. `mode=assemble` stages the review submission and stops
    before Submit. `mode=upload` writes listing screenshots after assemble and
-   does not submit; its engine CLI is unset until the screenshot-upload SHA
-   lands. `mode=submit` is a separate captain-gated dispatch that asks
+   does not submit (`upload_screenshots.js --upload-screenshots` onto
+   `runSubmission({ uploadScreenshots: true })`). Checkout pin stays
+   `62bfbc3b` until the screenshot-upload merge SHA is provided.
+   `mode=submit` is a separate captain-gated dispatch that asks
    the engine to submit for review. Default remains `verify`.
 
 There is deliberately **no protected GitHub Environment**. Adding one would give
@@ -43,19 +45,106 @@ description. Preparation and readiness use the same shared credential only
 through the structurally GET-only client, and the verify lanes refuse to start
 if any App Store Connect credential is present at all.
 
+## Hands-off bar
+
+The captain approves **what** ships and performs only true irreducibles. The
+captain never performs an API-able App Store Connect step by hand. If an
+API-able step is still missing from the shared engine, that is a tooling gap
+for `kunchenguid/app-review-submit`, not a console chore.
+
+### True irreducibles (captain only)
+
+- Approving what ships: a captain-approved manifest on `main` plus the
+  double-confirm dispatch.
+- Credentials, the Paid Apps agreement, and tax/banking: already in place on
+  the shared team. Never re-request them.
+- App Privacy / nutrition-label answers: Apple exposes no public App Store
+  Connect API. Incomplete declarations surface as HTTP 409 on version-attach
+  (`E_APP_PRIVACY`). Confirmed blocker on 2026-08-14. Later assemble runs have
+  failed earlier at listing screenshots, so completeness after that date is
+  unproven until attach runs. This is the only remaining App Store Connect UI
+  step in the 0.1.17 flow.
+- Physical-device proof of Sign in with Apple, the Parent gate, and a sandbox
+  Cloud purchase. Both steps are user-mediated; a runner cannot do them.
+- Pasting demo-preflight evidence into the GitHub dispatch `evidence` input.
+  That is a GitHub gate, not App Store Connect.
+
+### Automated on pin `62bfbc3b` (assemble / submit)
+
+- App Info categories `EDUCATION` + `FINANCE`, even under `listingPolicy:
+  observe`.
+- Bound-build attach and `releaseType` (`alignmentWrites`).
+- First-release review contact, notes, and `demoAccountRequired: false` from
+  `config.reviewDetails`.
+- Copyright on version create from `config.reviewDetails.copyright`. 0.1.17
+  already carries it.
+- Create or reuse the review submission; attach the app version and both Cloud
+  subscriptions.
+- Reuse a leftover `UNRESOLVED_ISSUES` submission by readback. Do not delete it
+  in the console.
+- Submit for review and arm `APP_REVIEW_MONITOR_VERSION` (`mode=submit`).
+- Export compliance: uploaded builds already declare
+  `usesNonExemptEncryption = false`.
+
+### Screenshot upload (wired; checkout pin pending merge SHA)
+
+Listing screenshot reserve, upload, and commit is `mode=upload` after assemble
+and before submit. Eddie maps onto `runSubmission({ uploadScreenshots: true,
+assembleOnly: true })` via `upload_screenshots.js --upload-screenshots`. The
+shared engine CLI is `app_review_pipeline.js upload-screenshots`. Opt-in is
+`listing.screenshotWrites=true` on the captain-approved manifest and config.
+`listingPolicy` stays `observe` so listing copy is never written. Do not add
+`screenshots` to `alignmentWrites`. Asset path is
+`{sourceRoot}/{listing.screenshotDirectory joined}/{fileName}`. Manifest
+`content.screenshots[]` is `{displayType,width,height,files[{fileName,fileSize,sha256}]}`.
+The engine computes MD5 of those bytes as Apple's `sourceFileChecksum`. Checkout
+pin stays `62bfbc3b` until the screenshot-upload merge SHA is provided.
+
+### API-able, live already matches, no captain console this cycle
+
+These have App Store Connect API. Live 0.1.17 already matches the approved
+record. The captain does not open App Store Connect to re-enter them. If they
+ever drift, the fix is an engine write, not a console paste.
+
+| Surface | Current engine | 0.1.17 |
+| --- | --- | --- |
+| Listing copy (description, keywords, what's new, URLs, name, subtitle) | Writes only if `listingWritesAllowed("listing")`. This cycle stays `observe`. | Live matches, including the standard EULA line. |
+| Cloud IAP review screenshots | Asserts products reviewable and attaches them. Does not upload review screenshots. Demo-preflight requires delivered bytes. | Both products `COMPLETE` (historical API upload). |
+| Age rating | GET-validates present. Does not PATCH `ageRatingDeclarations`. | Already saved. |
+| Content rights / Made for Kids | GET-validates `config.protected`. Does not PATCH. | Live matches. |
+| Products, prices, grace period, notification URLs, app price | Observe / already configured. | Applied via API; see `docs/app-store-configuration.md`. |
+| Copyright on an existing version | First-release writes copyright only on create. | 0.1.17 already has it. |
+
+### Engine tooling gaps (API-able; never a captain console fallback)
+
+Flag these to the shared-engine crew if they ever block a cycle. Do not invent
+Eddie-side flags for them, and do not ask the captain to do them in the UI.
+
+1. Dedicated listing-screenshot upload checkout pin. The Eddie adapter and
+   `listing.screenshotWrites` contract are wired; swap `app-review-submit.yml`
+   to the merge SHA when it lands. Do not add `screenshots` to `alignmentWrites`.
+2. PATCH `ageRatingDeclarations` if the rating is missing or drifted.
+3. PATCH `contentRightsDeclaration` / `isOrEverWasMadeForKids` if they drifted.
+4. Reserve / upload / commit replacement Cloud IAP review screenshots
+   (`subscriptionAppStoreReviewScreenshots`) if delivery ever leaves `COMPLETE`.
+5. PATCH copyright on an existing App Store version if it drifted.
+6. Create a missing App Store version while `listingPolicy` is `observe`. The
+   engine can create when `listingWritesAllowed("version")`; 0.1.17 already
+   exists.
+
 ## Order of operations
 
 | Step | What runs | What it may change |
 | --- | --- | --- |
 | 1. Release the candidate | The existing captain-merged release PR uploads the build to TestFlight (`docs/release.md`). | TestFlight only. |
-| 2. Finish listing and review assets | Listing copy, App Privacy answers, contact details, and Cloud in-app purchase review screenshots stay attended App Store Connect work. Distinct listing screenshots for every live display type live under `tools/app-review/assets/screenshots/<version>/<display-type>-asc-upload/` and are bound in the captain-approved manifest. | Repository screenshot bytes, plus remaining attended metadata. |
+| 2. Bind listing screenshots | Distinct listing screenshots for every live display type live under `tools/app-review/assets/screenshots/<version>/` as `{fileName}` (engine path `{screenshotDirectory}/{fileName}`). The captain-approved manifest binds `displayType`, `width`, `height`, and `{fileName,fileSize,sha256}` per slot. App Privacy is the only remaining App Store Connect UI irreducible. See Hands-off bar. | Repository screenshot bytes. |
 | 3. Attended functional proof | One physical-device proof of Sign in with Apple, the Parent gate, the Cloud plan offer, an Apple review or sandbox purchase, and Cloud activation, using a synthetic test account. A runner cannot do this: both steps are user-mediated. | Nothing in this repository. |
 | 4. Approve the manifest | Generate the manifest from the final candidate and merge it after captain review. | The repository only. |
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only. | The recovery issue only. |
 | 6. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered review assets, and the production service publishing Cloud activation with exactly those two products. Emits base64 readiness evidence. | Nothing. |
 | 7. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the listing-screenshot preflight, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
 | 8. `app-review-submit.yml` with `mode=assemble` | Checks out `kunchenguid/app-review-submit@62bfbc3b` and runs assemble-only first-release (`--assemble-only --first-release`): 0.1.17 has no live baseline. The engine accepts a `REJECTED` target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version plus both Cloud subscriptions, then hard-returns before Submit (`status: assembled`, `submitted: false`, `remaining: submit`). 0.1.17 stays HELD: do not assemble until the screenshot-upload SHA lands. | App Store Connect assembly only. |
-| 9. `app-review-submit.yml` with `mode=upload` | After assemble, before submit. Runs the Eddie-side screenshot preflight, then `upload_screenshots.js`. Exact engine argv is `SCREENSHOT_UPLOAD_ENGINE_ARGV` and stays unset until the SHA lands, so this mode fails closed rather than inventing flags. It never submits. `listingPolicy` stays `observe` until that SHA defines write-screenshots-only. | Listing screenshots only, once the SHA is pinned. |
+| 9. `app-review-submit.yml` with `mode=upload` | After assemble, before submit. Runs the Eddie-side screenshot preflight, then `upload_screenshots.js --upload-screenshots --first-release` onto `runSubmission({ uploadScreenshots: true })`. It never submits. `listingPolicy` stays `observe`. `listing.screenshotWrites` is true. Checkout pin stays `62bfbc3b` until the merge SHA is provided. | Listing screenshots only, once the SHA is pinned. |
 | 10. `app-review-submit.yml` with `mode=submit` | Same pin. Runs `full_submit.js --submit --first-release`, which calls `runSubmission({ assembleOnly: false })`. After Apple accepts, the engine writes `APP_REVIEW_MONITOR_VERSION`. 0.1.17 stays HELD: do not submit. | Apple's Submit for Review, plus monitor arming. |
 | 11. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; notifies on a terminal or sustained-unavailable observation. | One GitHub issue. |
 | 12. `app-review-monitor-e2e.yml` | GET-only live classification of a candidate `app-review-submit` SHA via `observeReviewStatus`. Proves a pin against real ASC state. | Nothing. |
@@ -65,14 +154,12 @@ anything else happens.
 
 App Store Connect will not attach an `appStoreVersion` to a review
 submission until the App Privacy / data-collection declaration is complete.
-When incomplete, this surfaces through the ASC API as a generic attach
-failure / HTTP 409 (the submission engine reports `did not attach the
-approved candidate`), not a clear "App Privacy incomplete" error. If an API
-submit fails at the version-attach step with a 409 / attach-failure while
-the reads and write-path reconcile are otherwise correct, verify App Privacy
-and App Information completeness in the App Store Connect UI before assuming
-a code bug. Confirmed on 0.1.17, 2026-08-14: the blocker was an incomplete
-App Privacy declaration, not the age rating, which was already saved.
+Apple exposes no public readiness signal, so this surfaces as HTTP 409 on
+attach (`E_APP_PRIVACY`: the declaration is *likely* incomplete). Confirmed
+on 0.1.17, 2026-08-14: the blocker was App Privacy, not the age rating, which
+was already saved. That questionnaire is a true irreducible. Do not treat
+listing copy, review contact, categories, IAP review screenshots, or age
+rating as console follow-ups when attach fails.
 
 ## Readiness evidence
 
@@ -133,10 +220,13 @@ marketing version). Assemble-only does not write that variable; the gated
 - Submit because a release PR merged. TestFlight and App Review stay separate
   captain gates.
 - Release. The manifest may only choose `MANUAL` or `AFTER_APPROVAL`.
-- Create or edit listing copy, products, App Review contacts, or
-  the App Store version. It refuses instead, naming what is missing. Listing
-  screenshot upload is a separate `mode=upload` job that does not submit; its
-  engine CLI stays unset until the screenshot-upload SHA lands. A
+- Send the captain to App Store Connect for an API-able step. Listing copy
+  stays `observe` this cycle because live 0.1.17 already matches. First-release
+  assemble writes review contact, notes, and `demoAccountRequired: false`.
+  Listing screenshot upload is a separate `mode=upload` job that does not
+  submit (`--upload-screenshots`). `listing.screenshotWrites` is true;
+  `listingPolicy` stays `observe`. Checkout pin stays `62bfbc3b` until the
+  merge SHA is provided. A
   captain-directed one-shot exception lives in `app-review-eula-append.yml`: it
   may PATCH only the 0.1.17 en-US description to append Apple's standard EULA
   link. That is not listing-sync and does not submit for review. The 0.1.17

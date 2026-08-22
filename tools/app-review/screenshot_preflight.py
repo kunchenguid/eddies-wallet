@@ -109,7 +109,7 @@ def preflight_listing_screenshots(
     directory = _screenshot_directory(config)
     specs = _screenshot_specs(config)
     slots = {
-        item["slot"]: item for item in approved["content"]["screenshots"]
+        item["displayType"]: item for item in approved["content"]["screenshots"]
     }
     spec_types = []
     for spec in specs:
@@ -130,6 +130,8 @@ def preflight_listing_screenshots(
         height = spec.get("height")
         if not isinstance(width, int) or not isinstance(height, int):
             _refuse(f"screenshot dimensions are invalid for {display_type}")
+        if slots[display_type]["width"] != width or slots[display_type]["height"] != height:
+            _refuse(f"manifest dimensions do not match the approved slot: {display_type}")
         required = _spec_files(spec)
         bound_files = slots[display_type]["files"]
         bound_by_name = {}
@@ -155,22 +157,16 @@ def preflight_listing_screenshots(
         files_report = []
         for file_name in required:
             descriptor = bound_by_name[file_name]
-            expected_path = "/".join((*directory, f"{display_type}-asc-upload", file_name))
-            if descriptor["path"] != expected_path:
-                _refuse(
-                    f"screenshot path must be the display-type upload file: {file_name}"
-                )
-            file_path = source_root / Path(*PurePosixPath(descriptor["path"]).parts)
+            relative = core.listing_screenshot_relative_path(directory, file_name)
+            file_path = source_root / Path(*PurePosixPath(relative).parts)
             if not file_path.is_file():
-                _refuse(f"reviewed file is missing: {descriptor['path']}")
+                _refuse(f"reviewed file is missing: {relative}")
             data = file_path.read_bytes()
-            if len(data) != descriptor["bytes"]:
-                _refuse(f"reviewed file changed size since approval: {descriptor['path']}")
+            if len(data) != descriptor["fileSize"]:
+                _refuse(f"reviewed file changed size since approval: {relative}")
             digest = hashlib.sha256(data).hexdigest()
             if digest != descriptor["sha256"]:
-                _refuse(
-                    f"reviewed file changed content since approval: {descriptor['path']}"
-                )
+                _refuse(f"reviewed file changed content since approval: {relative}")
             inspect_png(data, width, height, file_name)
             md5 = hashlib.md5(data).hexdigest()
             if md5 in seen_md5:
@@ -186,8 +182,8 @@ def preflight_listing_screenshots(
             files_report.append(
                 {
                     "fileName": file_name,
-                    "path": descriptor["path"],
-                    "bytes": descriptor["bytes"],
+                    "path": relative,
+                    "fileSize": descriptor["fileSize"],
                     "sha256": descriptor["sha256"],
                     "md5": md5,
                     "width": width,

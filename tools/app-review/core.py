@@ -152,45 +152,91 @@ def _validate_relative_path(value: object, name: str) -> str:
     return value
 
 
-def _validate_file_descriptor(
-    value: object, name: str, *, require_file_name: bool = False
-) -> Mapping[str, Any]:
-    keys = (
-        ("path", "bytes", "sha256", "fileName")
-        if require_file_name
-        else ("path", "bytes", "sha256")
-    )
-    descriptor = _exact_keys(value, keys, name, "E_MANIFEST")
-    _validate_relative_path(descriptor["path"], name)
+def listing_screenshot_directory(config: Mapping[str, Any]) -> tuple[str, ...]:
+    listing = config.get("listing")
+    require(isinstance(listing, dict), "E_SOURCE", "config.listing is required")
+    segments = listing.get("screenshotDirectory")
     require(
-        isinstance(descriptor["bytes"], int)
-        and not isinstance(descriptor["bytes"], bool),
+        isinstance(segments, list) and len(segments) > 0,
+        "E_SOURCE",
+        "config.listing.screenshotDirectory is required",
+    )
+    require(
+        all(isinstance(part, str) and part for part in segments),
+        "E_SOURCE",
+        "config.listing.screenshotDirectory is invalid",
+    )
+    return tuple(segments)
+
+
+def listing_screenshot_relative_path(
+    directory: Sequence[str], file_name: str
+) -> str:
+    """Engine asset path: `{sourceRoot}/{listing.screenshotDirectory joined}/{fileName}`."""
+    require(
+        isinstance(directory, (list, tuple))
+        and len(directory) > 0
+        and all(isinstance(part, str) and part for part in directory),
+        "E_SOURCE",
+        "listing screenshot directory is invalid",
+    )
+    require(
+        isinstance(file_name, str) and SAFE_FILENAME_RE.fullmatch(file_name) is not None,
+        "E_SOURCE",
+        "listing screenshot fileName is invalid",
+    )
+    return _validate_relative_path("/".join((*directory, file_name)), "listing screenshot")
+
+
+def _validate_listing_policy(value: object) -> Mapping[str, Any]:
+    policy = _exact_keys(value, ("screenshotWrites",), "listing", "E_MANIFEST")
+    require(
+        policy["screenshotWrites"] is True or policy["screenshotWrites"] is False,
+        "E_MANIFEST",
+        "listing.screenshotWrites must be a boolean",
+    )
+    return policy
+
+
+def _validate_file_size(value: object, name: str) -> int:
+    require(
+        isinstance(value, int) and not isinstance(value, bool),
         "E_MANIFEST",
         f"{name} byte count is invalid",
     )
+    require(0 < value <= 32 * 1024 * 1024, "E_MANIFEST", f"{name} byte count is invalid")
+    return value
+
+
+def _validate_sha256(value: object, name: str) -> str:
     require(
-        0 < descriptor["bytes"] <= 32 * 1024 * 1024,
-        "E_MANIFEST",
-        f"{name} byte count is invalid",
-    )
-    require(
-        isinstance(descriptor["sha256"], str)
-        and HEX_256_RE.fullmatch(descriptor["sha256"]) is not None,
+        isinstance(value, str) and HEX_256_RE.fullmatch(value) is not None,
         "E_MANIFEST",
         f"{name} hash is invalid",
     )
-    if require_file_name:
-        file_name = descriptor["fileName"]
-        require(
-            isinstance(file_name, str) and SAFE_FILENAME_RE.fullmatch(file_name) is not None,
-            "E_MANIFEST",
-            f"{name} fileName is invalid",
-        )
-        require(
-            file_name == PurePosixPath(descriptor["path"]).name,
-            "E_MANIFEST",
-            f"{name} fileName does not match its path",
-        )
+    return value
+
+
+def _validate_file_descriptor(value: object, name: str) -> Mapping[str, Any]:
+    descriptor = _exact_keys(value, ("path", "bytes", "sha256"), name, "E_MANIFEST")
+    _validate_relative_path(descriptor["path"], name)
+    _validate_file_size(descriptor["bytes"], name)
+    _validate_sha256(descriptor["sha256"], name)
+    return descriptor
+
+
+def _validate_listing_screenshot_file(value: object, name: str) -> Mapping[str, Any]:
+    descriptor = _exact_keys(
+        value, ("fileName", "fileSize", "sha256"), name, "E_MANIFEST"
+    )
+    require(
+        isinstance(descriptor["fileName"], str)
+        and SAFE_FILENAME_RE.fullmatch(descriptor["fileName"]) is not None,
+        "E_MANIFEST",
+        f"{name} fileName is invalid",
+    )
+    _validate_file_size(descriptor["fileSize"], name)
+    _validate_sha256(descriptor["sha256"], name)
     return descriptor
 
 
@@ -213,39 +259,48 @@ def validate_source_content(value: object) -> Mapping[str, Any]:
         "E_MANIFEST",
         "screenshots are invalid",
     )
-    seen_slots = set()
+    seen_types = set()
     for index, screenshot in enumerate(screenshots):
         item = _exact_keys(
-            screenshot, ("slot", "files"), f"screenshot {index}", "E_MANIFEST"
-        )
-        slot = item["slot"]
-        require(
-            isinstance(slot, str)
-            and SAFE_SLOT_RE.fullmatch(slot) is not None
-            and slot not in seen_slots,
+            screenshot,
+            ("displayType", "width", "height", "files"),
+            f"screenshot {index}",
             "E_MANIFEST",
-            "screenshot slots are invalid",
         )
-        seen_slots.add(slot)
+        display_type = item["displayType"]
+        require(
+            isinstance(display_type, str)
+            and SAFE_SLOT_RE.fullmatch(display_type) is not None
+            and display_type not in seen_types,
+            "E_MANIFEST",
+            "screenshot display types are invalid",
+        )
+        seen_types.add(display_type)
+        for dimension in ("width", "height"):
+            value = item[dimension]
+            require(
+                isinstance(value, int) and not isinstance(value, bool) and value > 0,
+                "E_MANIFEST",
+                f"screenshot {display_type} {dimension} is invalid",
+            )
         files = item["files"]
         require(
             isinstance(files, list) and len(files) > 0,
             "E_MANIFEST",
             "screenshot files are invalid",
         )
-        seen_paths = set()
+        seen_names = set()
         for file_index, file in enumerate(files):
-            descriptor = _validate_file_descriptor(
+            descriptor = _validate_listing_screenshot_file(
                 file,
-                f"screenshot {slot} file {file_index}",
-                require_file_name=True,
+                f"screenshot {display_type} file {file_index}",
             )
             require(
-                descriptor["path"] not in seen_paths,
+                descriptor["fileName"] not in seen_names,
                 "E_MANIFEST",
                 "screenshot files are duplicated",
             )
-            seen_paths.add(descriptor["path"])
+            seen_names.add(descriptor["fileName"])
 
     reviews = content["inAppPurchases"]
     require(
@@ -310,9 +365,7 @@ def source_content_hash(content: object) -> str:
     return stable_hash(content)
 
 
-def _safe_file_descriptor(
-    source_root: Path, relative_path: str, *, include_file_name: bool = False
-) -> Mapping[str, Any]:
+def _safe_file_descriptor(source_root: Path, relative_path: str) -> Mapping[str, Any]:
     _validate_relative_path(relative_path, "reviewed file")
     root = source_root.resolve()
     require(root.is_dir(), "E_SOURCE", "review source root is not a directory")
@@ -327,14 +380,11 @@ def _safe_file_descriptor(
     require(current.is_file(), "E_SOURCE", "reviewed file is missing or not regular")
     data = current.read_bytes()
     require(len(data) > 0, "E_SOURCE", "reviewed file is empty")
-    descriptor = {
+    return {
         "path": relative_path,
         "bytes": len(data),
         "sha256": hashlib.sha256(data).hexdigest(),
     }
-    if include_file_name:
-        descriptor["fileName"] = PurePosixPath(relative_path).name
-    return descriptor
 
 
 def materialize_source_content(
@@ -343,6 +393,8 @@ def materialize_source_content(
     screenshot_slots: Sequence[Mapping[str, Any]],
     in_app_purchases: Sequence[Mapping[str, str]],
     app_review_notes: str,
+    *,
+    screenshot_directory: Sequence[str] | None = None,
 ) -> Mapping[str, Any]:
     """Snapshot reviewed files by exact bytes before their descriptors enter a manifest."""
     require(
@@ -352,19 +404,40 @@ def materialize_source_content(
     )
     screenshots = []
     for slot in screenshot_slots:
-        item = _exact_keys(slot, ("slot", "files"), "screenshot source", "E_SOURCE")
+        item = _exact_keys(
+            slot,
+            ("displayType", "width", "height", "files"),
+            "screenshot source",
+            "E_SOURCE",
+        )
         require(
-            isinstance(item["slot"], str) and isinstance(item["files"], list),
+            isinstance(item["displayType"], str) and isinstance(item["files"], list),
             "E_SOURCE",
             "screenshot source is invalid",
         )
+        files = []
+        for entry in item["files"]:
+            require(isinstance(entry, str) and entry, "E_SOURCE", "screenshot source is invalid")
+            if screenshot_directory is None:
+                relative = _validate_relative_path(entry, "screenshot source")
+                file_name = PurePosixPath(relative).name
+            else:
+                file_name = entry
+                relative = listing_screenshot_relative_path(screenshot_directory, file_name)
+            descriptor = _safe_file_descriptor(source_root, relative)
+            files.append(
+                {
+                    "fileName": file_name,
+                    "fileSize": descriptor["bytes"],
+                    "sha256": descriptor["sha256"],
+                }
+            )
         screenshots.append(
             {
-                "slot": item["slot"],
-                "files": [
-                    _safe_file_descriptor(source_root, path, include_file_name=True)
-                    for path in item["files"]
-                ],
+                "displayType": item["displayType"],
+                "width": item["width"],
+                "height": item["height"],
+                "files": files,
             }
         )
 
@@ -490,10 +563,14 @@ def build_manifest(
     *,
     approved_utc: str,
     approval_statement: str,
+    listing: Mapping[str, Any] | None = None,
 ) -> Mapping[str, Any]:
     """Create a captain-approved artifact. It does not read GitHub or App Store Connect."""
     _validate_candidate(candidate)
     validate_source_content(content)
+    listing_policy = _validate_listing_policy(
+        listing if listing is not None else {"screenshotWrites": False}
+    )
     approval = {
         "approved": True,
         "approvedBy": CAPTAIN_GITHUB_LOGIN,
@@ -504,6 +581,7 @@ def build_manifest(
         "schemaVersion": MANIFEST_SCHEMA_VERSION,
         "app": {"appId": APP_ID, "bundleId": BUNDLE_ID, "platform": PLATFORM},
         "candidate": dict(candidate),
+        "listing": dict(listing_policy),
         "content": content,
         "contentHash": source_content_hash(content),
         "approval": approval,
@@ -521,6 +599,7 @@ def validate_manifest(value: object) -> Mapping[str, Any]:
             "schemaVersion",
             "app",
             "candidate",
+            "listing",
             "content",
             "contentHash",
             "approval",
@@ -543,6 +622,7 @@ def validate_manifest(value: object) -> Mapping[str, Any]:
         "manifest app identity is not Eddie's Wallet iOS",
     )
     _validate_candidate(manifest["candidate"])
+    _validate_listing_policy(manifest["listing"])
     validate_source_content(manifest["content"])
     require(
         isinstance(manifest["contentHash"], str)
