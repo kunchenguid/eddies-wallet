@@ -222,10 +222,12 @@ and assemble/submit credential). The GET-only status monitor authenticates with
 that same key. Checkout of the private shared tool uses the already-configured
 `APP_REVIEW_SUBMIT_READ_TOKEN` (`contents:read` on `kunchenguid/app-review-submit`);
 that token is not an Apple credential and is not mapped into the assemble,
-submit, or poll steps. The gated submit job also maps
+submit, or poll steps. The gated submit job maps the existing
+`EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN` secret onto the engine env
 `APP_REVIEW_MONITOR_VARIABLE_TOKEN` so the engine can write
 `APP_REVIEW_MONITOR_VERSION` after Apple accepts. Do not create a dedicated
-monitor user or any `ASC_REVIEW_MONITOR_*` secret.
+monitor user or any `ASC_REVIEW_MONITOR_*` secret. Do not add a second
+secret under the engine env name.
 
 The live scheduled monitor reads `APP_REVIEW_MONITOR_VERSION` (the exact
 marketing version). Assemble-only does not write that variable; the gated

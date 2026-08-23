@@ -211,17 +211,18 @@ class CredentialLaneTests(WorkflowModelCase):
         holders = sorted(job for workflow, job, _ in mutating if workflow == SUBMIT)
         self.assertEqual(holders, ["assemble", "submit", "upload"])
 
-    def test_the_legacy_monitor_variable_token_is_never_mapped(self):
-        self.assertEqual(self.steps_holding(VARIABLE_TOKEN), [])
+    def test_the_nonexistent_engine_named_monitor_secret_is_never_mapped(self):
+        self.assertEqual(self.steps_holding(MONITOR_VARIABLE_TOKEN), [])
 
     def test_the_monitor_variable_token_reaches_only_the_gated_submit_job(self):
         holders = [
             (workflow, job)
-            for workflow, job, _ in self.steps_holding(MONITOR_VARIABLE_TOKEN)
+            for workflow, job, _ in self.steps_holding(VARIABLE_TOKEN)
         ]
         self.assertEqual(holders, [(SUBMIT, "submit")])
         for job_name in ("assemble", "upload"):
             for step in steps_of(self.jobs(SUBMIT)[job_name]):
+                self.assertNotIn(VARIABLE_TOKEN, secrets_of(step))
                 self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(step))
 
     def test_every_verify_lane_is_credential_free(self):
@@ -649,10 +650,11 @@ class AssembleEngineTests(WorkflowModelCase):
             "${{ github.workspace }}/.app-review-submit",
         )
         self.assertNotIn("GITHUB_TOKEN", environment)
-        self.assertNotIn(VARIABLE_TOKEN, secrets_of(mutating[0]))
+        self.assertIn(VARIABLE_TOKEN, secrets_of(mutating[0]))
+        self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(mutating[0]))
         self.assertEqual(
             environment["APP_REVIEW_MONITOR_VARIABLE_TOKEN"],
-            "${{ secrets.APP_REVIEW_MONITOR_VARIABLE_TOKEN }}",
+            "${{ secrets.EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN }}",
         )
         self.assertEqual(
             {name: environment[name] for name in MUTATION_SECRETS},
