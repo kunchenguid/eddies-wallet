@@ -33,9 +33,9 @@ Submission is gated by two independent things, and both are the captain's.
    `["node","app_review_pipeline.js","upload-screenshots"]`). If the version is
    already on an unsubmitted review submission, upload deletes only that version
    `reviewSubmissionItem` (Cloud items survive), then reserve/upload/commit and
-   verify-before-live. Assemble, upload, and submit all check out `7053c9b6`,
+   verify-before-live. Assemble, upload, and submit all check out `ea05e1fe`,
    the merge of
-   [`kunchenguid/app-review-submit#17`](https://github.com/kunchenguid/app-review-submit/pull/17).
+   [`kunchenguid/app-review-submit#18`](https://github.com/kunchenguid/app-review-submit/pull/18).
    `mode=submit` is a separate captain-gated dispatch that asks
    the engine to submit for review. Default remains `verify`.
 
