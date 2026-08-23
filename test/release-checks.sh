@@ -415,7 +415,10 @@ for workflow in "${APP_REVIEW_WORKFLOWS[@]}"; do
 done
 # app-review-lanes-test.py owns the per-step credential-lane model; these are
 # the coarse whole-file invariants that must hold however the jobs are shaped.
-forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-submit.yml "assemble-only never receives the monitor variable token"
+# The existing repo secret is EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN. Submit maps
+# it onto the engine env APP_REVIEW_MONITOR_VARIABLE_TOKEN; assemble, prepare,
+# and preflight never receive it.
+require_grep 'APP_REVIEW_MONITOR_VARIABLE_TOKEN: \$\{\{ secrets\.EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN \}\}' .github/workflows/app-review-submit.yml "submit maps the existing Eddie monitor variable token onto the engine env"
 forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-prepare.yml "preparation never receives the monitor variable token"
 forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-demo-preflight.yml "the readiness preflight never receives the monitor variable token"
 require_grep 'assemble_only.js --assemble-only --first-release' .github/workflows/app-review-submit.yml "submit workflow runs Node assemble-only first-release"

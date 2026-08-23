@@ -44,8 +44,9 @@ name: App Review submission
 #              listingPolicy stays observe. Opt-in is
 #              listing.screenshotWrites=true on the captain-approved manifest
 #              and config. Do not add screenshots to alignmentWrites.
-#   submit   - the same App Store Connect credentials plus
-#              APP_REVIEW_MONITOR_VARIABLE_TOKEN. It runs
+#   submit   - the same App Store Connect credentials plus the existing
+#              EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN, mapped onto the engine
+#              env APP_REVIEW_MONITOR_VARIABLE_TOKEN. It runs
 #              tools/app-review/full_submit.js --submit --first-release, which
 #              calls runSubmission({ assembleOnly: false }) - the engine's real
 #              submit. After Apple accepts, the engine writes
@@ -290,8 +291,9 @@ jobs:
           persist-credentials: false
 
       # Mutation-capable App Store Connect credential plus the monitor-variable
-      # write token. This is the only job that asks the engine to submit for
-      # review. It does not invoke the shared pipeline submit subcommand
+      # write token. Map the existing Eddie secret onto the env name the
+      # engine expects. This is the only job that asks the engine to submit
+      # for review. It does not invoke the shared pipeline submit subcommand
       # (engine-shaped manifests); Eddie maps through full_submit.js onto
       # runSubmission.
       - name: Submit the review submission to Apple
@@ -299,7 +301,7 @@ jobs:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-          APP_REVIEW_MONITOR_VARIABLE_TOKEN: ${{ secrets.APP_REVIEW_MONITOR_VARIABLE_TOKEN }}
+          APP_REVIEW_MONITOR_VARIABLE_TOKEN: ${{ secrets.EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN }}
           APP_REVIEW_CONFIG: ${{ github.workspace }}/tools/app-review/app-review.config.json
           APP_REVIEW_ENGINE_DIR: ${{ github.workspace }}/.app-review-submit
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
