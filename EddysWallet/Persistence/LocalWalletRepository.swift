@@ -33,6 +33,10 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     private var readOnlyReason: String?
     private var cloudHandoffGeneration = 0
     public private(set) var recoveryState: WalletRecoveryState?
+    /// Overlapping owned reads can both reach settlement; only one pass runs,
+    /// and waiters publish the snapshot it already advanced.
+    private var isApplyingScheduledSettlements = false
+    private var scheduledSettlementWaiters: [CheckedContinuation<Void, Never>] = []
     /// A pre-Core-Data marker/cache is a migration input only. It stays
     /// read-only and is never promoted to local authority because it may hold
     /// only ten recent events.
@@ -263,6 +267,113 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         candidate.snapshot = wallet
         try persist(candidate)
         return .accepted(event)
+    }
+
+    /// Settles due chain-head occurrences of parent-created weekly schedules
+    /// on a free local wallet. Cloud authority never auto-writes from here: a
+    /// replica stays read-only for this pass, and `WalletStore` also refuses
+    /// to call it when the published repository is Cloud. Each accepted
+    /// occurrence uses the ordinary `submit` path, one save at a time.
+    ///
+    /// Allowance credits run before loan debits on the same calendar day so a
+    /// same-day payout can fund a same-day installment. A loan installment
+    /// that would overdraft stays `scheduled` and is retried on a later pass.
+    /// A schedule whose derived due count exceeds
+    /// `ScheduledSettlementPolicy.maxOccurrencesPerPass` is left for the
+    /// parent-confirmed missed-set flow.
+    func applyDueScheduledSettlements(asOf now: Date = .now, calendar: Calendar = .current) async {
+        guard !isCloudAuthority else { return }
+        if isApplyingScheduledSettlements {
+            await withCheckedContinuation { continuation in
+                scheduledSettlementWaiters.append(continuation)
+            }
+            return
+        }
+        isApplyingScheduledSettlements = true
+        defer {
+            isApplyingScheduledSettlements = false
+            let waiters = scheduledSettlementWaiters
+            scheduledSettlementWaiters = []
+            waiters.forEach { $0.resume() }
+        }
+        guard (try? writableAggregate()) != nil else { return }
+
+        let wallet = snapshot()
+        let today = calendar.startOfDay(for: now)
+        var items: [ScheduledSettlementItem] = []
+
+        let allowanceDue = wallet.allowance?.dueScheduledPayouts(asOf: now, calendar: calendar) ?? []
+        if !allowanceDue.isEmpty,
+           allowanceDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass {
+            items.append(contentsOf: allowanceDue.map {
+                ScheduledSettlementItem.allowance(dueDate: $0.dueDate, amountCents: $0.amountCents)
+            })
+        }
+
+        let loanDue = wallet.loan?.dueScheduledInstallments(asOf: now, calendar: calendar) ?? []
+        if !loanDue.isEmpty,
+           loanDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass {
+            items.append(contentsOf: loanDue.map { ScheduledSettlementItem.loan(dueDate: $0.dueDate) })
+        }
+
+        items.sort { left, right in
+            let leftDay = calendar.startOfDay(for: left.dueDate)
+            let rightDay = calendar.startOfDay(for: right.dueDate)
+            if leftDay != rightDay { return leftDay < rightDay }
+            return left.isAllowance && !right.isAllowance
+        }
+
+        var skipRemainingLoans = false
+        for item in items {
+            switch item {
+            case .allowance(let dueDate, let amountCents):
+                let result = try? await submit(
+                    WalletCommand(
+                        kind: .allowance,
+                        amountCents: amountCents,
+                        dueDate: dueDate,
+                        idempotencyKey: UUID().uuidString
+                    )
+                )
+                guard case .accepted = result else { return }
+            case .loan(let dueDate):
+                if skipRemainingLoans { continue }
+                let isToday = calendar.startOfDay(for: dueDate) == today
+                let result = try? await submit(
+                    WalletCommand(
+                        kind: .loanInstallment,
+                        amountCents: 0,
+                        dueDate: isToday ? nil : dueDate,
+                        idempotencyKey: UUID().uuidString
+                    )
+                )
+                switch result {
+                case .accepted:
+                    continue
+                case .rejected:
+                    skipRemainingLoans = true
+                default:
+                    return
+                }
+            }
+        }
+    }
+
+    private enum ScheduledSettlementItem {
+        case allowance(dueDate: Date, amountCents: Int)
+        case loan(dueDate: Date)
+
+        var dueDate: Date {
+            switch self {
+            case .allowance(let dueDate, _), .loan(let dueDate):
+                dueDate
+            }
+        }
+
+        var isAllowance: Bool {
+            if case .allowance = self { return true }
+            return false
+        }
     }
 
     // MARK: - Cloud authority
