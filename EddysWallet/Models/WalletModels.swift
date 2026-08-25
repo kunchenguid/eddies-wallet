@@ -258,6 +258,7 @@ public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
     public let reason: String?
     public let date: Date
     public let syncState: SyncState
+    public let recordedBy: String?
     public let explanation: String
     public let rejectionReason: String?
 
@@ -271,6 +272,7 @@ public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
         reason: String? = nil,
         date: Date = .now,
         syncState: SyncState = .recorded,
+        recordedBy: String? = nil,
         explanation: String,
         rejectionReason: String? = nil
     ) {
@@ -283,6 +285,7 @@ public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
         self.reason = reason
         self.date = date
         self.syncState = syncState
+        self.recordedBy = recordedBy
         self.explanation = explanation
         self.rejectionReason = rejectionReason
     }

@@ -655,6 +655,23 @@ final class WalletTests: XCTestCase {
         let parent = ActivityDetailCopy.attribution(for: debit, audience: .parent)
         XCTAssertEqual(parent.label, "Recorded by")
         XCTAssertEqual(parent.value, "Parent")
+
+        let scheduled = WalletEvent(
+            type: .allowance,
+            amountCents: 500,
+            recordedBy: AcceptedEventCopy.scheduleActor,
+            explanation: "Your allowance of US$5.00 was added."
+        )
+        XCTAssertEqual(ActivityDetailCopy.attribution(for: scheduled, audience: .kid).value, "Your plan")
+        XCTAssertEqual(ActivityDetailCopy.attribution(for: scheduled, audience: .parent).value, "Schedule")
+        XCTAssertEqual(
+            ActivityDetailCopy.explanation(for: scheduled, audience: .kid),
+            "Your allowance of US$5.00 was added."
+        )
+        XCTAssertFalse(
+            ActivityDetailCopy.explanation(for: scheduled, audience: .kid)
+                .localizedCaseInsensitiveContains("Your parent")
+        )
     }
 
     func testKidActivityExplanationDerivesFromFieldsWithoutChangingParentCopy() {

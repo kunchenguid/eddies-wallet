@@ -1562,6 +1562,16 @@ final class CloudVerticalSliceTests: XCTestCase {
 
         XCTAssertEqual(refreshed.acceptedBalanceCents, 1_250)
         XCTAssertEqual(refreshed.activities.filter { $0.remoteID == "a3000000-0000-4000-8000-000000000001" }.count, 1)
+        let settled = try XCTUnwrap(refreshed.activities.first { $0.remoteID == "a3000000-0000-4000-8000-000000000001" })
+        XCTAssertEqual(settled.recordedBy, AcceptedEventCopy.scheduleActor)
+        XCTAssertEqual(settled.explanation, "Your allowance of US$5.00 was added.")
+        XCTAssertFalse(settled.explanation.localizedCaseInsensitiveContains("Your parent"))
+        XCTAssertEqual(ActivityDetailCopy.attribution(for: settled, audience: .kid).value, "Your plan")
+        XCTAssertEqual(ActivityDetailCopy.attribution(for: settled, audience: .parent).value, "Schedule")
+        XCTAssertEqual(
+            ActivityDetailCopy.explanation(for: settled, audience: .kid),
+            "Your allowance of US$5.00 was added."
+        )
         XCTAssertEqual(refreshed.allowance?.nextOccurrenceID, "next-head")
         XCTAssertEqual(
             calendar.startOfDay(for: try XCTUnwrap(refreshed.allowance?.nextDate)),
@@ -5417,7 +5427,7 @@ enum CloudSliceFixtures {
         let withBalance = withRevision.replacingOccurrences(of: "\"balanceCents\":750", with: "\"balanceCents\":\(750 + amountCents)")
         let withdrawalTail = "\"reason\":\"sticker book\",\"loanId\":null,\"recordedAt\":\"2026-07-25T10:00:00.000Z\",\"acceptedRevision\":2}"
         let entry = """
-        {"id":"\(entryID)","type":"allowance","direction":"credit","amountCents":\(amountCents),"balanceBeforeCents":750,"balanceAfterCents":\(750 + amountCents),"reason":null,"loanId":null,"recordedAt":"2026-08-01T12:00:00.000Z","acceptedRevision":\(revision)}
+        {"id":"\(entryID)","type":"allowance","direction":"credit","amountCents":\(amountCents),"balanceBeforeCents":750,"balanceAfterCents":\(750 + amountCents),"reason":null,"loanId":null,"recordedBy":"schedule","recordedAt":"2026-08-01T12:00:00.000Z","acceptedRevision":\(revision)}
         """
         let withEntry = withBalance.replacingOccurrences(of: withdrawalTail, with: withdrawalTail + "," + entry)
         let occurrences = """
