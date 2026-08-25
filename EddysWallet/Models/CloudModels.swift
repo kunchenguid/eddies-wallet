@@ -677,9 +677,14 @@ public struct CloudReplica: Codable, Equatable, Sendable {
         public let loanID: String?
         public let recordedAt: Date
         public let acceptedRevision: Int64?
+        /// Present once the backend contract lands `recordedBy` on bootstrap
+        /// and changes entries. `schedule` is the reserved auto-settlement
+        /// sentinel; any other value is a parent actor. Omitted entries stay
+        /// parent-attributed so today's pinned fixture still decodes.
+        public let recordedBy: String?
 
         private enum CodingKeys: String, CodingKey {
-            case id, type, direction, amountCents, balanceBeforeCents, balanceAfterCents, reason, recordedAt, acceptedRevision
+            case id, type, direction, amountCents, balanceBeforeCents, balanceAfterCents, reason, recordedAt, acceptedRevision, recordedBy
             case loanID = "loanId"
         }
     }

@@ -168,6 +168,7 @@ struct CloudStatusView: View {
             benefit("lock.icloud.fill", "A safe copy of the wallet, so a lost \(DeviceCopy.deviceNoun) doesn't lose the savings history")
             benefit("ipad.and.iphone", "The same wallet on your family's other devices, signed in with your parent Apple account")
             benefit("arrow.triangle.2.circlepath", "New \(DeviceCopy.deviceNoun)? Pick up exactly where you left off")
+            benefit("calendar", Self.cloudAutoPayCopy(deviceNoun: DeviceCopy.deviceNoun))
         }
         .padding(EW.Space.four)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -196,9 +197,9 @@ struct CloudStatusView: View {
         } else {
             switch store.cloudEntitlement {
             case .active(let accessUntil, _):
-                statusText("Cloud is on through \(accessUntil.formatted(date: .abbreviated, time: .omitted)). Backed up and synced across devices using the same parent Apple account.")
+                statusText("Cloud is on through \(accessUntil.formatted(date: .abbreviated, time: .omitted)). Backed up and synced across devices using the same parent Apple account. \(Self.cloudAutoPayCopy(deviceNoun: DeviceCopy.deviceNoun))")
             case .billingGrace:
-                statusText("Cloud is still on while the App Store retries billing.")
+                statusText("Cloud is still on while the App Store retries billing. \(Self.cloudAutoPayCopy(deviceNoun: DeviceCopy.deviceNoun))")
             case .expired, .refunded, .revoked, .billingRetry:
                 statusText("Cloud ended. You can keep using the wallet on this device. Nothing was deleted.")
             case .verificationPending:
@@ -245,6 +246,10 @@ struct CloudStatusView: View {
             return "After this device syncs once, its last accepted Cloud wallet stays readable offline."
         }
         return "Cloud is optional. Your wallet keeps working on this device without it."
+    }
+
+    static func cloudAutoPayCopy(deviceNoun: String) -> String {
+        "Scheduled allowance and loan payments are recorded for the family even if this \(deviceNoun) is off."
     }
 
     static func cloudReplicaUnavailableStatusCopy(deviceNoun: String) -> String {

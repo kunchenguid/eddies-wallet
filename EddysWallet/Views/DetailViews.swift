@@ -2,12 +2,15 @@ import SwiftUI
 
 enum ActivityDetailCopy {
     static func attribution(
-        for _: WalletEvent,
+        for event: WalletEvent,
         audience: ActivityDetailView.Audience
     ) -> (label: String, value: String) {
+        let scheduleSettled = AcceptedEventCopy.isScheduleSettled(event.recordedBy)
         switch audience {
-        case .kid: ("Changed by", "Your parent")
-        case .parent: ("Recorded by", "Parent")
+        case .kid:
+            return ("Changed by", scheduleSettled ? "Your plan" : "Your parent")
+        case .parent:
+            return ("Recorded by", scheduleSettled ? "Schedule" : "Parent")
         }
     }
 
@@ -17,7 +20,11 @@ enum ActivityDetailCopy {
     ) -> String {
         guard audience == .kid else { return event.explanation }
 
-        return AcceptedEventCopy.explanation(for: event.type, amountCents: event.amountCents)
+        return AcceptedEventCopy.explanation(
+            for: event.type,
+            amountCents: event.amountCents,
+            recordedBy: event.recordedBy
+        )
     }
 }
 

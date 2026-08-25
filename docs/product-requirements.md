@@ -43,7 +43,7 @@ Parents want a simple way to give children practice with allowance, spending, bo
 Eddie's Wallet addresses the gap with a small, closed virtual economy:
 
 1. A parent creates and controls the configured child profile.
-2. The parent pays out allowance and records deposits, withdrawals, loans, and repayments. Creating a weekly allowance rule or a weekly or monthly loan payment plan is the parent act that authorizes later local auto-settlement of due occurrences.
+2. The parent pays out allowance and records deposits, withdrawals, loans, and repayments. Creating a weekly allowance rule or a weekly or monthly loan payment plan is the parent act that authorizes later automatic settlement of due occurrences by the wallet's current authority.
 3. The child sees an understandable, read-only wallet and activity history.
 4. The app stays honest about sync state. Parents repeatedly see that the balance cannot be spent or redeemed; kids see a plain allowance relationship without that legal framing on every glance.
 
@@ -60,7 +60,7 @@ The configured child profile uses a simple child view to check an allowance bala
 ### MVP authority model
 
 - The MVP has one signed-in parent owner and one parent-managed child profile.
-- The parent is the only role that can create or change the allowance rule, the child profile, or the parent PIN, and the only role that can record a manual money event. On a free local wallet, due occurrences of a parent-created weekly allowance rule or a weekly or monthly loan installment plan may settle on read without a new parent action; that pass cannot create schedules, edit them, or record any other kind of event. A Cloud wallet never auto-writes from this device.
+- The parent is the only role that can create or change the allowance rule, the child profile, or the parent PIN, and the only role that can record a manual money event. On a free local wallet, due occurrences of a parent-created weekly allowance rule or a weekly or monthly loan installment plan may settle on read without a new parent action; that pass cannot create schedules, edit them, or record any other kind of event. When Cloud is on, the service owns auto-settlement: this device never auto-writes, and accepted occurrences arrive through the existing `/v1/cloud/changes` feed.
 - The kid home is a view of the configured child profile, not a second account with independent authority.
 - Future co-parent members and independent child-device identities must not be implied by MVP UI.
 
@@ -73,7 +73,7 @@ The configured child profile uses a simple child view to check an allowance bala
 - Parent-set local PIN for entering the temporary Parent area on a shared iPad.
 - A single virtual wallet for the child profile.
 - A familiar US-dollar display vocabulary with persistent virtual/nonredeemable labeling on parent and safety surfaces, and plain allowance language on kid everyday surfaces.
-- Parent-created weekly allowance schedules and weekly or monthly loan installment schedules, parent-recorded deposits, withdrawals, loans, and repayments, and local apply-on-read settlement of a small due set.
+- Parent-created weekly allowance schedules and weekly or monthly loan installment schedules, parent-recorded deposits, withdrawals, loans, and repayments, local apply-on-read settlement of a small due set, and service settlement while Cloud is on.
 - A visible wallet activity list and activity details.
 - A secondary open-loan card and loan detail flow.
 - Honest offline, pending, rejected, and stale-data states.
@@ -122,7 +122,7 @@ The amount is a simulated accounting value only. It is not a dollar claim, store
 
 Parent balance framing uses the configured nickname, such as **Maya's virtual balance**, or **Your child's virtual balance** when no nickname is set.
 
-**Kid everyday surfaces** (kid home hero, empty-wallet ready state, kid activity list/detail, kid loan card/detail, and kid status/accessibility text) stay plain and relational. The primary kid balance label is exactly **Your allowance balance**. Do not stack `pretend`, `virtual practice`, `not real money`, `nonredeemable`, or similar complexity on the kid home or routine kid detail glances. Kid activity lines stay human (“Your parent added…”) without a heavy disclaimer on every row.
+**Kid everyday surfaces** (kid home hero, empty-wallet ready state, kid activity list/detail, kid loan card/detail, and kid status/accessibility text) stay plain and relational. The primary kid balance label is exactly **Your allowance balance**. Do not stack `pretend`, `virtual practice`, `not real money`, `nonredeemable`, or similar complexity on the kid home or routine kid detail glances. Kid activity lines stay human without a heavy disclaimer on every row: parent-attributed entries use “Your parent…” while service-settled Cloud entries carrying the reserved schedule attribution name the plan instead.
 
 Do not use a bank-card design or wording that implies spendable funds, banks, cards, cash-out, or real-world payment services on any surface. **Pay** and **payment** are reserved for virtual loan repayment; allowance is **paid out**, while a loan is **paid toward**.
 
@@ -134,7 +134,7 @@ Do not use a bank-card design or wording that implies spendable funds, banks, ca
 - The wallet cannot go below zero. A loan is the explicit way to give the child additional virtual dollars that must be repaid; it is not an accidental overdraft.
 - A balance is the result of accepted events. Pending events are not accepted money.
 - Accepted events are not edited or deleted. A parent correction, if needed, is a new clearly labeled compensating event.
-- Every accepted event has a type, amount, date, reason where applicable, and the fact that it was recorded by the parent.
+- Every accepted event has a type, amount, date, reason where applicable, and its attribution. Parent-attributed entries name the parent; a service-settled Cloud entry whose `recordedBy` value is the reserved `schedule` sentinel names the schedule or plan and never claims the parent performed that action.
 
 ### Vocabulary
 
@@ -254,7 +254,7 @@ The kid home must not include a child request button, money action button, edit 
 
 - The wallet contains the visible recent activity list. A parent can scroll it to review prior events; a separate Recent Activity entry point is not needed.
 - Each accepted row opens details with type, amount, date, reason, and a plain-language explanation.
-- Parent details may show before and after balances and keep the virtual/nonredeemable notice. Child details use simple wording such as “Your parent added US$10.00 as your weekly allowance.” without a heavy disclaimer footer.
+- Parent details may show before and after balances and keep the virtual/nonredeemable notice. Child details use simple wording without a heavy disclaimer footer. A parent-attributed allowance may say “Your parent added US$10.00 as your allowance.”; a service-settled Cloud allowance carrying `recordedBy: "schedule"` says “Your allowance of US$10.00 was added.” and attributes the change to **Your plan**, never **Your parent**. Parent details attribute the latter to **Schedule**.
 - Unresolved parent events in a service-authoritative wallet show **Waiting to sync**, not a recorded state. Copy distinguishes an unconfirmed request from a service-accepted change that the device has not observed. Free-local actions are recorded immediately or fail without entering a pending state.
 - Rejected events are visible to the parent with the reason and are not shown as accepted child activity.
 - Accepted activity cannot be edited or deleted.
@@ -274,9 +274,9 @@ Flow:
 7. An unrecorded weekly occurrence due strictly before today is missed. Show every currently missed occurrence, **N missed weeks**, and **Owed total** in both free-local and Cloud modes. An occurrence due today remains the ordinary single payout and is not part of the missed set.
 8. **Pay out missed allowance** asks the parent to confirm the initially visible missed set, including its entry count and total, then **Pay out all** settles that fixed set sequentially as separate allowance entries. It never expands the batch to include a newly due occurrence. Accepted weeks remain durable after interruption, while the untouched weeks remain visible and payable later without duplicates.
 
-Free-local authority records a valid rule immediately in protected local storage. A successful local read also settles due chain-head occurrences of that parent-created weekly rule, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass. A larger derived backlog stays on **Pay out missed allowance**. This weekly cadence limit belongs only to allowance rules; loan installment auto-settlement supports both weekly and monthly plans as specified in 8.9. Cloud wallets never auto-write from this device: each Cloud payout still uses the existing occurrence endpoint with the normal revision, `If-Match`, and idempotency protections, and a required Cloud review blocks the next payout rather than being bypassed by the batch. A service-authoritative wallet must confirm its current replica revision online before submitting a rule change or payout and must not queue an offline rule edit.
+Free-local authority records a valid rule immediately in protected local storage. A successful local read also settles due chain-head occurrences of that parent-created weekly rule, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass. A larger derived backlog stays on **Pay out missed allowance**. This weekly cadence limit belongs only to allowance rules; loan installment auto-settlement supports both weekly and monthly plans as specified in 8.9. When Cloud is on, the service records due occurrences; this device displays them from `/v1/cloud/changes` and never auto-writes. A parent-confirmed Cloud payout still uses the existing occurrence endpoint with the normal revision, `If-Match`, and idempotency protections, and a required Cloud review blocks the next payout rather than being bypassed by the batch. A service-authoritative wallet must confirm its current replica revision online before submitting a rule change or payout and must not queue an offline rule edit. Toggling Cloud off resumes local apply-on-read from the persisted occurrence chain, never from the rule start date, so already-recorded weeks cannot be paid again.
 
-Editing or pausing a rule affects future occurrences only. It must not rewrite past activity. Creating or editing the rule stays parent-gated. There is no timer, background job, or notification, and the kid home never shows waiting, skip, or behind copy. Additional cadences remain a future decision.
+Editing or pausing a rule affects future occurrences only. It must not rewrite past activity. Creating or editing the rule stays parent-gated. The client has no settlement timer, background job, or notification, and the kid home never shows waiting, skip, or behind copy. Additional cadences remain a future decision.
 
 ### 8.7 Deposit flow
 
@@ -329,7 +329,7 @@ Required parent copy uses **Loan payments**, **Next payment**, **Missed payments
 4. Free-local authority records a valid repayment immediately. Service authority requires a current online replica and records it after acceptance is observed; an ambiguous submitted request remains **Waiting to sync**.
 5. A paid loan remains in history as **Paid** rather than disappearing.
 
-Every manual payment remains parent-triggered. On a free local wallet, a successful read also settles due chain-head installments of a parent-created weekly or monthly plan, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass, after all eligible allowance credits have settled oldest-first. An installment that would overdraft stays scheduled and is retried on a later pass. A larger derived backlog stays on **Pay missed payments**. Cloud wallets never auto-write from this device. There is no timer, background job, or notification, and the kid home never shows waiting, skip, or behind copy.
+Every manual payment remains parent-triggered. On a free local wallet, a successful read also settles due chain-head installments of a parent-created weekly or monthly plan, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass, after all eligible allowance credits have settled oldest-first. An installment that would overdraft stays scheduled and is retried on a later pass. A larger derived backlog stays on **Pay missed payments**. Cloud wallets never auto-write from this device. When Cloud is on, the service records due installments; this device displays them from `/v1/cloud/changes`. The client has no settlement timer, background job, or notification, and the kid home never shows waiting, skip, or behind copy.
 
 **Child loan view:** The child can see the original loan, accepted repayments, and amount left to repay in plain language. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP. Parent loan details keep the virtual/nonredeemable notice.
 

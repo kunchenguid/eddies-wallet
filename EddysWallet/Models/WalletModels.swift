@@ -258,6 +258,7 @@ public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
     public let reason: String?
     public let date: Date
     public let syncState: SyncState
+    public let recordedBy: String?
     public let explanation: String
     public let rejectionReason: String?
 
@@ -271,6 +272,7 @@ public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
         reason: String? = nil,
         date: Date = .now,
         syncState: SyncState = .recorded,
+        recordedBy: String? = nil,
         explanation: String,
         rejectionReason: String? = nil
     ) {
@@ -283,6 +285,7 @@ public struct WalletEvent: Identifiable, Hashable, Codable, Sendable {
         self.reason = reason
         self.date = date
         self.syncState = syncState
+        self.recordedBy = recordedBy
         self.explanation = explanation
         self.rejectionReason = rejectionReason
     }
@@ -666,7 +669,7 @@ public struct Loan: Hashable, Codable, Sendable {
             return nil
         }
         let today = calendar.startOfDay(for: now)
-        var remaining = remainingCents - missedInstallments(asOf: now, calendar: calendar).totalCents
+        let remaining = remainingCents - missedInstallments(asOf: now, calendar: calendar).totalCents
         guard remaining > 0 else { return nil }
 
         while dueDate < today {

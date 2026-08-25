@@ -5,8 +5,29 @@ import Foundation
 /// authority and the Cloud replica so the same event never reads differently
 /// depending on which authority accepted it.
 enum AcceptedEventCopy {
-    static func explanation(for type: ActivityType, amountCents: Int) -> String {
+    /// Reserved Cloud `recordedBy` sentinel for server-schedule settlement.
+    /// Parent-recorded entries carry the parent actor instead.
+    static let scheduleActor = "schedule"
+
+    static func isScheduleSettled(_ recordedBy: String?) -> Bool {
+        recordedBy == scheduleActor
+    }
+
+    static func explanation(
+        for type: ActivityType,
+        amountCents: Int,
+        recordedBy: String? = nil
+    ) -> String {
         let amount = Money(cents: amountCents).display
+        if isScheduleSettled(recordedBy) {
+            return switch type {
+            case .allowance: "Your allowance of \(amount) was added."
+            case .deposit: "\(amount) was added to your wallet."
+            case .withdrawal: "\(amount) was used."
+            case .loan: "\(amount) is yours to use now and give back over time."
+            case .repayment: "\(amount) was paid toward your loan."
+            }
+        }
         return switch type {
         case .allowance: "Your parent added \(amount) as your allowance."
         case .deposit: "Your parent added \(amount) to your wallet."
@@ -68,7 +89,12 @@ enum CloudReplicaMapper {
             reason: entry.reason,
             date: entry.recordedAt,
             syncState: .recorded,
-            explanation: AcceptedEventCopy.explanation(for: type, amountCents: entry.amountCents)
+            recordedBy: entry.recordedBy,
+            explanation: AcceptedEventCopy.explanation(
+                for: type,
+                amountCents: entry.amountCents,
+                recordedBy: entry.recordedBy
+            )
         )
     }
 
