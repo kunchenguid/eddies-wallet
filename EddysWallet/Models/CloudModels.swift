@@ -753,8 +753,8 @@ public struct CloudReplica: Codable, Equatable, Sendable {
         public let active: Bool?
         /// Service-owned chain head. Changes responses may omit it, so
         /// `CloudWalletRepository` still overlays `GET /v1/allowance-rule`.
-        /// When the key is present the replica itself is enough to keep
-        /// already-paid weeks from reappearing.
+        /// When both head fields are present the replica itself can retain the
+        /// service-owned next occurrence.
         public let nextOccurrenceID: String?
         public let nextDueDate: String?
 

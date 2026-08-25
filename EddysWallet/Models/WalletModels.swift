@@ -729,8 +729,8 @@ public enum AllowanceRecordAllOutcome: Equatable, Sendable {
 public struct AllowancePlan: Hashable, Codable, Sendable {
     /// One payout day of a weekly rule, in the same three states a loan
     /// occurrence uses. `entryID` names the accepted allowance that settled a
-    /// recorded week, which is what lets a one-time Cloud upload reproduce the
-    /// chain the service would have built for itself.
+    /// recorded week, keeping local and replica history tied to the accepted
+    /// ledger entry without changing the head-only Cloud import contract.
     public struct Occurrence: Hashable, Codable, Sendable, Identifiable {
         public enum Status: String, Hashable, Codable, Sendable {
             case scheduled
@@ -768,13 +768,15 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     public let nextOccurrenceID: String?
     public let syncState: SyncState
     public let isExhausted: Bool
-    /// Ordered by payout day, oldest first. A live plan has exactly one
-    /// `scheduled` chain head and an exhausted plan has none. An overdue span
-    /// is settled by recording that head and taking the next out of the result.
+    /// Ordered by payout day, oldest first. A locally authoritative live plan
+    /// has exactly one `scheduled` chain head; an exhausted plan and a Cloud
+    /// replica whose service head is incomplete have none. An overdue span is
+    /// settled by recording that head and taking the next out of the result.
     /// A snapshot that stored only `nextDate` decodes as one scheduled row.
     public let occurrences: [Occurrence]
 
-    /// The one payout waiting to be recorded, or `nil` for an exhausted plan.
+    /// The one payout waiting to be recorded, or `nil` when exhausted or when
+    /// a Cloud replica has no complete service-owned head to publish.
     public var nextOccurrence: Occurrence? {
         occurrences.first { $0.status == .scheduled }
     }

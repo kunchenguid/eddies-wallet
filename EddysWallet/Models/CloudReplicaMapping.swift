@@ -400,10 +400,11 @@ enum CloudImportManifestBuilder {
         )
     }
 
-    /// Local authority stores only the next unrecorded occurrence, not a
-    /// separate original start date. A live plan sends that complete chain head;
-    /// an exhausted plan sends null head values. Cadence on the wire is the Cloud
-    /// `weekly` token so the imported rule matches `/v1/allowance-rule`.
+    /// Import intentionally sends only the allowance chain head on
+    /// `allowanceRule`, not the locally retained occurrence history. A live plan
+    /// sends that complete head; an exhausted plan sends null head values.
+    /// Cadence on the wire is the Cloud `weekly` token so the imported rule
+    /// matches `/v1/allowance-rule`.
     private static func allowanceRule(from plan: AllowancePlan?) throws -> CloudImportManifest.AllowanceRule? {
         guard let plan else { return nil }
         guard plan.isExhausted || plan.nextOccurrenceID?.isEmpty == false else {

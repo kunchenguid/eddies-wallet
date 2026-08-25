@@ -38,7 +38,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     /// carries the weekly rule. This service-authoritative read gives parent
     /// presentation the actual earliest due week instead of inferring it from
     /// activity timestamps. When the replica does carry `allowanceOccurrences`,
-    /// the overlay still wins for the live chain head.
+    /// only a complete matching overlay replaces its live chain head.
     private var allowanceSchedule: CloudAllowanceSchedule.Rule?
     private var allowanceScheduleOverlay: AllowancePlan?
     private var allowanceScheduleRevision: Int64?
