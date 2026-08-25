@@ -251,6 +251,13 @@ public final class WalletStore: ObservableObject {
     /// Opens the protected local store that a service-held wallet is mirrored
     /// into. Used only when a legacy device converges onto Cloud authority.
     private let localReplicaProvider: () throws -> LocalWalletRepository
+    /// Local due-day reminders. Garnish only: settlement never depends on
+    /// delivery, and the default no-op keeps tests off the system permission
+    /// dialog. Production composition injects `UserNotificationsReminderCenter`.
+    private let reminderCenter: any ScheduledReminderCentering
+    /// The first successful reached read of this process must not blast
+    /// recorded-history reminders for every already-settled automatic entry.
+    private var hasPublishedReachedRead = false
     /// The idempotency key of the one accepted recovery in flight. Minted once
     /// per acceptance and reused only for retries of that same action.
     private var acceptedRecoveryKey: String?
@@ -293,7 +300,8 @@ public final class WalletStore: ObservableObject {
         accountDeletionPendingStore: (any PendingCommandStore)? = nil,
         accountDeletionSnapshotCache: (any WalletSnapshotCache)? = nil,
         accountDeletionConfiguredKidStore: (any ConfiguredKidStore)? = nil,
-        accountDeletionFlush: @escaping () -> Bool = { UserDefaults.standard.synchronize() }
+        accountDeletionFlush: @escaping () -> Bool = { UserDefaults.standard.synchronize() },
+        reminderCenter: (any ScheduledReminderCentering)? = nil
     ) {
         let resolvedRepository = repository ?? WalletRepositoryFactory.makeDefault()
         self.repository = resolvedRepository
@@ -304,6 +312,7 @@ public final class WalletStore: ObservableObject {
         self.accountDeletionConfiguredKidStore = accountDeletionConfiguredKidStore ?? UserDefaultsConfiguredKidStore()
         self.accountDeletionFlush = accountDeletionFlush
         self.localReplicaProvider = localReplicaProvider ?? { try LocalWalletRepository() }
+        self.reminderCenter = reminderCenter ?? NoOpScheduledReminderCenter()
         self.snapshot = resolvedRepository.childSnapshot()
         let configured = resolvedRepository.hasConfiguredKid
         self.isSignedIn = initiallySignedIn ?? configured
@@ -890,7 +899,10 @@ public final class WalletStore: ObservableObject {
         guard id == newestReadID, generation == refreshGeneration, role == viewRole else { return }
         switch outcome {
         case .success(let refreshed):
+            let previousPublishedIDs = Set(snapshot.activities.map(\.id))
+            var idsBeforeLocalSettle: Set<UUID>?
             if let local = repository as? LocalWalletRepository, !local.isCloudAuthority {
+                idsBeforeLocalSettle = Set(local.snapshot().activities.map(\.id))
                 await local.applyDueScheduledSettlements()
                 guard id == newestReadID, generation == refreshGeneration, role == viewRole else { return }
             }
@@ -913,6 +925,15 @@ public final class WalletStore: ObservableObject {
             connection = .reached
             sessionExpired = false
             await convergeLegacyDeviceOntoCloud(generation: generation)
+            guard id == newestReadID, generation == refreshGeneration, role == viewRole else { return }
+            let locallySettled = idsBeforeLocalSettle.map { before in
+                snapshot.activities.filter { !before.contains($0.id) }
+            } ?? []
+            let newlyArrived = snapshot.activities.filter { !previousPublishedIDs.contains($0.id) }
+            await publishScheduledReminders(
+                locallySettled: locallySettled,
+                newlyArrived: newlyArrived
+            )
         case .failure(let error as WalletAPIError):
             isLoading = false
             guard !isCancellation(error) else { return }
@@ -996,6 +1017,36 @@ public final class WalletStore: ObservableObject {
             errorMessage = "The wallet could not be updated. Your last accepted balance is still shown."
             snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
         }
+    }
+
+    /// Due-day calendar reminders always refresh after a reached read.
+    /// Immediate "recorded" reminders fire only after this process has already
+    /// published one reached read, so Cloud bootstrap history is not a blast.
+    private func publishScheduledReminders(
+        locallySettled: [WalletEvent],
+        newlyArrived: [WalletEvent]
+    ) async {
+        let notifySettled = hasPublishedReachedRead
+        hasPublishedReachedRead = true
+        await refreshDueReminders()
+        guard notifySettled else { return }
+        let settled = ScheduledReminderPlanner.settledReminders(
+            locallySettled: locallySettled,
+            newlyArrived: newlyArrived
+        )
+        guard !settled.isEmpty else { return }
+        await reminderCenter.deliverImmediate(settled)
+    }
+
+    private func refreshDueReminders() async {
+        let reminders = ScheduledReminderPlanner.dueReminders(
+            allowanceDue: snapshot.allowance?.nextCurrentOrFuturePayout(),
+            paymentDue: snapshot.loan?.nextCurrentOrFutureInstallment()?.dueDate
+        )
+        await reminderCenter.replaceDueReminders(
+            reminders,
+            requestAuthorization: elevation == .active
+        )
     }
 
     private func isCancellation(_ error: Error) -> Bool {
@@ -1293,6 +1344,7 @@ public final class WalletStore: ObservableObject {
                 snapshot = refreshed
                 latestParentMutationOutcome = .recorded
                 isLoading = false
+                await refreshDueReminders()
             }
             return true
         } catch let error as WalletAPIError {
@@ -1419,6 +1471,7 @@ public final class WalletStore: ObservableObject {
                     errorMessage = nil
                 }
                 snapshot = repository.snapshot()
+                await refreshDueReminders()
             }
             return result
         } catch let error as WalletAPIError {

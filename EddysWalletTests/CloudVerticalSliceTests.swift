@@ -1583,6 +1583,73 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 0)
     }
 
+    func testCloudChangesFeedDeliversRecordedReminderAfterFirstReachedRead() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let nextWeek = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: today))
+        let transport = RoutingTransport()
+        let unsettled = CloudSliceFixtures.scheduledAllowanceReplica(
+            lineage: lineage,
+            revision: 2,
+            dueDate: today,
+            occurrenceID: "due-head"
+        )
+        transport.stub("GET", "/v1/cloud/bootstrap", unsettled)
+        transport.stub("GET", "/v1/cloud/changes", unsettled)
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let reminders = RecordingScheduledReminderCenter()
+        let store = WalletStore(
+            repository: cloud,
+            appleSignInProvider: SliceSignInProvider(),
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
+            reminderCenter: reminders
+        )
+        await store.refresh()
+        await store.refresh()
+        XCTAssertTrue(
+            store.snapshot.activities.filter { $0.type == .allowance }.isEmpty,
+            "the unsettled replica must publish before the settled changes feed arrives"
+        )
+        XCTAssertTrue(
+            reminders.immediateReminders.isEmpty,
+            "the first reached read must not blast already-settled history"
+        )
+        XCTAssertFalse(reminders.askedForAuthorization)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.serverSettledAllowanceReplica(
+                lineage: lineage,
+                revision: 3,
+                recordedID: "due-head",
+                recordedDueDate: today,
+                entryID: "a3000000-0000-4000-8000-000000000001",
+                nextID: "next-head",
+                nextDueDate: nextWeek
+            )
+        )
+        await store.refresh()
+
+        XCTAssertEqual(store.snapshot.activities.filter { $0.recordedBy == AcceptedEventCopy.scheduleActor }.count, 1)
+        XCTAssertEqual(reminders.immediateReminders.map(\.kind), [.allowanceRecorded])
+        let recorded = try XCTUnwrap(reminders.immediateReminders.first)
+        XCTAssertEqual(recorded.title, ScheduledReminderCopy.allowanceRecordedTitle)
+        XCTAssertEqual(recorded.body, ScheduledReminderCopy.body)
+        XCTAssertFalse(recorded.title.contains("US$"))
+        XCTAssertFalse(recorded.body.contains("US$"))
+        XCTAssertFalse(recorded.title.contains("$"))
+        XCTAssertFalse(recorded.body.contains("$"))
+        XCTAssertFalse(reminders.askedForAuthorization)
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 0)
+    }
+
     func testCloudToLocalHandoffDoesNotDoublePayAServerSettledAllowanceWeek() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
