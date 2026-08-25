@@ -1480,6 +1480,25 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(cloud.hasUnsettledMutation)
     }
 
+    func testReplicaSuppressesPartialAllowanceChainHeads() async throws {
+        let lineage = UUID()
+        for nextDueDate in [nil, "not-a-date"] as [String?] {
+            let local = try LocalWalletRepository(directory: directory.appendingPathComponent(UUID().uuidString))
+            let transport = RoutingTransport()
+            transport.stub(
+                "GET",
+                "/v1/cloud/bootstrap",
+                CloudSliceFixtures.bootstrapWithPartialAllowanceHead(lineage: lineage, nextDueDate: nextDueDate)
+            )
+            let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+
+            _ = try await cloud.bootstrap()
+
+            XCTAssertNil(cloud.snapshot().allowance?.nextOccurrenceID)
+            XCTAssertEqual(cloud.snapshot().allowance?.nextDate, CloudDayFormat.date(from: "2026-07-01"))
+        }
+    }
+
     func testParentBootstrapPublishesAuthoritativeAllowanceSchedule() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
@@ -4588,6 +4607,15 @@ enum CloudSliceFixtures {
         rule += "}"
         let source = String(decoding: bootstrap(lineage: lineage), as: UTF8.self)
         return Data(source.replacingOccurrences(of: "\"allowanceRule\":null", with: "\"allowanceRule\":\(rule)").utf8)
+    }
+
+    static func bootstrapWithPartialAllowanceHead(lineage: UUID, nextDueDate: String?) -> Data {
+        let source = String(decoding: bootstrapWithAllowance(lineage: lineage), as: UTF8.self)
+        let dueDate = nextDueDate.map { "\"\($0)\"" } ?? "null"
+        return Data(source.replacingOccurrences(
+            of: "\"active\":true",
+            with: "\"active\":true,\"nextOccurrenceId\":\"partial-head\",\"nextDueDate\":\(dueDate)"
+        ).utf8)
     }
 
     static func depositChangesWithAllowance(

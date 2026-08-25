@@ -134,7 +134,14 @@ enum CloudReplicaMapper {
         // `/v1/cloud/changes` today omits it, so Cloud mode still overlays
         // `GET /v1/allowance-rule`; a handoff persists that overlay onto the
         // snapshot so local derivation never walks from the rule start date.
-        let nextDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) ?? startDate
+        let chainHead: (date: Date, id: String)?
+        if let id = rule.nextOccurrenceID, !id.isEmpty,
+           let date = rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) {
+            chainHead = (date, id)
+        } else {
+            chainHead = nil
+        }
+        let nextDate = chainHead?.date ?? startDate
         return AllowancePlan(
             remoteID: rule.id,
             amountCents: rule.amountCents,
@@ -142,7 +149,7 @@ enum CloudReplicaMapper {
             weekday: rule.weekday ?? 5,
             nextDate: nextDate,
             endDate: rule.endDate.flatMap(CloudDayFormat.date(from:)),
-            nextOccurrenceID: rule.nextOccurrenceID
+            nextOccurrenceID: chainHead?.id
         )
     }
 }
