@@ -541,9 +541,7 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
 
     /// How many `/v1/cloud/changes` reads this transport has been asked for.
     var reads: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return readCount
+        lock.withLock { readCount }
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -552,11 +550,12 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
         case "/v1/cloud/bootstrap":
             return try respond(Self.replica(lineageID: lineageID), to: request)
         case "/v1/cloud/changes":
-            lock.lock()
-            readCount += 1
-            let shouldFail = failedReadsRemaining > 0
-            if shouldFail { failedReadsRemaining -= 1 }
-            lock.unlock()
+            let shouldFail = lock.withLock {
+                readCount += 1
+                let shouldFail = failedReadsRemaining > 0
+                if shouldFail { failedReadsRemaining -= 1 }
+                return shouldFail
+            }
             // The bootstrap at launch always lands, so the device keeps a valid
             // replica; only the requested number of later reads go unreachable.
             // Counting requests rather than wall-clock time keeps this state

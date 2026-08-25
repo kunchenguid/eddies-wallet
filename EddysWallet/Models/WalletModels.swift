@@ -666,7 +666,7 @@ public struct Loan: Hashable, Codable, Sendable {
             return nil
         }
         let today = calendar.startOfDay(for: now)
-        var remaining = remainingCents - missedInstallments(asOf: now, calendar: calendar).totalCents
+        let remaining = remainingCents - missedInstallments(asOf: now, calendar: calendar).totalCents
         guard remaining > 0 else { return nil }
 
         while dueDate < today {

@@ -43,7 +43,7 @@ Parents want a simple way to give children practice with allowance, spending, bo
 Eddie's Wallet addresses the gap with a small, closed virtual economy:
 
 1. A parent creates and controls the configured child profile.
-2. The parent pays out allowance and records deposits, withdrawals, loans, and repayments. Creating a weekly allowance rule or a weekly or monthly loan payment plan is the parent act that authorizes later local auto-settlement of due occurrences.
+2. The parent pays out allowance and records deposits, withdrawals, loans, and repayments. Creating a weekly allowance rule or a weekly or monthly loan payment plan is the parent act that authorizes later automatic settlement of due occurrences by the wallet's current authority.
 3. The child sees an understandable, read-only wallet and activity history.
 4. The app stays honest about sync state. Parents repeatedly see that the balance cannot be spent or redeemed; kids see a plain allowance relationship without that legal framing on every glance.
 
@@ -73,7 +73,7 @@ The configured child profile uses a simple child view to check an allowance bala
 - Parent-set local PIN for entering the temporary Parent area on a shared iPad.
 - A single virtual wallet for the child profile.
 - A familiar US-dollar display vocabulary with persistent virtual/nonredeemable labeling on parent and safety surfaces, and plain allowance language on kid everyday surfaces.
-- Parent-created weekly allowance schedules and weekly or monthly loan installment schedules, parent-recorded deposits, withdrawals, loans, and repayments, and local apply-on-read settlement of a small due set.
+- Parent-created weekly allowance schedules and weekly or monthly loan installment schedules, parent-recorded deposits, withdrawals, loans, and repayments, local apply-on-read settlement of a small due set, and service settlement while Cloud is on.
 - A visible wallet activity list and activity details.
 - A secondary open-loan card and loan detail flow.
 - Honest offline, pending, rejected, and stale-data states.
@@ -276,7 +276,7 @@ Flow:
 
 Free-local authority records a valid rule immediately in protected local storage. A successful local read also settles due chain-head occurrences of that parent-created weekly rule, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass. A larger derived backlog stays on **Pay out missed allowance**. This weekly cadence limit belongs only to allowance rules; loan installment auto-settlement supports both weekly and monthly plans as specified in 8.9. When Cloud is on, the service records due occurrences; this device displays them from `/v1/cloud/changes` and never auto-writes. A parent-confirmed Cloud payout still uses the existing occurrence endpoint with the normal revision, `If-Match`, and idempotency protections, and a required Cloud review blocks the next payout rather than being bypassed by the batch. A service-authoritative wallet must confirm its current replica revision online before submitting a rule change or payout and must not queue an offline rule edit. Toggling Cloud off resumes local apply-on-read from the persisted occurrence chain, never from the rule start date, so already-recorded weeks cannot be paid again.
 
-Editing or pausing a rule affects future occurrences only. It must not rewrite past activity. Creating or editing the rule stays parent-gated. There is no timer, background job, or notification, and the kid home never shows waiting, skip, or behind copy. Additional cadences remain a future decision.
+Editing or pausing a rule affects future occurrences only. It must not rewrite past activity. Creating or editing the rule stays parent-gated. The client has no settlement timer, background job, or notification, and the kid home never shows waiting, skip, or behind copy. Additional cadences remain a future decision.
 
 ### 8.7 Deposit flow
 
@@ -329,7 +329,7 @@ Required parent copy uses **Loan payments**, **Next payment**, **Missed payments
 4. Free-local authority records a valid repayment immediately. Service authority requires a current online replica and records it after acceptance is observed; an ambiguous submitted request remains **Waiting to sync**.
 5. A paid loan remains in history as **Paid** rather than disappearing.
 
-Every manual payment remains parent-triggered. On a free local wallet, a successful read also settles due chain-head installments of a parent-created weekly or monthly plan, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass, after all eligible allowance credits have settled oldest-first. An installment that would overdraft stays scheduled and is retried on a later pass. A larger derived backlog stays on **Pay missed payments**. Cloud wallets never auto-write from this device. When Cloud is on, the service records due installments; this device displays them from `/v1/cloud/changes`. There is no timer, background job, or notification, and the kid home never shows waiting, skip, or behind copy.
+Every manual payment remains parent-triggered. On a free local wallet, a successful read also settles due chain-head installments of a parent-created weekly or monthly plan, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass, after all eligible allowance credits have settled oldest-first. An installment that would overdraft stays scheduled and is retried on a later pass. A larger derived backlog stays on **Pay missed payments**. Cloud wallets never auto-write from this device. When Cloud is on, the service records due installments; this device displays them from `/v1/cloud/changes`. The client has no settlement timer, background job, or notification, and the kid home never shows waiting, skip, or behind copy.
 
 **Child loan view:** The child can see the original loan, accepted repayments, and amount left to repay in plain language. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP. Parent loan details keep the virtual/nonredeemable notice.
 
