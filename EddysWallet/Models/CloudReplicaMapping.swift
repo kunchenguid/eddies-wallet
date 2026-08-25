@@ -178,11 +178,17 @@ enum CloudReplicaMapper {
                 AllowancePlan.Occurrence(id: id, dueDate: date, status: .scheduled)
             }
         }
+        let replicaHead = mappedOccurrences.first(where: { $0.status == .scheduled })
+        if replicaOccurrences != nil, let replicaHead, let ruleHead {
+            guard replicaHead.id == ruleHead.id, replicaHead.dueDate == ruleHead.dueDate else {
+                throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
+            }
+        }
         let chainHead: AllowancePlan.Occurrence?
         if replicaOccurrences != nil {
-            chainHead = mappedOccurrences.first(where: { $0.status == .scheduled }) ?? ruleHead
+            chainHead = replicaHead ?? ruleHead
         } else {
-            chainHead = ruleHead ?? mappedOccurrences.first(where: { $0.status == .scheduled })
+            chainHead = ruleHead ?? replicaHead
         }
         let nextDate = chainHead?.dueDate ?? preservedPlan?.nextDate ?? startDate
         let isExhausted: Bool
@@ -195,7 +201,17 @@ enum CloudReplicaMapper {
         }
         let recordedOccurrences = mappedOccurrences.filter { $0.status != .scheduled }
         let occurrences: [AllowancePlan.Occurrence]?
-        if isExhausted {
+        if replicaOccurrences != nil {
+            if isExhausted {
+                occurrences = mappedOccurrences
+            } else if replicaHead != nil {
+                occurrences = mappedOccurrences
+            } else if let chainHead {
+                occurrences = mappedOccurrences + [chainHead]
+            } else {
+                occurrences = mappedOccurrences
+            }
+        } else if isExhausted {
             occurrences = recordedOccurrences
         } else if let chainHead {
             occurrences = recordedOccurrences + [chainHead]

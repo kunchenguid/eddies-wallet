@@ -1024,6 +1024,30 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(plan.occurrences.filter { $0.status == .scheduled }.count, 1)
     }
 
+    func testReplicaRejectsConflictingAllowanceOccurrenceAndRuleHeads() throws {
+        let replica = try JSONDecoder.cloud.decode(
+            CloudReplica.self,
+            from: Data("""
+            {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":4},
+             "family":{"id":"f-1","name":"Test Kid's family"},
+             "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+             "wallet":{"id":"w-1","balanceCents":1000},
+             "entries":[],"loans":[],
+             "allowanceOccurrences":[
+               {"id":"replica-head","dueOn":"2026-08-14","status":"scheduled","amountCents":null,
+                "acceptedEntryId":null}
+             ],
+             "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+              "startDate":"2026-07-01","endDate":null,"active":true,
+              "nextOccurrenceId":"rule-head","nextDueDate":"2026-08-21"}}
+            """.utf8)
+        )
+
+        XCTAssertThrowsError(
+            try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        )
+    }
+
     func testReplicaRejectsRecordedAllowanceOccurrenceWithoutAcceptedEntry() throws {
         let replica = try JSONDecoder.cloud.decode(
             CloudReplica.self,

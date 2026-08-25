@@ -806,7 +806,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         )
         let scheduledHead = normalizedOccurrences.first { $0.status == .scheduled }
         self.nextDate = scheduledHead?.dueDate ?? nextDate
-        self.nextOccurrenceID = scheduledHead?.id
+        self.nextOccurrenceID = nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
         self.occurrences = normalizedOccurrences
     }
 
@@ -819,8 +819,10 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         isExhausted: Bool
     ) throws -> [Occurrence] {
         if let occurrences {
-            let scheduledCount = occurrences.filter { $0.status == .scheduled }.count
-            guard scheduledCount == (isExhausted ? 0 : 1),
+            let scheduled = occurrences.filter { $0.status == .scheduled }
+            let suppliedHeadID = nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
+            guard scheduled.count == (isExhausted ? 0 : 1),
+                  suppliedHeadID.map({ scheduled.first?.id == $0 }) ?? true,
                   occurrences.allSatisfy({ !$0.id.isEmpty }),
                   occurrences.allSatisfy({ $0.status != .recorded || $0.entryID != nil }),
                   Set(occurrences.map(\.id)).count == occurrences.count else {
@@ -831,7 +833,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
             }
         }
         guard !isExhausted else { return [] }
-        let id = nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 } ?? "local-allowance-head"
+        let id = nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString
         return [Occurrence(id: id, dueDate: nextDate, status: .scheduled)]
     }
 

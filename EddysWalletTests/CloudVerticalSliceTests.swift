@@ -111,10 +111,22 @@ final class CloudVerticalSliceTests: XCTestCase {
         let first = try local.cloudImportManifest(familyName: "Test Kid's family", operationID: UUID())
         let repairedID = try XCTUnwrap(first.allowanceRule?.nextOccurrenceID)
         let second = try local.cloudImportManifest(familyName: "Test Kid's family", operationID: UUID())
+        let other = try LocalWalletRepository(
+            directory: directory.appendingPathComponent("other-wallet", isDirectory: true)
+        )
+        _ = try await other.setup(ParentSetup(nickname: "Other Kid"))
+        _ = try await other.setAllowance(
+            AllowanceRuleCommand(amountCents: 500, weekday: 5, startDate: nextDate, idempotencyKey: "")
+        )
+        let otherManifest = try other.cloudImportManifest(
+            familyName: "Other Kid's family",
+            operationID: UUID()
+        )
 
         XCTAssertFalse(repairedID.isEmpty)
         XCTAssertEqual(second.allowanceRule?.nextOccurrenceID, repairedID)
         XCTAssertEqual(local.snapshot().allowance?.nextOccurrenceID, repairedID)
+        XCTAssertNotEqual(otherManifest.allowanceRule?.nextOccurrenceID, repairedID)
         XCTAssertEqual(first.allowanceRule?.nextDueDate, CloudDayFormat.string(from: nextDate))
     }
 
