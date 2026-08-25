@@ -198,6 +198,9 @@ enum CloudReplicaMapper {
         } else {
             occurrences = nil
         }
+        if let occurrences, Set(occurrences.map(\.id)).count != occurrences.count {
+            throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
+        }
         return AllowancePlan(
             remoteID: rule.id,
             amountCents: rule.amountCents,
