@@ -23,6 +23,7 @@ final class ScheduledReminderTests: XCTestCase {
         let fire = try XCTUnwrap(reminders.first?.fireDate)
         XCTAssertEqual(utc.component(.hour, from: fire), 8)
         XCTAssertEqual(utc.startOfDay(for: fire), due)
+        XCTAssertGreaterThan(fire, now)
         assertGenericCopy(reminders)
     }
 
@@ -49,7 +50,9 @@ final class ScheduledReminderTests: XCTestCase {
             calendar: utc
         )
         XCTAssertEqual(reminders.map(\.kind), [.allowanceDue])
-        XCTAssertEqual(utc.component(.hour, from: try XCTUnwrap(reminders.first?.fireDate)), 8)
+        let fire = try XCTUnwrap(reminders.first?.fireDate)
+        XCTAssertEqual(utc.component(.hour, from: fire), 8)
+        XCTAssertGreaterThan(fire, now)
     }
 
     func testDueRemindersScheduleAllowanceAndPaymentSeparately() throws {
@@ -66,35 +69,6 @@ final class ScheduledReminderTests: XCTestCase {
         XCTAssertEqual(reminders.map(\.kind), [.allowanceDue, .paymentDue])
         assertGenericCopy(reminders)
         XCTAssertFalse(reminders.contains { $0.title.localizedCaseInsensitiveContains("loan") })
-    }
-
-    func testSettledRemindersCoverLocalAutoPayAndIgnoreParentEntries() {
-        let localAllowance = WalletEvent(type: .allowance, amountCents: 500, explanation: "Weekly allowance")
-        let localPayment = WalletEvent(type: .repayment, amountCents: 400, explanation: "Scheduled payment")
-        let parentAllowance = WalletEvent(
-            type: .allowance,
-            amountCents: 500,
-            recordedBy: "parent",
-            explanation: "Weekly allowance"
-        )
-        let deposit = WalletEvent(type: .deposit, amountCents: 1_000, explanation: "Chores")
-        let cloudSettled = WalletEvent(
-            type: .allowance,
-            amountCents: 500,
-            recordedBy: AcceptedEventCopy.scheduleActor,
-            explanation: "Your allowance of US$5.00 was added."
-        )
-        let reminders = ScheduledReminderPlanner.settledReminders(
-            locallySettled: [localAllowance, localPayment],
-            newlyArrived: [parentAllowance, deposit, cloudSettled]
-        )
-        XCTAssertEqual(reminders.map(\.kind), [.allowanceRecorded, .paymentRecorded, .allowanceRecorded])
-        XCTAssertTrue(reminders.contains { $0.id == "ew.recorded." + localAllowance.id.uuidString.lowercased() })
-        XCTAssertTrue(reminders.contains { $0.id == "ew.recorded." + cloudSettled.id.uuidString.lowercased() })
-        XCTAssertFalse(reminders.contains { $0.id.contains(parentAllowance.id.uuidString.lowercased()) })
-        assertGenericCopy(reminders)
-        XCTAssertFalse(reminders.contains { $0.title.contains("US$") || $0.body.contains("US$") })
-        XCTAssertFalse(reminders.contains { $0.title.contains("$") || $0.body.contains("$") })
     }
 
     func testLocalReadStillSettlesWhenRemindersAreANoOp() async throws {
@@ -120,7 +94,7 @@ final class ScheduledReminderTests: XCTestCase {
         XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 1)
     }
 
-    func testFirstReachedReadDoesNotDeliverRecordedRemindersForLaunchSettlement() async throws {
+    func testForegroundSettlementDoesNotScheduleARecordedReminder() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Maya"))
         let today = Calendar.current.startOfDay(for: .now)
@@ -141,12 +115,12 @@ final class ScheduledReminderTests: XCTestCase {
         )
         await store.refresh()
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 500)
-        XCTAssertTrue(reminders.immediateReminders.isEmpty)
+        XCTAssertFalse(reminders.dueReminders.contains { $0.kind != .allowanceDue && $0.kind != .paymentDue })
         XCTAssertFalse(reminders.askedForAuthorization)
         assertGenericCopy(reminders.dueReminders)
     }
 
-    func testLaterReadDeliversRecordedReminderForNewlySettledAllowance() async throws {
+    func testLaterReadReschedulesTheNextDueDayAfterSettlement() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Maya"))
         let calendar = Calendar.current
@@ -169,7 +143,6 @@ final class ScheduledReminderTests: XCTestCase {
         )
         await store.refresh()
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 0)
-        XCTAssertTrue(reminders.immediateReminders.isEmpty)
         XCTAssertEqual(reminders.dueReminders.map(\.kind), [.allowanceDue])
 
         _ = try await repository.setAllowance(
@@ -181,9 +154,11 @@ final class ScheduledReminderTests: XCTestCase {
         )
         await store.refresh()
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, 500)
-        XCTAssertEqual(reminders.immediateReminders.map(\.kind), [.allowanceRecorded])
-        assertGenericCopy(reminders.immediateReminders)
-        XCTAssertFalse(reminders.immediateReminders.contains { $0.title.contains("Maya") || $0.body.contains("Maya") })
+        XCTAssertEqual(reminders.dueReminders.map(\.kind), [.allowanceDue])
+        let fire = try XCTUnwrap(reminders.dueReminders.first?.fireDate)
+        XCTAssertEqual(calendar.startOfDay(for: fire), nextWeek)
+        assertGenericCopy(reminders.dueReminders)
+        XCTAssertFalse(reminders.dueReminders.contains { $0.title.contains("Maya") || $0.body.contains("Maya") })
         XCTAssertFalse(reminders.askedForAuthorization)
     }
 
@@ -200,9 +175,7 @@ final class ScheduledReminderTests: XCTestCase {
             identityStore: InMemoryParentIdentityStore(appleUserID: "owner"),
             reminderCenter: reminders
         )
-        store.openParentGate()
-        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
-        XCTAssertEqual(store.elevation, .active)
+        enterParentArea(store)
 
         let saved = await store.setAllowance(
             AllowanceRuleCommand(
@@ -214,8 +187,93 @@ final class ScheduledReminderTests: XCTestCase {
         XCTAssertTrue(saved)
         XCTAssertTrue(reminders.askedForAuthorization)
         XCTAssertEqual(reminders.dueReminders.map(\.kind), [.allowanceDue])
-        XCTAssertTrue(reminders.immediateReminders.isEmpty)
         assertGenericCopy(reminders.dueReminders)
+    }
+
+    func testAuthorizationIsNotRequestedIfElevationDropsDuringSettingsWait() async throws {
+        let repository = try LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Maya"))
+        let calendar = Calendar.current
+        let nextWeek = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: calendar.startOfDay(for: .now)))
+        let reminders = RecordingScheduledReminderCenter()
+        reminders.pauseBeforeAuthorizationCheck = true
+        let store = WalletStore(
+            repository: repository,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner"),
+            reminderCenter: reminders
+        )
+        enterParentArea(store)
+
+        let save = Task {
+            await store.setAllowance(
+                AllowanceRuleCommand(
+                    amountCents: 500,
+                    weekday: calendar.component(.weekday, from: nextWeek) - 1,
+                    startDate: nextWeek
+                )
+            )
+        }
+        let paused = await waitUntil { reminders.isPausedForAuthorizationCheck }
+        XCTAssertTrue(paused)
+        store.handleAppBackgrounded()
+        XCTAssertEqual(store.elevation, .none)
+        reminders.continueAuthorizationCheck()
+        _ = await save.value
+        XCTAssertFalse(reminders.askedForAuthorization)
+    }
+
+    func testSignOutClearsPendingDueReminders() async throws {
+        let reminders = RecordingScheduledReminderCenter()
+        let store = WalletStore(
+            repository: MockWalletRepository(snapshot: .fixture()),
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner"),
+            reminderCenter: reminders
+        )
+        await store.refresh()
+        XCTAssertEqual(reminders.dueReminders.map(\.kind), [.allowanceDue])
+        enterParentArea(store)
+        store.signOut()
+        XCTAssertTrue(reminders.didClearPending)
+        XCTAssertTrue(reminders.dueReminders.isEmpty)
+        XCTAssertFalse(store.isSignedIn)
+    }
+
+    func testAccountDeletionClearsPendingDueReminders() async throws {
+        let reminders = RecordingScheduledReminderCenter()
+        let store = WalletStore(
+            repository: MockWalletRepository(snapshot: .fixture()),
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner"),
+            accountDeletionService: SucceedingAccountDeletionService(),
+            reminderCenter: reminders
+        )
+        await store.refresh()
+        XCTAssertEqual(reminders.dueReminders.map(\.kind), [.allowanceDue])
+        enterParentArea(store)
+        let outcome = await store.deleteAccount(idempotencyKey: "22222222-2222-4222-8222-222222222222")
+        XCTAssertEqual(outcome, .deleted)
+        XCTAssertTrue(reminders.didClearPending)
+        XCTAssertTrue(reminders.dueReminders.isEmpty)
+    }
+
+    private func enterParentArea(_ store: WalletStore) {
+        store.openParentGate()
+        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
+        XCTAssertEqual(store.elevation, .active)
+    }
+
+    private func waitUntil(_ probe: @escaping () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if probe() { return true }
+            await Task.yield()
+        }
+        return probe()
     }
 
     private func assertGenericCopy(_ reminders: [ScheduledReminder]) {
@@ -230,4 +288,10 @@ final class ScheduledReminderTests: XCTestCase {
             XCTAssertFalse(reminder.body.contains("Maya"))
         }
     }
+}
+
+@MainActor
+private final class SucceedingAccountDeletionService: AccountDeletionPerforming {
+    func preflightAccountDeletion() async throws {}
+    func deleteAccount(idempotencyKey: String) async throws -> AccountDeletionResult { .deleted }
 }

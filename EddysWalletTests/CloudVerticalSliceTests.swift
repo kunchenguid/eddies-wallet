@@ -1583,7 +1583,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 0)
     }
 
-    func testCloudChangesFeedDeliversRecordedReminderAfterFirstReachedRead() async throws {
+    func testCloudSettledAllowanceReschedulesTheNextDueDayWithoutARecordedReminder() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
         let calendar = Calendar.current
@@ -1616,10 +1616,6 @@ final class CloudVerticalSliceTests: XCTestCase {
             store.snapshot.activities.filter { $0.type == .allowance }.isEmpty,
             "the unsettled replica must publish before the settled changes feed arrives"
         )
-        XCTAssertTrue(
-            reminders.immediateReminders.isEmpty,
-            "the first reached read must not blast already-settled history"
-        )
         XCTAssertFalse(reminders.askedForAuthorization)
 
         transport.stub(
@@ -1638,14 +1634,12 @@ final class CloudVerticalSliceTests: XCTestCase {
         await store.refresh()
 
         XCTAssertEqual(store.snapshot.activities.filter { $0.recordedBy == AcceptedEventCopy.scheduleActor }.count, 1)
-        XCTAssertEqual(reminders.immediateReminders.map(\.kind), [.allowanceRecorded])
-        let recorded = try XCTUnwrap(reminders.immediateReminders.first)
-        XCTAssertEqual(recorded.title, ScheduledReminderCopy.allowanceRecordedTitle)
-        XCTAssertEqual(recorded.body, ScheduledReminderCopy.body)
-        XCTAssertFalse(recorded.title.contains("US$"))
-        XCTAssertFalse(recorded.body.contains("US$"))
-        XCTAssertFalse(recorded.title.contains("$"))
-        XCTAssertFalse(recorded.body.contains("$"))
+        XCTAssertEqual(reminders.dueReminders.map(\.kind), [.allowanceDue])
+        let fire = try XCTUnwrap(reminders.dueReminders.first?.fireDate)
+        XCTAssertEqual(calendar.startOfDay(for: fire), nextWeek)
+        XCTAssertEqual(reminders.dueReminders.first?.title, ScheduledReminderCopy.allowanceDueTitle)
+        XCTAssertEqual(reminders.dueReminders.first?.body, ScheduledReminderCopy.body)
+        XCTAssertFalse(reminders.dueReminders.contains { $0.title.contains("US$") || $0.body.contains("US$") })
         XCTAssertFalse(reminders.askedForAuthorization)
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 0)
     }

@@ -255,9 +255,6 @@ public final class WalletStore: ObservableObject {
     /// delivery, and the default no-op keeps tests off the system permission
     /// dialog. Production composition injects `UserNotificationsReminderCenter`.
     private let reminderCenter: any ScheduledReminderCentering
-    /// The first successful reached read of this process must not blast
-    /// recorded-history reminders for every already-settled automatic entry.
-    private var hasPublishedReachedRead = false
     /// The idempotency key of the one accepted recovery in flight. Minted once
     /// per acceptance and reused only for retries of that same action.
     private var acceptedRecoveryKey: String?
@@ -899,10 +896,7 @@ public final class WalletStore: ObservableObject {
         guard id == newestReadID, generation == refreshGeneration, role == viewRole else { return }
         switch outcome {
         case .success(let refreshed):
-            let previousPublishedIDs = Set(snapshot.activities.map(\.id))
-            var idsBeforeLocalSettle: Set<UUID>?
             if let local = repository as? LocalWalletRepository, !local.isCloudAuthority {
-                idsBeforeLocalSettle = Set(local.snapshot().activities.map(\.id))
                 await local.applyDueScheduledSettlements()
                 guard id == newestReadID, generation == refreshGeneration, role == viewRole else { return }
             }
@@ -926,14 +920,7 @@ public final class WalletStore: ObservableObject {
             sessionExpired = false
             await convergeLegacyDeviceOntoCloud(generation: generation)
             guard id == newestReadID, generation == refreshGeneration, role == viewRole else { return }
-            let locallySettled = idsBeforeLocalSettle.map { before in
-                snapshot.activities.filter { !before.contains($0.id) }
-            } ?? []
-            let newlyArrived = snapshot.activities.filter { !previousPublishedIDs.contains($0.id) }
-            await publishScheduledReminders(
-                locallySettled: locallySettled,
-                newlyArrived: newlyArrived
-            )
+            await refreshDueReminders()
         case .failure(let error as WalletAPIError):
             isLoading = false
             guard !isCancellation(error) else { return }
@@ -1020,33 +1007,16 @@ public final class WalletStore: ObservableObject {
     }
 
     /// Due-day calendar reminders always refresh after a reached read.
-    /// Immediate "recorded" reminders fire only after this process has already
-    /// published one reached read, so Cloud bootstrap history is not a blast.
-    private func publishScheduledReminders(
-        locallySettled: [WalletEvent],
-        newlyArrived: [WalletEvent]
-    ) async {
-        let notifySettled = hasPublishedReachedRead
-        hasPublishedReachedRead = true
-        await refreshDueReminders()
-        guard notifySettled else { return }
-        let settled = ScheduledReminderPlanner.settledReminders(
-            locallySettled: locallySettled,
-            newlyArrived: newlyArrived
-        )
-        guard !settled.isEmpty else { return }
-        await reminderCenter.deliverImmediate(settled)
-    }
-
+    /// They never fire for a settlement that already happened while this
+    /// process was in the foreground: those need no notification.
     private func refreshDueReminders() async {
         let reminders = ScheduledReminderPlanner.dueReminders(
             allowanceDue: snapshot.allowance?.nextCurrentOrFuturePayout(),
             paymentDue: snapshot.loan?.nextCurrentOrFutureInstallment()?.dueDate
         )
-        await reminderCenter.replaceDueReminders(
-            reminders,
-            requestAuthorization: elevation == .active
-        )
+        await reminderCenter.replaceDueReminders(reminders, stillAuthorized: { [weak self] in
+            self?.elevation == .active
+        })
     }
 
     private func isCancellation(_ error: Error) -> Bool {
@@ -1673,6 +1643,7 @@ public final class WalletStore: ObservableObject {
         } catch {
             throw SharedLocalEraseError.finalErase(error)
         }
+        reminderCenter.clearPendingReminders()
         accountDeletionPendingStore.clear()
         accountDeletionSnapshotCache.clear()
         accountDeletionConfiguredKidStore.clear()
