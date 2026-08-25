@@ -372,10 +372,10 @@ public struct LoanInstallment: Hashable, Identifiable, Sendable {
 }
 
 /// The installments of a scheduled loan whose day has already passed and that
-/// a parent has not recorded yet. Because each occurrence is capped at the
+/// have not been recorded yet. Because each occurrence is capped at the
 /// balance remaining when it is settled, `totalCents` can never exceed what
-/// the loan still owes. This model never records anything itself - a parent
-/// action remains required.
+/// the loan still owes. This model never records anything itself; the
+/// parent-confirmed missed-payment path acts on the returned set.
 public struct LoanMissedInstallments: Hashable, Sendable {
     public let installments: [LoanInstallment]
 
@@ -736,10 +736,11 @@ public struct AllowanceOccurrence: Hashable, Identifiable, Sendable {
     }
 }
 
-/// The scheduled weekly payouts a parent has not recorded yet. The schedule's
-/// next date is the first unrecorded occurrence, so walking forward from it is
+/// The scheduled weekly payouts not yet recorded. The schedule's next date is
+/// the first unrecorded occurrence, so walking forward from it is
 /// both the local and Cloud-authoritative record of which weeks remain due.
-/// This model never records anything itself - a parent action remains required.
+/// This model never records anything itself; the parent-confirmed missed-payout
+/// path acts on the returned set.
 public struct AllowanceMissedPayouts: Hashable, Sendable {
     public let occurrences: [AllowanceOccurrence]
 

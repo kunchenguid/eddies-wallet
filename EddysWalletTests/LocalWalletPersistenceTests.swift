@@ -625,6 +625,32 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertEqual(event.rejectionReason, "Only a parent in the Parent area can record virtual money events.")
     }
 
+    func testLocalReadAutoSettlesMonthlyLoanWithoutParentElevation() async throws {
+        let repository = try LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        let today = Calendar.current.startOfDay(for: .now)
+        _ = try await repository.submit(WalletCommand(
+            kind: .loan,
+            amountCents: 400,
+            reason: "Bike helmet",
+            installmentPlan: LoanInstallmentPlan(cadence: .monthly, amountCents: 400, firstDueDate: today)
+        ))
+        let store = WalletStore(
+            repository: repository,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner")
+        )
+        XCTAssertEqual(store.elevation, .none)
+
+        await store.refresh()
+
+        XCTAssertEqual(store.elevation, .none)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 0)
+        XCTAssertEqual(store.snapshot.loan?.remainingCents, 0)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .repayment }.map(\.amountCents), [400])
+    }
+
     func testLocalReadAutoSettlesSmallAllowanceBacklogIncludingToday() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))

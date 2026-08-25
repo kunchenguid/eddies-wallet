@@ -278,14 +278,15 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     }
 
     /// Settles due chain-head occurrences of parent-created weekly allowance
-    /// rules and weekly or monthly loan plans on a free local wallet. Cloud authority never auto-writes from here: a
-    /// replica stays read-only for this pass, and `WalletStore` also refuses
+    /// rules and weekly or monthly loan plans on a free local wallet. Cloud
+    /// authority never auto-writes from here: a replica stays read-only for
+    /// this pass, and `WalletStore` also refuses
     /// to call it when the published repository is Cloud. Each accepted
     /// occurrence uses the ordinary `submit` path, one save at a time.
     ///
     /// All due allowance credits run oldest-first before due loan debits run
-    /// oldest-first. A loan installment
-    /// that would overdraft stays `scheduled` and is retried on a later pass.
+    /// oldest-first. A loan installment that would overdraft stays `scheduled`
+    /// and is retried on a later pass.
     /// A schedule whose derived due count exceeds
     /// `ScheduledSettlementPolicy.maxOccurrencesPerPass` is left for the
     /// parent-confirmed missed-set flow.
