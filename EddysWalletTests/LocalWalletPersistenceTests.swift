@@ -116,6 +116,8 @@ final class LocalWalletPersistenceTests: XCTestCase {
         let calendar = Calendar.current
         let firstDate = calendar.startOfDay(for: .now)
         let secondDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstDate))
+        let dayAfterFirst = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: firstDate))
+        let thirdDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: secondDate))
         struct EncodedAllowance: Encodable {
             let amountCents: Int
             let cadence: String
@@ -130,7 +132,7 @@ final class LocalWalletPersistenceTests: XCTestCase {
                 amountCents: 500,
                 cadence: "every week",
                 weekday: 5,
-                nextDate: secondDate,
+                nextDate: firstDate,
                 nextOccurrenceID: "current-head",
                 syncState: .recorded,
                 occurrences: [
@@ -144,7 +146,18 @@ final class LocalWalletPersistenceTests: XCTestCase {
 
         XCTAssertEqual(plan.occurrences.map(\.id), ["current-head"])
         XCTAssertEqual(plan.nextOccurrence?.id, "current-head")
+        XCTAssertEqual(plan.nextDate, secondDate)
+        XCTAssertTrue(plan.missedPayouts(asOf: dayAfterFirst, calendar: calendar).isEmpty)
         XCTAssertEqual(plan.occurrences.filter { $0.status == .scheduled }.count, 1)
+        let recorded = try XCTUnwrap(
+            plan.recordingPayout(
+                amountCents: 500,
+                nextOccurrenceID: "following-head",
+                entryID: UUID(),
+                calendar: calendar
+            )
+        )
+        XCTAssertEqual(recorded.nextDate, thirdDate)
     }
 
     func testMockAllowanceRecordingLinksOccurrenceToAcceptedEvent() async throws {

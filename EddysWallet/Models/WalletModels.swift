@@ -795,17 +795,19 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         self.amountCents = amountCents
         self.cadence = cadence
         self.weekday = weekday
-        self.nextDate = nextDate
         self.endDate = endDate
-        self.nextOccurrenceID = nextOccurrenceID
         self.syncState = syncState
         self.isExhausted = isExhausted
-        self.occurrences = Self.normalizedOccurrences(
+        let normalizedOccurrences = Self.normalizedOccurrences(
             occurrences,
             nextDate: nextDate,
             nextOccurrenceID: nextOccurrenceID,
             isExhausted: isExhausted
         )
+        let scheduledHead = normalizedOccurrences.first { $0.status == .scheduled }
+        self.nextDate = scheduledHead?.dueDate ?? nextDate
+        self.nextOccurrenceID = scheduledHead?.id
+        self.occurrences = normalizedOccurrences
     }
 
     /// A missing or empty chain is the pre-chain snapshot: one scheduled
