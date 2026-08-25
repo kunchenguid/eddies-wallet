@@ -221,7 +221,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             // A local allowance is still one scheduled occurrence at a time.
             // Advance only in the same atomic save as its ledger entry, so an
             // interrupted record-all can resume at the first unrecorded week.
-            guard let plan = wallet.allowance else {
+            guard let plan = wallet.allowance, !plan.isExhausted else {
                 return .rejected(rejected(command, "There is no scheduled allowance occurrence to record."))
             }
             let calendar = Calendar.current
@@ -245,7 +245,8 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
                 nextDate: followingDate,
                 endDate: plan.endDate,
                 nextOccurrenceID: UUID().uuidString,
-                syncState: plan.syncState
+                syncState: plan.syncState,
+                isExhausted: plan.endDate.map { followingDate > $0 } ?? false
             )
             wallet.acceptedBalanceCents += command.amountCents
         }
@@ -370,10 +371,25 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// Cloud ended (expiry, refund, revocation, or an explicit parent choice):
     /// the mirrored history stays and this device becomes the accepted authority
     /// again. Nothing is deleted.
-    public func continueLocallyAfterCloud() throws {
+    ///
+    /// `allowance` is the service-owned chain head from the in-memory overlay
+    /// (`GET /v1/allowance-rule`). The persisted replica's rule start date is
+    /// not that fact; writing the overlay here, behind the unresolved-write
+    /// gate and in the same save as the authority change, is what stops
+    /// already-paid weeks from reappearing as missed.
+    public func continueLocallyAfterCloud(allowance: AllowancePlan? = nil) throws {
         var candidate = try writableAggregate()
         guard candidate.metadata.unsettledCloudMutation == nil else {
             throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
+        if let persistedAllowance = candidate.snapshot.allowance {
+            guard let allowance,
+                  allowance.remoteID == persistedAllowance.remoteID,
+                  allowance.amountCents == persistedAllowance.amountCents,
+                  allowance.isExhausted || allowance.nextOccurrenceID?.isEmpty == false else {
+                throw WalletAPIError.invalidResponse("Cloud did not provide a complete current allowance schedule.")
+            }
+            candidate.snapshot.allowance = allowance
         }
         candidate.metadata.authority = "local"
         candidate.metadata.confirmedCloudLineageID = nil
@@ -440,8 +456,29 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
 
     /// The complete local household as an upload manifest. Loans are rebuilt
     /// from the accepted event chain so historical loans are never dropped.
+    /// A live allowance missing its occurrence identity is repaired and saved
+    /// before upload; a bounded plan past its end is saved as exhausted.
     public func cloudImportManifest(familyName: String, operationID: UUID) throws -> CloudImportManifest {
-        let aggregate = try writableAggregate()
+        var aggregate = try writableAggregate()
+        if let plan = aggregate.snapshot.allowance {
+            let isExhausted = plan.isExhausted || plan.endDate.map { plan.nextDate > $0 } == true
+            let existingOccurrenceID = plan.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
+            let nextOccurrenceID = isExhausted ? nil : (existingOccurrenceID ?? UUID().uuidString)
+            if isExhausted != plan.isExhausted || nextOccurrenceID != plan.nextOccurrenceID {
+                aggregate.snapshot.allowance = AllowancePlan(
+                    remoteID: plan.remoteID,
+                    amountCents: plan.amountCents,
+                    cadence: plan.cadence,
+                    weekday: plan.weekday,
+                    nextDate: plan.nextDate,
+                    endDate: plan.endDate,
+                    nextOccurrenceID: nextOccurrenceID,
+                    syncState: plan.syncState,
+                    isExhausted: isExhausted
+                )
+                try persist(aggregate)
+            }
+        }
         guard let nickname = ChildProfileCopy.configuredNickname(from: aggregate.snapshot.childNickname) else {
             throw WalletAPIError.invalidResponse("Add your child's nickname before turning on Cloud.")
         }

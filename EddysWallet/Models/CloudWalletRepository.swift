@@ -79,18 +79,31 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         var snapshot = replica.snapshot()
         if let plan = snapshot.allowance, let schedule = allowanceSchedule,
            allowanceScheduleRevision == revision,
-           plan.remoteID == schedule.id, plan.amountCents == schedule.amountCents,
-           let nextDate = schedule.nextDueDate.flatMap(CloudDayFormat.date(from:)) {
-            snapshot.allowance = AllowancePlan(
-                remoteID: plan.remoteID,
-                amountCents: plan.amountCents,
-                cadence: plan.cadence,
-                weekday: plan.weekday,
-                nextDate: nextDate,
-                endDate: plan.endDate,
-                nextOccurrenceID: schedule.nextOccurrenceID,
-                syncState: plan.syncState
-            )
+           plan.remoteID == schedule.id, plan.amountCents == schedule.amountCents {
+            let nextDate = schedule.nextDueDate.flatMap(CloudDayFormat.date(from:))
+            if let nextDate, schedule.nextOccurrenceID?.isEmpty == false {
+                snapshot.allowance = AllowancePlan(
+                    remoteID: plan.remoteID,
+                    amountCents: plan.amountCents,
+                    cadence: plan.cadence,
+                    weekday: plan.weekday,
+                    nextDate: nextDate,
+                    endDate: plan.endDate,
+                    nextOccurrenceID: schedule.nextOccurrenceID,
+                    syncState: plan.syncState
+                )
+            } else if schedule.nextDueDate == nil, schedule.nextOccurrenceID == nil {
+                snapshot.allowance = AllowancePlan(
+                    remoteID: plan.remoteID,
+                    amountCents: plan.amountCents,
+                    cadence: plan.cadence,
+                    weekday: plan.weekday,
+                    nextDate: plan.nextDate,
+                    endDate: plan.endDate,
+                    syncState: plan.syncState,
+                    isExhausted: true
+                )
+            }
         }
         if let pending = activeMutation?.pendingEvent() {
             snapshot.pendingEvents = [pending]
@@ -222,6 +235,61 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             try apply(complete, merging: false)
             requiresBootstrap = false
             return snapshot()
+        }
+    }
+
+    public func prepareForLocalHandoff() async throws -> WalletSnapshot {
+        guard activeMutation == nil, !isPreparingMutation else {
+            throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
+        isPreparingMutation = true
+        defer { isPreparingMutation = false }
+
+        return try await serializedRead { [self] in
+            do {
+                for _ in 0..<3 {
+                    let changes = try await client.changes(afterRevision: revision)
+                    try apply(changes, merging: true)
+                    let candidateRevision = revision
+                    var candidateSchedule: CloudAllowanceSchedule.Rule?
+
+                    if hasAllowancePlan {
+                        let response = try await client.allowanceSchedule()
+                        guard let rule = response.allowanceRule,
+                              rule.active,
+                              let plan = replica.snapshot().allowance,
+                              plan.remoteID == rule.id,
+                              plan.amountCents == rule.amountCents else {
+                            throw WalletAPIError.invalidResponse("Cloud did not provide a current allowance schedule.")
+                        }
+                        let hasCompleteHead = rule.nextOccurrenceID?.isEmpty == false
+                            && rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) != nil
+                        let isExhausted = rule.nextOccurrenceID == nil && rule.nextDueDate == nil
+                        guard hasCompleteHead || isExhausted else {
+                            throw WalletAPIError.invalidResponse("Cloud did not provide a valid allowance schedule.")
+                        }
+                        candidateSchedule = rule
+                    }
+
+                    let verification = try await client.changes(afterRevision: candidateRevision)
+                    try apply(verification, merging: true)
+                    guard verification.household.revision == candidateRevision,
+                          revision == candidateRevision,
+                          confirmedRevision == candidateRevision else {
+                        allowanceScheduleRevision = nil
+                        continue
+                    }
+                    allowanceSchedule = candidateSchedule
+                    allowanceScheduleRevision = candidateSchedule == nil ? nil : candidateRevision
+                    return snapshot()
+                }
+                allowanceScheduleRevision = nil
+                throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(revision)
+            } catch {
+                allowanceScheduleRevision = nil
+                if observedAnAnswer(error) { confirmedRevision = nil }
+                throw error
+            }
         }
     }
 

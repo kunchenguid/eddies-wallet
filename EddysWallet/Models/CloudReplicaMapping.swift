@@ -130,13 +130,26 @@ enum CloudReplicaMapper {
 
     private static func allowance(from rule: CloudReplica.AllowanceRule) -> AllowancePlan? {
         guard rule.active != false, let startDate = rule.startDate.flatMap(CloudDayFormat.date(from:)) else { return nil }
+        // Prefer the service-owned chain head when the replica carries it.
+        // `/v1/cloud/changes` today omits it, so Cloud mode still overlays
+        // `GET /v1/allowance-rule`; a handoff persists that overlay onto the
+        // snapshot so local derivation never walks from the rule start date.
+        let chainHead: (date: Date, id: String)?
+        if let id = rule.nextOccurrenceID, !id.isEmpty,
+           let date = rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) {
+            chainHead = (date, id)
+        } else {
+            chainHead = nil
+        }
+        let nextDate = chainHead?.date ?? startDate
         return AllowancePlan(
             remoteID: rule.id,
             amountCents: rule.amountCents,
             cadence: rule.cadence == "weekly" ? "every week" : (rule.cadence ?? "every week"),
             weekday: rule.weekday ?? 5,
-            nextDate: startDate,
-            endDate: rule.endDate.flatMap(CloudDayFormat.date(from:))
+            nextDate: nextDate,
+            endDate: rule.endDate.flatMap(CloudDayFormat.date(from:)),
+            nextOccurrenceID: chainHead?.id
         )
     }
 }
@@ -293,7 +306,31 @@ enum CloudImportManifestBuilder {
             avatarURL: nil,
             loans: manifestLoans,
             entries: entries,
-            loanOccurrences: try loanOccurrences(schedule: currentSchedule, loanID: currentLoanID)
+            loanOccurrences: try loanOccurrences(schedule: currentSchedule, loanID: currentLoanID),
+            allowanceRule: try allowanceRule(from: snapshot.allowance)
+        )
+    }
+
+    /// Local authority stores only the next unrecorded occurrence, not a
+    /// separate original start date. A live plan sends that complete chain head;
+    /// an exhausted plan sends null head values. Cadence on the wire is the Cloud
+    /// `weekly` token so the imported rule matches `/v1/allowance-rule`.
+    private static func allowanceRule(from plan: AllowancePlan?) throws -> CloudImportManifest.AllowanceRule? {
+        guard let plan else { return nil }
+        guard plan.isExhausted || plan.nextOccurrenceID?.isEmpty == false else {
+            throw WalletAPIError.invalidResponse("This allowance schedule needs repair before turning on Cloud.")
+        }
+        let nextDueDate = CloudDayFormat.string(from: plan.nextDate)
+        return CloudImportManifest.AllowanceRule(
+            id: plan.remoteID,
+            amountCents: plan.amountCents,
+            cadence: "weekly",
+            weekday: plan.weekday,
+            startDate: nextDueDate,
+            endDate: plan.endDate.map { CloudDayFormat.string(from: $0) },
+            active: true,
+            nextOccurrenceID: plan.isExhausted ? nil : plan.nextOccurrenceID,
+            nextDueDate: plan.isExhausted ? nil : nextDueDate
         )
     }
 

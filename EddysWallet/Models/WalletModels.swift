@@ -735,6 +735,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     public let endDate: Date?
     public let nextOccurrenceID: String?
     public let syncState: SyncState
+    public let isExhausted: Bool
 
     public init(
         remoteID: String? = nil,
@@ -744,7 +745,8 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         nextDate: Date,
         endDate: Date? = nil,
         nextOccurrenceID: String? = nil,
-        syncState: SyncState = .recorded
+        syncState: SyncState = .recorded,
+        isExhausted: Bool = false
     ) {
         self.remoteID = remoteID
         self.amountCents = amountCents
@@ -754,6 +756,24 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         self.endDate = endDate
         self.nextOccurrenceID = nextOccurrenceID
         self.syncState = syncState
+        self.isExhausted = isExhausted
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case remoteID, amountCents, cadence, weekday, nextDate, endDate, nextOccurrenceID, syncState, isExhausted
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        remoteID = try container.decodeIfPresent(String.self, forKey: .remoteID)
+        amountCents = try container.decode(Int.self, forKey: .amountCents)
+        cadence = try container.decode(String.self, forKey: .cadence)
+        weekday = try container.decode(Int.self, forKey: .weekday)
+        nextDate = try container.decode(Date.self, forKey: .nextDate)
+        endDate = try container.decodeIfPresent(Date.self, forKey: .endDate)
+        nextOccurrenceID = try container.decodeIfPresent(String.self, forKey: .nextOccurrenceID)
+        syncState = try container.decode(SyncState.self, forKey: .syncState)
+        isExhausted = try container.decodeIfPresent(Bool.self, forKey: .isExhausted) ?? false
     }
 
     /// Past calendar days are missed. A payout due today stays the next
@@ -761,6 +781,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     /// allowance. `nextDate` is advanced only after an accepted allowance
     /// entry, which makes each returned occurrence unrecorded exactly once.
     public func missedPayouts(asOf now: Date = .now, calendar: Calendar = .current) -> AllowanceMissedPayouts {
+        guard !isExhausted else { return AllowanceMissedPayouts(occurrences: []) }
         let today = calendar.startOfDay(for: now)
         let inclusiveEndDate = endDate.map { calendar.startOfDay(for: $0) }
         var dueDate = calendar.startOfDay(for: nextDate)
@@ -778,6 +799,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     /// separate from `nextDate`, which is the earliest unrecorded occurrence
     /// and can be a missed week while a parent catches up the schedule.
     public func nextCurrentOrFuturePayout(asOf now: Date = .now, calendar: Calendar = .current) -> Date? {
+        guard !isExhausted else { return nil }
         let today = calendar.startOfDay(for: now)
         let inclusiveEndDate = endDate.map { calendar.startOfDay(for: $0) }
         var dueDate = calendar.startOfDay(for: nextDate)

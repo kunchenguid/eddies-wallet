@@ -291,11 +291,11 @@ public final class CloudCoordinator: ObservableObject, AccountDeletionPerforming
 
     /// Cloud ended and the parent chose to keep using this device. Nothing is
     /// deleted; the mirrored history becomes local authority again.
-    public func continueLocally(with local: LocalWalletRepository) throws {
+    public func continueLocally(with local: LocalWalletRepository, allowance: AllowancePlan? = nil) throws {
         guard permitsLocalContinuation else {
             throw WalletAPIError.invalidResponse("Cloud status is unavailable, so this wallet must stay in Cloud mode.")
         }
-        try local.continueLocallyAfterCloud()
+        try local.continueLocallyAfterCloud(allowance: allowance)
         household = nil
     }
 
