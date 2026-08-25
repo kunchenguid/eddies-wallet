@@ -2067,8 +2067,9 @@ public final class WalletStore: ObservableObject {
                     from: local,
                     familyName: cloudFamilyName
                 ) else {
+                    await refresh()
+                    guard permitsCloudActivation(generation: generation) else { return }
                     authorityState = previousAuthority
-                    snapshot = local.snapshot()
                     cloudMessage = cloudCoordinator.message
                     return
                 }

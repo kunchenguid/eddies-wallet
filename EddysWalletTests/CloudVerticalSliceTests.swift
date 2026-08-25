@@ -423,13 +423,13 @@ final class CloudVerticalSliceTests: XCTestCase {
         let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
         let store = elevatedStore(repository: relaunched, coordinator: coordinator)
 
-        await waitUntil("launch releases the definitively inactive import") {
-            relaunched.cloudImportOperationID == nil
+        await waitUntil("launch releases and settles the definitively inactive import") {
+            relaunched.cloudImportOperationID == nil && store.snapshot.acceptedBalanceCents == 500
         }
 
         XCTAssertEqual(store.authorityState, .local(lineageID: try XCTUnwrap(relaunched.lineageID)))
         XCTAssertNil(relaunched.cloudImportOperationID)
-        await relaunched.applyDueScheduledSettlements()
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 1)
         XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 500)
         guard case .accepted = try await relaunched.submit(WalletCommand(kind: .deposit, amountCents: 25)) else {
             return XCTFail("server-confirmed inactive Cloud must restore local writes")

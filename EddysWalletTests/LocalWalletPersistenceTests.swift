@@ -1104,6 +1104,41 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertTrue(repository.snapshot().activities.isEmpty)
     }
 
+    func testPreFieldCloudImportOperationLoadsAsUnresolved() async throws {
+        let persistence = ControllableLocalWalletPersistence()
+        let repository = try LocalWalletRepository(persistence: persistence)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        _ = try await repository.setAllowance(
+            AllowanceRuleCommand(
+                amountCents: 500,
+                weekday: calendar.component(.weekday, from: today) - 1,
+                startDate: today
+            )
+        )
+        _ = try repository.reserveCloudImportOperation()
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try XCTUnwrap(persistence.payload)) as? [String: Any]
+        )
+        var metadata = try XCTUnwrap(object["metadata"] as? [String: Any])
+        metadata.removeValue(forKey: "cloudImportMayBeUnresolved")
+        object["metadata"] = metadata
+        persistence.payload = try JSONSerialization.data(withJSONObject: object)
+
+        let relaunched = try LocalWalletRepository(persistence: persistence)
+
+        XCTAssertTrue(relaunched.hasUnresolvedCloudImport)
+        await relaunched.applyDueScheduledSettlements()
+        XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 0)
+        do {
+            _ = try await relaunched.submit(WalletCommand(kind: .deposit, amountCents: 100))
+            XCTFail("a pre-field import operation must keep local facts fixed")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+        }
+    }
+
     func testCorruptPersistedWalletIsConfiguredAndCannotBeReplaced() async throws {
         let persistence = ControllableLocalWalletPersistence(payload: Data("not-json".utf8))
         let repository = try LocalWalletRepository(persistence: persistence)

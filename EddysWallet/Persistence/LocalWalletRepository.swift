@@ -59,8 +59,14 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     private func load(legacySnapshot: WalletSnapshot?, hasLegacyMarker: Bool) throws {
         if let data = try persistence.load() {
             do {
-                let decoded = try JSONDecoder().decode(LocalWalletAggregate.self, from: data)
+                var decoded = try JSONDecoder().decode(LocalWalletAggregate.self, from: data)
                 try Self.validate(decoded.snapshot)
+                if decoded.metadata.authority == "local",
+                   decoded.metadata.cloudImportOperationID != nil,
+                   decoded.metadata.cloudImportCompleted == false,
+                   decoded.metadata.cloudImportMayBeUnresolved == nil {
+                    decoded.metadata.cloudImportMayBeUnresolved = true
+                }
                 aggregate = decoded
             } catch {
                 // Never replace questionable history with an empty wallet.
