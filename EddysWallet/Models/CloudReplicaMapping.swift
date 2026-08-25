@@ -224,13 +224,10 @@ enum CloudReplicaMapper {
             occurrences = recordedOccurrences
         } else if let chainHead {
             occurrences = recordedOccurrences + [chainHead]
-        } else if let replicaHead {
-            // Keep the replica's scheduled row so the chain stays well-formed,
-            // but do not publish it as the named Cloud head when the rule did
-            // not supply a complete next occurrence.
-            occurrences = recordedOccurrences + [replicaHead]
         } else {
-            occurrences = nil
+            // Incomplete or missing rule head: keep recorded rows and do not
+            // invent a scheduled occurrence through the nil-synthesis path.
+            occurrences = recordedOccurrences
         }
         return try AllowancePlan(
             remoteID: rule.id,

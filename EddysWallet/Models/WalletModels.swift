@@ -811,7 +811,9 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     }
 
     /// A missing chain is the pre-chain snapshot: one scheduled occurrence at
-    /// `nextDate`, unless the plan is already exhausted.
+    /// `nextDate`, unless the plan is already exhausted. An explicit empty or
+    /// recorded-only live chain is a suppressed Cloud head, not a snapshot to
+    /// synthesize.
     private static func normalizedOccurrences(
         _ occurrences: [Occurrence]?,
         nextDate: Date,
@@ -821,8 +823,18 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         if let occurrences {
             let scheduled = occurrences.filter { $0.status == .scheduled }
             let suppliedHeadID = nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
-            guard scheduled.count == (isExhausted ? 0 : 1),
-                  suppliedHeadID.map({ scheduled.first?.id == $0 }) ?? true,
+            let scheduledCountMatches: Bool
+            if isExhausted {
+                scheduledCountMatches = scheduled.isEmpty && suppliedHeadID == nil
+            } else if let suppliedHeadID {
+                scheduledCountMatches = scheduled.count == 1 && scheduled.first?.id == suppliedHeadID
+            } else {
+                // Nil named head: either a Cloud-suppressed replica (no
+                // scheduled row) or a pre-chain snapshot that already carried
+                // one synthesized scheduled row.
+                scheduledCountMatches = scheduled.count <= 1
+            }
+            guard scheduledCountMatches,
                   occurrences.allSatisfy({ !$0.id.isEmpty }),
                   occurrences.allSatisfy({ $0.status != .recorded || $0.entryID != nil }),
                   Set(occurrences.map(\.id)).count == occurrences.count else {
@@ -863,7 +875,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     /// allowance. `nextDate` is advanced only after an accepted allowance
     /// entry, which makes each returned occurrence unrecorded exactly once.
     public func missedPayouts(asOf now: Date = .now, calendar: Calendar = .current) -> AllowanceMissedPayouts {
-        guard !isExhausted else { return AllowanceMissedPayouts(occurrences: []) }
+        guard !isExhausted, nextOccurrence != nil else { return AllowanceMissedPayouts(occurrences: []) }
         let today = calendar.startOfDay(for: now)
         let inclusiveEndDate = endDate.map { calendar.startOfDay(for: $0) }
         var dueDate = calendar.startOfDay(for: nextDate)
@@ -881,7 +893,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     /// separate from `nextDate`, which is the earliest unrecorded occurrence
     /// and can be a missed week while a parent catches up the schedule.
     public func nextCurrentOrFuturePayout(asOf now: Date = .now, calendar: Calendar = .current) -> Date? {
-        guard !isExhausted else { return nil }
+        guard !isExhausted, nextOccurrence != nil else { return nil }
         let today = calendar.startOfDay(for: now)
         let inclusiveEndDate = endDate.map { calendar.startOfDay(for: $0) }
         var dueDate = calendar.startOfDay(for: nextDate)

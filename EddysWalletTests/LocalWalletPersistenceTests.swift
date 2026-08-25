@@ -285,30 +285,31 @@ final class LocalWalletPersistenceTests: XCTestCase {
                 occurrences: [.init(id: "head", dueDate: dueDate, status: .scheduled)]
             )
         )
-        XCTAssertThrowsError(
-            try AllowancePlan(
-                amountCents: 500,
-                cadence: "every week",
-                nextDate: dueDate,
-                occurrences: [
-                    .init(
-                        id: "recorded",
-                        dueDate: dueDate,
-                        status: .recorded,
-                        amountCents: 500,
-                        entryID: entryID
-                    ),
-                ]
-            )
+        let recordedOnly = try AllowancePlan(
+            amountCents: 500,
+            cadence: "every week",
+            nextDate: dueDate,
+            occurrences: [
+                .init(
+                    id: "recorded",
+                    dueDate: dueDate,
+                    status: .recorded,
+                    amountCents: 500,
+                    entryID: entryID
+                ),
+            ]
         )
-        XCTAssertThrowsError(
-            try AllowancePlan(
-                amountCents: 500,
-                cadence: "every week",
-                nextDate: dueDate,
-                occurrences: []
-            )
+        XCTAssertNil(recordedOnly.nextOccurrence)
+        XCTAssertTrue(recordedOnly.missedPayouts().isEmpty)
+        let suppressed = try AllowancePlan(
+            amountCents: 500,
+            cadence: "every week",
+            nextDate: dueDate,
+            occurrences: []
         )
+        XCTAssertTrue(suppressed.occurrences.isEmpty)
+        XCTAssertNil(suppressed.nextOccurrence)
+        XCTAssertTrue(suppressed.missedPayouts().isEmpty)
         let exhausted = try AllowancePlan(
             amountCents: 500,
             cadence: "every week",
@@ -355,7 +356,7 @@ final class LocalWalletPersistenceTests: XCTestCase {
         )
     }
 
-    func testAllowancePlanDecodingRejectsExplicitEmptyLiveChain() throws {
+    func testAllowancePlanDecodingAcceptsExplicitEmptyLiveChainAsSuppressedHead() throws {
         let dueDate = Calendar.current.startOfDay(for: .now)
         struct EncodedAllowance: Encodable {
             let amountCents: Int
@@ -374,9 +375,12 @@ final class LocalWalletPersistenceTests: XCTestCase {
             occurrences: []
         )
 
-        XCTAssertThrowsError(
-            try JSONDecoder().decode(AllowancePlan.self, from: JSONEncoder().encode(encoded))
-        )
+        let plan = try JSONDecoder().decode(AllowancePlan.self, from: JSONEncoder().encode(encoded))
+        XCTAssertTrue(plan.occurrences.isEmpty)
+        XCTAssertNil(plan.nextOccurrence)
+        XCTAssertNil(plan.nextOccurrenceID)
+        XCTAssertTrue(plan.missedPayouts().isEmpty)
+        XCTAssertNil(plan.nextCurrentOrFuturePayout())
     }
 
     func testMockAllowanceRecordingLinksOccurrenceToAcceptedEvent() async throws {

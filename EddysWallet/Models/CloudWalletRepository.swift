@@ -251,6 +251,11 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                         continue
                     }
                     let candidateOverlay = try candidateSchedule.flatMap { try validatedAllowanceOverlay(for: $0) }
+                    if hasAllowancePlan {
+                        guard candidateOverlay != nil else {
+                            throw WalletAPIError.invalidResponse("Cloud did not provide a current allowance schedule.")
+                        }
+                    }
                     allowanceSchedule = candidateSchedule
                     allowanceScheduleOverlay = candidateOverlay
                     allowanceScheduleRevision = candidateSchedule == nil ? nil : candidateRevision

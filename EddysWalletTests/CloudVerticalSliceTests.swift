@@ -1328,6 +1328,52 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertFalse(local.isCloudAuthority)
     }
 
+    func testCloudToLocalHandoffRejectsStaleHeadWhenChangesOmitAdvancedChain() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let staleDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: .now)))
+        transport.stub(
+            "GET",
+            "/v1/cloud/bootstrap",
+            CloudSliceFixtures.bootstrapWithAllowance(
+                lineage: lineage,
+                nextDueDate: CloudDayFormat.string(from: staleDate),
+                nextOccurrenceID: "stale-head"
+            )
+        )
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.allowanceChanges(
+                lineage: lineage,
+                revision: 3,
+                balanceCents: 1_250,
+                entryID: "other-device-allowance"
+            )
+        )
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            Data("""
+            {"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+             "startDate":"2026-07-01","endDate":null,"active":true,
+             "nextOccurrenceId":"advanced-head","nextDueDate":null}}
+            """.utf8)
+        )
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        XCTAssertEqual(cloud.snapshot().allowance?.nextOccurrenceID, "stale-head")
+
+        do {
+            _ = try await cloud.prepareForLocalHandoff()
+            XCTFail("handoff must not persist a stale head when the overlay is missing")
+        } catch {}
+
+        XCTAssertTrue(local.isCloudAuthority)
+        XCTAssertNotEqual(cloud.snapshot().allowance?.nextOccurrenceID, "stale-head")
+    }
+
     /// Cloud-to-local handoff must keep the service-owned next occurrence.
     /// Mapping `nextDate` from the rule's original `startDate` re-renders
     /// already-paid weeks as missed and makes them payable again.
@@ -1647,8 +1693,13 @@ final class CloudVerticalSliceTests: XCTestCase {
 
             _ = try await cloud.bootstrap()
 
-            XCTAssertNil(cloud.snapshot().allowance?.nextOccurrenceID)
-            XCTAssertEqual(cloud.snapshot().allowance?.nextDate, CloudDayFormat.date(from: "2026-07-01"))
+            let allowance = try XCTUnwrap(cloud.snapshot().allowance)
+            XCTAssertNil(allowance.nextOccurrenceID)
+            XCTAssertNil(allowance.nextOccurrence)
+            XCTAssertTrue(allowance.occurrences.filter { $0.status == .scheduled }.isEmpty)
+            XCTAssertEqual(allowance.nextDate, CloudDayFormat.date(from: "2026-07-01"))
+            XCTAssertTrue(allowance.missedPayouts().isEmpty)
+            XCTAssertNil(allowance.nextCurrentOrFuturePayout())
         }
     }
 
