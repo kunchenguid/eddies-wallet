@@ -422,7 +422,13 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         metadata.lastServerSync = .now
         metadata.cloudImportCompleted = true
         let existingEvents = merging && existingReplicaMatches ? (aggregate?.snapshot.activities ?? []) : []
-        let snapshot = try CloudReplicaMapper.snapshot(from: replica, mergingInto: existingEvents, fallbackNickname: fallbackNickname)
+        let existingAllowance = merging && existingReplicaMatches ? aggregate?.snapshot.allowance : nil
+        let snapshot = try CloudReplicaMapper.snapshot(
+            from: replica,
+            mergingInto: existingEvents,
+            existingAllowance: existingAllowance,
+            fallbackNickname: fallbackNickname
+        )
         let candidateMutation = mutation ?? metadata.unsettledCloudMutation
         let observed = candidateMutation?.isObserved(in: replica, mappedSnapshot: snapshot) == true
         if observed {

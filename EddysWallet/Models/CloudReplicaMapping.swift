@@ -23,6 +23,7 @@ enum CloudReplicaMapper {
     static func snapshot(
         from replica: CloudReplica,
         mergingInto existingEvents: [WalletEvent],
+        existingAllowance: AllowancePlan? = nil,
         fallbackNickname: String?
     ) throws -> WalletSnapshot {
         let mapped = replica.entries.compactMap(event(from:))
@@ -42,7 +43,11 @@ enum CloudReplicaMapper {
             activities: activities,
             loan: openLoan.map { loan(from: $0, occurrences: replica.loanOccurrences ?? []) },
             allowance: try replica.allowanceRule.flatMap {
-                try allowance(from: $0, occurrences: replica.allowanceOccurrences)
+                try allowance(
+                    from: $0,
+                    occurrences: replica.allowanceOccurrences,
+                    preserving: existingAllowance
+                )
             },
             pendingEvents: [],
             lastUpdated: .now,
@@ -132,11 +137,12 @@ enum CloudReplicaMapper {
 
     private static func allowance(
         from rule: CloudReplica.AllowanceRule,
-        occurrences replicaOccurrences: [CloudReplica.CloudAllowanceOccurrence]?
+        occurrences replicaOccurrences: [CloudReplica.CloudAllowanceOccurrence]?,
+        preserving existingPlan: AllowancePlan?
     ) throws -> AllowancePlan? {
         guard rule.active != false, let startDate = rule.startDate.flatMap(CloudDayFormat.date(from:)) else { return nil }
         let rawOccurrences = replicaOccurrences ?? []
-        let mappedOccurrences = rawOccurrences
+        let explicitOccurrences = rawOccurrences
             .compactMap { occurrence -> AllowancePlan.Occurrence? in
                 guard let dueDate = CloudDayFormat.date(from: occurrence.dueOn),
                       let status = AllowancePlan.Occurrence.Status(rawValue: occurrence.status) else { return nil }
@@ -152,51 +158,49 @@ enum CloudReplicaMapper {
             .sorted { left, right in
                 left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
             }
-        guard mappedOccurrences.count == rawOccurrences.count else {
+        guard explicitOccurrences.count == rawOccurrences.count else {
             throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
         }
-        // Prefer the replica's occurrence chain when the service sent it.
-        // `/v1/cloud/changes` today omits it, so Cloud mode still overlays
-        // `GET /v1/allowance-rule`; a handoff persists that overlay onto the
-        // snapshot so local derivation never walks from the rule start date.
-        let chainHead: (date: Date, id: String)?
-        if let scheduled = mappedOccurrences.first(where: { $0.status == .scheduled }) {
-            chainHead = (scheduled.dueDate, scheduled.id)
-        } else {
-            let ruleHeadID = rule.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
-            let ruleHeadDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:))
-            let hasAnyRuleHeadValue = rule.nextOccurrenceID != nil || rule.nextDueDate != nil
-            guard !hasAnyRuleHeadValue || (ruleHeadID != nil && ruleHeadDate != nil) else {
-                throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
-            }
-            if let ruleHeadID, let ruleHeadDate {
-                chainHead = (ruleHeadDate, ruleHeadID)
-            } else {
-                chainHead = nil
+        let preservedPlan = replicaOccurrences == nil && existingPlan?.remoteID == rule.id
+            ? existingPlan
+            : nil
+        let mappedOccurrences = replicaOccurrences == nil
+            ? (preservedPlan?.occurrences ?? [])
+            : explicitOccurrences
+        let ruleHeadID = rule.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
+        let ruleHeadDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:))
+        let hasAnyRuleHeadValue = rule.nextOccurrenceID != nil || rule.nextDueDate != nil
+        guard !hasAnyRuleHeadValue || (ruleHeadID != nil && ruleHeadDate != nil) else {
+            throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
+        }
+        let ruleHead = ruleHeadID.flatMap { id in
+            ruleHeadDate.map { date in
+                AllowancePlan.Occurrence(id: id, dueDate: date, status: .scheduled)
             }
         }
-        let nextDate = chainHead?.date ?? startDate
-        let isExhausted = replicaOccurrences != nil
-            && mappedOccurrences.contains(where: { $0.status == .scheduled }) == false
-            && rule.nextOccurrenceID == nil
-            && rule.nextDueDate == nil
-        let occurrences: [AllowancePlan.Occurrence]?
-        if !mappedOccurrences.isEmpty {
-            if mappedOccurrences.contains(where: { $0.status == .scheduled }) {
-                occurrences = mappedOccurrences
-            } else if let chainHead {
-                occurrences = mappedOccurrences + [
-                    AllowancePlan.Occurrence(id: chainHead.id, dueDate: chainHead.date, status: .scheduled)
-                ]
-            } else {
-                occurrences = mappedOccurrences
-            }
-        } else if let chainHead {
-            occurrences = [
-                AllowancePlan.Occurrence(id: chainHead.id, dueDate: chainHead.date, status: .scheduled)
-            ]
+        let chainHead: AllowancePlan.Occurrence?
+        if replicaOccurrences != nil {
+            chainHead = mappedOccurrences.first(where: { $0.status == .scheduled }) ?? ruleHead
         } else {
-            occurrences = replicaOccurrences == nil ? nil : []
+            chainHead = ruleHead ?? mappedOccurrences.first(where: { $0.status == .scheduled })
+        }
+        let nextDate = chainHead?.dueDate ?? preservedPlan?.nextDate ?? startDate
+        let isExhausted: Bool
+        if replicaOccurrences != nil {
+            isExhausted = chainHead == nil && rule.nextOccurrenceID == nil && rule.nextDueDate == nil
+        } else if let preservedPlan, ruleHead == nil {
+            isExhausted = preservedPlan.isExhausted
+        } else {
+            isExhausted = false
+        }
+        let recordedOccurrences = mappedOccurrences.filter { $0.status != .scheduled }
+        let occurrences: [AllowancePlan.Occurrence]?
+        if isExhausted {
+            occurrences = recordedOccurrences
+        } else if let chainHead {
+            occurrences = recordedOccurrences + [chainHead]
+        } else {
+            occurrences = preservedPlan == nil ? nil : mappedOccurrences
         }
         return try AllowancePlan(
             remoteID: rule.id,

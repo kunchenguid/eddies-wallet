@@ -1197,6 +1197,46 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(transport.requests.filter { $0.url?.path == "/v1/allowance-rule" }.count, 2)
     }
 
+    func testParentRefreshPreservesRecordedAllowanceChainWhenChangesOmitsOccurrences() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let replica = CloudSliceFixtures.bootstrapWithAllowanceHistory(lineage: lineage)
+        let overlayDate = try XCTUnwrap(CloudDayFormat.date(from: "2026-08-21"))
+        transport.stub("GET", "/v1/cloud/bootstrap", replica)
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.allowanceChanges(
+                lineage: lineage,
+                revision: 3,
+                balanceCents: 1_250,
+                entryID: "incremental-allowance",
+                nextDueDate: overlayDate,
+                nextOccurrenceID: "changes-head"
+            )
+        )
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            CloudSliceFixtures.allowanceSchedule(dueDate: overlayDate, occurrenceID: "overlay-head")
+        )
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let refreshed = try await cloud.refresh(for: .parent)
+        let allowance = try XCTUnwrap(refreshed.allowance)
+        let recorded = try XCTUnwrap(allowance.occurrences.first { $0.id == "recorded-head" })
+
+        XCTAssertEqual(recorded.status, .recorded)
+        XCTAssertEqual(
+            recorded.entryID,
+            UUID(uuidString: "a2000000-0000-4000-8000-000000000003")
+        )
+        XCTAssertEqual(allowance.nextOccurrenceID, "overlay-head")
+        XCTAssertEqual(allowance.occurrences.filter { $0.status == .scheduled }.count, 1)
+    }
+
     func testParentRefreshRejectsServiceHeadCollidingWithRecordedAllowance() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
