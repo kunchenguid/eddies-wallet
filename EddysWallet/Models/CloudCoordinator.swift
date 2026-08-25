@@ -216,19 +216,29 @@ public final class CloudCoordinator: ObservableObject, AccountDeletionPerforming
         guard client.hasSession else { throw WalletAPIError.noSession }
         guard isCloudActive else { throw WalletAPIError.cloudEntitlementRequired }
         activationConflict = false
-        let operationID = try local.reserveCloudImportOperation()
-        let manifest = try local.cloudImportManifest(familyName: familyName, operationID: operationID)
+        let operationID = try await local.beginCloudImportTransition()
+        defer { local.endCloudImportTransition() }
+        let manifest: CloudImportManifest
+        do {
+            manifest = try local.cloudImportManifest(familyName: familyName, operationID: operationID)
+        } catch {
+            try? local.cancelCloudImportTransition(operationID: operationID)
+            throw error
+        }
         let household: CloudHousehold
         do {
             household = try await client.importHousehold(manifest, idempotencyKey: "cloud-import-\(operationID.uuidString.lowercased())")
         } catch let error as WalletAPIError {
-            guard case .server(let status, _, _) = error.operationError, status == 409 else {
-                throw error
+            switch Self.importFailureDisposition(error) {
+            case .unresolved:
+                break
+            case .conflict:
+                try? local.cancelCloudImportTransition(operationID: operationID)
+                activationConflict = true
+                self.message = "This wallet could not be moved to Cloud. Nothing was changed."
+            case .rejected:
+                try? local.cancelCloudImportTransition(operationID: operationID)
             }
-            // Another household already owns this parent, or this lineage was
-            // already imported under different facts. Never overwrite either.
-            activationConflict = true
-            self.message = "This wallet could not be moved to Cloud. Nothing was changed."
             throw error
         }
         guard household.isCloudAuthoritative, let lineageID = household.lineageID else {
@@ -248,6 +258,57 @@ public final class CloudCoordinator: ObservableObject, AccountDeletionPerforming
                 : "Cloud owns this wallet. Reconnect before this device can show the Cloud wallet."
         }
         return repository
+    }
+
+    private enum ImportFailureDisposition {
+        case unresolved
+        case conflict
+        case rejected
+    }
+
+    private static func importFailureDisposition(_ error: WalletAPIError) -> ImportFailureDisposition {
+        switch error.operationError {
+        case .server(let statusCode, let code, _):
+            if statusCode == 408 || statusCode >= 500 || code == "COMMAND_IN_PROGRESS" {
+                return .unresolved
+            }
+            if code == "CLOUD_HOUSEHOLD_CONFLICT" || code == "IDEMPOTENCY_KEY_REUSED" {
+                return .conflict
+            }
+            return .rejected
+        case .network, .transportFailure, .timedOut, .cancelled, .invalidResponse,
+             .cloudAcceptedAwaitingReplica, .cloudAcceptedScheduleUnavailable:
+            return .unresolved
+        default:
+            return .rejected
+        }
+    }
+
+    func reconcilePendingCloudImport(
+        from local: LocalWalletRepository,
+        familyName: String
+    ) async throws -> CloudWalletRepository? {
+        guard let operationID = local.cloudImportOperationID,
+              local.hasUnresolvedCloudImport else { return nil }
+        guard let context = await refreshContext() else {
+            throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
+        if let household = context.household {
+            if household.isCloudAuthoritative,
+               household.lineageID == local.lineageID,
+               let adopted = await adoptCloudHousehold(household, into: local) {
+                return adopted
+            }
+            try local.cancelCloudImportTransition(operationID: operationID)
+            activationConflict = true
+            message = "This wallet could not be moved to Cloud. Nothing was changed."
+            return nil
+        }
+        if context.entitlement?.grantsCloud == true {
+            return try await activateCloud(from: local, familyName: familyName)
+        }
+        try local.cancelCloudImportTransition(operationID: operationID)
+        return nil
     }
 
     /// Second device for the same parent: no upload, only a complete bootstrap

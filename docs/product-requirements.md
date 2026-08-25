@@ -43,7 +43,7 @@ Parents want a simple way to give children practice with allowance, spending, bo
 Eddie's Wallet addresses the gap with a small, closed virtual economy:
 
 1. A parent creates and controls the configured child profile.
-2. The parent pays out allowance and records deposits, withdrawals, loans, and repayments.
+2. The parent pays out allowance and records deposits, withdrawals, loans, and repayments. Creating a weekly allowance rule or a weekly or monthly loan payment plan is the parent act that authorizes later local auto-settlement of due occurrences.
 3. The child sees an understandable, read-only wallet and activity history.
 4. The app stays honest about sync state. Parents repeatedly see that the balance cannot be spent or redeemed; kids see a plain allowance relationship without that legal framing on every glance.
 
@@ -60,7 +60,7 @@ The configured child profile uses a simple child view to check an allowance bala
 ### MVP authority model
 
 - The MVP has one signed-in parent owner and one parent-managed child profile.
-- The parent is the only role that can create or change wallet data, the allowance rule, the child profile, or the parent PIN.
+- The parent is the only role that can create or change the allowance rule, the child profile, or the parent PIN, and the only role that can record a manual money event. On a free local wallet, due occurrences of a parent-created weekly allowance rule or a weekly or monthly loan installment plan may settle on read without a new parent action; that pass cannot create schedules, edit them, or record any other kind of event. A Cloud wallet never auto-writes from this device.
 - The kid home is a view of the configured child profile, not a second account with independent authority.
 - Future co-parent members and independent child-device identities must not be implied by MVP UI.
 
@@ -73,7 +73,7 @@ The configured child profile uses a simple child view to check an allowance bala
 - Parent-set local PIN for entering the temporary Parent area on a shared iPad.
 - A single virtual wallet for the child profile.
 - A familiar US-dollar display vocabulary with persistent virtual/nonredeemable labeling on parent and safety surfaces, and plain allowance language on kid everyday surfaces.
-- Parent-paid allowance plus parent-recorded deposits, withdrawals, loans, and repayments.
+- Parent-created weekly allowance schedules and weekly or monthly loan installment schedules, parent-recorded deposits, withdrawals, loans, and repayments, and local apply-on-read settlement of a small due set.
 - A visible wallet activity list and activity details.
 - A secondary open-loan card and loan detail flow.
 - Honest offline, pending, rejected, and stale-data states.
@@ -274,9 +274,9 @@ Flow:
 7. An unrecorded weekly occurrence due strictly before today is missed. Show every currently missed occurrence, **N missed weeks**, and **Owed total** in both free-local and Cloud modes. An occurrence due today remains the ordinary single payout and is not part of the missed set.
 8. **Pay out missed allowance** asks the parent to confirm the initially visible missed set, including its entry count and total, then **Pay out all** settles that fixed set sequentially as separate allowance entries. It never expands the batch to include a newly due occurrence. Accepted weeks remain durable after interruption, while the untouched weeks remain visible and payable later without duplicates.
 
-Free-local authority records a valid rule immediately in protected local storage. A service-authoritative wallet must confirm its current replica revision online before submitting a rule change or payout and must not queue an offline rule edit. Each Cloud payout uses the existing occurrence endpoint with the normal revision, `If-Match`, and idempotency protections. A required Cloud review blocks the next payout rather than being bypassed by the batch.
+Free-local authority records a valid rule immediately in protected local storage. A successful local read also settles due chain-head occurrences of that parent-created weekly rule, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass. A larger derived backlog stays on **Pay out missed allowance**. This weekly cadence limit belongs only to allowance rules; loan installment auto-settlement supports both weekly and monthly plans as specified in 8.9. Cloud wallets never auto-write from this device: each Cloud payout still uses the existing occurrence endpoint with the normal revision, `If-Match`, and idempotency protections, and a required Cloud review blocks the next payout rather than being bypassed by the batch. A service-authoritative wallet must confirm its current replica revision online before submitting a rule change or payout and must not queue an offline rule edit.
 
-Editing or pausing a rule affects future occurrences only. It must not rewrite past activity. Every payout remains parent-triggered: there is no auto-disbursement, timer, background catch-up, scheduled job, or notification. Additional cadences remain a future decision.
+Editing or pausing a rule affects future occurrences only. It must not rewrite past activity. Creating or editing the rule stays parent-gated. There is no timer, background job, or notification, and the kid home never shows waiting, skip, or behind copy. Additional cadences remain a future decision.
 
 ### 8.7 Deposit flow
 
@@ -300,7 +300,7 @@ The child has no spending or withdrawal control. A withdrawal means the parent r
 
 ### 8.9 Loan and repayment flow
 
-The MVP loan model is parent-to-child, virtual, interest-free, and simple. It supports one open loan at a time for the child profile. The parent can optionally set a due date, and can optionally give the loan a payment plan. Interest, fees, and automatic repayment are out of scope.
+The MVP loan model is parent-to-child, virtual, interest-free, and simple. It supports one open loan at a time for the child profile. The parent can optionally set a due date, and can optionally give the loan a payment plan. Interest and fees are out of scope.
 
 **Create loan:**
 
@@ -319,7 +319,7 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 5. **Pay missed payments** asks the parent to confirm the initially visible missed set, including its count and total, then **Pay all** settles that fixed set sequentially as separate payments. It never expands the batch to include a newly due payment. Paid installments remain durable after interruption, while the untouched ones remain visible and payable later without duplicates.
 6. A repayment that clears the balance retires the plan, so a settled loan never leaves a payment reminder standing.
 
-Required parent copy uses **Loan payments**, **Next payment**, **Missed payments**, **N missed**, **Owed total**, **Pay missed payments**, and **Pay this payment**. Creation uses **Payment plan (optional)**, **Amount for each payment**, and “The last payment is whatever is left to repay, so it can be smaller than this amount.” Catch-up confirmation uses “Pay N missed loan payments?”, “This pays N separate payments totaling US$X toward the loan. The next payment is not included.”, **Pay all**, and **Not now**; success uses **Missed payments paid** and “Paid N separate payments totaling US$X toward the loan.” The single-payment dialog confirms with **Pay**. Do not replace loan **Pay** language with **Record**, borrow allowance's **Pay out**, or imply automatic settlement.
+Required parent copy uses **Loan payments**, **Next payment**, **Missed payments**, **N missed**, **Owed total**, **Pay missed payments**, and **Pay this payment**. Creation uses **Payment plan (optional)**, **Amount for each payment**, and “The last payment is whatever is left to repay, so it can be smaller than this amount.” Catch-up confirmation uses “Pay N missed loan payments?”, “This pays N separate payments totaling US$X toward the loan. The next payment is not included.”, **Pay all**, and **Not now**; success uses **Missed payments paid** and “Paid N separate payments totaling US$X toward the loan.” The single-payment dialog confirms with **Pay**. Do not replace loan **Pay** language with **Record** or borrow allowance's **Pay out**.
 
 **Repay:**
 
@@ -329,7 +329,7 @@ Required parent copy uses **Loan payments**, **Next payment**, **Missed payments
 4. Free-local authority records a valid repayment immediately. Service authority requires a current online replica and records it after acceptance is observed; an ambiguous submitted request remains **Waiting to sync**.
 5. A paid loan remains in history as **Paid** rather than disappearing.
 
-Every payment remains parent-triggered: there is no automatic settlement, timer, background catch-up, scheduled job, or notification.
+Every manual payment remains parent-triggered. On a free local wallet, a successful read also settles due chain-head installments of a parent-created weekly or monthly plan, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass, after all eligible allowance credits have settled oldest-first. An installment that would overdraft stays scheduled and is retried on a later pass. A larger derived backlog stays on **Pay missed payments**. Cloud wallets never auto-write from this device. There is no timer, background job, or notification, and the kid home never shows waiting, skip, or behind copy.
 
 **Child loan view:** The child can see the original loan, accepted repayments, and amount left to repay in plain language. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP. Parent loan details keep the virtual/nonredeemable notice.
 
@@ -399,7 +399,7 @@ These ideas may be valuable later but must not appear as required MVP work:
 
 - Additional parents, multiple children, co-parent permissions, and independent child-device identities.
 - Google Sign In and provider linking.
-- Automatic or background allowance payout, scheduled jobs, push notifications, and richer cadence options.
+- Background allowance payout, scheduled jobs, push notifications, and richer allowance cadence options.
 - Child-initiated requests represented as a separate approval object.
 - Interest-bearing loans, late-payment penalties, plan editing, or other configurable loan terms.
 - Savings goals, jars, chores, rewards, multiple wallets, and multiple currencies.

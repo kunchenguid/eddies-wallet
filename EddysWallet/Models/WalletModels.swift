@@ -372,10 +372,10 @@ public struct LoanInstallment: Hashable, Identifiable, Sendable {
 }
 
 /// The installments of a scheduled loan whose day has already passed and that
-/// a parent has not recorded yet. Because each occurrence is capped at the
+/// have not been recorded yet. Because each occurrence is capped at the
 /// balance remaining when it is settled, `totalCents` can never exceed what
-/// the loan still owes. This model never records anything itself - a parent
-/// action remains required.
+/// the loan still owes. This model never records anything itself; the
+/// parent-confirmed missed-payment path acts on the returned set.
 public struct LoanMissedInstallments: Hashable, Sendable {
     public let installments: [LoanInstallment]
 
@@ -396,6 +396,15 @@ public enum LoanRecordAllOutcome: Equatable, Sendable {
     /// The accepted prefix is durable. The remaining installments have not
     /// been recorded and can be explicitly settled in a later parent action.
     case partial(recordedCount: Int, recordedTotalCents: Int, remaining: LoanMissedInstallments)
+}
+
+/// Auto-settlement of a parent-created weekly allowance rule or a weekly or
+/// monthly loan plan records at most this many due occurrences per read,
+/// including the occurrence due today. A larger
+/// derived backlog - the app unused for months, or a device clock jumped
+/// forward - stays on the existing parent-confirmed missed-set path.
+public enum ScheduledSettlementPolicy {
+    public static let maxOccurrencesPerPass = 4
 }
 
 /// A loan's durable installment plan plus the one payment occurrence that is
@@ -617,6 +626,34 @@ public struct Loan: Hashable, Codable, Sendable {
         return LoanMissedInstallments(installments: installments)
     }
 
+    /// Past days plus an installment due today, still capped at what the loan
+    /// owes. Auto-settlement uses this inclusive walk; the parent missed-set
+    /// path keeps `missedInstallments`, which stops strictly before today.
+    public func dueScheduledInstallments(
+        asOf now: Date = .now,
+        calendar: Calendar = .current,
+        maximumCount: Int? = nil
+    ) -> [LoanInstallment] {
+        guard let schedule, var dueDate = schedule.nextDueDate.map({ calendar.startOfDay(for: $0) }) else {
+            return []
+        }
+        let today = calendar.startOfDay(for: now)
+        var remaining = remainingCents
+        var installments: [LoanInstallment] = []
+
+        while dueDate <= today,
+              remaining > 0,
+              maximumCount.map({ installments.count < $0 }) ?? true {
+            let payment = Self.installmentPaymentCents(named: schedule.amountCents, remainingCents: remaining)
+            guard payment > 0 else { break }
+            installments.append(LoanInstallment(dueDate: dueDate, amountCents: payment))
+            remaining -= payment
+            guard remaining > 0, let followingDate = schedule.dueDateAfter(dueDate, calendar: calendar) else { break }
+            dueDate = calendar.startOfDay(for: followingDate)
+        }
+        return installments
+    }
+
     /// The first still-current or future payment, and what it would settle
     /// once every missed payment before it has been recorded. This is
     /// deliberately separate from `schedule.nextDueDate`, which is the earliest
@@ -699,10 +736,11 @@ public struct AllowanceOccurrence: Hashable, Identifiable, Sendable {
     }
 }
 
-/// The scheduled weekly payouts a parent has not recorded yet. The schedule's
-/// next date is the first unrecorded occurrence, so walking forward from it is
+/// The scheduled weekly payouts not yet recorded. The schedule's next date is
+/// the first unrecorded occurrence, so walking forward from it is
 /// both the local and Cloud-authoritative record of which weeks remain due.
-/// This model never records anything itself - a parent action remains required.
+/// This model never records anything itself; the parent-confirmed missed-payout
+/// path acts on the returned set.
 public struct AllowanceMissedPayouts: Hashable, Sendable {
     public let occurrences: [AllowanceOccurrence]
 
@@ -889,6 +927,30 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
             dueDate = followingDate
         }
         return AllowanceMissedPayouts(occurrences: occurrences)
+    }
+
+    /// Past days plus a payout due today, still bounded by an optional end
+    /// date. Auto-settlement uses this inclusive walk; the parent missed-set
+    /// path keeps `missedPayouts`, which stops strictly before today.
+    public func dueScheduledPayouts(
+        asOf now: Date = .now,
+        calendar: Calendar = .current,
+        maximumCount: Int? = nil
+    ) -> [AllowanceOccurrence] {
+        guard !isExhausted, nextOccurrence != nil else { return [] }
+        let today = calendar.startOfDay(for: now)
+        let inclusiveEndDate = endDate.map { calendar.startOfDay(for: $0) }
+        var dueDate = calendar.startOfDay(for: nextDate)
+        var occurrences: [AllowanceOccurrence] = []
+
+        while dueDate <= today,
+              inclusiveEndDate.map({ dueDate <= $0 }) ?? true,
+              maximumCount.map({ occurrences.count < $0 }) ?? true {
+            occurrences.append(AllowanceOccurrence(dueDate: dueDate, amountCents: amountCents))
+            guard let followingDate = calendar.date(byAdding: .day, value: 7, to: dueDate) else { break }
+            dueDate = followingDate
+        }
+        return occurrences
     }
 
     /// The first still-current or future occurrence. This is intentionally

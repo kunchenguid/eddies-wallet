@@ -13,6 +13,7 @@ struct LocalWalletMetadata: Codable, Sendable {
     /// import replays instead of creating a second household.
     var cloudImportOperationID: UUID?
     var cloudImportCompleted = false
+    var cloudImportMayBeUnresolved: Bool? = nil
     /// At most one exact Cloud request can be unresolved. It is stored beside
     /// replica provenance so relaunch cannot mint a second idempotency key.
     var unsettledCloudMutation: PendingCloudMutation? = nil
@@ -33,6 +34,11 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     private var readOnlyReason: String?
     private var cloudHandoffGeneration = 0
     public private(set) var recoveryState: WalletRecoveryState?
+    /// Overlapping owned reads can both reach settlement; only one pass runs,
+    /// and waiters publish the snapshot it already advanced.
+    private var isApplyingScheduledSettlements = false
+    private var scheduledSettlementWaiters: [CheckedContinuation<Void, Never>] = []
+    private var cloudImportTransitionHolders = 0
     /// A pre-Core-Data marker/cache is a migration input only. It stays
     /// read-only and is never promoted to local authority because it may hold
     /// only ten recent events.
@@ -53,8 +59,14 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     private func load(legacySnapshot: WalletSnapshot?, hasLegacyMarker: Bool) throws {
         if let data = try persistence.load() {
             do {
-                let decoded = try JSONDecoder().decode(LocalWalletAggregate.self, from: data)
+                var decoded = try JSONDecoder().decode(LocalWalletAggregate.self, from: data)
                 try Self.validate(decoded.snapshot)
+                if decoded.metadata.authority == "local",
+                   decoded.metadata.cloudImportOperationID != nil,
+                   decoded.metadata.cloudImportCompleted == false,
+                   decoded.metadata.cloudImportMayBeUnresolved == nil {
+                    decoded.metadata.cloudImportMayBeUnresolved = true
+                }
                 aggregate = decoded
             } catch {
                 // Never replace questionable history with an empty wallet.
@@ -265,6 +277,95 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         return .accepted(event)
     }
 
+    /// Settles due chain-head occurrences of parent-created weekly allowance
+    /// rules and weekly or monthly loan plans on a free local wallet. Cloud
+    /// authority never auto-writes from here: a replica stays read-only for
+    /// this pass, and `WalletStore` also refuses
+    /// to call it when the published repository is Cloud. Each accepted
+    /// occurrence uses the ordinary `submit` path, one save at a time.
+    ///
+    /// All due allowance credits run oldest-first before due loan debits run
+    /// oldest-first. A loan installment that would overdraft stays `scheduled`
+    /// and is retried on a later pass.
+    /// A schedule whose derived due count exceeds
+    /// `ScheduledSettlementPolicy.maxOccurrencesPerPass` is left for the
+    /// parent-confirmed missed-set flow.
+    func applyDueScheduledSettlements(asOf now: Date = .now, calendar: Calendar = .current) async {
+        guard !isCloudAuthority,
+              cloudImportTransitionHolders == 0,
+              aggregate?.metadata.cloudImportMayBeUnresolved != true else { return }
+        if isApplyingScheduledSettlements {
+            await withCheckedContinuation { continuation in
+                scheduledSettlementWaiters.append(continuation)
+            }
+            return
+        }
+        isApplyingScheduledSettlements = true
+        defer {
+            isApplyingScheduledSettlements = false
+            let waiters = scheduledSettlementWaiters
+            scheduledSettlementWaiters = []
+            waiters.forEach { $0.resume() }
+        }
+        guard (try? writableAggregate()) != nil else { return }
+
+        let wallet = snapshot()
+        let today = calendar.startOfDay(for: now)
+
+        let allowanceDue = wallet.allowance?.dueScheduledPayouts(
+            asOf: now,
+            calendar: calendar,
+            maximumCount: ScheduledSettlementPolicy.maxOccurrencesPerPass + 1
+        ) ?? []
+        if !allowanceDue.isEmpty,
+           allowanceDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass {
+            for occurrence in allowanceDue {
+                guard cloudImportTransitionHolders == 0,
+                      aggregate?.metadata.cloudImportMayBeUnresolved != true else { return }
+                let result = try? await submit(
+                    WalletCommand(
+                        kind: .allowance,
+                        amountCents: occurrence.amountCents,
+                        dueDate: occurrence.dueDate,
+                        idempotencyKey: UUID().uuidString
+                    )
+                )
+                guard case .accepted = result else { return }
+            }
+        }
+
+        guard cloudImportTransitionHolders == 0,
+              aggregate?.metadata.cloudImportMayBeUnresolved != true else { return }
+        let loanDue = wallet.loan?.dueScheduledInstallments(
+            asOf: now,
+            calendar: calendar,
+            maximumCount: ScheduledSettlementPolicy.maxOccurrencesPerPass + 1
+        ) ?? []
+        guard !loanDue.isEmpty,
+              loanDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass else { return }
+        for installment in loanDue {
+            guard cloudImportTransitionHolders == 0,
+                  aggregate?.metadata.cloudImportMayBeUnresolved != true else { return }
+            let isToday = calendar.startOfDay(for: installment.dueDate) == today
+            let result = try? await submit(
+                WalletCommand(
+                    kind: .loanInstallment,
+                    amountCents: 0,
+                    dueDate: isToday ? nil : installment.dueDate,
+                    idempotencyKey: UUID().uuidString
+                )
+            )
+            switch result {
+            case .accepted:
+                continue
+            case .rejected:
+                return
+            default:
+                return
+            }
+        }
+    }
+
     // MARK: - Cloud authority
 
     /// The accepted Cloud household this device is mirroring, when Cloud owns
@@ -283,15 +384,58 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     var unsettledCloudMutation: PendingCloudMutation? { aggregate?.metadata.unsettledCloudMutation }
     var cloudApplicationLease: Int { cloudHandoffGeneration }
     public var cloudImportOperationID: UUID? { aggregate?.metadata.cloudImportOperationID }
+    var hasUnresolvedCloudImport: Bool {
+        cloudImportOperationID != nil && aggregate?.metadata.cloudImportMayBeUnresolved == true
+    }
     public var hasCompletedCloudImport: Bool { aggregate?.metadata.cloudImportCompleted == true }
+
+    func beginCloudImportTransition() async throws -> UUID {
+        cloudImportTransitionHolders += 1
+        if isApplyingScheduledSettlements {
+            await withCheckedContinuation { continuation in
+                scheduledSettlementWaiters.append(continuation)
+            }
+        }
+        do {
+            guard !isCloudAuthority else {
+                throw WalletAPIError.invalidResponse("Cloud already owns this wallet.")
+            }
+            return try reserveCloudImportOperation()
+        } catch {
+            endCloudImportTransition()
+            throw error
+        }
+    }
+
+    func endCloudImportTransition() {
+        cloudImportTransitionHolders = max(0, cloudImportTransitionHolders - 1)
+    }
+
+    func cancelCloudImportTransition(operationID: UUID) throws {
+        var candidate = try writableAggregate(allowingCloudImportTransition: true)
+        guard candidate.metadata.cloudImportOperationID == operationID,
+              candidate.metadata.cloudImportCompleted == false,
+              candidate.metadata.authority == "local" else { return }
+        candidate.metadata.cloudImportOperationID = nil
+        candidate.metadata.cloudImportMayBeUnresolved = nil
+        try persist(candidate)
+    }
+
     /// Reserves the one-time import identity before the upload starts, so a
     /// retry after an interrupted upload reuses the same operation and key.
     @discardableResult
     public func reserveCloudImportOperation() throws -> UUID {
-        var candidate = try writableAggregate()
-        if let existing = candidate.metadata.cloudImportOperationID { return existing }
+        var candidate = try writableAggregate(allowingCloudImportTransition: true)
+        if let existing = candidate.metadata.cloudImportOperationID {
+            if candidate.metadata.cloudImportMayBeUnresolved != true {
+                candidate.metadata.cloudImportMayBeUnresolved = true
+                try persist(candidate)
+            }
+            return existing
+        }
         let operationID = UUID()
         candidate.metadata.cloudImportOperationID = operationID
+        candidate.metadata.cloudImportMayBeUnresolved = true
         try persist(candidate)
         return operationID
     }
@@ -309,6 +453,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         candidate.metadata.confirmedCloudLineageID = lineageID
         candidate.metadata.serverRevision = revision
         candidate.metadata.unsettledCloudMutation = nil
+        candidate.metadata.cloudImportMayBeUnresolved = nil
         try persist(candidate)
     }
 
@@ -322,6 +467,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         candidate.metadata.serverRevision = revision
         candidate.metadata.lastServerSync = .now
         candidate.metadata.cloudImportCompleted = true
+        candidate.metadata.cloudImportMayBeUnresolved = nil
         candidate.metadata.unsettledCloudMutation = nil
         try persist(candidate)
     }
@@ -421,6 +567,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         metadata.serverRevision = replica.household.revision
         metadata.lastServerSync = .now
         metadata.cloudImportCompleted = true
+        metadata.cloudImportMayBeUnresolved = nil
         let existingEvents = merging && existingReplicaMatches ? (aggregate?.snapshot.activities ?? []) : []
         let existingAllowance = merging && existingReplicaMatches ? aggregate?.snapshot.allowance : nil
         let snapshot = try CloudReplicaMapper.snapshot(
@@ -460,7 +607,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// A live allowance missing its occurrence identity is repaired and saved
     /// before upload; a bounded plan past its end is saved as exhausted.
     public func cloudImportManifest(familyName: String, operationID: UUID) throws -> CloudImportManifest {
-        var aggregate = try writableAggregate()
+        var aggregate = try writableAggregate(allowingCloudImportTransition: true)
         if let plan = aggregate.snapshot.allowance {
             let isExhausted = plan.isExhausted || plan.endDate.map { plan.nextDate > $0 } == true
             let existingOccurrenceID = plan.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
@@ -518,9 +665,14 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         aggregate = candidate
     }
 
-    private func writableAggregate() throws -> LocalWalletAggregate {
+    private func writableAggregate(allowingCloudImportTransition: Bool = false) throws -> LocalWalletAggregate {
         if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
         guard let aggregate else { throw WalletAPIError.familyNotSetup }
+        if !allowingCloudImportTransition,
+           aggregate.metadata.authority == "local",
+           cloudImportTransitionHolders > 0 || aggregate.metadata.cloudImportMayBeUnresolved == true {
+            throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
         return aggregate
     }
 

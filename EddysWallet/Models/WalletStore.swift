@@ -843,6 +843,14 @@ public final class WalletStore: ObservableObject {
         }
         let completion = startOwnedRead()
         for await _ in completion {}
+        await retryUnresolvedCloudImportAfterRead()
+    }
+
+    private func retryUnresolvedCloudImportAfterRead() async {
+        guard cloudActivationTask == nil,
+              let local = repository as? LocalWalletRepository,
+              local.hasUnresolvedCloudImport else { return }
+        await activateCloudIfPaid()
     }
 
     /// Starts one read this store owns. The returned completion stream lets a
@@ -876,19 +884,25 @@ public final class WalletStore: ObservableObject {
         // newest read of the current generation speaks. An older read settling
         // underneath it publishes nothing - its data, if any, already advanced
         // the repository, and the newest read republishes repository state.
-        // Everything below runs synchronously on the main actor, so no other
-        // read can interleave with a publication that has begun.
+        // Local apply-on-read settlement awaits, so a newer read can start
+        // while this one is still recording due occurrences; publication
+        // re-checks the same newest-read identity after that await.
         guard id == newestReadID, generation == refreshGeneration, role == viewRole else { return }
-        isLoading = false
         switch outcome {
         case .success(let refreshed):
+            if let local = repository as? LocalWalletRepository, !local.isCloudAuthority {
+                await local.applyDueScheduledSettlements()
+                guard id == newestReadID, generation == refreshGeneration, role == viewRole else { return }
+            }
+            isLoading = false
             // For Cloud the repository is the accepted authority and another
             // accepted read - a mutation settlement's own reread - may have
             // advanced it after this read returned, so publication re-reads
-            // its current snapshot instead of a value captured earlier.
+            // its current snapshot instead of a value captured earlier. A
+            // local wallet does the same after apply-on-read settlement.
             snapshot = repository is CloudWalletRepository
                 ? (role == .child ? repository.childSnapshot() : repository.snapshot())
-                : refreshed
+                : (repository is LocalWalletRepository ? repository.snapshot() : refreshed)
             needsSetup = false
             if let cloud = repository as? CloudWalletRepository {
                 authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
@@ -900,6 +914,7 @@ public final class WalletStore: ObservableObject {
             sessionExpired = false
             await convergeLegacyDeviceOntoCloud(generation: generation)
         case .failure(let error as WalletAPIError):
+            isLoading = false
             guard !isCancellation(error) else { return }
             // The newest read's own failure is the one worth reporting. What
             // the readout shows then survives a later successful read: a parent
@@ -976,6 +991,7 @@ public final class WalletStore: ObservableObject {
                 snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
             }
         case .failure(let error):
+            isLoading = false
             guard !isCancellation(error) else { return }
             errorMessage = "The wallet could not be updated. Your last accepted balance is still shown."
             snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
@@ -2017,7 +2033,9 @@ public final class WalletStore: ObservableObject {
         guard permitsCloudActivation else { return }
         guard let cloudCoordinator else { return }
         guard let local = repository as? LocalWalletRepository else { return }
-        guard cloudCoordinator.isCloudActive || cloudCoordinator.household != nil else { return }
+        guard cloudCoordinator.isCloudActive
+                || cloudCoordinator.household != nil
+                || local.hasUnresolvedCloudImport else { return }
         if let cloudActivationTask {
             await cloudActivationTask.value
             return
@@ -2048,7 +2066,19 @@ public final class WalletStore: ObservableObject {
         authorityState = .transitioningToCloud
         do {
             let cloud: CloudWalletRepository
-            if let adopted = try await cloudCoordinator.adoptExistingCloudHousehold(into: local) {
+            if local.hasUnresolvedCloudImport {
+                guard let reconciled = try await cloudCoordinator.reconcilePendingCloudImport(
+                    from: local,
+                    familyName: cloudFamilyName
+                ) else {
+                    await refresh()
+                    guard permitsCloudActivation(generation: generation) else { return }
+                    authorityState = previousAuthority
+                    cloudMessage = cloudCoordinator.message
+                    return
+                }
+                cloud = reconciled
+            } else if let adopted = try await cloudCoordinator.adoptExistingCloudHousehold(into: local) {
                 cloud = adopted
             } else {
                 cloud = try await cloudCoordinator.activateCloud(from: local, familyName: cloudFamilyName)
@@ -2067,8 +2097,10 @@ public final class WalletStore: ObservableObject {
             if cloudCoordinator.activationConflict {
                 purchaseAttempt = .activationConflict
                 cloudMessage = "This wallet could not be moved to Cloud. Nothing was changed on this device."
-            } else {
+            } else if cloudCoordinator.isCloudActive {
                 cloudMessage = "Cloud is on for your account. This wallet is still on this device and will try again."
+            } else {
+                cloudMessage = "The wallet could not be updated. Your last accepted balance is still shown."
             }
         }
     }
