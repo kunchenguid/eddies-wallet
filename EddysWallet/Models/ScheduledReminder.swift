@@ -105,8 +105,9 @@ final class RecordingScheduledReminderCenter: ScheduledReminderCentering {
     private(set) var askedForAuthorization = false
     private(set) var didClearPending = false
     var pauseBeforeAuthorizationCheck = false
-    private(set) var isPausedForAuthorizationCheck = false
-    private var authorizationPause: CheckedContinuation<Void, Never>?
+    private(set) var pausedAuthorizationCheckCount = 0
+    var isPausedForAuthorizationCheck: Bool { pausedAuthorizationCheckCount > 0 }
+    private var authorizationPauses: [CheckedContinuation<Void, Never>] = []
     private var generation = 0
     private let now: () -> Date
 
@@ -121,9 +122,15 @@ final class RecordingScheduledReminderCenter: ScheduledReminderCentering {
         generation += 1
         let replacementGeneration = generation
         if pauseBeforeAuthorizationCheck {
-            isPausedForAuthorizationCheck = true
-            await withCheckedContinuation { authorizationPause = $0 }
-            isPausedForAuthorizationCheck = false
+            pausedAuthorizationCheckCount += 1
+            await withCheckedContinuation { continuation in
+                guard replacementGeneration == generation else {
+                    continuation.resume()
+                    return
+                }
+                authorizationPauses.append(continuation)
+            }
+            pausedAuthorizationCheckCount -= 1
             guard replacementGeneration == generation else { return }
         }
         askedForAuthorization = stillAuthorized()
@@ -132,14 +139,20 @@ final class RecordingScheduledReminderCenter: ScheduledReminderCentering {
     }
 
     func continueAuthorizationCheck() {
-        authorizationPause?.resume()
-        authorizationPause = nil
+        resumeAuthorizationPause()
     }
 
     func clearPendingReminders() {
         generation += 1
         dueReminders = []
         didClearPending = true
+        resumeAuthorizationPause()
+    }
+
+    private func resumeAuthorizationPause() {
+        let pauses = authorizationPauses
+        authorizationPauses = []
+        for pause in pauses { pause.resume() }
     }
 }
 
@@ -171,7 +184,13 @@ final class UserNotificationsReminderCenter: ScheduledReminderCentering {
         generation += 1
         let replacementGeneration = generation
         while replacementInFlight {
-            await withCheckedContinuation { replacementWaiters.append($0) }
+            await withCheckedContinuation { continuation in
+                guard replacementGeneration == generation else {
+                    continuation.resume()
+                    return
+                }
+                replacementWaiters.append(continuation)
+            }
             guard replacementGeneration == generation else { return }
         }
         replacementInFlight = true
@@ -203,10 +222,15 @@ final class UserNotificationsReminderCenter: ScheduledReminderCentering {
     func clearPendingReminders() {
         generation += 1
         removeDueReminders()
+        resumeReplacementWaiters()
     }
 
     private func finishReplacement() {
         replacementInFlight = false
+        resumeReplacementWaiters()
+    }
+
+    private func resumeReplacementWaiters() {
         let waiters = replacementWaiters
         replacementWaiters = []
         for waiter in waiters { waiter.resume() }

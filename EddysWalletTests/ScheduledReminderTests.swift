@@ -91,6 +91,34 @@ final class ScheduledReminderTests: XCTestCase {
         XCTAssertTrue(reminders.dueReminders.isEmpty)
     }
 
+    func testClearingConcurrentPausedReplacementsReleasesEveryCaller() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let reminders = RecordingScheduledReminderCenter(now: { now })
+        reminders.pauseBeforeAuthorizationCheck = true
+        let due = ScheduledReminder(
+            id: "ew.due.allowance",
+            kind: .allowanceDue,
+            fireDate: now.addingTimeInterval(60)
+        )
+
+        let first = Task {
+            await reminders.replaceDueReminders([due], stillAuthorized: { true })
+        }
+        let firstPaused = await waitUntil { reminders.pausedAuthorizationCheckCount == 1 }
+        XCTAssertTrue(firstPaused)
+        let second = Task {
+            await reminders.replaceDueReminders([due], stillAuthorized: { true })
+        }
+        let secondPaused = await waitUntil { reminders.pausedAuthorizationCheckCount == 2 }
+        XCTAssertTrue(secondPaused)
+
+        reminders.clearPendingReminders()
+        _ = await (first.value, second.value)
+
+        XCTAssertTrue(reminders.dueReminders.isEmpty)
+        XCTAssertEqual(reminders.pausedAuthorizationCheckCount, 0)
+    }
+
     func testLocalReadStillSettlesWhenRemindersAreANoOp() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Maya"))
@@ -216,7 +244,6 @@ final class ScheduledReminderTests: XCTestCase {
         let calendar = Calendar.current
         let nextWeek = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: calendar.startOfDay(for: .now)))
         let reminders = RecordingScheduledReminderCenter()
-        reminders.pauseBeforeAuthorizationCheck = true
         let store = WalletStore(
             repository: repository,
             initiallySignedIn: true,
@@ -224,7 +251,9 @@ final class ScheduledReminderTests: XCTestCase {
             identityStore: InMemoryParentIdentityStore(appleUserID: "owner"),
             reminderCenter: reminders
         )
+        await store.refresh()
         enterParentArea(store)
+        reminders.pauseBeforeAuthorizationCheck = true
 
         let save = Task {
             await store.setAllowance(
@@ -264,7 +293,6 @@ final class ScheduledReminderTests: XCTestCase {
 
     func testSignOutInvalidatesAReplacementAlreadyInFlight() async throws {
         let reminders = RecordingScheduledReminderCenter()
-        reminders.pauseBeforeAuthorizationCheck = true
         let store = WalletStore(
             repository: MockWalletRepository(snapshot: .fixture()),
             initiallySignedIn: true,
@@ -272,7 +300,9 @@ final class ScheduledReminderTests: XCTestCase {
             identityStore: InMemoryParentIdentityStore(appleUserID: "owner"),
             reminderCenter: reminders
         )
+        await store.refresh()
         enterParentArea(store)
+        reminders.pauseBeforeAuthorizationCheck = true
 
         let save = Task {
             await store.setAllowance(
