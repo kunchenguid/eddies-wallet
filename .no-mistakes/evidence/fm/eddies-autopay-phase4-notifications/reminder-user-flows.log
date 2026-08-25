@@ -1,0 +1,466 @@
+sim: creating run-scoped simulator EddiesWallet-simrun-82937-547565204175672032352031353a30393a31342032303236-1985426757 (com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro / com.apple.CoreSimulator.SimRuntime.iOS-26-4) in the default device set
+sim: booted 316D4112-CE0F-4813-9CF0-179897AC132E
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test -project EddysWallet.xcodeproj -scheme EddysWallet -destination "platform=iOS Simulator,id=316D4112-CE0F-4813-9CF0-179897AC132E" -resultBundlePath /Users/kunchen/.no-mistakes/evidence/01M0XE08706NC1TAB32P4RM7WR/reminder-user-flows.xcresult "-only-testing:EddysWalletUITests/EddysWalletUITests/testEveryParentSettingsSheetKeepsItsPrimaryActionReachable" "-only-testing:EddysWalletUITests/EddysWalletUITests/testBackgroundingDropsParentElevation" "-only-testing:EddysWalletUITests/EddysWalletUITests/testSignOutRequiresConfirmationInsideParentArea" -parallel-testing-enabled NO -maximum-parallel-testing-workers 1
+
+Writing result bundle at path:
+	/Users/kunchen/.no-mistakes/evidence/01M0XE08706NC1TAB32P4RM7WR/reminder-user-flows.xcresult
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (3 targets)
+    Target 'EddysWalletUITests' in project 'EddysWallet'
+        ➜ Explicit dependency on target 'EddysWallet' in project 'EddysWallet'
+    Target 'EddysWalletTests' in project 'EddysWallet'
+        ➜ Explicit dependency on target 'EddysWallet' in project 'EddysWallet'
+    Target 'EddysWallet' in project 'EddysWallet' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.4.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/momc --dry-run --action generate --swift-version 5.0 --sdkroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.4.sdk --iphonesimulator-deployment-target 17.0 --module EddysWallet /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01M0XE08706NC1TAB32P4RM7WR/EddysWallet/Persistence/WalletModel.xcdatamodeld /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWallet.build/DerivedSources/CoreDataGenerated/WalletModel
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --print-asset-tag-combinations --output-format xml1 /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01M0XE08706NC1TAB32P4RM7WR/EddysWallet/Assets.xcassets
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+Build description signature: 6a4c4f16eeed35391a81272a063fc16b
+Build description path: /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/XCBuildData/6a4c4f16eeed35391a81272a063fc16b.xcbuilddata
+ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.4.sdk /Users/kunchen/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/iphonesimulator26.4-23E237-686eebb5dc1d8ecb277353a59184f4aa.sdkstatcache
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01M0XE08706NC1TAB32P4RM7WR/EddysWallet.xcodeproj
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.4.sdk -o /Users/kunchen/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/iphonesimulator26.4-23E237-686eebb5dc1d8ecb277353a59184f4aa.sdkstatcache
+
+ProcessInfoPlistFile /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/Info.plist /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWallet.build/empty-EddysWallet.plist (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01M0XE08706NC1TAB32P4RM7WR
+    builtin-infoPlistUtility /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWallet.build/empty-EddysWallet.plist -producttype com.apple.product-type.application -genpkginfo /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PkgInfo -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWallet.build/assetcatalog_generated_info.plist -o /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/Info.plist
+
+CopySwiftLibs /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app (in target 'EddysWallet' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01M0XE08706NC1TAB32P4RM7WR
+    builtin-swiftStdLibTool --copy --verbose --sign - --scan-executable /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/EddysWallet.debug.dylib --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/Frameworks --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PlugIns --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/SystemExtensions --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/Extensions --platform iphonesimulator --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWallet.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+
+ProcessInfoPlistFile /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PlugIns/EddysWalletTests.xctest/Info.plist /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWalletTests.build/empty-EddysWalletTests.plist (in target 'EddysWalletTests' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01M0XE08706NC1TAB32P4RM7WR
+    builtin-infoPlistUtility /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWalletTests.build/empty-EddysWalletTests.plist -producttype com.apple.product-type.bundle.unit-test -expandbuildsettings -format binary -platform iphonesimulator -o /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PlugIns/EddysWalletTests.xctest/Info.plist
+
+CopySwiftLibs /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PlugIns/EddysWalletTests.xctest (in target 'EddysWalletTests' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01M0XE08706NC1TAB32P4RM7WR
+    builtin-swiftStdLibTool --copy --verbose --sign - --scan-executable /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PlugIns/EddysWalletTests.xctest/EddysWalletTests --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PlugIns/EddysWalletTests.xctest/Frameworks --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PlugIns/EddysWalletTests.xctest/PlugIns --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PlugIns/EddysWalletTests.xctest/SystemExtensions --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PlugIns/EddysWalletTests.xctest/Extensions --platform iphonesimulator --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWallet.app/PlugIns/EddysWalletTests.xctest/Frameworks --strip-bitcode --scan-executable /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWalletTests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+
+ProcessInfoPlistFile /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWalletUITests-Runner.app/PlugIns/EddysWalletUITests.xctest/Info.plist /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWalletUITests.build/empty-EddysWalletUITests.plist (in target 'EddysWalletUITests' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01M0XE08706NC1TAB32P4RM7WR
+    builtin-infoPlistUtility /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWalletUITests.build/empty-EddysWalletUITests.plist -producttype com.apple.product-type.bundle.ui-testing -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWalletUITests.build/ProductTypeInfoPlistAdditions.plist -o /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWalletUITests-Runner.app/PlugIns/EddysWalletUITests.xctest/Info.plist
+
+CopySwiftLibs /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWalletUITests-Runner.app/PlugIns/EddysWalletUITests.xctest (in target 'EddysWalletUITests' from project 'EddysWallet')
+    cd /Users/kunchen/.no-mistakes/worktrees/5110830afc02/01M0XE08706NC1TAB32P4RM7WR
+    builtin-swiftStdLibTool --copy --verbose --sign - --scan-executable /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWalletUITests-Runner.app/PlugIns/EddysWalletUITests.xctest/EddysWalletUITests --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWalletUITests-Runner.app/PlugIns/EddysWalletUITests.xctest/Frameworks --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWalletUITests-Runner.app/PlugIns/EddysWalletUITests.xctest/PlugIns --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWalletUITests-Runner.app/PlugIns/EddysWalletUITests.xctest/SystemExtensions --scan-folder /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWalletUITests-Runner.app/PlugIns/EddysWalletUITests.xctest/Extensions --platform iphonesimulator --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Products/Debug-iphonesimulator/EddysWalletUITests-Runner.app/PlugIns/EddysWalletUITests.xctest/Frameworks --strip-bitcode --scan-executable /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/kunchen/Library/Developer/Xcode/DerivedData/EddysWallet-bxavvnneybysfvdagekobzaayshr/Build/Intermediates.noindex/EddysWallet.build/Debug-iphonesimulator/EddysWalletUITests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+
+2026-08-25 15:11:13.503993-0700 EddysWalletUITests-Runner[51498:887563117] [Default] Running tests...
+objc[51498]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23E244/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.4.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x106dd0310) and /Library/Developer/CoreSimulator/Volumes/iOS_23E244/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.4.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x106e38398). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+    t =      nans Interface orientation changed to Portrait
+Test Suite 'Selected tests' started at 2026-08-25 15:11:16.302.
+Test Suite 'EddysWalletUITests.xctest' started at 2026-08-25 15:11:16.303.
+Test Suite 'EddysWalletUITests' started at 2026-08-25 15:11:16.303.
+Test Case '-[EddysWalletUITests.EddysWalletUITests testBackgroundingDropsParentElevation]' started.
+    t =     0.00s Start Test at 2026-08-25 15:11:16.303
+    t =     0.11s Set Up
+    t =     0.11s Open com.kunchenguid.eddieswallet
+    t =     0.11s     Launch com.kunchenguid.eddieswallet
+2026-08-25 15:11:16.900 xcodebuild[42150:887546189] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-08-25 15:11:16.900 xcodebuild[42150:887546189] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.45s         Setting up automation session
+    t =     2.07s         Wait for com.kunchenguid.eddieswallet to idle
+    t =     3.34s Waiting 10.0s for "Hi, Eddie" StaticText to exist
+    t =     4.39s     Checking `Expect predicate `existsNoRetry == 1` for object "Hi, Eddie" StaticText`
+    t =     4.39s         Checking existence of `"Hi, Eddie" StaticText`
+    t =     4.42s Waiting 10.0s for "Parent area. Asks for the parent PIN." Button to exist
+    t =     5.48s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent area. Asks for the parent PIN." Button`
+    t =     5.48s         Checking existence of `"Parent area. Asks for the parent PIN." Button`
+    t =     5.54s Tap "Parent area. Asks for the parent PIN." Button
+    t =     5.54s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     5.54s     Find the "Parent area. Asks for the parent PIN." Button
+    t =     5.56s     Check for interrupting elements affecting "Parent area. Asks for the parent PIN." Button
+    t =     5.61s     Synthesize event
+    t =     6.01s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     6.38s Waiting 5.0s for "Parent only" StaticText to exist
+    t =     7.42s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent only" StaticText`
+    t =     7.43s         Checking existence of `"Parent only" StaticText`
+    t =     7.46s Tap "PIN digit 1" Button
+    t =     7.46s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.46s     Find the "PIN digit 1" Button
+    t =     7.51s     Check for interrupting elements affecting "PIN digit 1" Button
+    t =     7.52s     Synthesize event
+    t =     7.81s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.81s Tap "PIN digit 2" Button
+    t =     7.81s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.81s     Find the "PIN digit 2" Button
+    t =     7.83s     Check for interrupting elements affecting "PIN digit 2" Button
+    t =     7.87s     Synthesize event
+    t =     8.16s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     8.16s Tap "PIN digit 3" Button
+    t =     8.16s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     8.16s     Find the "PIN digit 3" Button
+    t =     8.18s     Check for interrupting elements affecting "PIN digit 3" Button
+    t =     8.22s     Synthesize event
+    t =     8.51s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     8.52s Tap "PIN digit 4" Button
+    t =     8.52s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     8.53s     Find the "PIN digit 4" Button
+    t =     8.58s     Check for interrupting elements affecting "PIN digit 4" Button
+    t =     8.60s     Synthesize event
+    t =     8.89s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     8.94s Waiting 5.0s for "Parent area" StaticText to exist
+    t =    10.02s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent area" StaticText`
+    t =    10.02s         Checking existence of `"Parent area" StaticText`
+    t =    10.16s Pressing Home button
+    t =    11.72s Checking `Expect predicate `state != 4` for object Target Application 'com.kunchenguid.eddieswallet'`
+    t =    11.73s Open com.kunchenguid.eddieswallet
+    t =    11.73s     Activate com.kunchenguid.eddieswallet
+    t =    11.77s         Wait for com.kunchenguid.eddieswallet to idle
+    t =    11.77s Waiting 5.0s for "Hi, Eddie" StaticText to exist
+    t =    12.83s     Checking `Expect predicate `existsNoRetry == 1` for object "Hi, Eddie" StaticText`
+    t =    12.83s         Checking existence of `"Hi, Eddie" StaticText`
+    t =    12.84s Checking existence of `"Parent area" StaticText`
+    t =    12.86s Checking existence of `"Add deposit" Button`
+    t =    12.88s Tear Down
+Test Case '-[EddysWalletUITests.EddysWalletUITests testBackgroundingDropsParentElevation]' passed (13.123 seconds).
+Test Case '-[EddysWalletUITests.EddysWalletUITests testEveryParentSettingsSheetKeepsItsPrimaryActionReachable]' started.
+    t =     0.00s Start Test at 2026-08-25 15:11:29.426
+    t =     0.01s Set Up
+    t =     0.02s Open com.kunchenguid.eddieswallet
+    t =     0.02s     Launch com.kunchenguid.eddieswallet
+    t =     0.02s         Terminate com.kunchenguid.eddieswallet:53779
+2026-08-25 15:11:30.509 xcodebuild[42150:887546189] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-08-25 15:11:30.509 xcodebuild[42150:887546189] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.29s         Setting up automation session
+    t =     1.98s         Wait for com.kunchenguid.eddieswallet to idle
+    t =     3.21s Waiting 10.0s for "Hi, Eddie" StaticText to exist
+    t =     4.21s     Checking `Expect predicate `existsNoRetry == 1` for object "Hi, Eddie" StaticText`
+    t =     4.21s         Checking existence of `"Hi, Eddie" StaticText`
+    t =     4.25s Waiting 10.0s for "Parent area. Asks for the parent PIN." Button to exist
+    t =     5.31s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent area. Asks for the parent PIN." Button`
+    t =     5.32s         Checking existence of `"Parent area. Asks for the parent PIN." Button`
+    t =     5.35s Tap "Parent area. Asks for the parent PIN." Button
+    t =     5.35s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     5.35s     Find the "Parent area. Asks for the parent PIN." Button
+    t =     5.37s     Check for interrupting elements affecting "Parent area. Asks for the parent PIN." Button
+    t =     5.39s     Synthesize event
+    t =     5.68s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     6.03s Waiting 5.0s for "Parent only" StaticText to exist
+    t =     7.08s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent only" StaticText`
+    t =     7.08s         Checking existence of `"Parent only" StaticText`
+    t =     7.12s Tap "PIN digit 1" Button
+    t =     7.12s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.13s     Find the "PIN digit 1" Button
+    t =     7.17s     Check for interrupting elements affecting "PIN digit 1" Button
+    t =     7.19s     Synthesize event
+    t =     7.47s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.48s Tap "PIN digit 2" Button
+    t =     7.48s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.48s     Find the "PIN digit 2" Button
+    t =     7.50s     Check for interrupting elements affecting "PIN digit 2" Button
+    t =     7.52s     Synthesize event
+    t =     7.80s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.81s Tap "PIN digit 3" Button
+    t =     7.81s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.82s     Find the "PIN digit 3" Button
+    t =     7.87s     Check for interrupting elements affecting "PIN digit 3" Button
+    t =     7.89s     Synthesize event
+    t =     8.20s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     8.21s Tap "PIN digit 4" Button
+    t =     8.21s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     8.21s     Find the "PIN digit 4" Button
+    t =     8.25s     Check for interrupting elements affecting "PIN digit 4" Button
+    t =     8.26s     Synthesize event
+    t =     8.55s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     9.44s Waiting 5.0s for "Parent area" StaticText to exist
+    t =    10.48s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent area" StaticText`
+    t =    10.48s         Checking existence of `"Parent area" StaticText`
+    t =    10.54s Find the "parent-allowance-card" Button
+    t =    10.63s Find the "parent-allowance-card" Button
+    t =    10.71s Find the "parent-allowance-card" Button
+    t =    10.77s Find the "parent-allowance-card" Button
+    t =    10.84s Find the "parent-allowance-card" Button
+    t =    10.93s Find the "parent-allowance-card" Button
+    t =    11.02s Find the "parent-allowance-card" Button
+    t =    11.07s Find the "parent-allowance-card" Button
+    t =    11.23s Tap "parent-allowance-card" Button
+    t =    11.23s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    11.23s     Find the "parent-allowance-card" Button
+    t =    11.28s     Check for interrupting elements affecting "parent-allowance-card" Button
+    t =    11.34s     Synthesize event
+    t =    11.63s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    12.07s Waiting 5.0s for "Set allowance" StaticText to exist
+    t =    13.08s     Checking `Expect predicate `existsNoRetry == 1` for object "Set allowance" StaticText`
+    t =    13.08s         Checking existence of `"Set allowance" StaticText`
+    t =    13.19s Waiting 5.0s for "Review allowance" Button to exist
+    t =    14.25s     Checking `Expect predicate `existsNoRetry == 1` for object "Review allowance" Button`
+    t =    14.25s         Checking existence of `"Review allowance" Button`
+    t =    14.35s Find the Window (First Match)
+    t =    14.36s Find the "Review allowance" Button
+    t =    14.45s Find the "Review allowance" Button
+    t =    14.57s Find the "Review allowance" Button
+    t =    14.65s Find the "Review allowance" Button
+    t =    14.72s Waiting 5.0s for "allowance-save-draft" Button to exist
+    t =    15.78s     Checking `Expect predicate `existsNoRetry == 1` for object "allowance-save-draft" Button`
+    t =    15.78s         Checking existence of `"allowance-save-draft" Button`
+    t =    15.92s Find the Window (First Match)
+    t =    15.92s Find the "allowance-save-draft" Button
+    t =    16.01s Find the "allowance-save-draft" Button
+    t =    16.07s Find the "allowance-save-draft" Button
+    t =    16.13s Find the "allowance-save-draft" Button
+    t =    16.22s Find the "allowance-save-draft" Button
+    t =    16.31s Tap "Review allowance" Button
+    t =    16.31s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    16.31s     Find the "Review allowance" Button
+    t =    16.36s     Check for interrupting elements affecting "Review allowance" Button
+    t =    16.45s     Synthesize event
+    t =    16.74s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    17.09s Waiting 5.0s for "Confirm allowance" Button to exist
+    t =    18.11s     Checking `Expect predicate `existsNoRetry == 1` for object "Confirm allowance" Button`
+    t =    18.11s         Checking existence of `"Confirm allowance" Button`
+    t =    18.19s Find the Window (First Match)
+    t =    18.20s Find the "Confirm allowance" Button
+    t =    18.31s Find the "Confirm allowance" Button
+    t =    18.40s Find the "Confirm allowance" Button
+    t =    18.49s Find the "Confirm allowance" Button
+    t =    18.58s Tap "Back" Button
+    t =    18.58s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    18.58s     Find the "Back" Button
+    t =    18.64s     Check for interrupting elements affecting "Back" Button
+    t =    18.69s     Synthesize event
+    t =    18.98s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    19.33s Tap "Close" Button
+    t =    19.33s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    19.34s     Find the "Close" Button
+    t =    19.39s     Check for interrupting elements affecting "Close" Button
+    t =    19.43s     Synthesize event
+    t =    19.72s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    20.51s Waiting 5.0s for "Parent area" StaticText to exist
+    t =    21.57s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent area" StaticText`
+    t =    21.57s         Checking existence of `"Parent area" StaticText`
+    t =    21.64s Find the "Change PIN" Button
+    t =    21.69s Swipe up Target Application 'com.kunchenguid.eddieswallet'
+    t =    21.69s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    21.69s     Find the Target Application 'com.kunchenguid.eddieswallet'
+    t =    21.72s     Check for interrupting elements affecting "Eddie's Wallet" Application
+    t =    21.77s     Synthesize event
+    t =    22.18s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    24.28s Find the "Change PIN" Button
+    t =    24.35s Swipe up Target Application 'com.kunchenguid.eddieswallet'
+    t =    24.35s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    24.35s     Find the Target Application 'com.kunchenguid.eddieswallet'
+    t =    24.38s     Check for interrupting elements affecting "Eddie's Wallet" Application
+    t =    24.45s     Synthesize event
+    t =    24.87s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    26.99s Find the "Change PIN" Button
+    t =    27.06s Swipe up Target Application 'com.kunchenguid.eddieswallet'
+    t =    27.06s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    27.44s     Find the Target Application 'com.kunchenguid.eddieswallet'
+    t =    27.48s     Check for interrupting elements affecting "Eddie's Wallet" Application
+    t =    27.51s     Synthesize event
+    t =    27.93s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    28.74s Find the "Change PIN" Button
+    t =    28.80s Find the "Change PIN" Button
+    t =    28.86s Find the "Change PIN" Button
+    t =    28.92s Find the "Change PIN" Button
+    t =    28.97s Find the "Change PIN" Button
+    t =    29.03s Tap "Change PIN" Button
+    t =    29.03s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    29.04s     Find the "Change PIN" Button
+    t =    29.08s     Check for interrupting elements affecting "Change PIN" Button
+    t =    29.12s     Synthesize event
+    t =    29.42s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    29.79s Waiting 5.0s for "Change PIN" StaticText to exist
+    t =    30.83s     Checking `Expect predicate `existsNoRetry == 1` for object "Change PIN" StaticText`
+    t =    30.83s         Checking existence of `"Change PIN" StaticText`
+    t =    30.94s Waiting 5.0s for "Save new PIN" Button to exist
+    t =    31.98s     Checking `Expect predicate `existsNoRetry == 1` for object "Save new PIN" Button`
+    t =    31.98s         Checking existence of `"Save new PIN" Button`
+    t =    32.05s Find the Window (First Match)
+    t =    32.06s Find the "Save new PIN" Button
+    t =    32.11s Find the "Save new PIN" Button
+    t =    32.18s Find the "Save new PIN" Button
+    t =    32.26s Find the "Save new PIN" Button
+    t =    32.32s Tap "Current PIN" SecureTextField
+    t =    32.32s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    32.32s     Find the "Current PIN" SecureTextField
+    t =    32.38s     Check for interrupting elements affecting "Four digits" SecureTextField
+    t =    32.46s     Synthesize event
+    t =    32.75s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    33.11s Type '<redacted>' into "Four digits" SecureTextField
+    t =    33.11s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    33.50s     Find the "Four digits" SecureTextField
+    t =    33.59s     Check for interrupting elements affecting "Four digits" SecureTextField
+    t =    33.63s     Synthesize event
+    t =    33.90s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    33.90s Waiting 5.0s for "Save new PIN" Button to exist
+    t =    34.97s     Checking `Expect predicate `existsNoRetry == 1` for object "Save new PIN" Button`
+    t =    34.97s         Checking existence of `"Save new PIN" Button`
+    t =    35.06s Find the Window (First Match)
+    t =    35.07s Find the "Save new PIN" Button
+    t =    35.15s Find the "Save new PIN" Button
+    t =    35.23s Find the "Save new PIN" Button
+    t =    35.29s Find the "Save new PIN" Button
+    t =    35.36s Tap "Cancel" Button
+    t =    35.36s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    35.36s     Find the "Cancel" Button
+    t =    35.45s     Check for interrupting elements affecting "Cancel" Button
+    t =    35.54s     Synthesize event
+    t =    35.83s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    36.49s Waiting 5.0s for "Parent area" StaticText to exist
+    t =    37.54s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent area" StaticText`
+    t =    37.54s         Checking existence of `"Parent area" StaticText`
+    t =    37.65s Find the "edit-child-profile-settings" Button
+    t =    37.71s Find the "edit-child-profile-settings" Button
+    t =    37.78s Find the "edit-child-profile-settings" Button
+    t =    37.83s Find the "edit-child-profile-settings" Button
+    t =    37.88s Find the "edit-child-profile-settings" Button
+    t =    37.97s Find the "edit-child-profile-settings" Button
+    t =    38.02s Find the "edit-child-profile-settings" Button
+    t =    38.07s Find the "edit-child-profile-settings" Button
+    t =    38.15s Tap "edit-child-profile-settings" Button
+    t =    38.15s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    38.16s     Find the "edit-child-profile-settings" Button
+    t =    38.21s     Check for interrupting elements affecting "edit-child-profile-settings" Button
+    t =    38.27s     Synthesize event
+    t =    38.56s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    38.97s Waiting 5.0s for "Child profile" StaticText to exist
+    t =    40.01s     Checking `Expect predicate `existsNoRetry == 1` for object "Child profile" StaticText`
+    t =    40.01s         Checking existence of `"Child profile" StaticText`
+    t =    40.10s Waiting 5.0s for "Save child profile" Button to exist
+    t =    41.14s     Checking `Expect predicate `existsNoRetry == 1` for object "Save child profile" Button`
+    t =    41.14s         Checking existence of `"Save child profile" Button`
+    t =    41.22s Find the Window (First Match)
+    t =    41.23s Find the "Save child profile" Button
+    t =    41.31s Find the "Save child profile" Button
+    t =    41.38s Find the "Save child profile" Button
+    t =    41.44s Find the "Save child profile" Button
+    t =    41.49s Tap "child-nickname-field" TextField
+    t =    41.50s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    41.50s     Find the "child-nickname-field" TextField
+    t =    41.56s     Check for interrupting elements affecting "child-nickname-field" TextField
+    t =    41.60s     Synthesize event
+    t =    41.89s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    42.21s Waiting 5.0s for "Save child profile" Button to exist
+    t =    43.27s     Checking `Expect predicate `existsNoRetry == 1` for object "Save child profile" Button`
+    t =    43.27s         Checking existence of `"Save child profile" Button`
+    t =    43.34s Find the Window (First Match)
+    t =    43.35s Find the "Save child profile" Button
+    t =    43.44s Find the "Save child profile" Button
+    t =    43.52s Find the "Save child profile" Button
+    t =    43.58s Find the "Save child profile" Button
+    t =    43.65s Tear Down
+Test Case '-[EddysWalletUITests.EddysWalletUITests testEveryParentSettingsSheetKeepsItsPrimaryActionReachable]' passed (43.958 seconds).
+Test Case '-[EddysWalletUITests.EddysWalletUITests testSignOutRequiresConfirmationInsideParentArea]' started.
+    t =     0.00s Start Test at 2026-08-25 15:12:13.388
+    t =     0.03s Set Up
+    t =     0.03s Open com.kunchenguid.eddieswallet
+    t =     0.03s     Launch com.kunchenguid.eddieswallet
+    t =     0.03s         Terminate com.kunchenguid.eddieswallet:61059
+2026-08-25 15:12:14.464 xcodebuild[42150:887546189] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-08-25 15:12:14.464 xcodebuild[42150:887546189] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.29s         Setting up automation session
+    t =     2.00s         Wait for com.kunchenguid.eddieswallet to idle
+    t =     3.21s Waiting 10.0s for "Hi, Eddie" StaticText to exist
+    t =     4.22s     Checking `Expect predicate `existsNoRetry == 1` for object "Hi, Eddie" StaticText`
+    t =     4.22s         Checking existence of `"Hi, Eddie" StaticText`
+    t =     4.28s Waiting 10.0s for "Parent area. Asks for the parent PIN." Button to exist
+    t =     5.29s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent area. Asks for the parent PIN." Button`
+    t =     5.29s         Checking existence of `"Parent area. Asks for the parent PIN." Button`
+    t =     5.31s Tap "Parent area. Asks for the parent PIN." Button
+    t =     5.31s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     5.31s     Find the "Parent area. Asks for the parent PIN." Button
+    t =     5.33s     Check for interrupting elements affecting "Parent area. Asks for the parent PIN." Button
+    t =     5.34s     Synthesize event
+    t =     5.64s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     5.99s Waiting 5.0s for "Parent only" StaticText to exist
+    t =     7.02s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent only" StaticText`
+    t =     7.02s         Checking existence of `"Parent only" StaticText`
+    t =     7.08s Tap "PIN digit 1" Button
+    t =     7.08s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.08s     Find the "PIN digit 1" Button
+    t =     7.11s     Check for interrupting elements affecting "PIN digit 1" Button
+    t =     7.12s     Synthesize event
+    t =     7.41s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.41s Tap "PIN digit 2" Button
+    t =     7.41s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.41s     Find the "PIN digit 2" Button
+    t =     7.46s     Check for interrupting elements affecting "PIN digit 2" Button
+    t =     7.48s     Synthesize event
+    t =     7.76s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.77s Tap "PIN digit 3" Button
+    t =     7.77s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     7.77s     Find the "PIN digit 3" Button
+    t =     7.80s     Check for interrupting elements affecting "PIN digit 3" Button
+    t =     7.82s     Synthesize event
+    t =     8.11s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     8.11s Tap "PIN digit 4" Button
+    t =     8.12s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     8.12s     Find the "PIN digit 4" Button
+    t =     8.16s     Check for interrupting elements affecting "PIN digit 4" Button
+    t =     8.18s     Synthesize event
+    t =     8.47s     Wait for com.kunchenguid.eddieswallet to idle
+    t =     9.36s Waiting 5.0s for "Parent area" StaticText to exist
+    t =    10.42s     Checking `Expect predicate `existsNoRetry == 1` for object "Parent area" StaticText`
+    t =    10.42s         Checking existence of `"Parent area" StaticText`
+    t =    10.49s Tap "Sign out" Button
+    t =    10.49s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    10.49s     Find the "Sign out" Button
+    t =    10.54s     Check for interrupting elements affecting "Sign out" Button
+    t =    10.57s     Synthesize event
+    t =    10.58s         Scroll element to visible
+    t =    10.58s         Find the "Sign out" Button
+    t =    10.63s         Computed hit point {201.33333333333334, 697.83333333333337} after scrolling to visible
+    t =    10.91s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    11.68s Waiting 5.0s for "Sign out from this iPhone" Button to exist
+    t =    12.72s     Checking `Expect predicate `existsNoRetry == 1` for object "Sign out from this iPhone" Button`
+    t =    12.72s         Checking existence of `"Sign out from this iPhone" Button`
+    t =    12.83s Tap "Sign out from this iPhone" Button
+    t =    12.83s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    12.84s     Find the "Sign out from this iPhone" Button
+    t =    12.89s     Check for interrupting elements affecting "Sign out from this iPhone" Button
+    t =    12.93s     Synthesize event
+    t =    13.22s     Wait for com.kunchenguid.eddieswallet to idle
+    t =    13.58s Waiting 5.0s for "Sign in with Apple" Button to exist
+    t =    14.61s     Checking `Expect predicate `existsNoRetry == 1` for object "Sign in with Apple" Button`
+    t =    14.61s         Checking existence of `"Sign in with Apple" Button`
+    t =    14.63s Waiting 5.0s for "Sign in with Apple" Button to exist
+    t =    15.65s     Checking `Expect predicate `existsNoRetry == 1` for object "Sign in with Apple" Button`
+    t =    15.65s         Checking existence of `"Sign in with Apple" Button`
+    t =    15.67s Checking existence of `"Hi, Eddie" StaticText`
+    t =    15.68s Tear Down
+Test Case '-[EddysWalletUITests.EddysWalletUITests testSignOutRequiresConfirmationInsideParentArea]' passed (15.904 seconds).
+Test Suite 'EddysWalletUITests' passed at 2026-08-25 15:12:29.293.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 72.985 (72.990) seconds
+Test Suite 'EddysWalletUITests.xctest' passed at 2026-08-25 15:12:29.294.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 72.985 (72.991) seconds
+Test Suite 'Selected tests' passed at 2026-08-25 15:12:29.294.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 72.985 (72.992) seconds
+2026-08-25 15:12:29.797 xcodebuild[42150:887546189] [MT] IDETestOperationsObserverDebug: 79.963 elapsed -- Testing started completed.
+2026-08-25 15:12:29.797 xcodebuild[42150:887546189] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-08-25 15:12:29.797 xcodebuild[42150:887546189] [MT] IDETestOperationsObserverDebug: 79.963 sec, +79.963 sec -- end
+
+Test session results, code coverage, and logs:
+	/Users/kunchen/.no-mistakes/evidence/01M0XE08706NC1TAB32P4RM7WR/reminder-user-flows.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started
+sim: tearing down run-scoped simulator EddiesWallet-simrun-82937-547565204175672032352031353a30393a31342032303236-1985426757 (316D4112-CE0F-4813-9CF0-179897AC132E)
