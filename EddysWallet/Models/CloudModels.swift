@@ -727,9 +727,9 @@ public struct CloudReplica: Codable, Equatable, Sendable {
     /// Every durable allowance occurrence of this wallet's weekly rule. The one
     /// whose status is `scheduled` is the occurrence a parent settles next, so
     /// a replica that carries the chain is enough to walk it - the same role
-    /// `loanOccurrences` already plays for a scheduled loan. Absent on today's
-    /// live `/v1/cloud/changes`, which is why `CloudWalletRepository` still
-    /// overlays `GET /v1/allowance-rule` for the live head.
+    /// `loanOccurrences` already plays for a scheduled loan. Changes responses
+    /// may omit it, so `CloudWalletRepository` still overlays
+    /// `GET /v1/allowance-rule` for the live head.
     public struct CloudAllowanceOccurrence: Codable, Equatable, Sendable {
         public let id: String
         public let dueOn: String
@@ -751,10 +751,10 @@ public struct CloudReplica: Codable, Equatable, Sendable {
         public let startDate: String?
         public let endDate: String?
         public let active: Bool?
-        /// Service-owned chain head. Absent on today's `/v1/cloud/changes`
-        /// replica, which is why `CloudWalletRepository` still overlays
-        /// `GET /v1/allowance-rule`. When the key is present the replica
-        /// itself is enough to keep already-paid weeks from reappearing.
+        /// Service-owned chain head. Changes responses may omit it, so
+        /// `CloudWalletRepository` still overlays `GET /v1/allowance-rule`.
+        /// When the key is present the replica itself is enough to keep
+        /// already-paid weeks from reappearing.
         public let nextOccurrenceID: String?
         public let nextDueDate: String?
 

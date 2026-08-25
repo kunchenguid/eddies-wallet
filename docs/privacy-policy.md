@@ -46,7 +46,7 @@ A parent signs in with Apple. Apple gives the app an opaque Apple user identifie
 
 ### 4. Wallet ledger
 
-The wallet ledger is the balance, the list of recorded entries (deposits, withdrawals, allowance, loans, repayments) with their amounts and timestamps, the allowance rule, and each loan's status and optional payment plan, including its cadence, payment amount, due dates, and whether each scheduled payment was recorded. Each entry can carry a short free-text note that the parent types ("Reason" for money entries, "What is this for?" for loans), so it holds whatever the parent chooses to type there.
+The wallet ledger is the balance, the list of recorded entries (deposits, withdrawals, allowance, loans, repayments) with their amounts and timestamps, the allowance rule and its payout due dates and recording status, and each loan's status and optional payment plan, including its cadence, payment amount, due dates, and whether each scheduled payment was recorded. Each entry can carry a short free-text note that the parent types ("Reason" for money entries, "What is this for?" for loans), so it holds whatever the parent chooses to type there.
 
 Where it lives depends on how the app is used:
 

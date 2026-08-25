@@ -768,10 +768,10 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     public let nextOccurrenceID: String?
     public let syncState: SyncState
     public let isExhausted: Bool
-    /// Ordered by payout day, oldest first. At most one is ever `scheduled`,
-    /// which is the whole walkable chain head: an overdue span is settled by
-    /// recording that one and taking the next out of the result. A snapshot
-    /// that stored only `nextDate` decodes as a single scheduled occurrence.
+    /// Ordered by payout day, oldest first. A live plan has exactly one
+    /// `scheduled` chain head and an exhausted plan has none. An overdue span
+    /// is settled by recording that head and taking the next out of the result.
+    /// A snapshot that stored only `nextDate` decodes as one scheduled row.
     public let occurrences: [Occurrence]
 
     /// The one payout waiting to be recorded, or `nil` for an exhausted plan.
@@ -893,10 +893,10 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         return inclusiveEndDate.map { dueDate <= $0 ? dueDate : nil } ?? dueDate
     }
 
-    /// This plan after one accepted payout, or `nil` when no occurrence is due
-    /// or `amountCents` is not the weekly amount. The chain advances to the
-    /// next week in the same value, or retires the scheduled head when the
-    /// following week is past the optional end date.
+    /// This plan after one accepted payout, or `nil` when there is no scheduled
+    /// occurrence or `amountCents` is not the weekly amount. Callers enforce
+    /// whether the scheduled day is eligible for payout. The chain advances to
+    /// the next week, or retires its head after the optional end date.
     public func recordingPayout(
         amountCents: Int,
         nextOccurrenceID: String,

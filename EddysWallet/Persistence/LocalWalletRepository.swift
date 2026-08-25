@@ -143,7 +143,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         }
         var wallet = candidate.snapshot
         var settledAmountCents = command.amountCents
-        var settledDate = Date.now
+        let settledDate = Date.now
         // The service names an unlabelled installment "Loan payment", so every
         // authority puts the same words on the same accepted entry.
         let settledReason = command.kind == .loanInstallment
