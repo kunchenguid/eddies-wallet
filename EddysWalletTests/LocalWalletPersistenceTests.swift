@@ -64,6 +64,92 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertEqual(store.snapshot.acceptedBalanceCents, noOpBalance)
     }
 
+    func testLocalAllowanceRecordingNamesTheAcceptedEntryAndKeepsOneScheduledHead() async throws {
+        let repository = try LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -21, to: today))
+        _ = try await repository.setAllowance(
+            AllowanceRuleCommand(
+                amountCents: 500,
+                weekday: calendar.component(.weekday, from: firstMissed) - 1,
+                startDate: firstMissed,
+                idempotencyKey: "allowance-head"
+            )
+        )
+        let seeded = try XCTUnwrap(repository.snapshot().allowance)
+        XCTAssertEqual(seeded.occurrences.map(\.id), ["allowance-head"])
+        XCTAssertEqual(seeded.occurrences.map(\.status), [.scheduled])
+
+        let store = WalletStore(
+            repository: repository,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner")
+        )
+        store.openParentGate()
+        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
+
+        let outcome = await store.recordAllMissedAllowance()
+        XCTAssertEqual(outcome, .recorded(count: 3, totalCents: 1_500))
+
+        let plan = try XCTUnwrap(store.snapshot.allowance)
+        XCTAssertEqual(plan.occurrences.filter { $0.status == .scheduled }.count, 1)
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(plan.nextOccurrence?.dueDate)), today)
+        XCTAssertEqual(plan.occurrences.filter { $0.status == .recorded }.count, 3)
+        let recorded = plan.occurrences.filter { $0.status == .recorded }
+        let allowanceEntries = store.snapshot.activities.filter { $0.type == .allowance }
+        XCTAssertEqual(recorded.map(\.entryID), allowanceEntries.reversed().map(\.id))
+        XCTAssertEqual(recorded.map(\.amountCents), [500, 500, 500])
+        XCTAssertEqual(
+            recorded.map { calendar.startOfDay(for: $0.dueDate) },
+            [
+                firstMissed,
+                try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstMissed)),
+                try XCTUnwrap(calendar.date(byAdding: .day, value: 14, to: firstMissed)),
+            ]
+        )
+    }
+
+    func testLegacyAllowanceSnapshotWithoutOccurrencesStillDerivesTheSameMissedWeeks() throws {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -21, to: today))
+        struct LegacyAllowance: Encodable {
+            let amountCents: Int
+            let cadence: String
+            let weekday: Int
+            let nextDate: Date
+            let nextOccurrenceID: String
+            let syncState: SyncState
+        }
+        let data = try JSONEncoder().encode(
+            LegacyAllowance(
+                amountCents: 500,
+                cadence: "every week",
+                weekday: 5,
+                nextDate: firstMissed,
+                nextOccurrenceID: "legacy-head",
+                syncState: .recorded
+            )
+        )
+        let plan = try JSONDecoder().decode(AllowancePlan.self, from: data)
+
+        XCTAssertEqual(plan.occurrences.map(\.id), ["legacy-head"])
+        XCTAssertEqual(plan.occurrences.map(\.status), [.scheduled])
+        XCTAssertEqual(plan.missedPayouts(asOf: today, calendar: calendar).count, 3)
+        XCTAssertEqual(
+            plan.missedPayouts(asOf: today, calendar: calendar).occurrences.map { calendar.startOfDay(for: $0.dueDate) },
+            [
+                firstMissed,
+                try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstMissed)),
+                try XCTUnwrap(calendar.date(byAdding: .day, value: 14, to: firstMissed)),
+            ]
+        )
+        XCTAssertEqual(plan.nextCurrentOrFuturePayout(asOf: today, calendar: calendar), today)
+    }
+
     func testInterruptedLocalRecordAllKeepsAcceptedPrefixAndResumesWithoutDuplicates() async throws {
         let persistence = ControllableLocalWalletPersistence()
         let repository = try LocalWalletRepository(persistence: persistence)

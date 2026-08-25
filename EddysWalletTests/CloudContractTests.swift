@@ -755,7 +755,7 @@ final class CloudContractTests: XCTestCase {
         // Bootstrap and household mutations.
         XCTAssertEqual(
             Set(try fields("cloudBootstrap").keys),
-            ["household", "family", "child", "wallet", "entries", "loans", "loanOccurrences", "allowanceRule", "nextCursor"]
+            ["household", "family", "child", "wallet", "entries", "loans", "loanOccurrences", "allowanceOccurrences", "allowanceRule", "nextCursor"]
         )
         // The replica carries the loan's durable plan and its occurrence rows,
         // and deliberately no next/missed projection: those embed "today",
@@ -768,6 +768,13 @@ final class CloudContractTests: XCTestCase {
             Set(loanOccurrence.keys),
             ["id", "loanId", "dueOn", "status", "amountCents", "acceptedEntryId"]
         )
+        let allowanceOccurrence = try XCTUnwrap((try fields("cloudBootstrap")["allowanceOccurrences"] as? [String: Any])?["fields"] as? [String: Any])
+        XCTAssertEqual(
+            Set(allowanceOccurrence.keys),
+            ["id", "dueOn", "status", "amountCents", "acceptedEntryId"]
+        )
+        let replicaAllowanceRule = try XCTUnwrap((try fields("cloudBootstrap")["allowanceRule"] as? [String: Any])?["fields"] as? [String: Any])
+        XCTAssertTrue(Set(replicaAllowanceRule.keys).isSuperset(of: ["id", "nextOccurrenceId", "nextDueDate"]))
         XCTAssertEqual(Set(try fields("cloudHouseholdMutation").keys), ["entry", "wallet", "revision"])
         let allowance = try fields("allowanceSchedule")
         XCTAssertEqual(Set(allowance.keys), ["allowanceRule"])
@@ -978,6 +985,100 @@ final class CloudContractTests: XCTestCase {
             CloudDayFormat.string(from: try XCTUnwrap(snapshot.allowance?.nextDate)),
             "2026-08-14",
             "a replica that carries the chain head must not fall back to the rule start date"
+        )
+        XCTAssertEqual(snapshot.allowance?.occurrences.map(\.id), ["o-head"])
+        XCTAssertEqual(snapshot.allowance?.occurrences.map(\.status), [.scheduled])
+    }
+
+    func testReplicaMapsAllowanceOccurrenceChainWhenTheReplicaCarriesIt() throws {
+        let replica = try JSONDecoder.cloud.decode(
+            CloudReplica.self,
+            from: Data("""
+            {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":4},
+             "family":{"id":"f-1","name":"Test Kid's family"},
+             "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+             "wallet":{"id":"w-1","balanceCents":1000},
+             "entries":[],"loans":[],
+             "allowanceOccurrences":[
+               {"id":"o-paid","dueOn":"2026-08-07","status":"recorded","amountCents":500,
+                "acceptedEntryId":"a2000000-0000-4000-8000-000000000003"},
+               {"id":"o-head","dueOn":"2026-08-14","status":"scheduled","amountCents":null,
+                "acceptedEntryId":null}
+             ],
+             "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+              "startDate":"2026-07-01","endDate":null,"active":true,
+              "nextOccurrenceId":"o-head","nextDueDate":"2026-08-14"}}
+            """.utf8)
+        )
+        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let plan = try XCTUnwrap(snapshot.allowance)
+        XCTAssertEqual(plan.occurrences.map(\.id), ["o-paid", "o-head"])
+        XCTAssertEqual(plan.occurrences.map(\.status), [.recorded, .scheduled])
+        XCTAssertEqual(plan.occurrences.first?.amountCents, 500)
+        XCTAssertEqual(
+            plan.occurrences.first?.entryID,
+            UUID(uuidString: "a2000000-0000-4000-8000-000000000003")
+        )
+        XCTAssertEqual(plan.nextOccurrenceID, "o-head")
+        XCTAssertEqual(CloudDayFormat.string(from: plan.nextDate), "2026-08-14")
+        XCTAssertEqual(plan.occurrences.filter { $0.status == .scheduled }.count, 1)
+    }
+
+    func testImportBodyKeepsTheAllowanceChainHeadWithoutHashingOccurrences() throws {
+        let nextDate = try XCTUnwrap(CloudDayFormat.date(from: "2026-08-21"))
+        let paidID = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
+        let snapshot = WalletSnapshot(
+            acceptedBalanceCents: 500,
+            activities: [
+                .init(
+                    id: paidID,
+                    type: .allowance,
+                    amountCents: 500,
+                    date: Date(timeIntervalSince1970: 1_784_887_200),
+                    explanation: ""
+                )
+            ],
+            loan: nil,
+            allowance: AllowancePlan(
+                remoteID: "local-allowance",
+                amountCents: 500,
+                cadence: "every week",
+                weekday: 5,
+                nextDate: nextDate,
+                nextOccurrenceID: "local-next",
+                occurrences: [
+                    AllowancePlan.Occurrence(
+                        id: "o-paid",
+                        dueDate: try XCTUnwrap(CloudDayFormat.date(from: "2026-08-14")),
+                        status: .recorded,
+                        amountCents: 500,
+                        entryID: paidID
+                    ),
+                    AllowancePlan.Occurrence(
+                        id: "local-next",
+                        dueDate: nextDate,
+                        status: .scheduled
+                    ),
+                ]
+            ),
+            pendingEvents: [],
+            lastUpdated: Date(timeIntervalSince1970: 1_784_887_200),
+            isStale: false,
+            childNickname: "Test Kid"
+        )
+        let manifest = try CloudImportManifestBuilder.manifest(
+            lineageID: UUID(),
+            operationID: UUID(),
+            familyName: "Test Kid's family",
+            nickname: "Test Kid",
+            snapshot: snapshot
+        )
+        XCTAssertEqual(manifest.allowanceRule?.nextOccurrenceID, "local-next")
+        XCTAssertEqual(manifest.allowanceRule?.nextDueDate, "2026-08-21")
+        let body = String(decoding: manifest.requestBody, as: UTF8.self)
+        XCTAssertFalse(
+            body.contains("allowanceOccurrences"),
+            "hashing allowanceOccurrences waits for the backend counterpart; the chain head stays on allowanceRule"
         )
     }
 

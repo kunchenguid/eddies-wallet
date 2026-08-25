@@ -41,7 +41,9 @@ enum CloudReplicaMapper {
             acceptedBalanceCents: replica.wallet?.balanceCents ?? 0,
             activities: activities,
             loan: openLoan.map { loan(from: $0, occurrences: replica.loanOccurrences ?? []) },
-            allowance: replica.allowanceRule.flatMap(allowance(from:)),
+            allowance: replica.allowanceRule.flatMap {
+                allowance(from: $0, occurrences: replica.allowanceOccurrences ?? [])
+            },
             pendingEvents: [],
             lastUpdated: .now,
             isStale: false,
@@ -128,20 +130,54 @@ enum CloudReplicaMapper {
         )
     }
 
-    private static func allowance(from rule: CloudReplica.AllowanceRule) -> AllowancePlan? {
+    private static func allowance(
+        from rule: CloudReplica.AllowanceRule,
+        occurrences replicaOccurrences: [CloudReplica.CloudAllowanceOccurrence]
+    ) -> AllowancePlan? {
         guard rule.active != false, let startDate = rule.startDate.flatMap(CloudDayFormat.date(from:)) else { return nil }
-        // Prefer the service-owned chain head when the replica carries it.
+        let mappedOccurrences = replicaOccurrences
+            .compactMap { occurrence -> AllowancePlan.Occurrence? in
+                guard let dueDate = CloudDayFormat.date(from: occurrence.dueOn),
+                      let status = AllowancePlan.Occurrence.Status(rawValue: occurrence.status) else { return nil }
+                return AllowancePlan.Occurrence(
+                    id: occurrence.id,
+                    dueDate: dueDate,
+                    status: status,
+                    amountCents: occurrence.amountCents,
+                    entryID: occurrence.acceptedEntryID.map { stableID(for: $0) }
+                )
+            }
+            .sorted { left, right in
+                left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
+            }
+        // Prefer the replica's occurrence chain when the service sent it.
         // `/v1/cloud/changes` today omits it, so Cloud mode still overlays
         // `GET /v1/allowance-rule`; a handoff persists that overlay onto the
         // snapshot so local derivation never walks from the rule start date.
         let chainHead: (date: Date, id: String)?
-        if let id = rule.nextOccurrenceID, !id.isEmpty,
-           let date = rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) {
+        if let scheduled = mappedOccurrences.first(where: { $0.status == .scheduled }) {
+            chainHead = (scheduled.dueDate, scheduled.id)
+        } else if let id = rule.nextOccurrenceID, !id.isEmpty,
+                  let date = rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) {
             chainHead = (date, id)
         } else {
             chainHead = nil
         }
         let nextDate = chainHead?.date ?? startDate
+        let isExhausted = !mappedOccurrences.isEmpty
+            && mappedOccurrences.contains(where: { $0.status == .scheduled }) == false
+            && rule.nextOccurrenceID == nil
+            && rule.nextDueDate == nil
+        let occurrences: [AllowancePlan.Occurrence]?
+        if !mappedOccurrences.isEmpty {
+            occurrences = mappedOccurrences
+        } else if let chainHead {
+            occurrences = [
+                AllowancePlan.Occurrence(id: chainHead.id, dueDate: chainHead.date, status: .scheduled)
+            ]
+        } else {
+            occurrences = nil
+        }
         return AllowancePlan(
             remoteID: rule.id,
             amountCents: rule.amountCents,
@@ -149,7 +185,9 @@ enum CloudReplicaMapper {
             weekday: rule.weekday ?? 5,
             nextDate: nextDate,
             endDate: rule.endDate.flatMap(CloudDayFormat.date(from:)),
-            nextOccurrenceID: chainHead?.id
+            nextOccurrenceID: chainHead?.id,
+            isExhausted: isExhausted,
+            occurrences: occurrences
         )
     }
 }

@@ -211,7 +211,7 @@
       "method": "GET",
       "path": "/v1/cloud/bootstrap",
       "status": 200,
-      "note": "A loan's `schedule` is its durable installment plan - cadence, per-payment amount, and the anchor date every later due date is derived from - or null for a loan taken out without one. `loanOccurrences` are the durable payment occurrences across every loan of this wallet. Neither carries the next/missed projection: a replica must not embed \"today\". The client derives the reminder and the missed list on the device from the plan and its one scheduled occurrence.",
+      "note": "A loan's `schedule` is its durable installment plan - cadence, per-payment amount, and the anchor date every later due date is derived from - or null for a loan taken out without one. `loanOccurrences` are the durable payment occurrences across every loan of this wallet. `allowanceOccurrences` are the durable payout occurrences of the weekly allowance rule, or omitted when the replica still carries only the rule. Neither occurrence array carries the next/missed projection: a replica must not embed \"today\". The client derives the reminder and the missed list on the device from the plan and its one scheduled occurrence.",
       "body": {
         "type": "object",
         "fields": {
@@ -265,6 +265,16 @@
               "acceptedEntryId": "string|null"
             }
           },
+          "allowanceOccurrences": {
+            "type": "object[]",
+            "fields": {
+              "id": "string",
+              "dueOn": "string",
+              "status": "string",
+              "amountCents": "number|null",
+              "acceptedEntryId": "string|null"
+            }
+          },
           "allowanceRule": {
             "type": "object|null",
             "fields": {
@@ -274,7 +284,9 @@
               "weekday": "number",
               "startDate": "string",
               "endDate": "string|null",
-              "active": "boolean"
+              "active": "boolean",
+              "nextOccurrenceId": "string|null",
+              "nextDueDate": "string|null"
             }
           },
           "nextCursor": "string|null"

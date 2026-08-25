@@ -34,9 +34,11 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private var lastQueuedRead: Task<Void, Never>?
     private var mutationLifecycleGeneration = 0
     private var activeSettlement: ActiveSettlement?
-    /// `/v1/cloud/changes` contains the rule but not its pending occurrence.
-    /// This service-authoritative read gives parent presentation the actual
-    /// earliest due week instead of inferring it from activity timestamps.
+    /// `/v1/cloud/changes` may omit the pending occurrence even when it
+    /// carries the weekly rule. This service-authoritative read gives parent
+    /// presentation the actual earliest due week instead of inferring it from
+    /// activity timestamps. When the replica does carry `allowanceOccurrences`,
+    /// the overlay still wins for the live chain head.
     private var allowanceSchedule: CloudAllowanceSchedule.Rule?
     private var allowanceScheduleRevision: Int64?
     /// A persisted replica is readable immediately, but a new process may not
@@ -82,25 +84,15 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
            plan.remoteID == schedule.id, plan.amountCents == schedule.amountCents {
             let nextDate = schedule.nextDueDate.flatMap(CloudDayFormat.date(from:))
             if let nextDate, schedule.nextOccurrenceID?.isEmpty == false {
-                snapshot.allowance = AllowancePlan(
-                    remoteID: plan.remoteID,
-                    amountCents: plan.amountCents,
-                    cadence: plan.cadence,
-                    weekday: plan.weekday,
+                snapshot.allowance = plan.applyingServiceHead(
                     nextDate: nextDate,
-                    endDate: plan.endDate,
                     nextOccurrenceID: schedule.nextOccurrenceID,
-                    syncState: plan.syncState
+                    isExhausted: false
                 )
             } else if schedule.nextDueDate == nil, schedule.nextOccurrenceID == nil {
-                snapshot.allowance = AllowancePlan(
-                    remoteID: plan.remoteID,
-                    amountCents: plan.amountCents,
-                    cadence: plan.cadence,
-                    weekday: plan.weekday,
+                snapshot.allowance = plan.applyingServiceHead(
                     nextDate: plan.nextDate,
-                    endDate: plan.endDate,
-                    syncState: plan.syncState,
+                    nextOccurrenceID: nil,
                     isExhausted: true
                 )
             }
@@ -229,6 +221,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 entries: entries,
                 loans: page.loans,
                 loanOccurrences: page.loanOccurrences,
+                allowanceOccurrences: page.allowanceOccurrences,
                 allowanceRule: page.allowanceRule,
                 nextCursor: nil
             )

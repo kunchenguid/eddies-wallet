@@ -234,20 +234,15 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             guard plan.endDate.map({ plan.nextDate <= $0 }) ?? true else {
                 return .rejected(rejected(command, "There is no scheduled allowance occurrence to record."))
             }
-            guard let followingDate = calendar.date(byAdding: .day, value: 7, to: plan.nextDate) else {
+            guard let settled = plan.recordingPayout(
+                amountCents: command.amountCents,
+                nextOccurrenceID: UUID().uuidString,
+                entryID: eventID,
+                calendar: calendar
+            ) else {
                 return .rejected(rejected(command, "The next allowance occurrence could not be scheduled."))
             }
-            wallet.allowance = AllowancePlan(
-                remoteID: plan.remoteID,
-                amountCents: plan.amountCents,
-                cadence: plan.cadence,
-                weekday: plan.weekday,
-                nextDate: followingDate,
-                endDate: plan.endDate,
-                nextOccurrenceID: UUID().uuidString,
-                syncState: plan.syncState,
-                isExhausted: plan.endDate.map { followingDate > $0 } ?? false
-            )
+            wallet.allowance = settled
             wallet.acceptedBalanceCents += command.amountCents
         }
         let event = WalletEvent(
@@ -465,6 +460,12 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             let existingOccurrenceID = plan.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
             let nextOccurrenceID = isExhausted ? nil : (existingOccurrenceID ?? UUID().uuidString)
             if isExhausted != plan.isExhausted || nextOccurrenceID != plan.nextOccurrenceID {
+                var occurrences = plan.occurrences.filter { $0.status != .scheduled }
+                if let nextOccurrenceID {
+                    occurrences.append(
+                        AllowancePlan.Occurrence(id: nextOccurrenceID, dueDate: plan.nextDate, status: .scheduled)
+                    )
+                }
                 aggregate.snapshot.allowance = AllowancePlan(
                     remoteID: plan.remoteID,
                     amountCents: plan.amountCents,
@@ -474,7 +475,8 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
                     endDate: plan.endDate,
                     nextOccurrenceID: nextOccurrenceID,
                     syncState: plan.syncState,
-                    isExhausted: isExhausted
+                    isExhausted: isExhausted,
+                    occurrences: occurrences
                 )
                 try persist(aggregate)
             }

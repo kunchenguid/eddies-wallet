@@ -727,6 +727,38 @@ public enum AllowanceRecordAllOutcome: Equatable, Sendable {
 }
 
 public struct AllowancePlan: Hashable, Codable, Sendable {
+    /// One payout day of a weekly rule, in the same three states a loan
+    /// occurrence uses. `entryID` names the accepted allowance that settled a
+    /// recorded week, which is what lets a one-time Cloud upload reproduce the
+    /// chain the service would have built for itself.
+    public struct Occurrence: Hashable, Codable, Sendable, Identifiable {
+        public enum Status: String, Hashable, Codable, Sendable {
+            case scheduled
+            case recorded
+            case cancelled
+        }
+
+        public let id: String
+        public let dueDate: Date
+        public var status: Status
+        public var amountCents: Int?
+        public var entryID: UUID?
+
+        public init(
+            id: String,
+            dueDate: Date,
+            status: Status,
+            amountCents: Int? = nil,
+            entryID: UUID? = nil
+        ) {
+            self.id = id
+            self.dueDate = dueDate
+            self.status = status
+            self.amountCents = amountCents
+            self.entryID = entryID
+        }
+    }
+
     public let remoteID: String?
     public let amountCents: Int
     public let cadence: String
@@ -736,6 +768,16 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     public let nextOccurrenceID: String?
     public let syncState: SyncState
     public let isExhausted: Bool
+    /// Ordered by payout day, oldest first. At most one is ever `scheduled`,
+    /// which is the whole walkable chain head: an overdue span is settled by
+    /// recording that one and taking the next out of the result. A snapshot
+    /// that stored only `nextDate` decodes as a single scheduled occurrence.
+    public let occurrences: [Occurrence]
+
+    /// The one payout waiting to be recorded, or `nil` for an exhausted plan.
+    public var nextOccurrence: Occurrence? {
+        occurrences.first { $0.status == .scheduled }
+    }
 
     public init(
         remoteID: String? = nil,
@@ -746,7 +788,8 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         endDate: Date? = nil,
         nextOccurrenceID: String? = nil,
         syncState: SyncState = .recorded,
-        isExhausted: Bool = false
+        isExhausted: Bool = false,
+        occurrences: [Occurrence]? = nil
     ) {
         self.remoteID = remoteID
         self.amountCents = amountCents
@@ -757,23 +800,50 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         self.nextOccurrenceID = nextOccurrenceID
         self.syncState = syncState
         self.isExhausted = isExhausted
+        self.occurrences = Self.normalizedOccurrences(
+            occurrences,
+            nextDate: nextDate,
+            nextOccurrenceID: nextOccurrenceID,
+            isExhausted: isExhausted
+        )
+    }
+
+    /// A missing or empty chain is the pre-chain snapshot: one scheduled
+    /// occurrence at `nextDate`, unless the plan is already exhausted.
+    private static func normalizedOccurrences(
+        _ occurrences: [Occurrence]?,
+        nextDate: Date,
+        nextOccurrenceID: String?,
+        isExhausted: Bool
+    ) -> [Occurrence] {
+        if let occurrences, !occurrences.isEmpty {
+            return occurrences.sorted { left, right in
+                left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
+            }
+        }
+        guard !isExhausted else { return [] }
+        let id = nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 } ?? "local-allowance-head"
+        return [Occurrence(id: id, dueDate: nextDate, status: .scheduled)]
     }
 
     private enum CodingKeys: String, CodingKey {
-        case remoteID, amountCents, cadence, weekday, nextDate, endDate, nextOccurrenceID, syncState, isExhausted
+        case remoteID, amountCents, cadence, weekday, nextDate, endDate, nextOccurrenceID, syncState, isExhausted, occurrences
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        remoteID = try container.decodeIfPresent(String.self, forKey: .remoteID)
-        amountCents = try container.decode(Int.self, forKey: .amountCents)
-        cadence = try container.decode(String.self, forKey: .cadence)
-        weekday = try container.decode(Int.self, forKey: .weekday)
-        nextDate = try container.decode(Date.self, forKey: .nextDate)
-        endDate = try container.decodeIfPresent(Date.self, forKey: .endDate)
-        nextOccurrenceID = try container.decodeIfPresent(String.self, forKey: .nextOccurrenceID)
-        syncState = try container.decode(SyncState.self, forKey: .syncState)
-        isExhausted = try container.decodeIfPresent(Bool.self, forKey: .isExhausted) ?? false
+        try self.init(
+            remoteID: container.decodeIfPresent(String.self, forKey: .remoteID),
+            amountCents: container.decode(Int.self, forKey: .amountCents),
+            cadence: container.decode(String.self, forKey: .cadence),
+            weekday: container.decode(Int.self, forKey: .weekday),
+            nextDate: container.decode(Date.self, forKey: .nextDate),
+            endDate: container.decodeIfPresent(Date.self, forKey: .endDate),
+            nextOccurrenceID: container.decodeIfPresent(String.self, forKey: .nextOccurrenceID),
+            syncState: container.decode(SyncState.self, forKey: .syncState),
+            isExhausted: container.decodeIfPresent(Bool.self, forKey: .isExhausted) ?? false,
+            occurrences: container.decodeIfPresent([Occurrence].self, forKey: .occurrences)
+        )
     }
 
     /// Past calendar days are missed. A payout due today stays the next
@@ -809,6 +879,85 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
             dueDate = followingDate
         }
         return inclusiveEndDate.map { dueDate <= $0 ? dueDate : nil } ?? dueDate
+    }
+
+    /// This plan after one accepted payout, or `nil` when no occurrence is due
+    /// or `amountCents` is not the weekly amount. The chain advances to the
+    /// next week in the same value, or retires the scheduled head when the
+    /// following week is past the optional end date.
+    public func recordingPayout(
+        amountCents: Int,
+        nextOccurrenceID: String,
+        entryID: UUID? = nil,
+        calendar: Calendar = .current
+    ) -> AllowancePlan? {
+        guard !isExhausted, let occurrence = nextOccurrence else { return nil }
+        guard amountCents == self.amountCents else { return nil }
+        var occurrences = self.occurrences
+        guard let index = occurrences.firstIndex(where: { $0.id == occurrence.id }) else { return nil }
+        guard let followingDate = calendar.date(
+            byAdding: .day,
+            value: 7,
+            to: calendar.startOfDay(for: occurrence.dueDate)
+        ) else { return nil }
+        occurrences[index].status = .recorded
+        occurrences[index].amountCents = amountCents
+        occurrences[index].entryID = entryID
+        let exhausted = endDate.map { followingDate > calendar.startOfDay(for: $0) } ?? false
+        if !exhausted {
+            occurrences.append(Occurrence(id: nextOccurrenceID, dueDate: followingDate, status: .scheduled))
+        }
+        return AllowancePlan(
+            remoteID: remoteID,
+            amountCents: self.amountCents,
+            cadence: cadence,
+            weekday: weekday,
+            nextDate: followingDate,
+            endDate: endDate,
+            nextOccurrenceID: nextOccurrenceID,
+            syncState: syncState,
+            isExhausted: exhausted,
+            occurrences: occurrences
+        )
+    }
+
+    /// Replaces the scheduled chain head with the service-owned next occurrence
+    /// without dropping recorded weeks the replica already carried.
+    public func applyingServiceHead(
+        nextDate: Date?,
+        nextOccurrenceID: String?,
+        isExhausted: Bool
+    ) -> AllowancePlan {
+        let recorded = occurrences.filter { $0.status != .scheduled }
+        if isExhausted {
+            return AllowancePlan(
+                remoteID: remoteID,
+                amountCents: amountCents,
+                cadence: cadence,
+                weekday: weekday,
+                nextDate: nextDate ?? self.nextDate,
+                endDate: endDate,
+                nextOccurrenceID: nil,
+                syncState: syncState,
+                isExhausted: true,
+                occurrences: recorded
+            )
+        }
+        guard let nextDate, let nextOccurrenceID, !nextOccurrenceID.isEmpty else { return self }
+        return AllowancePlan(
+            remoteID: remoteID,
+            amountCents: amountCents,
+            cadence: cadence,
+            weekday: weekday,
+            nextDate: nextDate,
+            endDate: endDate,
+            nextOccurrenceID: nextOccurrenceID,
+            syncState: syncState,
+            isExhausted: false,
+            occurrences: recorded + [
+                Occurrence(id: nextOccurrenceID, dueDate: nextDate, status: .scheduled)
+            ]
+        )
     }
 }
 
@@ -1253,16 +1402,11 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
         case .allowance:
             current.acceptedBalanceCents += command.amountCents
             if let allowance = current.allowance {
-                current.allowance = AllowancePlan(
-                    remoteID: allowance.remoteID,
-                    amountCents: allowance.amountCents,
-                    cadence: allowance.cadence,
-                    weekday: allowance.weekday,
-                    nextDate: Calendar.current.date(byAdding: .day, value: 7, to: allowance.nextDate) ?? allowance.nextDate,
-                    endDate: allowance.endDate,
-                    nextOccurrenceID: allowance.nextOccurrenceID,
-                    syncState: allowance.syncState
-                )
+                current.allowance = allowance.recordingPayout(
+                    amountCents: command.amountCents,
+                    nextOccurrenceID: UUID().uuidString,
+                    entryID: nil
+                ) ?? allowance
             }
         }
 

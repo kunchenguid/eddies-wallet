@@ -724,6 +724,25 @@ public struct CloudReplica: Codable, Equatable, Sendable {
         }
     }
 
+    /// Every durable allowance occurrence of this wallet's weekly rule. The one
+    /// whose status is `scheduled` is the occurrence a parent settles next, so
+    /// a replica that carries the chain is enough to walk it - the same role
+    /// `loanOccurrences` already plays for a scheduled loan. Absent on today's
+    /// live `/v1/cloud/changes`, which is why `CloudWalletRepository` still
+    /// overlays `GET /v1/allowance-rule` for the live head.
+    public struct CloudAllowanceOccurrence: Codable, Equatable, Sendable {
+        public let id: String
+        public let dueOn: String
+        public let status: String
+        public let amountCents: Int?
+        public let acceptedEntryID: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case id, dueOn, status, amountCents
+            case acceptedEntryID = "acceptedEntryId"
+        }
+    }
+
     public struct AllowanceRule: Codable, Equatable, Sendable {
         public let id: String?
         public let amountCents: Int
@@ -753,6 +772,7 @@ public struct CloudReplica: Codable, Equatable, Sendable {
     public let entries: [Entry]
     public let loans: [CloudLoan]
     public let loanOccurrences: [CloudLoanOccurrence]?
+    public let allowanceOccurrences: [CloudAllowanceOccurrence]?
     public let allowanceRule: AllowanceRule?
     public let nextCursor: String?
 }
