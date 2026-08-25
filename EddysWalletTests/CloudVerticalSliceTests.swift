@@ -2942,6 +2942,47 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(transport.requests.contains { $0.httpMethod == "DELETE" && $0.url?.path == "/v1/session/current" })
     }
 
+    func testCloudSignOutPersistsTheAllowanceOverlayWithoutReopeningPaidWeeks() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let today = Calendar.current.startOfDay(for: .now)
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "sign-out-head")
+        )
+        transport.stub("DELETE", "/v1/session/current", Data(), status: 204)
+        let cloudClient = client(transport)
+        let cloud = CloudWalletRepository(client: cloudClient, replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let store = elevatedStore(
+            repository: cloud,
+            coordinator: CloudCoordinator(client: cloudClient, subscriptions: silentSubscriptionStore(transport))
+        )
+
+        let signedOut = await store.signOutOfCloudOnThisDevice()
+
+        XCTAssertTrue(signedOut)
+        XCTAssertTrue(store.authorityState.isLocalAuthority)
+        XCTAssertEqual(store.snapshot.allowance?.nextOccurrenceID, "sign-out-head")
+        XCTAssertEqual(
+            Calendar.current.startOfDay(for: try XCTUnwrap(store.snapshot.allowance?.nextDate)),
+            today
+        )
+        XCTAssertTrue(store.missedAllowancePayouts.isEmpty)
+        XCTAssertFalse(local.isCloudAuthority)
+        XCTAssertEqual(local.snapshot().allowance?.nextOccurrenceID, "sign-out-head")
+        XCTAssertEqual(
+            Calendar.current.startOfDay(for: try XCTUnwrap(local.snapshot().allowance?.nextDate)),
+            today,
+            "sign-out must write the service-owned pointer onto the local replica, not only retain the Cloud overlay"
+        )
+        XCTAssertTrue(local.snapshot().allowance?.missedPayouts().isEmpty == true)
+    }
+
     /// A Cloud read can still be in flight when the parent signs this device
     /// out of Cloud: `WalletStore` starts unstructured refreshes of its own, so
     /// the hand-off always races one. The replica refuses the superseded read

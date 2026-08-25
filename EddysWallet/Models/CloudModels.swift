@@ -881,11 +881,12 @@ public struct CloudImportManifest: Equatable, Sendable {
     /// hashed before allowance import existed.
     public let allowanceRule: AllowanceRule?
 
-    /// The local weekly allowance uploaded with the household. `startDate`
-    /// and `nextDueDate` are both the earliest unrecorded occurrence: local
-    /// authority does not keep a separate original start after payouts, and
-    /// the server must seed its chain from this head rather than re-deriving
-    /// paid weeks.
+    /// The local weekly allowance uploaded with the household. For a live plan,
+    /// `startDate` and `nextDueDate` are both the earliest unrecorded occurrence:
+    /// local authority does not keep a separate original start after payouts,
+    /// and the server must seed its chain from this head rather than re-deriving
+    /// paid weeks. An exhausted plan keeps the rule with both chain-head values
+    /// null.
     public struct AllowanceRule: Equatable, Sendable {
         public let id: String?
         public let amountCents: Int

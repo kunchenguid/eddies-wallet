@@ -456,6 +456,8 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
 
     /// The complete local household as an upload manifest. Loans are rebuilt
     /// from the accepted event chain so historical loans are never dropped.
+    /// A live allowance missing its occurrence identity is repaired and saved
+    /// before upload; a bounded plan past its end is saved as exhausted.
     public func cloudImportManifest(familyName: String, operationID: UUID) throws -> CloudImportManifest {
         var aggregate = try writableAggregate()
         if let plan = aggregate.snapshot.allowance {
