@@ -221,7 +221,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             // A local allowance is still one scheduled occurrence at a time.
             // Advance only in the same atomic save as its ledger entry, so an
             // interrupted record-all can resume at the first unrecorded week.
-            guard let plan = wallet.allowance else {
+            guard let plan = wallet.allowance, !plan.isExhausted else {
                 return .rejected(rejected(command, "There is no scheduled allowance occurrence to record."))
             }
             let calendar = Calendar.current

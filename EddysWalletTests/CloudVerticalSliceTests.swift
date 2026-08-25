@@ -1097,6 +1097,16 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertTrue(allowance.missedPayouts().isEmpty)
         XCTAssertNil(allowance.nextCurrentOrFuturePayout())
         XCTAssertFalse(local.isCloudAuthority)
+
+        let balanceBeforePayout = local.snapshot().acceptedBalanceCents
+        guard case .rejected = try await local.submit(
+            WalletCommand(kind: .allowance, amountCents: allowance.amountCents, dueDate: allowance.nextDate)
+        ) else {
+            return XCTFail("an exhausted allowance must not accept another payout")
+        }
+        XCTAssertEqual(local.snapshot().acceptedBalanceCents, balanceBeforePayout)
+        XCTAssertTrue(local.snapshot().activities.filter { $0.type == .allowance }.isEmpty)
+        XCTAssertTrue(local.snapshot().allowance?.isExhausted == true)
     }
 
     func testCloudToLocalHandoffRetriesWhenTheScheduleOvertakesTheReplica() async throws {
