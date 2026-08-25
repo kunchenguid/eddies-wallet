@@ -307,15 +307,18 @@ enum CloudImportManifestBuilder {
             loans: manifestLoans,
             entries: entries,
             loanOccurrences: try loanOccurrences(schedule: currentSchedule, loanID: currentLoanID),
-            allowanceRule: allowanceRule(from: snapshot.allowance)
+            allowanceRule: try allowanceRule(from: snapshot.allowance)
         )
     }
 
     /// The local chain head: local authority stores only the next unrecorded
     /// occurrence, not a separate original start date. Cadence on the wire is
     /// the Cloud `weekly` token so the imported rule matches `/v1/allowance-rule`.
-    private static func allowanceRule(from plan: AllowancePlan?) -> CloudImportManifest.AllowanceRule? {
+    private static func allowanceRule(from plan: AllowancePlan?) throws -> CloudImportManifest.AllowanceRule? {
         guard let plan else { return nil }
+        guard plan.isExhausted || plan.nextOccurrenceID?.isEmpty == false else {
+            throw WalletAPIError.invalidResponse("This allowance schedule needs repair before turning on Cloud.")
+        }
         let nextDueDate = CloudDayFormat.string(from: plan.nextDate)
         return CloudImportManifest.AllowanceRule(
             id: plan.remoteID,

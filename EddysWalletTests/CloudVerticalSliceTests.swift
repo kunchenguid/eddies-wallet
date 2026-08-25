@@ -101,6 +101,48 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(cloud.snapshot().allowance?.nextOccurrenceID, "local-allowance-rule")
     }
 
+    func testAllowanceImportRepairsMissingChainIdentityDurably() async throws {
+        let local = try await localWalletWithHistory()
+        let nextDate = Calendar.current.startOfDay(for: .now)
+        _ = try await local.setAllowance(
+            AllowanceRuleCommand(amountCents: 500, weekday: 5, startDate: nextDate, idempotencyKey: "")
+        )
+
+        let first = try local.cloudImportManifest(familyName: "Test Kid's family", operationID: UUID())
+        let repairedID = try XCTUnwrap(first.allowanceRule?.nextOccurrenceID)
+        let second = try local.cloudImportManifest(familyName: "Test Kid's family", operationID: UUID())
+
+        XCTAssertFalse(repairedID.isEmpty)
+        XCTAssertEqual(second.allowanceRule?.nextOccurrenceID, repairedID)
+        XCTAssertEqual(local.snapshot().allowance?.nextOccurrenceID, repairedID)
+        XCTAssertEqual(first.allowanceRule?.nextDueDate, CloudDayFormat.string(from: nextDate))
+    }
+
+    func testCompletedBoundedAllowanceImportsAsExhausted() async throws {
+        let local = try await localWalletWithHistory()
+        let today = Calendar.current.startOfDay(for: .now)
+        _ = try await local.setAllowance(
+            AllowanceRuleCommand(
+                amountCents: 500,
+                weekday: 5,
+                startDate: today,
+                endDate: today,
+                idempotencyKey: "final-allowance"
+            )
+        )
+
+        guard case .accepted = try await local.submit(
+            WalletCommand(kind: .allowance, amountCents: 500, dueDate: today)
+        ) else {
+            return XCTFail("the final bounded allowance should be recorded")
+        }
+        let manifest = try local.cloudImportManifest(familyName: "Test Kid's family", operationID: UUID())
+
+        XCTAssertTrue(local.snapshot().allowance?.isExhausted == true)
+        XCTAssertNil(manifest.allowanceRule?.nextOccurrenceID)
+        XCTAssertNil(manifest.allowanceRule?.nextDueDate)
+    }
+
     func testAnInterruptedActivationRetriesWithTheSameOperationAndKey() async throws {
         let local = try await localWalletWithHistory()
         let reserved = try local.reserveCloudImportOperation()

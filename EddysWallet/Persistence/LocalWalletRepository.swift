@@ -245,7 +245,8 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
                 nextDate: followingDate,
                 endDate: plan.endDate,
                 nextOccurrenceID: UUID().uuidString,
-                syncState: plan.syncState
+                syncState: plan.syncState,
+                isExhausted: plan.endDate.map { followingDate > $0 } ?? false
             )
             wallet.acceptedBalanceCents += command.amountCents
         }
@@ -456,7 +457,26 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// The complete local household as an upload manifest. Loans are rebuilt
     /// from the accepted event chain so historical loans are never dropped.
     public func cloudImportManifest(familyName: String, operationID: UUID) throws -> CloudImportManifest {
-        let aggregate = try writableAggregate()
+        var aggregate = try writableAggregate()
+        if let plan = aggregate.snapshot.allowance {
+            let isExhausted = plan.isExhausted || plan.endDate.map { plan.nextDate > $0 } == true
+            let existingOccurrenceID = plan.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
+            let nextOccurrenceID = isExhausted ? nil : (existingOccurrenceID ?? UUID().uuidString)
+            if isExhausted != plan.isExhausted || nextOccurrenceID != plan.nextOccurrenceID {
+                aggregate.snapshot.allowance = AllowancePlan(
+                    remoteID: plan.remoteID,
+                    amountCents: plan.amountCents,
+                    cadence: plan.cadence,
+                    weekday: plan.weekday,
+                    nextDate: plan.nextDate,
+                    endDate: plan.endDate,
+                    nextOccurrenceID: nextOccurrenceID,
+                    syncState: plan.syncState,
+                    isExhausted: isExhausted
+                )
+                try persist(aggregate)
+            }
+        }
         guard let nickname = ChildProfileCopy.configuredNickname(from: aggregate.snapshot.childNickname) else {
             throw WalletAPIError.invalidResponse("Add your child's nickname before turning on Cloud.")
         }
