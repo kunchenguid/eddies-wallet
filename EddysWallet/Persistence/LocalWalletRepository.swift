@@ -277,8 +277,8 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         return .accepted(event)
     }
 
-    /// Settles due chain-head occurrences of parent-created weekly schedules
-    /// on a free local wallet. Cloud authority never auto-writes from here: a
+    /// Settles due chain-head occurrences of parent-created weekly allowance
+    /// rules and weekly or monthly loan plans on a free local wallet. Cloud authority never auto-writes from here: a
     /// replica stays read-only for this pass, and `WalletStore` also refuses
     /// to call it when the published repository is Cloud. Each accepted
     /// occurrence uses the ordinary `submit` path, one save at a time.

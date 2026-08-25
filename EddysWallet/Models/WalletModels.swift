@@ -398,8 +398,9 @@ public enum LoanRecordAllOutcome: Equatable, Sendable {
     case partial(recordedCount: Int, recordedTotalCents: Int, remaining: LoanMissedInstallments)
 }
 
-/// Auto-settlement of a parent-created weekly schedule records at most this
-/// many due occurrences per read, including the occurrence due today. A larger
+/// Auto-settlement of a parent-created weekly allowance rule or a weekly or
+/// monthly loan plan records at most this many due occurrences per read,
+/// including the occurrence due today. A larger
 /// derived backlog - the app unused for months, or a device clock jumped
 /// forward - stays on the existing parent-confirmed missed-set path.
 public enum ScheduledSettlementPolicy {
