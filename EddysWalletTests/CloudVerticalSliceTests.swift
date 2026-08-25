@@ -179,6 +179,67 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(importRequest.value(forHTTPHeaderField: "Idempotency-Key"), "cloud-import-\(reserved.uuidString.lowercased())")
     }
 
+    func testUnresolvedActivationFreezesAutoSettlementAndReplaysExactManifest() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        _ = try await local.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        _ = try await local.setAllowance(
+            AllowanceRuleCommand(
+                amountCents: 500,
+                weekday: calendar.component(.weekday, from: today) - 1,
+                startDate: today,
+                idempotencyKey: "allowance-head"
+            )
+        )
+        let lineage = try XCTUnwrap(local.lineageID)
+        let dueOn = CloudDayFormat.string(from: today)
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.stub("POST", "/v1/cloud/household/import", CloudSliceFixtures.importAccepted(lineage: lineage), status: 201)
+        transport.stub(
+            "GET",
+            "/v1/cloud/bootstrap",
+            CloudSliceFixtures.bootstrapWithAllowance(
+                lineage: lineage,
+                startDate: dueOn,
+                nextDueDate: dueOn,
+                nextOccurrenceID: "allowance-head"
+            )
+        )
+        transport.suspend("POST", "/v1/cloud/household/import")
+        transport.timeOutSuspendedResponse("POST", "/v1/cloud/household/import")
+        let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
+        await coordinator.refreshContext()
+
+        let activation = Task {
+            try await coordinator.activateCloud(from: local, familyName: "Test Kid's family")
+        }
+        await transport.waitUntilSuspended()
+        await local.applyDueScheduledSettlements()
+        XCTAssertEqual(local.snapshot().acceptedBalanceCents, 0)
+        XCTAssertTrue(local.snapshot().activities.isEmpty)
+
+        transport.resumeSuspendedRequest()
+        do {
+            _ = try await activation.value
+            XCTFail("the timed-out import must remain unresolved")
+        } catch {}
+        let firstRequest = try XCTUnwrap(transport.requests.first { $0.url?.path == "/v1/cloud/household/import" })
+
+        let relaunched = try LocalWalletRepository(directory: directory)
+        await relaunched.applyDueScheduledSettlements()
+        XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 0)
+        XCTAssertTrue(relaunched.snapshot().activities.isEmpty)
+
+        _ = try await coordinator.activateCloud(from: relaunched, familyName: "Test Kid's family")
+        let importRequests = transport.requests.filter { $0.url?.path == "/v1/cloud/household/import" }
+        XCTAssertEqual(importRequests.count, 2)
+        XCTAssertEqual(importRequests[1].value(forHTTPHeaderField: "Idempotency-Key"), firstRequest.value(forHTTPHeaderField: "Idempotency-Key"))
+        XCTAssertEqual(importRequests[1].httpBody, firstRequest.httpBody)
+        XCTAssertTrue(relaunched.isCloudAuthority)
+    }
+
     func testConfirmedImportRetriesAuthorityPersistenceThroughBootstrap() async throws {
         let persistence = CloudSliceFailingPersistence()
         let local = try LocalWalletRepository(persistence: persistence)

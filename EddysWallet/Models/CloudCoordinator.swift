@@ -216,8 +216,15 @@ public final class CloudCoordinator: ObservableObject, AccountDeletionPerforming
         guard client.hasSession else { throw WalletAPIError.noSession }
         guard isCloudActive else { throw WalletAPIError.cloudEntitlementRequired }
         activationConflict = false
-        let operationID = try local.reserveCloudImportOperation()
-        let manifest = try local.cloudImportManifest(familyName: familyName, operationID: operationID)
+        let operationID = try await local.beginCloudImportTransition()
+        defer { local.endCloudImportTransition() }
+        let manifest: CloudImportManifest
+        do {
+            manifest = try local.cloudImportManifest(familyName: familyName, operationID: operationID)
+        } catch {
+            try? local.cancelCloudImportTransition(operationID: operationID)
+            throw error
+        }
         let household: CloudHousehold
         do {
             household = try await client.importHousehold(manifest, idempotencyKey: "cloud-import-\(operationID.uuidString.lowercased())")
@@ -227,6 +234,7 @@ public final class CloudCoordinator: ObservableObject, AccountDeletionPerforming
             }
             // Another household already owns this parent, or this lineage was
             // already imported under different facts. Never overwrite either.
+            try? local.cancelCloudImportTransition(operationID: operationID)
             activationConflict = true
             self.message = "This wallet could not be moved to Cloud. Nothing was changed."
             throw error

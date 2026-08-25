@@ -13,6 +13,7 @@ struct LocalWalletMetadata: Codable, Sendable {
     /// import replays instead of creating a second household.
     var cloudImportOperationID: UUID?
     var cloudImportCompleted = false
+    var cloudImportMayBeUnresolved: Bool? = nil
     /// At most one exact Cloud request can be unresolved. It is stored beside
     /// replica provenance so relaunch cannot mint a second idempotency key.
     var unsettledCloudMutation: PendingCloudMutation? = nil
@@ -37,6 +38,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// and waiters publish the snapshot it already advanced.
     private var isApplyingScheduledSettlements = false
     private var scheduledSettlementWaiters: [CheckedContinuation<Void, Never>] = []
+    private var cloudImportTransitionHolders = 0
     /// A pre-Core-Data marker/cache is a migration input only. It stays
     /// read-only and is never promoted to local authority because it may hold
     /// only ten recent events.
@@ -282,7 +284,9 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// `ScheduledSettlementPolicy.maxOccurrencesPerPass` is left for the
     /// parent-confirmed missed-set flow.
     func applyDueScheduledSettlements(asOf now: Date = .now, calendar: Calendar = .current) async {
-        guard !isCloudAuthority else { return }
+        guard !isCloudAuthority,
+              cloudImportTransitionHolders == 0,
+              aggregate?.metadata.cloudImportMayBeUnresolved != true else { return }
         if isApplyingScheduledSettlements {
             await withCheckedContinuation { continuation in
                 scheduledSettlementWaiters.append(continuation)
@@ -305,6 +309,8 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         if !allowanceDue.isEmpty,
            allowanceDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass {
             for occurrence in allowanceDue {
+                guard cloudImportTransitionHolders == 0,
+                      aggregate?.metadata.cloudImportMayBeUnresolved != true else { return }
                 let result = try? await submit(
                     WalletCommand(
                         kind: .allowance,
@@ -317,10 +323,14 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             }
         }
 
+        guard cloudImportTransitionHolders == 0,
+              aggregate?.metadata.cloudImportMayBeUnresolved != true else { return }
         let loanDue = wallet.loan?.dueScheduledInstallments(asOf: now, calendar: calendar) ?? []
         guard !loanDue.isEmpty,
               loanDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass else { return }
         for installment in loanDue {
+            guard cloudImportTransitionHolders == 0,
+                  aggregate?.metadata.cloudImportMayBeUnresolved != true else { return }
             let isToday = calendar.startOfDay(for: installment.dueDate) == today
             let result = try? await submit(
                 WalletCommand(
@@ -360,14 +370,54 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     var cloudApplicationLease: Int { cloudHandoffGeneration }
     public var cloudImportOperationID: UUID? { aggregate?.metadata.cloudImportOperationID }
     public var hasCompletedCloudImport: Bool { aggregate?.metadata.cloudImportCompleted == true }
+
+    func beginCloudImportTransition() async throws -> UUID {
+        cloudImportTransitionHolders += 1
+        if isApplyingScheduledSettlements {
+            await withCheckedContinuation { continuation in
+                scheduledSettlementWaiters.append(continuation)
+            }
+        }
+        do {
+            guard !isCloudAuthority else {
+                throw WalletAPIError.invalidResponse("Cloud already owns this wallet.")
+            }
+            return try reserveCloudImportOperation()
+        } catch {
+            endCloudImportTransition()
+            throw error
+        }
+    }
+
+    func endCloudImportTransition() {
+        cloudImportTransitionHolders = max(0, cloudImportTransitionHolders - 1)
+    }
+
+    func cancelCloudImportTransition(operationID: UUID) throws {
+        var candidate = try writableAggregate()
+        guard candidate.metadata.cloudImportOperationID == operationID,
+              candidate.metadata.cloudImportCompleted == false,
+              candidate.metadata.authority == "local" else { return }
+        candidate.metadata.cloudImportOperationID = nil
+        candidate.metadata.cloudImportMayBeUnresolved = nil
+        try persist(candidate)
+    }
+
     /// Reserves the one-time import identity before the upload starts, so a
     /// retry after an interrupted upload reuses the same operation and key.
     @discardableResult
     public func reserveCloudImportOperation() throws -> UUID {
         var candidate = try writableAggregate()
-        if let existing = candidate.metadata.cloudImportOperationID { return existing }
+        if let existing = candidate.metadata.cloudImportOperationID {
+            if candidate.metadata.cloudImportMayBeUnresolved != true {
+                candidate.metadata.cloudImportMayBeUnresolved = true
+                try persist(candidate)
+            }
+            return existing
+        }
         let operationID = UUID()
         candidate.metadata.cloudImportOperationID = operationID
+        candidate.metadata.cloudImportMayBeUnresolved = true
         try persist(candidate)
         return operationID
     }
@@ -385,6 +435,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         candidate.metadata.confirmedCloudLineageID = lineageID
         candidate.metadata.serverRevision = revision
         candidate.metadata.unsettledCloudMutation = nil
+        candidate.metadata.cloudImportMayBeUnresolved = nil
         try persist(candidate)
     }
 
@@ -398,6 +449,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         candidate.metadata.serverRevision = revision
         candidate.metadata.lastServerSync = .now
         candidate.metadata.cloudImportCompleted = true
+        candidate.metadata.cloudImportMayBeUnresolved = nil
         candidate.metadata.unsettledCloudMutation = nil
         try persist(candidate)
     }
@@ -497,6 +549,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         metadata.serverRevision = replica.household.revision
         metadata.lastServerSync = .now
         metadata.cloudImportCompleted = true
+        metadata.cloudImportMayBeUnresolved = nil
         let existingEvents = merging && existingReplicaMatches ? (aggregate?.snapshot.activities ?? []) : []
         let existingAllowance = merging && existingReplicaMatches ? aggregate?.snapshot.allowance : nil
         let snapshot = try CloudReplicaMapper.snapshot(
