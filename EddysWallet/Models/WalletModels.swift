@@ -1407,14 +1407,20 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
         case .deposit:
             current.acceptedBalanceCents += command.amountCents
         case .allowance:
-            current.acceptedBalanceCents += command.amountCents
             if let allowance = current.allowance {
-                current.allowance = allowance.recordingPayout(
+                guard command.amountCents == allowance.amountCents else {
+                    return .rejected(makeEvent(for: command, state: .rejected, explanation: "This allowance was not recorded.", rejectionReason: "The allowance amount no longer matches the weekly plan."))
+                }
+                guard let settled = allowance.recordingPayout(
                     amountCents: command.amountCents,
                     nextOccurrenceID: UUID().uuidString,
                     entryID: acceptedEventID
-                ) ?? allowance
+                ) else {
+                    return .rejected(makeEvent(for: command, state: .rejected, explanation: "This allowance was not recorded.", rejectionReason: "There is no scheduled allowance occurrence to record."))
+                }
+                current.allowance = settled
             }
+            current.acceptedBalanceCents += command.amountCents
         }
 
         let event = makeEvent(

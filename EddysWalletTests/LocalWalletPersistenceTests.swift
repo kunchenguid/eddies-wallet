@@ -181,6 +181,38 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertEqual(plan.occurrences.filter { $0.status == .scheduled }.count, 1)
     }
 
+    func testMockRejectsAllowanceAmountThatDoesNotMatchPlan() async throws {
+        let dueDate = Calendar.current.startOfDay(for: .now)
+        let repository = MockWalletRepository(
+            snapshot: WalletSnapshot(
+                acceptedBalanceCents: 100,
+                activities: [],
+                loan: nil,
+                allowance: AllowancePlan(
+                    amountCents: 500,
+                    cadence: "every week",
+                    weekday: 5,
+                    nextDate: dueDate,
+                    nextOccurrenceID: "allowance-head"
+                ),
+                pendingEvents: [],
+                lastUpdated: .now,
+                isStale: false
+            )
+        )
+
+        let result = try await repository.submit(
+            WalletCommand(kind: .allowance, amountCents: 400, dueDate: dueDate)
+        )
+        guard case .rejected = result else {
+            return XCTFail("A mismatched allowance amount should be rejected")
+        }
+
+        XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 100)
+        XCTAssertTrue(repository.snapshot().activities.isEmpty)
+        XCTAssertEqual(repository.snapshot().allowance?.nextOccurrence?.id, "allowance-head")
+    }
+
     func testLegacyAllowanceSnapshotWithoutOccurrencesStillDerivesTheSameMissedWeeks() throws {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: .now)

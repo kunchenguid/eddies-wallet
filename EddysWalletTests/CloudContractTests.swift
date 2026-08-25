@@ -363,7 +363,7 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(replica.entries.count, 4)
         XCTAssertNil(replica.nextCursor)
 
-        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let snapshot = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
         XCTAssertEqual(snapshot.acceptedBalanceCents, 500)
         XCTAssertEqual(snapshot.childNickname, "Test Kid")
         XCTAssertEqual(snapshot.activities.count, 4)
@@ -381,7 +381,7 @@ final class CloudContractTests: XCTestCase {
 
     func testCloudHandoffKeepsTheCompleteInstallmentChainForReimport() throws {
         let replica = try JSONDecoder.cloud.decode(CloudReplica.self, from: CloudContractFixtures.scheduledLoanBootstrap)
-        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let snapshot = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
         let schedule = try XCTUnwrap(snapshot.loan?.schedule)
         let paymentID = UUID(uuidString: "a2000000-0000-4000-8000-000000000003")!
 
@@ -408,7 +408,7 @@ final class CloudContractTests: XCTestCase {
 
     func testCloudHandoffKeepsACancelledTerminalInstallment() throws {
         let replica = try JSONDecoder.cloud.decode(CloudReplica.self, from: CloudContractFixtures.paidScheduledLoanBootstrap)
-        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let snapshot = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
         let schedule = try XCTUnwrap(snapshot.loan?.schedule)
 
         XCTAssertEqual(schedule.occurrences.map(\.id), ["occurrence-1", "occurrence-2"])
@@ -442,7 +442,7 @@ final class CloudContractTests: XCTestCase {
             date: Date(timeIntervalSince1970: 1_700_000_000),
             explanation: "older accepted event"
         )
-        let merged = CloudReplicaMapper.snapshot(from: replica, mergingInto: [older], fallbackNickname: "Test Kid")
+        let merged = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [older], fallbackNickname: "Test Kid")
         XCTAssertEqual(merged.activities.count, 2, "incremental changes never drop accepted history")
         XCTAssertEqual(merged.acceptedBalanceCents, 750)
     }
@@ -979,7 +979,7 @@ final class CloudContractTests: XCTestCase {
               "nextOccurrenceId":"o-head","nextDueDate":"2026-08-14"}}
             """.utf8)
         )
-        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let snapshot = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
         XCTAssertEqual(snapshot.allowance?.nextOccurrenceID, "o-head")
         XCTAssertEqual(
             CloudDayFormat.string(from: try XCTUnwrap(snapshot.allowance?.nextDate)),
@@ -1010,7 +1010,7 @@ final class CloudContractTests: XCTestCase {
               "nextOccurrenceId":"o-head","nextDueDate":"2026-08-14"}}
             """.utf8)
         )
-        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let snapshot = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
         let plan = try XCTUnwrap(snapshot.allowance)
         XCTAssertEqual(plan.occurrences.map(\.id), ["o-paid", "o-head"])
         XCTAssertEqual(plan.occurrences.map(\.status), [.recorded, .scheduled])
@@ -1022,6 +1022,60 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(plan.nextOccurrenceID, "o-head")
         XCTAssertEqual(CloudDayFormat.string(from: plan.nextDate), "2026-08-14")
         XCTAssertEqual(plan.occurrences.filter { $0.status == .scheduled }.count, 1)
+    }
+
+    func testReplicaRejectsRecordedAllowanceOccurrenceWithoutAcceptedEntry() throws {
+        let replica = try JSONDecoder.cloud.decode(
+            CloudReplica.self,
+            from: Data("""
+            {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":4},
+             "family":{"id":"f-1","name":"Test Kid's family"},
+             "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+             "wallet":{"id":"w-1","balanceCents":1000},
+             "entries":[],"loans":[],
+             "allowanceOccurrences":[
+               {"id":"o-paid","dueOn":"2026-08-07","status":"recorded","amountCents":500,
+                "acceptedEntryId":null}
+             ],
+             "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+              "startDate":"2026-07-01","endDate":null,"active":true,
+              "nextOccurrenceId":"o-head","nextDueDate":"2026-08-14"}}
+            """.utf8)
+        )
+
+        XCTAssertThrowsError(
+            try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        )
+    }
+
+    func testReplicaAppendsRuleHeadAfterRecordedAllowanceHistory() throws {
+        let replica = try JSONDecoder.cloud.decode(
+            CloudReplica.self,
+            from: Data("""
+            {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":4},
+             "family":{"id":"f-1","name":"Test Kid's family"},
+             "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+             "wallet":{"id":"w-1","balanceCents":1000},
+             "entries":[],"loans":[],
+             "allowanceOccurrences":[
+               {"id":"o-paid","dueOn":"2026-08-07","status":"recorded","amountCents":500,
+                "acceptedEntryId":"a2000000-0000-4000-8000-000000000003"}
+             ],
+             "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+              "startDate":"2026-07-01","endDate":null,"active":true,
+              "nextOccurrenceId":"o-head","nextDueDate":"2026-08-14"}}
+            """.utf8)
+        )
+
+        let snapshot = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let plan = try XCTUnwrap(snapshot.allowance)
+
+        XCTAssertEqual(plan.occurrences.map(\.id), ["o-paid", "o-head"])
+        XCTAssertEqual(plan.occurrences.map(\.status), [.recorded, .scheduled])
+        XCTAssertEqual(plan.nextOccurrence?.id, "o-head")
+        XCTAssertNotNil(
+            plan.recordingPayout(amountCents: 500, nextOccurrenceID: "following-head")
+        )
     }
 
     func testImportBodyKeepsTheAllowanceChainHeadWithoutHashingOccurrences() throws {

@@ -2862,8 +2862,8 @@ final class CloudVerticalSliceTests: XCTestCase {
         )
         let replica = try JSONDecoder.cloud.decode(CloudReplica.self, from: data)
 
-        let first = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
-        let second = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let first = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let second = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
 
         XCTAssertEqual(first.activities.first?.id, second.activities.first?.id)
         XCTAssertEqual(first.activities.first?.remoteID, "server-entry-not-a-uuid")

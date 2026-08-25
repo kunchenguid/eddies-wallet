@@ -24,7 +24,7 @@ enum CloudReplicaMapper {
         from replica: CloudReplica,
         mergingInto existingEvents: [WalletEvent],
         fallbackNickname: String?
-    ) -> WalletSnapshot {
+    ) throws -> WalletSnapshot {
         let mapped = replica.entries.compactMap(event(from:))
         var byRemoteID: [String: WalletEvent] = [:]
         for event in existingEvents + mapped {
@@ -41,8 +41,8 @@ enum CloudReplicaMapper {
             acceptedBalanceCents: replica.wallet?.balanceCents ?? 0,
             activities: activities,
             loan: openLoan.map { loan(from: $0, occurrences: replica.loanOccurrences ?? []) },
-            allowance: replica.allowanceRule.flatMap {
-                allowance(from: $0, occurrences: replica.allowanceOccurrences ?? [])
+            allowance: try replica.allowanceRule.flatMap {
+                try allowance(from: $0, occurrences: replica.allowanceOccurrences ?? [])
             },
             pendingEvents: [],
             lastUpdated: .now,
@@ -133,12 +133,13 @@ enum CloudReplicaMapper {
     private static func allowance(
         from rule: CloudReplica.AllowanceRule,
         occurrences replicaOccurrences: [CloudReplica.CloudAllowanceOccurrence]
-    ) -> AllowancePlan? {
+    ) throws -> AllowancePlan? {
         guard rule.active != false, let startDate = rule.startDate.flatMap(CloudDayFormat.date(from:)) else { return nil }
         let mappedOccurrences = replicaOccurrences
             .compactMap { occurrence -> AllowancePlan.Occurrence? in
                 guard let dueDate = CloudDayFormat.date(from: occurrence.dueOn),
                       let status = AllowancePlan.Occurrence.Status(rawValue: occurrence.status) else { return nil }
+                guard status != .recorded || occurrence.acceptedEntryID != nil else { return nil }
                 return AllowancePlan.Occurrence(
                     id: occurrence.id,
                     dueDate: dueDate,
@@ -150,6 +151,9 @@ enum CloudReplicaMapper {
             .sorted { left, right in
                 left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
             }
+        guard mappedOccurrences.count == replicaOccurrences.count else {
+            throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
+        }
         // Prefer the replica's occurrence chain when the service sent it.
         // `/v1/cloud/changes` today omits it, so Cloud mode still overlays
         // `GET /v1/allowance-rule`; a handoff persists that overlay onto the
@@ -170,7 +174,15 @@ enum CloudReplicaMapper {
             && rule.nextDueDate == nil
         let occurrences: [AllowancePlan.Occurrence]?
         if !mappedOccurrences.isEmpty {
-            occurrences = mappedOccurrences
+            if mappedOccurrences.contains(where: { $0.status == .scheduled }) {
+                occurrences = mappedOccurrences
+            } else if let chainHead {
+                occurrences = mappedOccurrences + [
+                    AllowancePlan.Occurrence(id: chainHead.id, dueDate: chainHead.date, status: .scheduled)
+                ]
+            } else {
+                occurrences = mappedOccurrences
+            }
         } else if let chainHead {
             occurrences = [
                 AllowancePlan.Occurrence(id: chainHead.id, dueDate: chainHead.date, status: .scheduled)
