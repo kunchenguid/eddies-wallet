@@ -2763,9 +2763,15 @@ final class CloudVerticalSliceTests: XCTestCase {
 
     func testAcceptedAllowanceRuleReportsUnavailableScheduleAndRecovers() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
-        let store = elevatedStore(repository: cloud, coordinator: nil)
+        let reminders = RecordingScheduledReminderCenter()
+        let store = elevatedStore(repository: cloud, coordinator: nil, reminderCenter: reminders)
         await waitUntil("the Parent-area read settles") { !store.isLoading }
         let nextDueDate = Date(timeIntervalSince1970: 1_800_000_000)
+        await reminders.replaceDueReminders(
+            [ScheduledReminder(id: "ew.due.allowance", kind: .allowanceDue, fireDate: nextDueDate)],
+            stillAuthorized: { true }
+        )
+        XCTAssertEqual(reminders.dueReminders.map(\.kind), [.allowanceDue])
         transport.stub("PUT", "/v1/allowance-rule", CloudSliceFixtures.profileAccepted(revision: 3), status: 200)
         transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceRuleChanges(lineage: lineage, revision: 3))
         transport.stub("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
@@ -2780,6 +2786,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(store.latestTransportDiagnostic?.route, "/v1/allowance-rule")
         XCTAssertEqual(cloud.snapshot().allowance?.amountCents, 600)
         XCTAssertNil(cloud.snapshot().allowance?.nextOccurrenceID)
+        XCTAssertTrue(reminders.dueReminders.isEmpty)
         XCTAssertFalse(cloud.isReadyForRuntimeMutations)
 
         transport.stub(
@@ -4206,14 +4213,19 @@ final class CloudVerticalSliceTests: XCTestCase {
         return local
     }
 
-    private func elevatedStore(repository: any WalletRepository, coordinator: CloudCoordinator?) -> WalletStore {
+    private func elevatedStore(
+        repository: any WalletRepository,
+        coordinator: CloudCoordinator?,
+        reminderCenter: (any ScheduledReminderCentering)? = nil
+    ) -> WalletStore {
         let store = WalletStore(
             repository: repository,
             appleSignInProvider: SliceSignInProvider(),
             initiallySignedIn: true,
             pinStore: InMemoryParentPINStore(pin: "1234"),
             identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
-            cloudCoordinator: coordinator
+            cloudCoordinator: coordinator,
+            reminderCenter: reminderCenter
         )
         store.openParentGate()
         for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }

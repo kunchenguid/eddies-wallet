@@ -1318,7 +1318,7 @@ public final class WalletStore: ObservableObject {
             }
             return true
         } catch let error as WalletAPIError {
-            return handleParentMutationFailure(error, generation: generation)
+            return await handleParentMutationFailure(error, generation: generation)
         } catch {
             if generation == refreshGeneration, elevation == .active {
                 latestParentMutationOutcome = .notRecorded
@@ -1333,7 +1333,7 @@ public final class WalletStore: ObservableObject {
         _ error: WalletAPIError,
         diagnostic: TransportDiagnostic? = nil,
         generation: Int
-    ) -> Bool {
+    ) async -> Bool {
         if generation == refreshGeneration {
             publishOperationDiagnostic(for: error, preferredDiagnostic: diagnostic)
         }
@@ -1351,6 +1351,7 @@ public final class WalletStore: ObservableObject {
                 latestParentMutationOutcome = .acceptedScheduleUnavailable
                 snapshot = repository.snapshot()
                 errorMessage = nil
+                await refreshDueReminders()
             case .cloudMutationAwaitingReconciliation:
                 latestParentMutationOutcome = .waitingForCloud
                 snapshot = repository.snapshot()
@@ -1394,7 +1395,7 @@ public final class WalletStore: ObservableObject {
             }
             return true
         } catch let error as WalletAPIError {
-            return handleParentMutationFailure(error, generation: generation)
+            return await handleParentMutationFailure(error, generation: generation)
         } catch {
             if generation == refreshGeneration, elevation == .active {
                 latestParentMutationOutcome = .notRecorded

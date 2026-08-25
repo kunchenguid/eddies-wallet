@@ -71,6 +71,26 @@ final class ScheduledReminderTests: XCTestCase {
         XCTAssertFalse(reminders.contains { $0.title.localizedCaseInsensitiveContains("loan") })
     }
 
+    func testDueReminderThatExpiresDuringSchedulingIsNotAdded() async {
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+        let reminders = RecordingScheduledReminderCenter(now: { now })
+        reminders.pauseBeforeAuthorizationCheck = true
+        let replacement = Task {
+            await reminders.replaceDueReminders(
+                [ScheduledReminder(id: "ew.due.allowance", kind: .allowanceDue, fireDate: now.addingTimeInterval(60))],
+                stillAuthorized: { true }
+            )
+        }
+
+        let paused = await waitUntil { reminders.isPausedForAuthorizationCheck }
+        XCTAssertTrue(paused)
+        now = now.addingTimeInterval(61)
+        reminders.continueAuthorizationCheck()
+        await replacement.value
+
+        XCTAssertTrue(reminders.dueReminders.isEmpty)
+    }
+
     func testLocalReadStillSettlesWhenRemindersAreANoOp() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Maya"))
@@ -238,6 +258,38 @@ final class ScheduledReminderTests: XCTestCase {
         enterParentArea(store)
         store.signOut()
         XCTAssertTrue(reminders.didClearPending)
+        XCTAssertTrue(reminders.dueReminders.isEmpty)
+        XCTAssertFalse(store.isSignedIn)
+    }
+
+    func testSignOutInvalidatesAReplacementAlreadyInFlight() async throws {
+        let reminders = RecordingScheduledReminderCenter()
+        reminders.pauseBeforeAuthorizationCheck = true
+        let store = WalletStore(
+            repository: MockWalletRepository(snapshot: .fixture()),
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner"),
+            reminderCenter: reminders
+        )
+        enterParentArea(store)
+
+        let save = Task {
+            await store.setAllowance(
+                AllowanceRuleCommand(
+                    amountCents: 500,
+                    weekday: Calendar.current.component(.weekday, from: .now),
+                    startDate: Date.now.addingTimeInterval(86_400)
+                )
+            )
+        }
+        let paused = await waitUntil { reminders.isPausedForAuthorizationCheck }
+        XCTAssertTrue(paused)
+        store.signOut()
+        XCTAssertTrue(reminders.didClearPending)
+        reminders.continueAuthorizationCheck()
+        _ = await save.value
+
         XCTAssertTrue(reminders.dueReminders.isEmpty)
         XCTAssertFalse(store.isSignedIn)
     }

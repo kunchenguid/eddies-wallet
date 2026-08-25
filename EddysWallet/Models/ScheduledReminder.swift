@@ -107,18 +107,28 @@ final class RecordingScheduledReminderCenter: ScheduledReminderCentering {
     var pauseBeforeAuthorizationCheck = false
     private(set) var isPausedForAuthorizationCheck = false
     private var authorizationPause: CheckedContinuation<Void, Never>?
+    private var generation = 0
+    private let now: () -> Date
+
+    init(now: @escaping () -> Date = { .now }) {
+        self.now = now
+    }
 
     func replaceDueReminders(
         _ reminders: [ScheduledReminder],
         stillAuthorized: @escaping @MainActor () -> Bool
     ) async {
-        dueReminders = reminders
+        generation += 1
+        let replacementGeneration = generation
         if pauseBeforeAuthorizationCheck {
             isPausedForAuthorizationCheck = true
             await withCheckedContinuation { authorizationPause = $0 }
             isPausedForAuthorizationCheck = false
+            guard replacementGeneration == generation else { return }
         }
         askedForAuthorization = stillAuthorized()
+        guard replacementGeneration == generation else { return }
+        dueReminders = reminders.filter { $0.fireDate > now() }
     }
 
     func continueAuthorizationCheck() {
@@ -127,6 +137,7 @@ final class RecordingScheduledReminderCenter: ScheduledReminderCentering {
     }
 
     func clearPendingReminders() {
+        generation += 1
         dueReminders = []
         didClearPending = true
     }
@@ -134,40 +145,75 @@ final class RecordingScheduledReminderCenter: ScheduledReminderCentering {
 
 @MainActor
 final class UserNotificationsReminderCenter: ScheduledReminderCentering {
-    private let center: UNUserNotificationCenter
+    private static let dueIdentifiers = [
+        ScheduledReminderPlanner.dueIdentifierPrefix + "allowance",
+        ScheduledReminderPlanner.dueIdentifierPrefix + "payment",
+    ]
 
-    init(center: UNUserNotificationCenter = .current()) {
+    private let center: UNUserNotificationCenter
+    private let now: () -> Date
+    private var generation = 0
+    private var replacementInFlight = false
+    private var replacementWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(
+        center: UNUserNotificationCenter = .current(),
+        now: @escaping () -> Date = { .now }
+    ) {
         self.center = center
+        self.now = now
     }
 
     func replaceDueReminders(
         _ reminders: [ScheduledReminder],
         stillAuthorized: @escaping @MainActor () -> Bool
     ) async {
+        generation += 1
+        let replacementGeneration = generation
+        while replacementInFlight {
+            await withCheckedContinuation { replacementWaiters.append($0) }
+            guard replacementGeneration == generation else { return }
+        }
+        replacementInFlight = true
+        defer { finishReplacement() }
+
         if stillAuthorized() {
             let settings = await center.notificationSettings()
+            guard replacementGeneration == generation else { return }
             if settings.authorizationStatus == .notDetermined, stillAuthorized() {
                 _ = try? await center.requestAuthorization(options: [.alert, .sound])
+                guard replacementGeneration == generation else {
+                    removeDueReminders()
+                    return
+                }
             }
         }
-        center.removePendingNotificationRequests(
-            withIdentifiers: [
-                ScheduledReminderPlanner.dueIdentifierPrefix + "allowance",
-                ScheduledReminderPlanner.dueIdentifierPrefix + "payment",
-            ]
-        )
+        guard replacementGeneration == generation else { return }
+        removeDueReminders()
         for reminder in reminders {
+            guard replacementGeneration == generation else { break }
             await add(reminder)
+            guard replacementGeneration == generation else {
+                removeDueReminders()
+                return
+            }
         }
     }
 
     func clearPendingReminders() {
-        center.removePendingNotificationRequests(
-            withIdentifiers: [
-                ScheduledReminderPlanner.dueIdentifierPrefix + "allowance",
-                ScheduledReminderPlanner.dueIdentifierPrefix + "payment",
-            ]
-        )
+        generation += 1
+        removeDueReminders()
+    }
+
+    private func finishReplacement() {
+        replacementInFlight = false
+        let waiters = replacementWaiters
+        replacementWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func removeDueReminders() {
+        center.removePendingNotificationRequests(withIdentifiers: Self.dueIdentifiers)
     }
 
     private func add(_ reminder: ScheduledReminder) async {
@@ -183,6 +229,7 @@ final class UserNotificationsReminderCenter: ScheduledReminderCentering {
             repeats: false
         )
         let request = UNNotificationRequest(identifier: reminder.id, content: content, trigger: trigger)
+        guard reminder.fireDate > now() else { return }
         try? await center.add(request)
     }
 }
