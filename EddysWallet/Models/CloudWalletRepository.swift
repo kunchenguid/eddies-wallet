@@ -225,6 +225,57 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         }
     }
 
+    public func prepareForLocalHandoff() async throws -> WalletSnapshot {
+        guard activeMutation == nil, !isPreparingMutation else {
+            throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
+        isPreparingMutation = true
+        defer { isPreparingMutation = false }
+
+        return try await serializedRead { [self] in
+            do {
+                for _ in 0..<3 {
+                    let changes = try await client.changes(afterRevision: revision)
+                    try apply(changes, merging: true)
+                    let candidateRevision = revision
+                    var candidateSchedule: CloudAllowanceSchedule.Rule?
+
+                    if hasAllowancePlan {
+                        let response = try await client.allowanceSchedule()
+                        guard let rule = response.allowanceRule,
+                              rule.active,
+                              let occurrenceID = rule.nextOccurrenceID,
+                              !occurrenceID.isEmpty,
+                              rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) != nil,
+                              let plan = replica.snapshot().allowance,
+                              plan.remoteID == rule.id,
+                              plan.amountCents == rule.amountCents else {
+                            throw WalletAPIError.invalidResponse("Cloud did not provide a complete current allowance schedule.")
+                        }
+                        candidateSchedule = rule
+                    }
+
+                    let verification = try await client.changes(afterRevision: candidateRevision)
+                    try apply(verification, merging: true)
+                    guard revision == candidateRevision, confirmedRevision == candidateRevision else {
+                        allowanceScheduleRevision = nil
+                        continue
+                    }
+
+                    allowanceSchedule = candidateSchedule
+                    allowanceScheduleRevision = candidateSchedule == nil ? nil : candidateRevision
+                    return snapshot()
+                }
+                allowanceScheduleRevision = nil
+                throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(revision)
+            } catch {
+                allowanceScheduleRevision = nil
+                if observedAnAnswer(error) { confirmedRevision = nil }
+                throw error
+            }
+        }
+    }
+
     public func activity(limit: Int) async throws -> [WalletEvent] {
         guard hasValidReplica else { return [] }
         return try await replica.activity(limit: limit)

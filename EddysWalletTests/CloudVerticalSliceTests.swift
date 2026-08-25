@@ -1078,6 +1078,61 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }, ["\"rev-2\"", "\"rev-3\"", "\"rev-4\""])
     }
 
+    func testCloudToLocalHandoffRefusesAnActiveAllowanceWithoutAChainHead() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceNotDue)
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        do {
+            _ = try await cloud.prepareForLocalHandoff()
+            XCTFail("an active allowance without a complete service chain head must block handoff")
+        } catch let error as WalletAPIError {
+            guard case .invalidResponse = error.operationError else {
+                return XCTFail("the incomplete schedule should be rejected as an invalid Cloud response")
+            }
+        }
+
+        XCTAssertTrue(local.isCloudAuthority)
+        XCTAssertEqual(local.snapshot().allowance?.nextDate, CloudDayFormat.date(from: "2026-07-01"))
+    }
+
+    func testCloudToLocalHandoffRetriesWhenTheScheduleOvertakesTheReplica() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let today = Calendar.current.startOfDay(for: .now)
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.enqueue(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "other-device-allowance")
+        )
+        transport.enqueue(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "other-device-allowance")
+        )
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "revision-3-head"))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let handoffSnapshot = try await cloud.prepareForLocalHandoff()
+        try local.continueLocallyAfterCloud(allowance: handoffSnapshot.allowance)
+
+        XCTAssertEqual(handoffSnapshot.acceptedBalanceCents, 1_250)
+        XCTAssertEqual(handoffSnapshot.activities.first?.remoteID, "other-device-allowance")
+        XCTAssertEqual(local.snapshot().allowance?.nextOccurrenceID, "revision-3-head")
+        XCTAssertEqual(Calendar.current.startOfDay(for: try XCTUnwrap(local.snapshot().allowance?.nextDate)), today)
+        XCTAssertFalse(local.isCloudAuthority)
+        XCTAssertGreaterThanOrEqual(transport.requests.filter { $0.url?.path == "/v1/allowance-rule" }.count, 2)
+    }
+
     /// Cloud-to-local handoff must keep the service-owned next occurrence.
     /// Mapping `nextDate` from the rule's original `startDate` re-renders
     /// already-paid weeks as missed and makes them payable again.

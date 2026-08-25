@@ -381,7 +381,13 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         guard candidate.metadata.unsettledCloudMutation == nil else {
             throw WalletAPIError.cloudMutationAwaitingReconciliation
         }
-        if let allowance {
+        if let persistedAllowance = candidate.snapshot.allowance {
+            guard let allowance,
+                  allowance.remoteID == persistedAllowance.remoteID,
+                  allowance.amountCents == persistedAllowance.amountCents,
+                  allowance.nextOccurrenceID?.isEmpty == false else {
+                throw WalletAPIError.invalidResponse("Cloud did not provide a complete current allowance schedule.")
+            }
             candidate.snapshot.allowance = allowance
         }
         candidate.metadata.authority = "local"

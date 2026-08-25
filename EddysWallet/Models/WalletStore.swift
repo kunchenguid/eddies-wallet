@@ -1908,9 +1908,9 @@ public final class WalletStore: ObservableObject {
         guard elevation == .active, let cloudCoordinator,
               let cloud = repository as? CloudWalletRepository else { return false }
         guard canContinueLocallyAfterCloud else { return false }
-        guard await refreshCloudBeforeHandoff(cloud) else { return false }
+        guard let handoffSnapshot = await refreshCloudBeforeHandoff(cloud) else { return false }
         do {
-            try cloudCoordinator.continueLocally(with: cloud.localReplica, allowance: cloud.snapshot().allowance)
+            try cloudCoordinator.continueLocally(with: cloud.localReplica, allowance: handoffSnapshot.allowance)
         } catch {
             errorMessage = userMessage(for: error)
             return false
@@ -1928,9 +1928,9 @@ public final class WalletStore: ObservableObject {
     @discardableResult
     public func signOutOfCloudOnThisDevice() async -> Bool {
         guard elevation == .active, let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return false }
-        guard await refreshCloudBeforeHandoff(cloud) else { return false }
+        guard let handoffSnapshot = await refreshCloudBeforeHandoff(cloud) else { return false }
         do {
-            try cloud.localReplica.continueLocallyAfterCloud(allowance: cloud.snapshot().allowance)
+            try cloud.localReplica.continueLocallyAfterCloud(allowance: handoffSnapshot.allowance)
         } catch {
             errorMessage = userMessage(for: error)
             return false
@@ -1946,16 +1946,17 @@ public final class WalletStore: ObservableObject {
         return true
     }
 
-    private func refreshCloudBeforeHandoff(_ cloud: CloudWalletRepository) async -> Bool {
+    private func refreshCloudBeforeHandoff(_ cloud: CloudWalletRepository) async -> WalletSnapshot? {
         do {
-            snapshot = try await cloud.refresh(for: .parent)
+            let handoffSnapshot = try await cloud.prepareForLocalHandoff()
+            snapshot = handoffSnapshot
             authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)
             connection = .reached
             cloudMessage = nil
-            return true
+            return handoffSnapshot
         } catch {
             cloudMessage = "This device needs to catch up with Cloud before it can keep or sign out of this wallet."
-            return false
+            return nil
         }
     }
 
