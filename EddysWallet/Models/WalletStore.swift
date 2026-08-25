@@ -342,11 +342,7 @@ public final class WalletStore: ObservableObject {
         }
 
         if self.isSignedIn, !isMockRepository, self.recoveryState == nil {
-            Task { [weak self] in
-                guard let self else { return }
-                await self.refresh()
-                await self.activateCloudIfPaid()
-            }
+            Task { [weak self] in await self?.refresh() }
         }
     }
 
@@ -847,6 +843,14 @@ public final class WalletStore: ObservableObject {
         }
         let completion = startOwnedRead()
         for await _ in completion {}
+        await retryUnresolvedCloudImportAfterRead()
+    }
+
+    private func retryUnresolvedCloudImportAfterRead() async {
+        guard cloudActivationTask == nil,
+              let local = repository as? LocalWalletRepository,
+              local.hasUnresolvedCloudImport else { return }
+        await activateCloudIfPaid()
     }
 
     /// Starts one read this store owns. The returned completion stream lets a
@@ -2093,8 +2097,10 @@ public final class WalletStore: ObservableObject {
             if cloudCoordinator.activationConflict {
                 purchaseAttempt = .activationConflict
                 cloudMessage = "This wallet could not be moved to Cloud. Nothing was changed on this device."
-            } else {
+            } else if cloudCoordinator.isCloudActive {
                 cloudMessage = "Cloud is on for your account. This wallet is still on this device and will try again."
+            } else {
+                cloudMessage = "The wallet could not be updated. Your last accepted balance is still shown."
             }
         }
     }

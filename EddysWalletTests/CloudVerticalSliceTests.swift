@@ -437,6 +437,42 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 525)
     }
 
+    func testForegroundReadRetriesAnUnresolvedImportAfterContextFailure() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        _ = try await local.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        _ = try await local.setAllowance(
+            AllowanceRuleCommand(
+                amountCents: 500,
+                weekday: calendar.component(.weekday, from: today) - 1,
+                startDate: today
+            )
+        )
+        _ = try local.reserveCloudImportOperation()
+        let relaunched = try LocalWalletRepository(directory: directory)
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextWithEntitlement("expired"))
+        transport.timeOutNextResponse("GET", "/v1/cloud/context")
+        let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
+        let store = elevatedStore(repository: relaunched, coordinator: coordinator)
+
+        await waitUntil("failed launch reconciliation uses status-neutral copy") {
+            store.cloudMessage == "The wallet could not be updated. Your last accepted balance is still shown."
+        }
+        XCTAssertNotNil(relaunched.cloudImportOperationID)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 0)
+
+        store.handleAppBackgrounded()
+        store.handleAppForegrounded()
+        await waitUntil("foreground read retries and releases the import") {
+            relaunched.cloudImportOperationID == nil && store.snapshot.acceptedBalanceCents == 500
+        }
+
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 1)
+        XCTAssertEqual(store.authorityState, .local(lineageID: try XCTUnwrap(relaunched.lineageID)))
+    }
+
     func testInactiveContextAdoptsAnAcceptedUnresolvedImport() async throws {
         let local = try await localWalletWithHistory()
         let lineage = try XCTUnwrap(local.lineageID)
