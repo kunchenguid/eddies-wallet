@@ -250,7 +250,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                         allowanceScheduleRevision = nil
                         continue
                     }
-                    let candidateOverlay = try candidateSchedule.map { try validatedAllowanceOverlay(for: $0) }
+                    let candidateOverlay = try candidateSchedule.flatMap { try validatedAllowanceOverlay(for: $0) }
                     allowanceSchedule = candidateSchedule
                     allowanceScheduleOverlay = candidateOverlay
                     allowanceScheduleRevision = candidateSchedule == nil ? nil : candidateRevision
@@ -575,9 +575,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 guard let rule = schedule.allowanceRule, rule.active else {
                     throw WalletAPIError.invalidResponse("Cloud did not provide a current allowance schedule.")
                 }
-                let overlay = try validatedAllowanceOverlay(for: rule)
                 allowanceSchedule = rule
-                allowanceScheduleOverlay = overlay
+                allowanceScheduleOverlay = try validatedAllowanceOverlay(for: rule)
                 allowanceScheduleRevision = requestedRevision
             } catch {
                 allowanceScheduleOverlay = nil
@@ -592,22 +591,27 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
 
     private func validatedAllowanceOverlay(
         for rule: CloudAllowanceSchedule.Rule
-    ) throws -> AllowancePlan {
+    ) throws -> AllowancePlan? {
         guard let plan = replica.snapshot().allowance,
               plan.remoteID == rule.id,
               plan.amountCents == rule.amountCents else {
-            throw WalletAPIError.invalidResponse("Cloud did not provide a current allowance schedule.")
+            return nil
         }
         let nextDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:))
         let hasCompleteHead = rule.nextOccurrenceID?.isEmpty == false && nextDate != nil
         let isExhausted = rule.nextOccurrenceID == nil && rule.nextDueDate == nil
-        guard hasCompleteHead || isExhausted else {
-            throw WalletAPIError.invalidResponse("Cloud did not provide a valid allowance schedule.")
+        if isExhausted {
+            return try plan.applyingServiceHead(
+                nextDate: plan.nextDate,
+                nextOccurrenceID: nil,
+                isExhausted: true
+            )
         }
+        guard hasCompleteHead else { return nil }
         return try plan.applyingServiceHead(
-            nextDate: isExhausted ? plan.nextDate : nextDate,
+            nextDate: nextDate,
             nextOccurrenceID: rule.nextOccurrenceID,
-            isExhausted: isExhausted
+            isExhausted: false
         )
     }
 

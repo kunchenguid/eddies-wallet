@@ -170,14 +170,23 @@ enum CloudReplicaMapper {
         let ruleHeadID = rule.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
         let ruleHeadDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:))
         let hasAnyRuleHeadValue = rule.nextOccurrenceID != nil || rule.nextDueDate != nil
-        guard !hasAnyRuleHeadValue || (ruleHeadID != nil && ruleHeadDate != nil) else {
-            throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
-        }
-        let ruleHead = ruleHeadID.flatMap { id in
-            ruleHeadDate.map { date in
-                AllowancePlan.Occurrence(id: id, dueDate: date, status: .scheduled)
+        let hasCompleteRuleHead = ruleHeadID != nil && ruleHeadDate != nil
+        // A rule-only replica may still carry one half of its head. Suppress
+        // that incomplete projection, the way the pre-chain mapper did. An
+        // explicit occurrence array that also names a partial rule head is
+        // internally inconsistent and must not be persisted.
+        if replicaOccurrences != nil {
+            guard !hasAnyRuleHeadValue || hasCompleteRuleHead else {
+                throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
             }
         }
+        let ruleHead = hasCompleteRuleHead
+            ? ruleHeadID.flatMap { id in
+                ruleHeadDate.map { date in
+                    AllowancePlan.Occurrence(id: id, dueDate: date, status: .scheduled)
+                }
+            }
+            : nil
         let replicaHead = mappedOccurrences.first(where: { $0.status == .scheduled })
         if replicaOccurrences != nil, let replicaHead, let ruleHead {
             guard replicaHead.id == ruleHead.id, replicaHead.dueDate == ruleHead.dueDate else {
@@ -188,7 +197,7 @@ enum CloudReplicaMapper {
         if replicaOccurrences != nil {
             chainHead = replicaHead ?? ruleHead
         } else {
-            chainHead = ruleHead ?? replicaHead
+            chainHead = ruleHead
         }
         let nextDate = chainHead?.dueDate ?? preservedPlan?.nextDate ?? startDate
         let isExhausted: Bool
@@ -215,8 +224,13 @@ enum CloudReplicaMapper {
             occurrences = recordedOccurrences
         } else if let chainHead {
             occurrences = recordedOccurrences + [chainHead]
+        } else if let replicaHead {
+            // Keep the replica's scheduled row so the chain stays well-formed,
+            // but do not publish it as the named Cloud head when the rule did
+            // not supply a complete next occurrence.
+            occurrences = recordedOccurrences + [replicaHead]
         } else {
-            occurrences = preservedPlan == nil ? nil : mappedOccurrences
+            occurrences = nil
         }
         return try AllowancePlan(
             remoteID: rule.id,
