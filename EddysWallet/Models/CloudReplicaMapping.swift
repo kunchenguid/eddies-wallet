@@ -176,7 +176,7 @@ enum CloudReplicaMapper {
             }
         }
         let nextDate = chainHead?.date ?? startDate
-        let isExhausted = !mappedOccurrences.isEmpty
+        let isExhausted = replicaOccurrences != nil
             && mappedOccurrences.contains(where: { $0.status == .scheduled }) == false
             && rule.nextOccurrenceID == nil
             && rule.nextDueDate == nil

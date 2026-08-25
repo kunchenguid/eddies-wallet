@@ -263,6 +263,13 @@ final class LocalWalletPersistenceTests: XCTestCase {
                 isExhausted: false
             )
         )
+        XCTAssertThrowsError(
+            try plan.applyingServiceHead(
+                nextDate: nil,
+                nextOccurrenceID: nil,
+                isExhausted: false
+            )
+        )
     }
 
     func testAllowancePlanRejectsHeadExhaustionMismatches() throws {

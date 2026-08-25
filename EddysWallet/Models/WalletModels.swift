@@ -954,7 +954,9 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
                 occurrences: recorded
             )
         }
-        guard let nextDate, let nextOccurrenceID, !nextOccurrenceID.isEmpty else { return self }
+        guard let nextDate, let nextOccurrenceID, !nextOccurrenceID.isEmpty else {
+            throw WalletAPIError.invalidResponse("The allowance occurrence chain is invalid.")
+        }
         return try AllowancePlan(
             remoteID: remoteID,
             amountCents: amountCents,

@@ -1122,7 +1122,7 @@ final class CloudContractTests: XCTestCase {
         )
     }
 
-    func testReplicaRejectsExplicitEmptyLiveAllowanceChain() throws {
+    func testReplicaMapsExplicitEmptyAllowanceChainAsExhausted() throws {
         let replica = try JSONDecoder.cloud.decode(
             CloudReplica.self,
             from: Data("""
@@ -1137,9 +1137,15 @@ final class CloudContractTests: XCTestCase {
             """.utf8)
         )
 
-        XCTAssertThrowsError(
-            try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let snapshot = try CloudReplicaMapper.snapshot(
+            from: replica,
+            mergingInto: [],
+            fallbackNickname: nil
         )
+
+        XCTAssertTrue(snapshot.allowance?.isExhausted == true)
+        XCTAssertTrue(snapshot.allowance?.occurrences.isEmpty == true)
+        XCTAssertNil(snapshot.allowance?.nextOccurrence)
     }
 
     func testReplicaRejectsIncompleteRuleHeadAfterRecordedAllowanceHistory() throws {
