@@ -122,7 +122,7 @@ The amount is a simulated accounting value only. It is not a dollar claim, store
 
 Parent balance framing uses the configured nickname, such as **Maya's virtual balance**, or **Your child's virtual balance** when no nickname is set.
 
-**Kid everyday surfaces** (kid home hero, empty-wallet ready state, kid activity list/detail, kid loan card/detail, and kid status/accessibility text) stay plain and relational. The primary kid balance label is exactly **Your allowance balance**. Do not stack `pretend`, `virtual practice`, `not real money`, `nonredeemable`, or similar complexity on the kid home or routine kid detail glances. Kid activity lines stay human (“Your parent added…”) without a heavy disclaimer on every row.
+**Kid everyday surfaces** (kid home hero, empty-wallet ready state, kid activity list/detail, kid loan card/detail, and kid status/accessibility text) stay plain and relational. The primary kid balance label is exactly **Your allowance balance**. Do not stack `pretend`, `virtual practice`, `not real money`, `nonredeemable`, or similar complexity on the kid home or routine kid detail glances. Kid activity lines stay human without a heavy disclaimer on every row: parent-attributed entries use “Your parent…” while service-settled Cloud entries carrying the reserved schedule attribution name the plan instead.
 
 Do not use a bank-card design or wording that implies spendable funds, banks, cards, cash-out, or real-world payment services on any surface. **Pay** and **payment** are reserved for virtual loan repayment; allowance is **paid out**, while a loan is **paid toward**.
 
@@ -134,7 +134,7 @@ Do not use a bank-card design or wording that implies spendable funds, banks, ca
 - The wallet cannot go below zero. A loan is the explicit way to give the child additional virtual dollars that must be repaid; it is not an accidental overdraft.
 - A balance is the result of accepted events. Pending events are not accepted money.
 - Accepted events are not edited or deleted. A parent correction, if needed, is a new clearly labeled compensating event.
-- Every accepted event has a type, amount, date, reason where applicable, and the fact that it was recorded by the parent.
+- Every accepted event has a type, amount, date, reason where applicable, and its attribution. Parent-attributed entries name the parent; a service-settled Cloud entry whose `recordedBy` value is the reserved `schedule` sentinel names the schedule or plan and never claims the parent performed that action.
 
 ### Vocabulary
 
@@ -254,7 +254,7 @@ The kid home must not include a child request button, money action button, edit 
 
 - The wallet contains the visible recent activity list. A parent can scroll it to review prior events; a separate Recent Activity entry point is not needed.
 - Each accepted row opens details with type, amount, date, reason, and a plain-language explanation.
-- Parent details may show before and after balances and keep the virtual/nonredeemable notice. Child details use simple wording such as “Your parent added US$10.00 as your weekly allowance.” without a heavy disclaimer footer.
+- Parent details may show before and after balances and keep the virtual/nonredeemable notice. Child details use simple wording without a heavy disclaimer footer. A parent-attributed allowance may say “Your parent added US$10.00 as your allowance.”; a service-settled Cloud allowance carrying `recordedBy: "schedule"` says “Your allowance of US$10.00 was added.” and attributes the change to **Your plan**, never **Your parent**. Parent details attribute the latter to **Schedule**.
 - Unresolved parent events in a service-authoritative wallet show **Waiting to sync**, not a recorded state. Copy distinguishes an unconfirmed request from a service-accepted change that the device has not observed. Free-local actions are recorded immediately or fail without entering a pending state.
 - Rejected events are visible to the parent with the reason and are not shown as accepted child activity.
 - Accepted activity cannot be edited or deleted.
