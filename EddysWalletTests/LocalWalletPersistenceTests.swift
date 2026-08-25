@@ -112,6 +112,75 @@ final class LocalWalletPersistenceTests: XCTestCase {
         )
     }
 
+    func testAllowancePlanDecodingKeepsOnlyTheNamedScheduledHead() throws {
+        let calendar = Calendar.current
+        let firstDate = calendar.startOfDay(for: .now)
+        let secondDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstDate))
+        struct EncodedAllowance: Encodable {
+            let amountCents: Int
+            let cadence: String
+            let weekday: Int
+            let nextDate: Date
+            let nextOccurrenceID: String
+            let syncState: SyncState
+            let occurrences: [AllowancePlan.Occurrence]
+        }
+        let data = try JSONEncoder().encode(
+            EncodedAllowance(
+                amountCents: 500,
+                cadence: "every week",
+                weekday: 5,
+                nextDate: secondDate,
+                nextOccurrenceID: "current-head",
+                syncState: .recorded,
+                occurrences: [
+                    .init(id: "stale-head", dueDate: firstDate, status: .scheduled),
+                    .init(id: "current-head", dueDate: secondDate, status: .scheduled),
+                ]
+            )
+        )
+
+        let plan = try JSONDecoder().decode(AllowancePlan.self, from: data)
+
+        XCTAssertEqual(plan.occurrences.map(\.id), ["current-head"])
+        XCTAssertEqual(plan.nextOccurrence?.id, "current-head")
+        XCTAssertEqual(plan.occurrences.filter { $0.status == .scheduled }.count, 1)
+    }
+
+    func testMockAllowanceRecordingLinksOccurrenceToAcceptedEvent() async throws {
+        let dueDate = Calendar.current.startOfDay(for: .now)
+        let repository = MockWalletRepository(
+            snapshot: WalletSnapshot(
+                acceptedBalanceCents: 0,
+                activities: [],
+                loan: nil,
+                allowance: AllowancePlan(
+                    amountCents: 500,
+                    cadence: "every week",
+                    weekday: 5,
+                    nextDate: dueDate,
+                    nextOccurrenceID: "allowance-head"
+                ),
+                pendingEvents: [],
+                lastUpdated: .now,
+                isStale: false
+            )
+        )
+
+        let result = try await repository.submit(
+            WalletCommand(kind: .allowance, amountCents: 500, dueDate: dueDate)
+        )
+        guard case .accepted(let event) = result else {
+            return XCTFail("The scheduled allowance should be accepted")
+        }
+        let plan = try XCTUnwrap(repository.snapshot().allowance)
+        let recorded = try XCTUnwrap(plan.occurrences.first { $0.status == .recorded })
+
+        XCTAssertEqual(recorded.entryID, event.id)
+        XCTAssertEqual(repository.snapshot().activities.first?.id, event.id)
+        XCTAssertEqual(plan.occurrences.filter { $0.status == .scheduled }.count, 1)
+    }
+
     func testLegacyAllowanceSnapshotWithoutOccurrencesStillDerivesTheSameMissedWeeks() throws {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: .now)

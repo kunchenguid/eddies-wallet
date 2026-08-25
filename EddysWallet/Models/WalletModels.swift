@@ -817,8 +817,14 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         isExhausted: Bool
     ) -> [Occurrence] {
         if let occurrences, !occurrences.isEmpty {
-            return occurrences.sorted { left, right in
+            let ordered = occurrences.sorted { left, right in
                 left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
+            }
+            let scheduledHeadIndex = nextOccurrenceID.flatMap { nextOccurrenceID in
+                ordered.firstIndex { $0.status == .scheduled && $0.id == nextOccurrenceID }
+            } ?? ordered.firstIndex { $0.status == .scheduled }
+            return ordered.enumerated().compactMap { index, occurrence in
+                occurrence.status != .scheduled || index == scheduledHeadIndex ? occurrence : nil
             }
         }
         guard !isExhausted else { return [] }
@@ -1356,6 +1362,7 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
             return .rejected(makeEvent(for: command, state: .rejected, explanation: "This amount was not recorded.", rejectionReason: "Enter an amount greater than US$0.00."))
         }
 
+        let acceptedEventID = UUID()
         switch command.kind {
         case .withdrawal:
             guard command.amountCents <= current.acceptedBalanceCents else {
@@ -1405,12 +1412,17 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
                 current.allowance = allowance.recordingPayout(
                     amountCents: command.amountCents,
                     nextOccurrenceID: UUID().uuidString,
-                    entryID: nil
+                    entryID: acceptedEventID
                 ) ?? allowance
             }
         }
 
-        let event = makeEvent(for: command, state: .recorded, explanation: explanation(for: command))
+        let event = makeEvent(
+            for: command,
+            state: .recorded,
+            explanation: explanation(for: command),
+            id: acceptedEventID
+        )
         current.activities.insert(event, at: 0)
         current.lastUpdated = .now
         current.isStale = false
@@ -1434,7 +1446,13 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
         return event
     }
 
-    private func makeEvent(for command: WalletCommand, state: SyncState, explanation: String, rejectionReason: String? = nil) -> WalletEvent {
+    private func makeEvent(
+        for command: WalletCommand,
+        state: SyncState,
+        explanation: String,
+        rejectionReason: String? = nil,
+        id: UUID = UUID()
+    ) -> WalletEvent {
         let type: ActivityType = switch command.kind {
         case .allowance: .allowance
         case .deposit: .deposit
@@ -1443,6 +1461,7 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
         case .repayment, .loanInstallment: .repayment
         }
         return WalletEvent(
+            id: id,
             type: type,
             amountCents: command.amountCents,
             reason: command.reason,
