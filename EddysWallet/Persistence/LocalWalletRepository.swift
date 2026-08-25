@@ -126,7 +126,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             throw WalletAPIError.invalidResponse("Enter a valid weekly allowance.")
         }
         var candidate = try writableAggregate()
-        candidate.snapshot.allowance = AllowancePlan(remoteID: "local-allowance", amountCents: command.amountCents, cadence: "every week", weekday: command.weekday, nextDate: command.startDate, endDate: command.endDate, nextOccurrenceID: command.idempotencyKey, syncState: .recorded)
+        candidate.snapshot.allowance = try AllowancePlan(remoteID: "local-allowance", amountCents: command.amountCents, cadence: "every week", weekday: command.weekday, nextDate: command.startDate, endDate: command.endDate, nextOccurrenceID: command.idempotencyKey, syncState: .recorded)
         candidate.snapshot.lastUpdated = .now
         candidate.snapshot.isStale = false
         try persist(candidate)
@@ -143,7 +143,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         }
         var wallet = candidate.snapshot
         var settledAmountCents = command.amountCents
-        var settledDate = Date.now
+        let settledDate = Date.now
         // The service names an unlabelled installment "Loan payment", so every
         // authority puts the same words on the same accepted entry.
         let settledReason = command.kind == .loanInstallment
@@ -234,20 +234,15 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             guard plan.endDate.map({ plan.nextDate <= $0 }) ?? true else {
                 return .rejected(rejected(command, "There is no scheduled allowance occurrence to record."))
             }
-            guard let followingDate = calendar.date(byAdding: .day, value: 7, to: plan.nextDate) else {
+            guard let settled = try plan.recordingPayout(
+                amountCents: command.amountCents,
+                nextOccurrenceID: UUID().uuidString,
+                entryID: eventID,
+                calendar: calendar
+            ) else {
                 return .rejected(rejected(command, "The next allowance occurrence could not be scheduled."))
             }
-            wallet.allowance = AllowancePlan(
-                remoteID: plan.remoteID,
-                amountCents: plan.amountCents,
-                cadence: plan.cadence,
-                weekday: plan.weekday,
-                nextDate: followingDate,
-                endDate: plan.endDate,
-                nextOccurrenceID: UUID().uuidString,
-                syncState: plan.syncState,
-                isExhausted: plan.endDate.map { followingDate > $0 } ?? false
-            )
+            wallet.allowance = settled
             wallet.acceptedBalanceCents += command.amountCents
         }
         let event = WalletEvent(
@@ -427,7 +422,13 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         metadata.lastServerSync = .now
         metadata.cloudImportCompleted = true
         let existingEvents = merging && existingReplicaMatches ? (aggregate?.snapshot.activities ?? []) : []
-        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: existingEvents, fallbackNickname: fallbackNickname)
+        let existingAllowance = merging && existingReplicaMatches ? aggregate?.snapshot.allowance : nil
+        let snapshot = try CloudReplicaMapper.snapshot(
+            from: replica,
+            mergingInto: existingEvents,
+            existingAllowance: existingAllowance,
+            fallbackNickname: fallbackNickname
+        )
         let candidateMutation = mutation ?? metadata.unsettledCloudMutation
         let observed = candidateMutation?.isObserved(in: replica, mappedSnapshot: snapshot) == true
         if observed {
@@ -465,7 +466,13 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             let existingOccurrenceID = plan.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
             let nextOccurrenceID = isExhausted ? nil : (existingOccurrenceID ?? UUID().uuidString)
             if isExhausted != plan.isExhausted || nextOccurrenceID != plan.nextOccurrenceID {
-                aggregate.snapshot.allowance = AllowancePlan(
+                var occurrences = plan.occurrences.filter { $0.status != .scheduled }
+                if let nextOccurrenceID {
+                    occurrences.append(
+                        AllowancePlan.Occurrence(id: nextOccurrenceID, dueDate: plan.nextDate, status: .scheduled)
+                    )
+                }
+                aggregate.snapshot.allowance = try AllowancePlan(
                     remoteID: plan.remoteID,
                     amountCents: plan.amountCents,
                     cadence: plan.cadence,
@@ -474,7 +481,8 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
                     endDate: plan.endDate,
                     nextOccurrenceID: nextOccurrenceID,
                     syncState: plan.syncState,
-                    isExhausted: isExhausted
+                    isExhausted: isExhausted,
+                    occurrences: occurrences
                 )
                 try persist(aggregate)
             }

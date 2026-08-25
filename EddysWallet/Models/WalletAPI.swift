@@ -1318,7 +1318,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
               let nextDate = parseDate(allowance.nextDueDate ?? allowance.startDate) else {
             throw WalletAPIError.invalidResponse("The server returned an invalid allowance rule.")
         }
-        return AllowancePlan(
+        return try AllowancePlan(
             remoteID: allowance.id,
             amountCents: allowance.amountCents.value,
             cadence: "every week",

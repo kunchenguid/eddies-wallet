@@ -74,7 +74,7 @@ enum DebugLaunchScenario {
             let today = calendar.startOfDay(for: .now)
             let firstMissed = calendar.date(byAdding: .day, value: -21, to: today) ?? today
             var overdue = snapshot(.fixture(), environment: environment)
-            overdue.allowance = AllowancePlan(
+            overdue.allowance = try! AllowancePlan(
                 remoteID: "debug-allowance",
                 amountCents: 500,
                 cadence: "every week",

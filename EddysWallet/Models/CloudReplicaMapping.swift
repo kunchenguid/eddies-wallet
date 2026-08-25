@@ -23,8 +23,9 @@ enum CloudReplicaMapper {
     static func snapshot(
         from replica: CloudReplica,
         mergingInto existingEvents: [WalletEvent],
+        existingAllowance: AllowancePlan? = nil,
         fallbackNickname: String?
-    ) -> WalletSnapshot {
+    ) throws -> WalletSnapshot {
         let mapped = replica.entries.compactMap(event(from:))
         var byRemoteID: [String: WalletEvent] = [:]
         for event in existingEvents + mapped {
@@ -41,7 +42,13 @@ enum CloudReplicaMapper {
             acceptedBalanceCents: replica.wallet?.balanceCents ?? 0,
             activities: activities,
             loan: openLoan.map { loan(from: $0, occurrences: replica.loanOccurrences ?? []) },
-            allowance: replica.allowanceRule.flatMap(allowance(from:)),
+            allowance: try replica.allowanceRule.flatMap {
+                try allowance(
+                    from: $0,
+                    occurrences: replica.allowanceOccurrences,
+                    preserving: existingAllowance
+                )
+            },
             pendingEvents: [],
             lastUpdated: .now,
             isStale: false,
@@ -128,28 +135,110 @@ enum CloudReplicaMapper {
         )
     }
 
-    private static func allowance(from rule: CloudReplica.AllowanceRule) -> AllowancePlan? {
+    private static func allowance(
+        from rule: CloudReplica.AllowanceRule,
+        occurrences replicaOccurrences: [CloudReplica.CloudAllowanceOccurrence]?,
+        preserving existingPlan: AllowancePlan?
+    ) throws -> AllowancePlan? {
         guard rule.active != false, let startDate = rule.startDate.flatMap(CloudDayFormat.date(from:)) else { return nil }
-        // Prefer the service-owned chain head when the replica carries it.
-        // `/v1/cloud/changes` today omits it, so Cloud mode still overlays
-        // `GET /v1/allowance-rule`; a handoff persists that overlay onto the
-        // snapshot so local derivation never walks from the rule start date.
-        let chainHead: (date: Date, id: String)?
-        if let id = rule.nextOccurrenceID, !id.isEmpty,
-           let date = rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) {
-            chainHead = (date, id)
-        } else {
-            chainHead = nil
+        let rawOccurrences = replicaOccurrences ?? []
+        let explicitOccurrences = rawOccurrences
+            .compactMap { occurrence -> AllowancePlan.Occurrence? in
+                guard let dueDate = CloudDayFormat.date(from: occurrence.dueOn),
+                      let status = AllowancePlan.Occurrence.Status(rawValue: occurrence.status) else { return nil }
+                guard status != .recorded || occurrence.acceptedEntryID?.isEmpty == false else { return nil }
+                return AllowancePlan.Occurrence(
+                    id: occurrence.id,
+                    dueDate: dueDate,
+                    status: status,
+                    amountCents: occurrence.amountCents,
+                    entryID: occurrence.acceptedEntryID.map { stableID(for: $0) }
+                )
+            }
+            .sorted { left, right in
+                left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
+            }
+        guard explicitOccurrences.count == rawOccurrences.count else {
+            throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
         }
-        let nextDate = chainHead?.date ?? startDate
-        return AllowancePlan(
+        let preservedPlan = replicaOccurrences == nil && existingPlan?.remoteID == rule.id
+            ? existingPlan
+            : nil
+        let mappedOccurrences = replicaOccurrences == nil
+            ? (preservedPlan?.occurrences ?? [])
+            : explicitOccurrences
+        let ruleHeadID = rule.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
+        let ruleHeadDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:))
+        let hasAnyRuleHeadValue = rule.nextOccurrenceID != nil || rule.nextDueDate != nil
+        let hasCompleteRuleHead = ruleHeadID != nil && ruleHeadDate != nil
+        // A rule-only replica may still carry one half of its head. Suppress
+        // that incomplete projection, the way the pre-chain mapper did. An
+        // explicit occurrence array that also names a partial rule head is
+        // internally inconsistent and must not be persisted.
+        if replicaOccurrences != nil {
+            guard !hasAnyRuleHeadValue || hasCompleteRuleHead else {
+                throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
+            }
+        }
+        let ruleHead = hasCompleteRuleHead
+            ? ruleHeadID.flatMap { id in
+                ruleHeadDate.map { date in
+                    AllowancePlan.Occurrence(id: id, dueDate: date, status: .scheduled)
+                }
+            }
+            : nil
+        let replicaHead = mappedOccurrences.first(where: { $0.status == .scheduled })
+        if replicaOccurrences != nil, let replicaHead, let ruleHead {
+            guard replicaHead.id == ruleHead.id, replicaHead.dueDate == ruleHead.dueDate else {
+                throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
+            }
+        }
+        let chainHead: AllowancePlan.Occurrence?
+        if replicaOccurrences != nil {
+            chainHead = replicaHead ?? ruleHead
+        } else {
+            chainHead = ruleHead
+        }
+        let nextDate = chainHead?.dueDate ?? preservedPlan?.nextDate ?? startDate
+        let isExhausted: Bool
+        if replicaOccurrences != nil {
+            isExhausted = chainHead == nil && rule.nextOccurrenceID == nil && rule.nextDueDate == nil
+        } else if let preservedPlan, ruleHead == nil {
+            isExhausted = preservedPlan.isExhausted
+        } else {
+            isExhausted = false
+        }
+        let recordedOccurrences = mappedOccurrences.filter { $0.status != .scheduled }
+        let occurrences: [AllowancePlan.Occurrence]?
+        if replicaOccurrences != nil {
+            if isExhausted {
+                occurrences = mappedOccurrences
+            } else if replicaHead != nil {
+                occurrences = mappedOccurrences
+            } else if let chainHead {
+                occurrences = mappedOccurrences + [chainHead]
+            } else {
+                occurrences = mappedOccurrences
+            }
+        } else if isExhausted {
+            occurrences = recordedOccurrences
+        } else if let chainHead {
+            occurrences = recordedOccurrences + [chainHead]
+        } else {
+            // Incomplete or missing rule head: keep recorded rows and do not
+            // invent a scheduled occurrence through the nil-synthesis path.
+            occurrences = recordedOccurrences
+        }
+        return try AllowancePlan(
             remoteID: rule.id,
             amountCents: rule.amountCents,
             cadence: rule.cadence == "weekly" ? "every week" : (rule.cadence ?? "every week"),
             weekday: rule.weekday ?? 5,
             nextDate: nextDate,
             endDate: rule.endDate.flatMap(CloudDayFormat.date(from:)),
-            nextOccurrenceID: chainHead?.id
+            nextOccurrenceID: chainHead?.id,
+            isExhausted: isExhausted,
+            occurrences: occurrences
         )
     }
 }
@@ -311,10 +400,11 @@ enum CloudImportManifestBuilder {
         )
     }
 
-    /// Local authority stores only the next unrecorded occurrence, not a
-    /// separate original start date. A live plan sends that complete chain head;
-    /// an exhausted plan sends null head values. Cadence on the wire is the Cloud
-    /// `weekly` token so the imported rule matches `/v1/allowance-rule`.
+    /// Import intentionally sends only the allowance chain head on
+    /// `allowanceRule`, not the locally retained occurrence history. A live plan
+    /// sends that complete head; an exhausted plan sends null head values.
+    /// Cadence on the wire is the Cloud `weekly` token so the imported rule
+    /// matches `/v1/allowance-rule`.
     private static func allowanceRule(from plan: AllowancePlan?) throws -> CloudImportManifest.AllowanceRule? {
         guard let plan else { return nil }
         guard plan.isExhausted || plan.nextOccurrenceID?.isEmpty == false else {

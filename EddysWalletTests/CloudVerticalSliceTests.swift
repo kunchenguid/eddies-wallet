@@ -111,10 +111,22 @@ final class CloudVerticalSliceTests: XCTestCase {
         let first = try local.cloudImportManifest(familyName: "Test Kid's family", operationID: UUID())
         let repairedID = try XCTUnwrap(first.allowanceRule?.nextOccurrenceID)
         let second = try local.cloudImportManifest(familyName: "Test Kid's family", operationID: UUID())
+        let other = try LocalWalletRepository(
+            directory: directory.appendingPathComponent("other-wallet", isDirectory: true)
+        )
+        _ = try await other.setup(ParentSetup(nickname: "Other Kid"))
+        _ = try await other.setAllowance(
+            AllowanceRuleCommand(amountCents: 500, weekday: 5, startDate: nextDate, idempotencyKey: "")
+        )
+        let otherManifest = try other.cloudImportManifest(
+            familyName: "Other Kid's family",
+            operationID: UUID()
+        )
 
         XCTAssertFalse(repairedID.isEmpty)
         XCTAssertEqual(second.allowanceRule?.nextOccurrenceID, repairedID)
         XCTAssertEqual(local.snapshot().allowance?.nextOccurrenceID, repairedID)
+        XCTAssertNotEqual(otherManifest.allowanceRule?.nextOccurrenceID, repairedID)
         XCTAssertEqual(first.allowanceRule?.nextDueDate, CloudDayFormat.string(from: nextDate))
     }
 
@@ -131,14 +143,20 @@ final class CloudVerticalSliceTests: XCTestCase {
             )
         )
 
-        guard case .accepted = try await local.submit(
+        guard case .accepted(let event) = try await local.submit(
             WalletCommand(kind: .allowance, amountCents: 500, dueDate: today)
         ) else {
             return XCTFail("the final bounded allowance should be recorded")
         }
+        let plan = try XCTUnwrap(local.snapshot().allowance)
+        let finalOccurrence = try XCTUnwrap(plan.occurrences.last)
         let manifest = try local.cloudImportManifest(familyName: "Test Kid's family", operationID: UUID())
 
-        XCTAssertTrue(local.snapshot().allowance?.isExhausted == true)
+        XCTAssertTrue(plan.isExhausted)
+        XCTAssertNil(plan.nextOccurrenceID)
+        XCTAssertNil(plan.nextOccurrence)
+        XCTAssertEqual(finalOccurrence.status, .recorded)
+        XCTAssertEqual(finalOccurrence.entryID, event.id)
         XCTAssertNil(manifest.allowanceRule?.nextOccurrenceID)
         XCTAssertNil(manifest.allowanceRule?.nextDueDate)
     }
@@ -1197,6 +1215,99 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(transport.requests.filter { $0.url?.path == "/v1/allowance-rule" }.count, 2)
     }
 
+    func testParentRefreshPreservesRecordedAllowanceChainWhenChangesOmitsOccurrences() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let replica = CloudSliceFixtures.bootstrapWithAllowanceHistory(lineage: lineage)
+        let overlayDate = try XCTUnwrap(CloudDayFormat.date(from: "2026-08-21"))
+        transport.stub("GET", "/v1/cloud/bootstrap", replica)
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.allowanceChanges(
+                lineage: lineage,
+                revision: 3,
+                balanceCents: 1_250,
+                entryID: "incremental-allowance",
+                nextDueDate: overlayDate,
+                nextOccurrenceID: "changes-head"
+            )
+        )
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            CloudSliceFixtures.allowanceSchedule(dueDate: overlayDate, occurrenceID: "overlay-head")
+        )
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let refreshed = try await cloud.refresh(for: .parent)
+        let allowance = try XCTUnwrap(refreshed.allowance)
+        let recorded = try XCTUnwrap(allowance.occurrences.first { $0.id == "recorded-head" })
+
+        XCTAssertEqual(recorded.status, .recorded)
+        XCTAssertEqual(
+            recorded.entryID,
+            UUID(uuidString: "a2000000-0000-4000-8000-000000000003")
+        )
+        XCTAssertEqual(allowance.nextOccurrenceID, "overlay-head")
+        XCTAssertEqual(allowance.occurrences.filter { $0.status == .scheduled }.count, 1)
+    }
+
+    func testParentRefreshRejectsServiceHeadCollidingWithRecordedAllowance() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let replica = CloudSliceFixtures.bootstrapWithAllowanceHistory(lineage: lineage)
+        transport.stub("GET", "/v1/cloud/bootstrap", replica)
+        transport.stub("GET", "/v1/cloud/changes", replica)
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            CloudSliceFixtures.allowanceSchedule(
+                dueDate: try XCTUnwrap(CloudDayFormat.date(from: "2026-08-21")),
+                occurrenceID: "recorded-head"
+            )
+        )
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        do {
+            _ = try await cloud.refresh(for: .parent)
+            XCTFail("A colliding service head must fail the refresh")
+        } catch {}
+
+        XCTAssertEqual(cloud.snapshot().allowance?.nextOccurrenceID, "replica-head")
+    }
+
+    func testCloudToLocalHandoffRejectsServiceHeadCollidingWithRecordedAllowance() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let replica = CloudSliceFixtures.bootstrapWithAllowanceHistory(lineage: lineage)
+        transport.stub("GET", "/v1/cloud/bootstrap", replica)
+        transport.stub("GET", "/v1/cloud/changes", replica)
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            CloudSliceFixtures.allowanceSchedule(
+                dueDate: try XCTUnwrap(CloudDayFormat.date(from: "2026-08-21")),
+                occurrenceID: "recorded-head"
+            )
+        )
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        do {
+            _ = try await cloud.prepareForLocalHandoff()
+            XCTFail("A colliding service head must fail the handoff")
+        } catch {}
+
+        XCTAssertTrue(local.isCloudAuthority)
+        XCTAssertEqual(cloud.snapshot().allowance?.nextOccurrenceID, "replica-head")
+    }
+
     func testCloudToLocalHandoffUsesOverlayWhenChangesOmitsTheChainHead() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
@@ -1215,6 +1326,52 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(Calendar.current.startOfDay(for: try XCTUnwrap(local.snapshot().allowance?.nextDate)), today)
         XCTAssertTrue(local.snapshot().allowance?.missedPayouts().isEmpty == true)
         XCTAssertFalse(local.isCloudAuthority)
+    }
+
+    func testCloudToLocalHandoffRejectsStaleHeadWhenChangesOmitAdvancedChain() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let staleDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: Calendar.current.startOfDay(for: .now)))
+        transport.stub(
+            "GET",
+            "/v1/cloud/bootstrap",
+            CloudSliceFixtures.bootstrapWithAllowance(
+                lineage: lineage,
+                nextDueDate: CloudDayFormat.string(from: staleDate),
+                nextOccurrenceID: "stale-head"
+            )
+        )
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.allowanceChanges(
+                lineage: lineage,
+                revision: 3,
+                balanceCents: 1_250,
+                entryID: "other-device-allowance"
+            )
+        )
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            Data("""
+            {"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+             "startDate":"2026-07-01","endDate":null,"active":true,
+             "nextOccurrenceId":"advanced-head","nextDueDate":null}}
+            """.utf8)
+        )
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        XCTAssertEqual(cloud.snapshot().allowance?.nextOccurrenceID, "stale-head")
+
+        do {
+            _ = try await cloud.prepareForLocalHandoff()
+            XCTFail("handoff must not persist a stale head when the overlay is missing")
+        } catch {}
+
+        XCTAssertTrue(local.isCloudAuthority)
+        XCTAssertNotEqual(cloud.snapshot().allowance?.nextOccurrenceID, "stale-head")
     }
 
     /// Cloud-to-local handoff must keep the service-owned next occurrence.
@@ -1536,8 +1693,13 @@ final class CloudVerticalSliceTests: XCTestCase {
 
             _ = try await cloud.bootstrap()
 
-            XCTAssertNil(cloud.snapshot().allowance?.nextOccurrenceID)
-            XCTAssertEqual(cloud.snapshot().allowance?.nextDate, CloudDayFormat.date(from: "2026-07-01"))
+            let allowance = try XCTUnwrap(cloud.snapshot().allowance)
+            XCTAssertNil(allowance.nextOccurrenceID)
+            XCTAssertNil(allowance.nextOccurrence)
+            XCTAssertTrue(allowance.occurrences.filter { $0.status == .scheduled }.isEmpty)
+            XCTAssertEqual(allowance.nextDate, CloudDayFormat.date(from: "2026-07-01"))
+            XCTAssertTrue(allowance.missedPayouts().isEmpty)
+            XCTAssertNil(allowance.nextCurrentOrFuturePayout())
         }
     }
 
@@ -2862,8 +3024,8 @@ final class CloudVerticalSliceTests: XCTestCase {
         )
         let replica = try JSONDecoder.cloud.decode(CloudReplica.self, from: data)
 
-        let first = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
-        let second = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let first = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        let second = try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
 
         XCTAssertEqual(first.activities.first?.id, second.activities.first?.id)
         XCTAssertEqual(first.activities.first?.remoteID, "server-entry-not-a-uuid")
@@ -4690,6 +4852,28 @@ enum CloudSliceFixtures {
         rule += "}"
         let source = String(decoding: bootstrap(lineage: lineage), as: UTF8.self)
         return Data(source.replacingOccurrences(of: "\"allowanceRule\":null", with: "\"allowanceRule\":\(rule)").utf8)
+    }
+
+    static func bootstrapWithAllowanceHistory(lineage: UUID) -> Data {
+        let source = String(
+            decoding: bootstrapWithAllowance(
+                lineage: lineage,
+                nextDueDate: "2026-08-14",
+                nextOccurrenceID: "replica-head"
+            ),
+            as: UTF8.self
+        )
+        let occurrences = """
+        "allowanceOccurrences":[
+          {"id":"recorded-head","dueOn":"2026-08-07","status":"recorded","amountCents":500,
+           "acceptedEntryId":"a2000000-0000-4000-8000-000000000003"},
+          {"id":"replica-head","dueOn":"2026-08-14","status":"scheduled","amountCents":null,
+           "acceptedEntryId":null}],
+        """
+        return Data(source.replacingOccurrences(
+            of: "\"allowanceRule\":",
+            with: occurrences + "\"allowanceRule\":"
+        ).utf8)
     }
 
     static func bootstrapWithPartialAllowanceHead(lineage: UUID, nextDueDate: String?) -> Data {

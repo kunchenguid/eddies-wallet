@@ -34,10 +34,13 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     private var lastQueuedRead: Task<Void, Never>?
     private var mutationLifecycleGeneration = 0
     private var activeSettlement: ActiveSettlement?
-    /// `/v1/cloud/changes` contains the rule but not its pending occurrence.
-    /// This service-authoritative read gives parent presentation the actual
-    /// earliest due week instead of inferring it from activity timestamps.
+    /// `/v1/cloud/changes` may omit the pending occurrence even when it
+    /// carries the weekly rule. This service-authoritative read gives parent
+    /// presentation the actual earliest due week instead of inferring it from
+    /// activity timestamps. When the replica does carry `allowanceOccurrences`,
+    /// only a complete matching overlay replaces its live chain head.
     private var allowanceSchedule: CloudAllowanceSchedule.Rule?
+    private var allowanceScheduleOverlay: AllowancePlan?
     private var allowanceScheduleRevision: Int64?
     /// A persisted replica is readable immediately, but a new process may not
     /// write from it until one successful server read confirms its revision.
@@ -77,33 +80,10 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     public func snapshot() -> WalletSnapshot {
         guard hasValidReplica else { return .empty() }
         var snapshot = replica.snapshot()
-        if let plan = snapshot.allowance, let schedule = allowanceSchedule,
+        if let plan = snapshot.allowance, let overlay = allowanceScheduleOverlay,
            allowanceScheduleRevision == revision,
-           plan.remoteID == schedule.id, plan.amountCents == schedule.amountCents {
-            let nextDate = schedule.nextDueDate.flatMap(CloudDayFormat.date(from:))
-            if let nextDate, schedule.nextOccurrenceID?.isEmpty == false {
-                snapshot.allowance = AllowancePlan(
-                    remoteID: plan.remoteID,
-                    amountCents: plan.amountCents,
-                    cadence: plan.cadence,
-                    weekday: plan.weekday,
-                    nextDate: nextDate,
-                    endDate: plan.endDate,
-                    nextOccurrenceID: schedule.nextOccurrenceID,
-                    syncState: plan.syncState
-                )
-            } else if schedule.nextDueDate == nil, schedule.nextOccurrenceID == nil {
-                snapshot.allowance = AllowancePlan(
-                    remoteID: plan.remoteID,
-                    amountCents: plan.amountCents,
-                    cadence: plan.cadence,
-                    weekday: plan.weekday,
-                    nextDate: plan.nextDate,
-                    endDate: plan.endDate,
-                    syncState: plan.syncState,
-                    isExhausted: true
-                )
-            }
+           plan.remoteID == overlay.remoteID, plan.amountCents == overlay.amountCents {
+            snapshot.allowance = overlay
         }
         if let pending = activeMutation?.pendingEvent() {
             snapshot.pendingEvents = [pending]
@@ -229,6 +209,7 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 entries: entries,
                 loans: page.loans,
                 loanOccurrences: page.loanOccurrences,
+                allowanceOccurrences: page.allowanceOccurrences,
                 allowanceRule: page.allowanceRule,
                 nextCursor: nil
             )
@@ -255,18 +236,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
 
                     if hasAllowancePlan {
                         let response = try await client.allowanceSchedule()
-                        guard let rule = response.allowanceRule,
-                              rule.active,
-                              let plan = replica.snapshot().allowance,
-                              plan.remoteID == rule.id,
-                              plan.amountCents == rule.amountCents else {
+                        guard let rule = response.allowanceRule, rule.active else {
                             throw WalletAPIError.invalidResponse("Cloud did not provide a current allowance schedule.")
-                        }
-                        let hasCompleteHead = rule.nextOccurrenceID?.isEmpty == false
-                            && rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) != nil
-                        let isExhausted = rule.nextOccurrenceID == nil && rule.nextDueDate == nil
-                        guard hasCompleteHead || isExhausted else {
-                            throw WalletAPIError.invalidResponse("Cloud did not provide a valid allowance schedule.")
                         }
                         candidateSchedule = rule
                     }
@@ -279,13 +250,22 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                         allowanceScheduleRevision = nil
                         continue
                     }
+                    let candidateOverlay = try candidateSchedule.flatMap { try validatedAllowanceOverlay(for: $0) }
+                    if hasAllowancePlan {
+                        guard candidateOverlay != nil else {
+                            throw WalletAPIError.invalidResponse("Cloud did not provide a current allowance schedule.")
+                        }
+                    }
                     allowanceSchedule = candidateSchedule
+                    allowanceScheduleOverlay = candidateOverlay
                     allowanceScheduleRevision = candidateSchedule == nil ? nil : candidateRevision
                     return snapshot()
                 }
+                allowanceScheduleOverlay = nil
                 allowanceScheduleRevision = nil
                 throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(revision)
             } catch {
+                allowanceScheduleOverlay = nil
                 allowanceScheduleRevision = nil
                 if observedAnAnswer(error) { confirmedRevision = nil }
                 throw error
@@ -593,12 +573,18 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             do {
                 let schedule = try await client.allowanceSchedule()
                 guard revision == requestedRevision, confirmedRevision == requestedRevision else {
+                    allowanceScheduleOverlay = nil
                     allowanceScheduleRevision = nil
                     throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(requestedRevision)
                 }
-                allowanceSchedule = schedule.allowanceRule
+                guard let rule = schedule.allowanceRule, rule.active else {
+                    throw WalletAPIError.invalidResponse("Cloud did not provide a current allowance schedule.")
+                }
+                allowanceSchedule = rule
+                allowanceScheduleOverlay = try validatedAllowanceOverlay(for: rule)
                 allowanceScheduleRevision = requestedRevision
             } catch {
+                allowanceScheduleOverlay = nil
                 allowanceScheduleRevision = nil
                 if revision == requestedRevision, confirmedRevision == requestedRevision {
                     confirmedRevision = nil
@@ -606,6 +592,32 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                 throw error
             }
         }
+    }
+
+    private func validatedAllowanceOverlay(
+        for rule: CloudAllowanceSchedule.Rule
+    ) throws -> AllowancePlan? {
+        guard let plan = replica.snapshot().allowance,
+              plan.remoteID == rule.id,
+              plan.amountCents == rule.amountCents else {
+            return nil
+        }
+        let nextDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:))
+        let hasCompleteHead = rule.nextOccurrenceID?.isEmpty == false && nextDate != nil
+        let isExhausted = rule.nextOccurrenceID == nil && rule.nextDueDate == nil
+        if isExhausted {
+            return try plan.applyingServiceHead(
+                nextDate: plan.nextDate,
+                nextOccurrenceID: nil,
+                isExhausted: true
+            )
+        }
+        guard hasCompleteHead else { return nil }
+        return try plan.applyingServiceHead(
+            nextDate: nextDate,
+            nextOccurrenceID: rule.nextOccurrenceID,
+            isExhausted: false
+        )
     }
 
     private func performNonMoneyMutation(_ mutation: PendingCloudMutation) async throws -> WalletSnapshot {
@@ -900,6 +912,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         )
         revision = replicaPayload.household.revision
         confirmedRevision = replicaPayload.household.revision
+        allowanceScheduleOverlay = nil
+        allowanceScheduleRevision = nil
         if observed {
             activeMutation = nil
         } else {
