@@ -257,9 +257,22 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
 
                     let verification = try await client.changes(afterRevision: candidateRevision)
                     try apply(verification, merging: true)
-                    guard revision == candidateRevision, confirmedRevision == candidateRevision else {
+                    guard verification.household.revision == candidateRevision,
+                          revision == candidateRevision,
+                          confirmedRevision == candidateRevision else {
                         allowanceScheduleRevision = nil
                         continue
+                    }
+                    if let candidateSchedule {
+                        guard let revisionedRule = verification.allowanceRule,
+                              revisionedRule.active != false,
+                              revisionedRule.id == candidateSchedule.id,
+                              revisionedRule.amountCents == candidateSchedule.amountCents,
+                              revisionedRule.nextOccurrenceID == candidateSchedule.nextOccurrenceID,
+                              revisionedRule.nextDueDate == candidateSchedule.nextDueDate else {
+                            allowanceScheduleRevision = nil
+                            continue
+                        }
                     }
 
                     allowanceSchedule = candidateSchedule

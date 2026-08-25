@@ -1111,12 +1111,26 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.enqueue(
             "GET",
             "/v1/cloud/changes",
-            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "other-device-allowance")
+            CloudSliceFixtures.allowanceChanges(
+                lineage: lineage,
+                revision: 3,
+                balanceCents: 1_250,
+                entryID: "other-device-allowance",
+                nextDueDate: today,
+                nextOccurrenceID: "revision-3-head"
+            )
         )
         transport.enqueue(
             "GET",
             "/v1/cloud/changes",
-            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "other-device-allowance")
+            CloudSliceFixtures.allowanceChanges(
+                lineage: lineage,
+                revision: 3,
+                balanceCents: 1_250,
+                entryID: "other-device-allowance",
+                nextDueDate: today,
+                nextOccurrenceID: "revision-3-head"
+            )
         )
         transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "revision-3-head"))
         let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
@@ -1131,6 +1145,39 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(Calendar.current.startOfDay(for: try XCTUnwrap(local.snapshot().allowance?.nextDate)), today)
         XCTAssertFalse(local.isCloudAuthority)
         XCTAssertGreaterThanOrEqual(transport.requests.filter { $0.url?.path == "/v1/allowance-rule" }.count, 2)
+    }
+
+    func testCloudToLocalHandoffRefusesAnUncorrelatedNewerSchedule() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let today = Calendar.current.startOfDay(for: .now)
+        let staleDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: today))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.bootstrapWithAllowance(
+                lineage: lineage,
+                nextDueDate: CloudDayFormat.string(from: staleDate),
+                nextOccurrenceID: "revision-2-head"
+            )
+        )
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "revision-3-head"))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        do {
+            _ = try await cloud.prepareForLocalHandoff()
+            XCTFail("a schedule that cannot be correlated with the replica revision must block handoff")
+        } catch let error as WalletAPIError {
+            guard case .revisionRequired = error.operationError else {
+                return XCTFail("an uncorrelated schedule should require another current replica")
+            }
+        }
+
+        XCTAssertTrue(local.isCloudAuthority)
+        XCTAssertEqual(local.snapshot().allowance?.nextOccurrenceID, "revision-2-head")
     }
 
     /// Cloud-to-local handoff must keep the service-owned next occurrence.
@@ -1201,7 +1248,14 @@ final class CloudVerticalSliceTests: XCTestCase {
         transport.stub(
             "GET",
             "/v1/cloud/changes",
-            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 5, balanceCents: 2_250, entryID: "allowance-3")
+            CloudSliceFixtures.allowanceChanges(
+                lineage: lineage,
+                revision: 5,
+                balanceCents: 2_250,
+                entryID: "allowance-3",
+                nextDueDate: today,
+                nextOccurrenceID: "o-today"
+            )
         )
         transport.stub(
             "GET",
@@ -4341,15 +4395,23 @@ enum CloudSliceFixtures {
         lineage: UUID,
         revision: Int64,
         balanceCents: Int,
-        entryID: String
+        entryID: String,
+        nextDueDate: Date? = nil,
+        nextOccurrenceID: String? = nil
     ) -> Data {
-        Data("""
+        let chainHead: String
+        if let nextDueDate, let nextOccurrenceID {
+            chainHead = ",\"nextOccurrenceId\":\"\(nextOccurrenceID)\",\"nextDueDate\":\"\(CloudDayFormat.string(from: nextDueDate))\""
+        } else {
+            chainHead = ""
+        }
+        return Data("""
         {"household":{"lineageId":"\(lineage.uuidString.lowercased())","authority":"cloud","revision":\(revision)},
          "family":{"id":"f-1","name":"Test Kid's family"},
          "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
          "wallet":{"id":"w-1","balanceCents":\(balanceCents)},
          "entries":[{"id":"\(entryID)","type":"allowance","direction":"credit","amountCents":500,"balanceBeforeCents":\(balanceCents - 500),"balanceAfterCents":\(balanceCents),"reason":null,"loanId":null,"recordedAt":"2026-08-01T12:00:00.000Z","acceptedRevision":\(revision)}],
-         "loans":[],"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,"startDate":"2026-07-01","endDate":null,"active":true}}
+         "loans":[],"allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,"startDate":"2026-07-01","endDate":null,"active":true\(chainHead)}}
         """.utf8)
     }
 
