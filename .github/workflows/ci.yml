@@ -161,9 +161,14 @@ jobs:
           - name: behavior
             test_filter: EddysWalletUITests/EddysWalletUITests
             artifact: ui-behavior
+            command_timeout_seconds: 1800
           - name: evidence
             test_filter: EddysWalletUITests/EvidenceCaptureUITests
             artifact: ui-evidence
+            # This screenshot-heavy class regularly takes more than 20 minutes
+            # on hosted runners. Keep a bounded margin below the 45-minute job
+            # timeout instead of racing sim.sh's default 30-minute watchdog.
+            command_timeout_seconds: 2400
 
     env:
       PROJECT_PATH: EddysWallet.xcodeproj
@@ -204,6 +209,8 @@ jobs:
       # classes execute in parallel, while sim.sh still disables Xcode's own
       # unbounded worker fan-out inside each managed simulator.
       - name: UI tests
+        env:
+          EW_SIM_COMMAND_TIMEOUT_SECS: ${{ matrix.command_timeout_seconds }}
         run: |
           ./test/sim.sh --device "iPhone 17 Pro" --device "iPhone 17" -- \
             xcodebuild test \
