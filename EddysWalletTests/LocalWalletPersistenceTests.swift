@@ -112,12 +112,13 @@ final class LocalWalletPersistenceTests: XCTestCase {
         )
     }
 
-    func testAllowancePlanDecodingKeepsOnlyTheNamedScheduledHead() throws {
-        let calendar = Calendar.current
-        let firstDate = calendar.startOfDay(for: .now)
-        let secondDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstDate))
-        let dayAfterFirst = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: firstDate))
-        let thirdDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: secondDate))
+    func testAllowancePlanRejectsMultipleScheduledOccurrences() throws {
+        let firstDate = Calendar.current.startOfDay(for: .now)
+        let secondDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: 7, to: firstDate))
+        let occurrences: [AllowancePlan.Occurrence] = [
+            .init(id: "stale-head", dueDate: firstDate, status: .scheduled),
+            .init(id: "current-head", dueDate: secondDate, status: .scheduled),
+        ]
         struct EncodedAllowance: Encodable {
             let amountCents: Int
             let cadence: String
@@ -127,37 +128,64 @@ final class LocalWalletPersistenceTests: XCTestCase {
             let syncState: SyncState
             let occurrences: [AllowancePlan.Occurrence]
         }
-        let data = try JSONEncoder().encode(
-            EncodedAllowance(
+        let encoded = EncodedAllowance(
+            amountCents: 500,
+            cadence: "every week",
+            weekday: 5,
+            nextDate: secondDate,
+            nextOccurrenceID: "current-head",
+            syncState: .recorded,
+            occurrences: occurrences
+        )
+
+        XCTAssertThrowsError(
+            try AllowancePlan(
                 amountCents: 500,
                 cadence: "every week",
-                weekday: 5,
-                nextDate: firstDate,
+                nextDate: secondDate,
                 nextOccurrenceID: "current-head",
-                syncState: .recorded,
-                occurrences: [
-                    .init(id: "stale-head", dueDate: firstDate, status: .scheduled),
-                    .init(id: "current-head", dueDate: secondDate, status: .scheduled),
-                ]
+                occurrences: occurrences
             )
         )
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(AllowancePlan.self, from: JSONEncoder().encode(encoded))
+        )
+    }
 
-        let plan = try JSONDecoder().decode(AllowancePlan.self, from: data)
+    func testAllowancePlanRejectsRecordedOccurrenceWithoutEntry() throws {
+        let dueDate = Calendar.current.startOfDay(for: .now)
+        let occurrences: [AllowancePlan.Occurrence] = [
+            .init(id: "recorded", dueDate: dueDate, status: .recorded, amountCents: 500),
+        ]
+        struct EncodedAllowance: Encodable {
+            let amountCents: Int
+            let cadence: String
+            let weekday: Int
+            let nextDate: Date
+            let syncState: SyncState
+            let occurrences: [AllowancePlan.Occurrence]
+        }
+        let encoded = EncodedAllowance(
+            amountCents: 500,
+            cadence: "every week",
+            weekday: 5,
+            nextDate: dueDate,
+            syncState: .recorded,
+            occurrences: occurrences
+        )
 
-        XCTAssertEqual(plan.occurrences.map(\.id), ["current-head"])
-        XCTAssertEqual(plan.nextOccurrence?.id, "current-head")
-        XCTAssertEqual(plan.nextDate, secondDate)
-        XCTAssertTrue(plan.missedPayouts(asOf: dayAfterFirst, calendar: calendar).isEmpty)
-        XCTAssertEqual(plan.occurrences.filter { $0.status == .scheduled }.count, 1)
-        let recorded = try XCTUnwrap(
-            plan.recordingPayout(
+        XCTAssertThrowsError(
+            try AllowancePlan(
                 amountCents: 500,
-                nextOccurrenceID: "following-head",
-                entryID: UUID(),
-                calendar: calendar
+                cadence: "every week",
+                nextDate: dueDate,
+                isExhausted: true,
+                occurrences: occurrences
             )
         )
-        XCTAssertEqual(recorded.nextDate, thirdDate)
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(AllowancePlan.self, from: JSONEncoder().encode(encoded))
+        )
     }
 
     func testAllowancePlanRejectsDuplicateOccurrenceIDs() throws {
@@ -197,23 +225,44 @@ final class LocalWalletPersistenceTests: XCTestCase {
             try JSONDecoder().decode(AllowancePlan.self, from: JSONEncoder().encode(encoded))
         )
 
-        let directPlan = AllowancePlan(
+        XCTAssertThrowsError(
+            try AllowancePlan(
+                amountCents: 500,
+                cadence: "every week",
+                nextDate: secondDate,
+                nextOccurrenceID: "duplicate",
+                occurrences: encoded.occurrences
+            )
+        )
+    }
+
+    func testAllowancePlanRejectsServiceHeadCollidingWithRecordedOccurrence() throws {
+        let firstDate = Calendar.current.startOfDay(for: .now)
+        let secondDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: 7, to: firstDate))
+        let plan = try AllowancePlan(
             amountCents: 500,
             cadence: "every week",
             nextDate: secondDate,
-            nextOccurrenceID: "duplicate",
-            occurrences: encoded.occurrences
+            nextOccurrenceID: "current-head",
+            occurrences: [
+                .init(
+                    id: "recorded",
+                    dueDate: firstDate,
+                    status: .recorded,
+                    amountCents: 500,
+                    entryID: UUID()
+                ),
+                .init(id: "current-head", dueDate: secondDate, status: .scheduled),
+            ]
         )
-        XCTAssertNil(
-            directPlan.recordingPayout(
-                amountCents: 500,
-                nextOccurrenceID: "following-head",
-                entryID: UUID(),
-                calendar: calendar
+
+        XCTAssertThrowsError(
+            try plan.applyingServiceHead(
+                nextDate: secondDate,
+                nextOccurrenceID: "recorded",
+                isExhausted: false
             )
         )
-        XCTAssertEqual(directPlan.occurrences.first?.entryID, entryID)
-        XCTAssertEqual(directPlan.nextOccurrence?.dueDate, secondDate)
     }
 
     func testMockAllowanceRecordingLinksOccurrenceToAcceptedEvent() async throws {
@@ -223,7 +272,7 @@ final class LocalWalletPersistenceTests: XCTestCase {
                 acceptedBalanceCents: 0,
                 activities: [],
                 loan: nil,
-                allowance: AllowancePlan(
+                allowance: try AllowancePlan(
                     amountCents: 500,
                     cadence: "every week",
                     weekday: 5,
@@ -257,7 +306,7 @@ final class LocalWalletPersistenceTests: XCTestCase {
                 acceptedBalanceCents: 100,
                 activities: [],
                 loan: nil,
-                allowance: AllowancePlan(
+                allowance: try AllowancePlan(
                     amountCents: 500,
                     cadence: "every week",
                     weekday: 5,

@@ -790,7 +790,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         syncState: SyncState = .recorded,
         isExhausted: Bool = false,
         occurrences: [Occurrence]? = nil
-    ) {
+    ) throws {
         self.remoteID = remoteID
         self.amountCents = amountCents
         self.cadence = cadence
@@ -798,7 +798,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         self.endDate = endDate
         self.syncState = syncState
         self.isExhausted = isExhausted
-        let normalizedOccurrences = Self.normalizedOccurrences(
+        let normalizedOccurrences = try Self.normalizedOccurrences(
             occurrences,
             nextDate: nextDate,
             nextOccurrenceID: nextOccurrenceID,
@@ -817,16 +817,15 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         nextDate: Date,
         nextOccurrenceID: String?,
         isExhausted: Bool
-    ) -> [Occurrence] {
+    ) throws -> [Occurrence] {
         if let occurrences, !occurrences.isEmpty {
-            let ordered = occurrences.sorted { left, right in
-                left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
+            guard occurrences.filter({ $0.status == .scheduled }).count <= 1,
+                  occurrences.allSatisfy({ $0.status != .recorded || $0.entryID != nil }),
+                  Set(occurrences.map(\.id)).count == occurrences.count else {
+                throw WalletAPIError.invalidResponse("The allowance occurrence chain is invalid.")
             }
-            let scheduledHeadIndex = nextOccurrenceID.flatMap { nextOccurrenceID in
-                ordered.firstIndex { $0.status == .scheduled && $0.id == nextOccurrenceID }
-            } ?? ordered.firstIndex { $0.status == .scheduled }
-            return ordered.enumerated().compactMap { index, occurrence in
-                occurrence.status != .scheduled || index == scheduledHeadIndex ? occurrence : nil
+            return occurrences.sorted { left, right in
+                left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
             }
         }
         guard !isExhausted else { return [] }
@@ -841,13 +840,6 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let occurrences = try container.decodeIfPresent([Occurrence].self, forKey: .occurrences)
-        if let occurrences, Set(occurrences.map(\.id)).count != occurrences.count {
-            throw DecodingError.dataCorruptedError(
-                forKey: .occurrences,
-                in: container,
-                debugDescription: "Allowance occurrence IDs must be unique."
-            )
-        }
         try self.init(
             remoteID: container.decodeIfPresent(String.self, forKey: .remoteID),
             amountCents: container.decode(Int.self, forKey: .amountCents),
@@ -904,12 +896,11 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     public func recordingPayout(
         amountCents: Int,
         nextOccurrenceID: String,
-        entryID: UUID? = nil,
+        entryID: UUID,
         calendar: Calendar = .current
-    ) -> AllowancePlan? {
+    ) throws -> AllowancePlan? {
         guard !isExhausted, nextOccurrence != nil else { return nil }
         guard amountCents == self.amountCents else { return nil }
-        guard Set(occurrences.map(\.id)).count == occurrences.count else { return nil }
         var occurrences = self.occurrences
         guard let index = occurrences.firstIndex(where: { $0.status == .scheduled }) else { return nil }
         let occurrence = occurrences[index]
@@ -925,7 +916,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         if !exhausted {
             occurrences.append(Occurrence(id: nextOccurrenceID, dueDate: followingDate, status: .scheduled))
         }
-        return AllowancePlan(
+        return try AllowancePlan(
             remoteID: remoteID,
             amountCents: self.amountCents,
             cadence: cadence,
@@ -945,10 +936,10 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         nextDate: Date?,
         nextOccurrenceID: String?,
         isExhausted: Bool
-    ) -> AllowancePlan {
+    ) throws -> AllowancePlan {
         let recorded = occurrences.filter { $0.status != .scheduled }
         if isExhausted {
-            return AllowancePlan(
+            return try AllowancePlan(
                 remoteID: remoteID,
                 amountCents: amountCents,
                 cadence: cadence,
@@ -962,7 +953,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
             )
         }
         guard let nextDate, let nextOccurrenceID, !nextOccurrenceID.isEmpty else { return self }
-        return AllowancePlan(
+        return try AllowancePlan(
             remoteID: remoteID,
             amountCents: amountCents,
             cadence: cadence,
@@ -1039,7 +1030,7 @@ public struct WalletSnapshot: Hashable, Codable, Sendable {
                 WalletEvent(type: .allowance, amountCents: 1_000, reason: "Weekly", date: allowanceDate, explanation: "Your parent added US$10.00 as your weekly allowance.")
             ],
             loan: Loan(originalCents: 1_000, remainingCents: 600, purpose: "Bike helmet", dueDate: dueDate),
-            allowance: AllowancePlan(amountCents: 1_000, cadence: "every Friday", nextDate: calendar.date(byAdding: .day, value: 5, to: now) ?? now),
+            allowance: try! AllowancePlan(amountCents: 1_000, cadence: "every Friday", nextDate: calendar.date(byAdding: .day, value: 5, to: now) ?? now),
             pendingEvents: [
                 WalletEvent(type: .deposit, amountCents: 500, reason: "Birthday practice", syncState: .pending, explanation: "This parent action is waiting to sync. It is not included in the accepted balance."),
                 WalletEvent(type: .withdrawal, amountCents: 3_000, reason: "New bicycle", syncState: .rejected, explanation: "This withdrawal was not recorded because it is greater than the accepted wallet balance.", rejectionReason: "The amount is greater than the accepted balance.")
@@ -1355,7 +1346,7 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
 
     public func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {
         guard command.amountCents > 0 else { return current }
-        current.allowance = AllowancePlan(
+        current.allowance = try AllowancePlan(
             amountCents: command.amountCents,
             cadence: "every week",
             weekday: command.weekday,
@@ -1423,7 +1414,7 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
                 guard command.amountCents == allowance.amountCents else {
                     return .rejected(makeEvent(for: command, state: .rejected, explanation: "This allowance was not recorded.", rejectionReason: "The allowance amount no longer matches the weekly plan."))
                 }
-                guard let settled = allowance.recordingPayout(
+                guard let settled = try allowance.recordingPayout(
                     amountCents: command.amountCents,
                     nextOccurrenceID: UUID().uuidString,
                     entryID: acceptedEventID

@@ -84,17 +84,21 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
            plan.remoteID == schedule.id, plan.amountCents == schedule.amountCents {
             let nextDate = schedule.nextDueDate.flatMap(CloudDayFormat.date(from:))
             if let nextDate, schedule.nextOccurrenceID?.isEmpty == false {
-                snapshot.allowance = plan.applyingServiceHead(
+                if let applied = try? plan.applyingServiceHead(
                     nextDate: nextDate,
                     nextOccurrenceID: schedule.nextOccurrenceID,
                     isExhausted: false
-                )
+                ) {
+                    snapshot.allowance = applied
+                }
             } else if schedule.nextDueDate == nil, schedule.nextOccurrenceID == nil {
-                snapshot.allowance = plan.applyingServiceHead(
+                if let applied = try? plan.applyingServiceHead(
                     nextDate: plan.nextDate,
                     nextOccurrenceID: nil,
                     isExhausted: true
-                )
+                ) {
+                    snapshot.allowance = applied
+                }
             }
         }
         if let pending = activeMutation?.pendingEvent() {

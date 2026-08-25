@@ -936,7 +936,7 @@ final class CloudContractTests: XCTestCase {
                 )
             ],
             loan: nil,
-            allowance: AllowancePlan(
+            allowance: try AllowancePlan(
                 remoteID: "local-allowance",
                 amountCents: 500,
                 cadence: "every week",
@@ -1048,6 +1048,56 @@ final class CloudContractTests: XCTestCase {
         )
     }
 
+    func testReplicaRejectsRecordedAllowanceOccurrenceWithEmptyAcceptedEntry() throws {
+        let replica = try JSONDecoder.cloud.decode(
+            CloudReplica.self,
+            from: Data("""
+            {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":4},
+             "family":{"id":"f-1","name":"Test Kid's family"},
+             "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+             "wallet":{"id":"w-1","balanceCents":1000},
+             "entries":[],"loans":[],
+             "allowanceOccurrences":[
+               {"id":"o-paid","dueOn":"2026-08-07","status":"recorded","amountCents":500,
+                "acceptedEntryId":""}
+             ],
+             "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+              "startDate":"2026-07-01","endDate":null,"active":true,
+              "nextOccurrenceId":"o-head","nextDueDate":"2026-08-14"}}
+            """.utf8)
+        )
+
+        XCTAssertThrowsError(
+            try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        )
+    }
+
+    func testReplicaRejectsMultipleScheduledAllowanceOccurrences() throws {
+        let replica = try JSONDecoder.cloud.decode(
+            CloudReplica.self,
+            from: Data("""
+            {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":4},
+             "family":{"id":"f-1","name":"Test Kid's family"},
+             "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+             "wallet":{"id":"w-1","balanceCents":1000},
+             "entries":[],"loans":[],
+             "allowanceOccurrences":[
+               {"id":"stale-head","dueOn":"2026-08-07","status":"scheduled","amountCents":null,
+                "acceptedEntryId":null},
+               {"id":"current-head","dueOn":"2026-08-14","status":"scheduled","amountCents":null,
+                "acceptedEntryId":null}
+             ],
+             "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+              "startDate":"2026-07-01","endDate":null,"active":true,
+              "nextOccurrenceId":"current-head","nextDueDate":"2026-08-14"}}
+            """.utf8)
+        )
+
+        XCTAssertThrowsError(
+            try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        )
+    }
+
     func testReplicaRejectsIncompleteRuleHeadAfterRecordedAllowanceHistory() throws {
         let replica = try JSONDecoder.cloud.decode(
             CloudReplica.self,
@@ -1122,7 +1172,11 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(plan.occurrences.map(\.status), [.recorded, .scheduled])
         XCTAssertEqual(plan.nextOccurrence?.id, "o-head")
         XCTAssertNotNil(
-            plan.recordingPayout(amountCents: 500, nextOccurrenceID: "following-head")
+            try plan.recordingPayout(
+                amountCents: 500,
+                nextOccurrenceID: "following-head",
+                entryID: UUID()
+            )
         )
     }
 
@@ -1141,7 +1195,7 @@ final class CloudContractTests: XCTestCase {
                 )
             ],
             loan: nil,
-            allowance: AllowancePlan(
+            allowance: try AllowancePlan(
                 remoteID: "local-allowance",
                 amountCents: 500,
                 cadence: "every week",

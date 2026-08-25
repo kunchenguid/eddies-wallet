@@ -126,7 +126,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             throw WalletAPIError.invalidResponse("Enter a valid weekly allowance.")
         }
         var candidate = try writableAggregate()
-        candidate.snapshot.allowance = AllowancePlan(remoteID: "local-allowance", amountCents: command.amountCents, cadence: "every week", weekday: command.weekday, nextDate: command.startDate, endDate: command.endDate, nextOccurrenceID: command.idempotencyKey, syncState: .recorded)
+        candidate.snapshot.allowance = try AllowancePlan(remoteID: "local-allowance", amountCents: command.amountCents, cadence: "every week", weekday: command.weekday, nextDate: command.startDate, endDate: command.endDate, nextOccurrenceID: command.idempotencyKey, syncState: .recorded)
         candidate.snapshot.lastUpdated = .now
         candidate.snapshot.isStale = false
         try persist(candidate)
@@ -234,7 +234,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             guard plan.endDate.map({ plan.nextDate <= $0 }) ?? true else {
                 return .rejected(rejected(command, "There is no scheduled allowance occurrence to record."))
             }
-            guard let settled = plan.recordingPayout(
+            guard let settled = try plan.recordingPayout(
                 amountCents: command.amountCents,
                 nextOccurrenceID: UUID().uuidString,
                 entryID: eventID,
@@ -466,7 +466,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
                         AllowancePlan.Occurrence(id: nextOccurrenceID, dueDate: plan.nextDate, status: .scheduled)
                     )
                 }
-                aggregate.snapshot.allowance = AllowancePlan(
+                aggregate.snapshot.allowance = try AllowancePlan(
                     remoteID: plan.remoteID,
                     amountCents: plan.amountCents,
                     cadence: plan.cadence,

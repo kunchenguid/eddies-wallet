@@ -139,7 +139,7 @@ enum CloudReplicaMapper {
             .compactMap { occurrence -> AllowancePlan.Occurrence? in
                 guard let dueDate = CloudDayFormat.date(from: occurrence.dueOn),
                       let status = AllowancePlan.Occurrence.Status(rawValue: occurrence.status) else { return nil }
-                guard status != .recorded || occurrence.acceptedEntryID != nil else { return nil }
+                guard status != .recorded || occurrence.acceptedEntryID?.isEmpty == false else { return nil }
                 return AllowancePlan.Occurrence(
                     id: occurrence.id,
                     dueDate: dueDate,
@@ -151,8 +151,7 @@ enum CloudReplicaMapper {
             .sorted { left, right in
                 left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
             }
-        guard mappedOccurrences.count == replicaOccurrences.count,
-              Set(mappedOccurrences.map(\.id)).count == mappedOccurrences.count else {
+        guard mappedOccurrences.count == replicaOccurrences.count else {
             throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
         }
         // Prefer the replica's occurrence chain when the service sent it.
@@ -198,10 +197,7 @@ enum CloudReplicaMapper {
         } else {
             occurrences = nil
         }
-        if let occurrences, Set(occurrences.map(\.id)).count != occurrences.count {
-            throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
-        }
-        return AllowancePlan(
+        return try AllowancePlan(
             remoteID: rule.id,
             amountCents: rule.amountCents,
             cadence: rule.cadence == "weekly" ? "every week" : (rule.cadence ?? "every week"),
