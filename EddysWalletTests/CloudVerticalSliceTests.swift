@@ -179,7 +179,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(importRequest.value(forHTTPHeaderField: "Idempotency-Key"), "cloud-import-\(reserved.uuidString.lowercased())")
     }
 
-    func testUnresolvedActivationFreezesAutoSettlementAndReplaysExactManifest() async throws {
+    func testUnresolvedActivationFreezesLocalMutationsAndReplaysExactManifest() async throws {
         let local = try LocalWalletRepository(directory: directory)
         _ = try await local.setup(ParentSetup(nickname: "Test Kid"))
         let calendar = Calendar.current
@@ -216,9 +216,31 @@ final class CloudVerticalSliceTests: XCTestCase {
             try await coordinator.activateCloud(from: local, familyName: "Test Kid's family")
         }
         await transport.waitUntilSuspended()
+        do {
+            _ = try await local.submit(WalletCommand(kind: .deposit, amountCents: 100))
+            XCTFail("an in-flight import must block money changes")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+        }
+        do {
+            _ = try await local.setAllowance(
+                AllowanceRuleCommand(amountCents: 900, weekday: 1, startDate: today)
+            )
+            XCTFail("an in-flight import must block schedule changes")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+        }
+        do {
+            _ = try await local.updateChildProfile(ChildProfileUpdate(nickname: "Changed Kid"))
+            XCTFail("an in-flight import must block profile changes")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+        }
         await local.applyDueScheduledSettlements()
         XCTAssertEqual(local.snapshot().acceptedBalanceCents, 0)
         XCTAssertTrue(local.snapshot().activities.isEmpty)
+        XCTAssertEqual(local.snapshot().allowance?.amountCents, 500)
+        XCTAssertEqual(local.snapshot().childNickname, "Test Kid")
 
         transport.resumeSuspendedRequest()
         do {
@@ -228,6 +250,12 @@ final class CloudVerticalSliceTests: XCTestCase {
         let firstRequest = try XCTUnwrap(transport.requests.first { $0.url?.path == "/v1/cloud/household/import" })
 
         let relaunched = try LocalWalletRepository(directory: directory)
+        do {
+            _ = try await relaunched.submit(WalletCommand(kind: .deposit, amountCents: 100))
+            XCTFail("an unresolved import must block money changes after relaunch")
+        } catch {
+            XCTAssertEqual(error as? WalletAPIError, .cloudMutationAwaitingReconciliation)
+        }
         await relaunched.applyDueScheduledSettlements()
         XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 0)
         XCTAssertTrue(relaunched.snapshot().activities.isEmpty)

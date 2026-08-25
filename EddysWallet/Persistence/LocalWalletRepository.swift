@@ -394,7 +394,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     }
 
     func cancelCloudImportTransition(operationID: UUID) throws {
-        var candidate = try writableAggregate()
+        var candidate = try writableAggregate(allowingCloudImportTransition: true)
         guard candidate.metadata.cloudImportOperationID == operationID,
               candidate.metadata.cloudImportCompleted == false,
               candidate.metadata.authority == "local" else { return }
@@ -407,7 +407,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// retry after an interrupted upload reuses the same operation and key.
     @discardableResult
     public func reserveCloudImportOperation() throws -> UUID {
-        var candidate = try writableAggregate()
+        var candidate = try writableAggregate(allowingCloudImportTransition: true)
         if let existing = candidate.metadata.cloudImportOperationID {
             if candidate.metadata.cloudImportMayBeUnresolved != true {
                 candidate.metadata.cloudImportMayBeUnresolved = true
@@ -589,7 +589,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// A live allowance missing its occurrence identity is repaired and saved
     /// before upload; a bounded plan past its end is saved as exhausted.
     public func cloudImportManifest(familyName: String, operationID: UUID) throws -> CloudImportManifest {
-        var aggregate = try writableAggregate()
+        var aggregate = try writableAggregate(allowingCloudImportTransition: true)
         if let plan = aggregate.snapshot.allowance {
             let isExhausted = plan.isExhausted || plan.endDate.map { plan.nextDate > $0 } == true
             let existingOccurrenceID = plan.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
@@ -647,9 +647,14 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         aggregate = candidate
     }
 
-    private func writableAggregate() throws -> LocalWalletAggregate {
+    private func writableAggregate(allowingCloudImportTransition: Bool = false) throws -> LocalWalletAggregate {
         if let readOnlyReason { throw WalletAPIError.invalidResponse(readOnlyReason) }
         guard let aggregate else { throw WalletAPIError.familyNotSetup }
+        if !allowingCloudImportTransition,
+           aggregate.metadata.authority == "local",
+           cloudImportTransitionHolders > 0 || aggregate.metadata.cloudImportMayBeUnresolved == true {
+            throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
         return aggregate
     }
 
