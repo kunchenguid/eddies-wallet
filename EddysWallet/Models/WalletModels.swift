@@ -629,7 +629,11 @@ public struct Loan: Hashable, Codable, Sendable {
     /// Past days plus an installment due today, still capped at what the loan
     /// owes. Auto-settlement uses this inclusive walk; the parent missed-set
     /// path keeps `missedInstallments`, which stops strictly before today.
-    public func dueScheduledInstallments(asOf now: Date = .now, calendar: Calendar = .current) -> [LoanInstallment] {
+    public func dueScheduledInstallments(
+        asOf now: Date = .now,
+        calendar: Calendar = .current,
+        maximumCount: Int? = nil
+    ) -> [LoanInstallment] {
         guard let schedule, var dueDate = schedule.nextDueDate.map({ calendar.startOfDay(for: $0) }) else {
             return []
         }
@@ -637,7 +641,9 @@ public struct Loan: Hashable, Codable, Sendable {
         var remaining = remainingCents
         var installments: [LoanInstallment] = []
 
-        while dueDate <= today, remaining > 0 {
+        while dueDate <= today,
+              remaining > 0,
+              maximumCount.map({ installments.count < $0 }) ?? true {
             let payment = Self.installmentPaymentCents(named: schedule.amountCents, remainingCents: remaining)
             guard payment > 0 else { break }
             installments.append(LoanInstallment(dueDate: dueDate, amountCents: payment))
@@ -925,14 +931,20 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     /// Past days plus a payout due today, still bounded by an optional end
     /// date. Auto-settlement uses this inclusive walk; the parent missed-set
     /// path keeps `missedPayouts`, which stops strictly before today.
-    public func dueScheduledPayouts(asOf now: Date = .now, calendar: Calendar = .current) -> [AllowanceOccurrence] {
+    public func dueScheduledPayouts(
+        asOf now: Date = .now,
+        calendar: Calendar = .current,
+        maximumCount: Int? = nil
+    ) -> [AllowanceOccurrence] {
         guard !isExhausted, nextOccurrence != nil else { return [] }
         let today = calendar.startOfDay(for: now)
         let inclusiveEndDate = endDate.map { calendar.startOfDay(for: $0) }
         var dueDate = calendar.startOfDay(for: nextDate)
         var occurrences: [AllowanceOccurrence] = []
 
-        while dueDate <= today, inclusiveEndDate.map({ dueDate <= $0 }) ?? true {
+        while dueDate <= today,
+              inclusiveEndDate.map({ dueDate <= $0 }) ?? true,
+              maximumCount.map({ occurrences.count < $0 }) ?? true {
             occurrences.append(AllowanceOccurrence(dueDate: dueDate, amountCents: amountCents))
             guard let followingDate = calendar.date(byAdding: .day, value: 7, to: dueDate) else { break }
             dueDate = followingDate

@@ -311,7 +311,11 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         let wallet = snapshot()
         let today = calendar.startOfDay(for: now)
 
-        let allowanceDue = wallet.allowance?.dueScheduledPayouts(asOf: now, calendar: calendar) ?? []
+        let allowanceDue = wallet.allowance?.dueScheduledPayouts(
+            asOf: now,
+            calendar: calendar,
+            maximumCount: ScheduledSettlementPolicy.maxOccurrencesPerPass + 1
+        ) ?? []
         if !allowanceDue.isEmpty,
            allowanceDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass {
             for occurrence in allowanceDue {
@@ -331,7 +335,11 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
 
         guard cloudImportTransitionHolders == 0,
               aggregate?.metadata.cloudImportMayBeUnresolved != true else { return }
-        let loanDue = wallet.loan?.dueScheduledInstallments(asOf: now, calendar: calendar) ?? []
+        let loanDue = wallet.loan?.dueScheduledInstallments(
+            asOf: now,
+            calendar: calendar,
+            maximumCount: ScheduledSettlementPolicy.maxOccurrencesPerPass + 1
+        ) ?? []
         guard !loanDue.isEmpty,
               loanDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass else { return }
         for installment in loanDue {

@@ -547,6 +547,51 @@ final class LocalWalletPersistenceTests: XCTestCase {
         )
     }
 
+    func testScheduledSettlementDerivationStopsAfterBacklogSentinel() throws {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstAllowanceDue = try XCTUnwrap(calendar.date(byAdding: .year, value: -20, to: today))
+        let allowance = try AllowancePlan(
+            amountCents: 500,
+            cadence: "every week",
+            weekday: calendar.component(.weekday, from: firstAllowanceDue) - 1,
+            nextDate: firstAllowanceDue,
+            nextOccurrenceID: "allowance-head"
+        )
+        let maximumCount = ScheduledSettlementPolicy.maxOccurrencesPerPass + 1
+
+        let allowanceDue = allowance.dueScheduledPayouts(
+            asOf: today,
+            calendar: calendar,
+            maximumCount: maximumCount
+        )
+
+        XCTAssertEqual(allowanceDue.count, maximumCount)
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(allowanceDue.first?.dueDate)), firstAllowanceDue)
+
+        let firstLoanDue = try XCTUnwrap(calendar.date(byAdding: .year, value: -20, to: today))
+        let loan = Loan(
+            originalCents: 1_000_000,
+            remainingCents: 1_000_000,
+            schedule: LoanSchedule(
+                cadence: .monthly,
+                amountCents: 100,
+                firstDueDate: firstLoanDue,
+                nextDueDate: firstLoanDue,
+                nextOccurrenceID: "loan-head"
+            )
+        )
+
+        let loanDue = loan.dueScheduledInstallments(
+            asOf: today,
+            calendar: calendar,
+            maximumCount: maximumCount
+        )
+
+        XCTAssertEqual(loanDue.count, maximumCount)
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(loanDue.first?.dueDate)), firstLoanDue)
+    }
+
     func testLocalReadAutoSettlesTodayAllowanceWithoutParentElevation() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
