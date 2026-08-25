@@ -79,18 +79,31 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         var snapshot = replica.snapshot()
         if let plan = snapshot.allowance, let schedule = allowanceSchedule,
            allowanceScheduleRevision == revision,
-           plan.remoteID == schedule.id, plan.amountCents == schedule.amountCents,
-           let nextDate = schedule.nextDueDate.flatMap(CloudDayFormat.date(from:)) {
-            snapshot.allowance = AllowancePlan(
-                remoteID: plan.remoteID,
-                amountCents: plan.amountCents,
-                cadence: plan.cadence,
-                weekday: plan.weekday,
-                nextDate: nextDate,
-                endDate: plan.endDate,
-                nextOccurrenceID: schedule.nextOccurrenceID,
-                syncState: plan.syncState
-            )
+           plan.remoteID == schedule.id, plan.amountCents == schedule.amountCents {
+            let nextDate = schedule.nextDueDate.flatMap(CloudDayFormat.date(from:))
+            if let nextDate, schedule.nextOccurrenceID?.isEmpty == false {
+                snapshot.allowance = AllowancePlan(
+                    remoteID: plan.remoteID,
+                    amountCents: plan.amountCents,
+                    cadence: plan.cadence,
+                    weekday: plan.weekday,
+                    nextDate: nextDate,
+                    endDate: plan.endDate,
+                    nextOccurrenceID: schedule.nextOccurrenceID,
+                    syncState: plan.syncState
+                )
+            } else if schedule.nextDueDate == nil, schedule.nextOccurrenceID == nil {
+                snapshot.allowance = AllowancePlan(
+                    remoteID: plan.remoteID,
+                    amountCents: plan.amountCents,
+                    cadence: plan.cadence,
+                    weekday: plan.weekday,
+                    nextDate: plan.nextDate,
+                    endDate: plan.endDate,
+                    syncState: plan.syncState,
+                    isExhausted: true
+                )
+            }
         }
         if let pending = activeMutation?.pendingEvent() {
             snapshot.pendingEvents = [pending]
@@ -244,13 +257,16 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                         let response = try await client.allowanceSchedule()
                         guard let rule = response.allowanceRule,
                               rule.active,
-                              let occurrenceID = rule.nextOccurrenceID,
-                              !occurrenceID.isEmpty,
-                              rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) != nil,
                               let plan = replica.snapshot().allowance,
                               plan.remoteID == rule.id,
                               plan.amountCents == rule.amountCents else {
-                            throw WalletAPIError.invalidResponse("Cloud did not provide a complete current allowance schedule.")
+                            throw WalletAPIError.invalidResponse("Cloud did not provide a current allowance schedule.")
+                        }
+                        let hasCompleteHead = rule.nextOccurrenceID?.isEmpty == false
+                            && rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) != nil
+                        let isExhausted = rule.nextOccurrenceID == nil && rule.nextDueDate == nil
+                        guard hasCompleteHead || isExhausted else {
+                            throw WalletAPIError.invalidResponse("Cloud did not provide a valid allowance schedule.")
                         }
                         candidateSchedule = rule
                     }
@@ -263,18 +279,6 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
                         allowanceScheduleRevision = nil
                         continue
                     }
-                    if let candidateSchedule {
-                        guard let revisionedRule = verification.allowanceRule,
-                              revisionedRule.active != false,
-                              revisionedRule.id == candidateSchedule.id,
-                              revisionedRule.amountCents == candidateSchedule.amountCents,
-                              revisionedRule.nextOccurrenceID == candidateSchedule.nextOccurrenceID,
-                              revisionedRule.nextDueDate == candidateSchedule.nextDueDate else {
-                            allowanceScheduleRevision = nil
-                            continue
-                        }
-                    }
-
                     allowanceSchedule = candidateSchedule
                     allowanceScheduleRevision = candidateSchedule == nil ? nil : candidateRevision
                     return snapshot()

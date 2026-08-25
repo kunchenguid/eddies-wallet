@@ -1078,7 +1078,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }, ["\"rev-2\"", "\"rev-3\"", "\"rev-4\""])
     }
 
-    func testCloudToLocalHandoffRefusesAnActiveAllowanceWithoutAChainHead() async throws {
+    func testCloudToLocalHandoffPersistsAnExhaustedAllowanceWithoutReopeningWeeks() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
         let transport = RoutingTransport()
@@ -1088,17 +1088,15 @@ final class CloudVerticalSliceTests: XCTestCase {
         let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
         _ = try await cloud.bootstrap()
 
-        do {
-            _ = try await cloud.prepareForLocalHandoff()
-            XCTFail("an active allowance without a complete service chain head must block handoff")
-        } catch let error as WalletAPIError {
-            guard case .invalidResponse = error.operationError else {
-                return XCTFail("the incomplete schedule should be rejected as an invalid Cloud response")
-            }
-        }
+        let handoffSnapshot = try await cloud.prepareForLocalHandoff()
+        try local.continueLocallyAfterCloud(allowance: handoffSnapshot.allowance)
 
-        XCTAssertTrue(local.isCloudAuthority)
-        XCTAssertEqual(local.snapshot().allowance?.nextDate, CloudDayFormat.date(from: "2026-07-01"))
+        let allowance = try XCTUnwrap(local.snapshot().allowance)
+        XCTAssertTrue(allowance.isExhausted)
+        XCTAssertNil(allowance.nextOccurrenceID)
+        XCTAssertTrue(allowance.missedPayouts().isEmpty)
+        XCTAssertNil(allowance.nextCurrentOrFuturePayout())
+        XCTAssertFalse(local.isCloudAuthority)
     }
 
     func testCloudToLocalHandoffRetriesWhenTheScheduleOvertakesTheReplica() async throws {
@@ -1147,37 +1145,24 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(transport.requests.filter { $0.url?.path == "/v1/allowance-rule" }.count, 2)
     }
 
-    func testCloudToLocalHandoffRefusesAnUncorrelatedNewerSchedule() async throws {
+    func testCloudToLocalHandoffUsesOverlayWhenChangesOmitsTheChainHead() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
         let transport = RoutingTransport()
         let today = Calendar.current.startOfDay(for: .now)
-        let staleDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -7, to: today))
         transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
-        transport.stub(
-            "GET",
-            "/v1/cloud/changes",
-            CloudSliceFixtures.bootstrapWithAllowance(
-                lineage: lineage,
-                nextDueDate: CloudDayFormat.string(from: staleDate),
-                nextOccurrenceID: "revision-2-head"
-            )
-        )
-        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "revision-3-head"))
+        transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "overlay-head"))
         let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
         _ = try await cloud.bootstrap()
 
-        do {
-            _ = try await cloud.prepareForLocalHandoff()
-            XCTFail("a schedule that cannot be correlated with the replica revision must block handoff")
-        } catch let error as WalletAPIError {
-            guard case .revisionRequired = error.operationError else {
-                return XCTFail("an uncorrelated schedule should require another current replica")
-            }
-        }
+        let handoffSnapshot = try await cloud.prepareForLocalHandoff()
+        try local.continueLocallyAfterCloud(allowance: handoffSnapshot.allowance)
 
-        XCTAssertTrue(local.isCloudAuthority)
-        XCTAssertEqual(local.snapshot().allowance?.nextOccurrenceID, "revision-2-head")
+        XCTAssertEqual(local.snapshot().allowance?.nextOccurrenceID, "overlay-head")
+        XCTAssertEqual(Calendar.current.startOfDay(for: try XCTUnwrap(local.snapshot().allowance?.nextDate)), today)
+        XCTAssertTrue(local.snapshot().allowance?.missedPayouts().isEmpty == true)
+        XCTAssertFalse(local.isCloudAuthority)
     }
 
     /// Cloud-to-local handoff must keep the service-owned next occurrence.

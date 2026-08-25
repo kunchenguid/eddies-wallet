@@ -318,8 +318,8 @@ enum CloudImportManifestBuilder {
             startDate: nextDueDate,
             endDate: plan.endDate.map { CloudDayFormat.string(from: $0) },
             active: true,
-            nextOccurrenceID: plan.nextOccurrenceID,
-            nextDueDate: nextDueDate
+            nextOccurrenceID: plan.isExhausted ? nil : plan.nextOccurrenceID,
+            nextDueDate: plan.isExhausted ? nil : nextDueDate
         )
     }
 

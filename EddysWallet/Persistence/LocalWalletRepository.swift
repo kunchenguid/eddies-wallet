@@ -385,7 +385,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             guard let allowance,
                   allowance.remoteID == persistedAllowance.remoteID,
                   allowance.amountCents == persistedAllowance.amountCents,
-                  allowance.nextOccurrenceID?.isEmpty == false else {
+                  allowance.isExhausted || allowance.nextOccurrenceID?.isEmpty == false else {
                 throw WalletAPIError.invalidResponse("Cloud did not provide a complete current allowance schedule.")
             }
             candidate.snapshot.allowance = allowance
