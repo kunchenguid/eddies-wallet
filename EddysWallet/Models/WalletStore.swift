@@ -1101,7 +1101,8 @@ public final class WalletStore: ObservableObject {
     /// The parent-visible missed portion of the current allowance schedule.
     /// A Cloud replica can render this only after `/v1/allowance-rule` has
     /// supplied its real next occurrence; the replica's rule start date is not
-    /// a substitute for that server-owned fact.
+    /// a substitute for that server-owned fact. Cloud-to-local handoff persists
+    /// that occurrence onto the replica so local derivation keeps the same head.
     public var missedAllowancePayouts: AllowanceMissedPayouts {
         guard let allowance = snapshot.allowance else {
             return AllowanceMissedPayouts(occurrences: [])
@@ -1909,7 +1910,7 @@ public final class WalletStore: ObservableObject {
         guard canContinueLocallyAfterCloud else { return false }
         guard await refreshCloudBeforeHandoff(cloud) else { return false }
         do {
-            try cloudCoordinator.continueLocally(with: cloud.localReplica)
+            try cloudCoordinator.continueLocally(with: cloud.localReplica, allowance: cloud.snapshot().allowance)
         } catch {
             errorMessage = userMessage(for: error)
             return false
@@ -1929,7 +1930,7 @@ public final class WalletStore: ObservableObject {
         guard elevation == .active, let cloudCoordinator, let cloud = repository as? CloudWalletRepository else { return false }
         guard await refreshCloudBeforeHandoff(cloud) else { return false }
         do {
-            try cloud.localReplica.continueLocallyAfterCloud()
+            try cloud.localReplica.continueLocallyAfterCloud(allowance: cloud.snapshot().allowance)
         } catch {
             errorMessage = userMessage(for: error)
             return false

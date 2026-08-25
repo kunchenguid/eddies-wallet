@@ -732,6 +732,18 @@ public struct CloudReplica: Codable, Equatable, Sendable {
         public let startDate: String?
         public let endDate: String?
         public let active: Bool?
+        /// Service-owned chain head. Absent on today's `/v1/cloud/changes`
+        /// replica, which is why `CloudWalletRepository` still overlays
+        /// `GET /v1/allowance-rule`. When the key is present the replica
+        /// itself is enough to keep already-paid weeks from reappearing.
+        public let nextOccurrenceID: String?
+        public let nextDueDate: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case id, amountCents, cadence, weekday, startDate, endDate, active
+            case nextOccurrenceID = "nextOccurrenceId"
+            case nextDueDate
+        }
     }
 
     public let household: CloudHousehold
@@ -863,6 +875,50 @@ public struct CloudImportManifest: Equatable, Sendable {
     /// of the hashed aggregate entirely, which is what keeps an unscheduled
     /// upload byte-identical to the one this app has always produced.
     public let loanOccurrences: [LoanOccurrence]
+    /// Absent for a household with no weekly allowance. The key is then left
+    /// out of the hashed aggregate entirely, the same omit-when-absent rule
+    /// `loanOccurrences` uses, so a household with no plan hashes what it
+    /// hashed before allowance import existed.
+    public let allowanceRule: AllowanceRule?
+
+    /// The local weekly allowance uploaded with the household. `startDate`
+    /// and `nextDueDate` are both the earliest unrecorded occurrence: local
+    /// authority does not keep a separate original start after payouts, and
+    /// the server must seed its chain from this head rather than re-deriving
+    /// paid weeks.
+    public struct AllowanceRule: Equatable, Sendable {
+        public let id: String?
+        public let amountCents: Int
+        public let cadence: String
+        public let weekday: Int
+        public let startDate: String
+        public let endDate: String?
+        public let active: Bool
+        public let nextOccurrenceID: String?
+        public let nextDueDate: String?
+
+        public init(
+            id: String?,
+            amountCents: Int,
+            cadence: String,
+            weekday: Int,
+            startDate: String,
+            endDate: String?,
+            active: Bool,
+            nextOccurrenceID: String?,
+            nextDueDate: String?
+        ) {
+            self.id = id
+            self.amountCents = amountCents
+            self.cadence = cadence
+            self.weekday = weekday
+            self.startDate = startDate
+            self.endDate = endDate
+            self.active = active
+            self.nextOccurrenceID = nextOccurrenceID
+            self.nextDueDate = nextDueDate
+        }
+    }
 
     public init(
         lineageID: UUID,
@@ -872,7 +928,8 @@ public struct CloudImportManifest: Equatable, Sendable {
         avatarURL: String? = nil,
         loans: [Loan],
         entries: [Entry],
-        loanOccurrences: [LoanOccurrence] = []
+        loanOccurrences: [LoanOccurrence] = [],
+        allowanceRule: AllowanceRule? = nil
     ) {
         self.lineageID = lineageID
         self.operationID = operationID
@@ -882,6 +939,7 @@ public struct CloudImportManifest: Equatable, Sendable {
         self.loans = loans
         self.entries = entries
         self.loanOccurrences = loanOccurrences
+        self.allowanceRule = allowanceRule
     }
 }
 

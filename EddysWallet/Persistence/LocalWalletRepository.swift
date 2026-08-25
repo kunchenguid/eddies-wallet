@@ -370,10 +370,19 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// Cloud ended (expiry, refund, revocation, or an explicit parent choice):
     /// the mirrored history stays and this device becomes the accepted authority
     /// again. Nothing is deleted.
-    public func continueLocallyAfterCloud() throws {
+    ///
+    /// `allowance` is the service-owned chain head from the in-memory overlay
+    /// (`GET /v1/allowance-rule`). The persisted replica's rule start date is
+    /// not that fact; writing the overlay here, behind the unresolved-write
+    /// gate and in the same save as the authority change, is what stops
+    /// already-paid weeks from reappearing as missed.
+    public func continueLocallyAfterCloud(allowance: AllowancePlan? = nil) throws {
         var candidate = try writableAggregate()
         guard candidate.metadata.unsettledCloudMutation == nil else {
             throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
+        if let allowance {
+            candidate.snapshot.allowance = allowance
         }
         candidate.metadata.authority = "local"
         candidate.metadata.confirmedCloudLineageID = nil

@@ -51,6 +51,56 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(importRequest.value(forHTTPHeaderField: "Idempotency-Key"), "cloud-import-\(try XCTUnwrap(local.cloudImportOperationID).uuidString.lowercased())")
     }
 
+    func testPaidActivationUploadsTheLocalAllowanceRuleAndKeepsItOnTheReplica() async throws {
+        let local = try await localWalletWithHistory()
+        let calendar = Calendar.current
+        let nextDate = try XCTUnwrap(calendar.date(byAdding: .day, value: -14, to: calendar.startOfDay(for: .now)))
+        _ = try await local.setAllowance(
+            AllowanceRuleCommand(
+                amountCents: 500,
+                weekday: 5,
+                startDate: nextDate,
+                idempotencyKey: "local-allowance-rule"
+            )
+        )
+        let lineage = try XCTUnwrap(local.lineageID)
+        let dueOn = CloudDayFormat.string(from: nextDate)
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextActiveNoHousehold)
+        transport.stub("POST", "/v1/cloud/household/import", CloudSliceFixtures.importAccepted(lineage: lineage), status: 201)
+        transport.stub(
+            "GET",
+            "/v1/cloud/bootstrap",
+            CloudSliceFixtures.bootstrapWithAllowance(
+                lineage: lineage,
+                startDate: dueOn,
+                nextDueDate: dueOn,
+                nextOccurrenceID: "local-allowance-rule"
+            )
+        )
+        let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
+        await coordinator.refreshContext()
+
+        let cloud = try await coordinator.activateCloud(from: local, familyName: "Test Kid's family")
+        let importRequest = try XCTUnwrap(transport.requests.first { $0.url?.path == "/v1/cloud/household/import" })
+        let body = try XCTUnwrap(importRequest.httpBody).jsonObject()
+        let rule = try XCTUnwrap(body["allowanceRule"] as? [String: Any])
+        XCTAssertEqual(rule["amountCents"] as? Int, 500)
+        XCTAssertEqual(rule["cadence"] as? String, "weekly")
+        XCTAssertEqual(rule["weekday"] as? Int, 5)
+        XCTAssertEqual(rule["startDate"] as? String, dueOn)
+        XCTAssertEqual(rule["nextDueDate"] as? String, dueOn)
+        XCTAssertEqual(rule["nextOccurrenceId"] as? String, "local-allowance-rule")
+        XCTAssertEqual(rule["active"] as? Bool, true)
+
+        XCTAssertEqual(cloud.snapshot().allowance?.amountCents, 500)
+        XCTAssertEqual(
+            calendar.startOfDay(for: try XCTUnwrap(cloud.snapshot().allowance?.nextDate)),
+            calendar.startOfDay(for: nextDate)
+        )
+        XCTAssertEqual(cloud.snapshot().allowance?.nextOccurrenceID, "local-allowance-rule")
+    }
+
     func testAnInterruptedActivationRetriesWithTheSameOperationAndKey() async throws {
         let local = try await localWalletWithHistory()
         let reserved = try local.reserveCloudImportOperation()
@@ -1026,6 +1076,114 @@ final class CloudVerticalSliceTests: XCTestCase {
             "/v1/allowance-rule/a-1/occurrences/o-3/record",
         ])
         XCTAssertEqual(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }, ["\"rev-2\"", "\"rev-3\"", "\"rev-4\""])
+    }
+
+    /// Cloud-to-local handoff must keep the service-owned next occurrence.
+    /// Mapping `nextDate` from the rule's original `startDate` re-renders
+    /// already-paid weeks as missed and makes them payable again.
+    func testCloudToLocalHandoffKeepsThePaidAllowancePointer() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let cloudClient = client(transport)
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextExpired(lineage: lineage))
+        let cloud = CloudWalletRepository(client: cloudClient, replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: -21, to: today))
+        let secondMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstMissed))
+        let thirdMissed = try XCTUnwrap(calendar.date(byAdding: .day, value: 14, to: firstMissed))
+        let changes = [
+            CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage),
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 3, balanceCents: 1_250, entryID: "allowance-1"),
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 4, balanceCents: 1_750, entryID: "allowance-2"),
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 5, balanceCents: 2_250, entryID: "allowance-3"),
+        ]
+        transport.stub("GET", "/v1/cloud/changes", changes[0])
+        transport.enqueue("GET", "/v1/cloud/changes", changes[0])
+        for change in changes.dropFirst() { transport.enqueue("GET", "/v1/cloud/changes", change) }
+
+        let schedules = [
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: firstMissed, occurrenceID: "o-1"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: secondMissed, occurrenceID: "o-2"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: secondMissed, occurrenceID: "o-2"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: thirdMissed, occurrenceID: "o-3"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: thirdMissed, occurrenceID: "o-3"),
+            CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "o-today"),
+        ]
+        transport.stub("GET", "/v1/allowance-rule", schedules[0])
+        for schedule in schedules.dropFirst() { transport.enqueue("GET", "/v1/allowance-rule", schedule) }
+        for (index, revision) in [Int64(3), 4, 5].enumerated() {
+            transport.stub(
+                "POST",
+                "/v1/allowance-rule/a-1/occurrences/o-\(index + 1)/record",
+                CloudSliceFixtures.depositAccepted(revision: revision, entryID: "allowance-\(index + 1)"),
+                status: 201
+            )
+        }
+
+        let coordinator = CloudCoordinator(client: cloudClient, subscriptions: silentSubscriptionStore(transport))
+        await coordinator.refreshContext()
+        let store = elevatedStore(repository: cloud, coordinator: coordinator)
+        await waitUntilParentReadSettles(store, transport)
+        await store.recoverCloudEntitlements()
+        XCTAssertTrue(store.canContinueLocallyAfterCloud)
+
+        let confirmed = store.missedAllowancePayouts
+        XCTAssertEqual(confirmed.count, 3)
+        let outcome = await store.recordAllMissedAllowance(confirmed)
+        XCTAssertEqual(outcome, .recorded(count: 3, totalCents: 1_500))
+        XCTAssertTrue(store.missedAllowancePayouts.isEmpty)
+        XCTAssertEqual(calendar.startOfDay(for: try XCTUnwrap(store.snapshot.allowance?.nextDate)), today)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 3)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 2_250)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.allowanceChanges(lineage: lineage, revision: 5, balanceCents: 2_250, entryID: "allowance-3")
+        )
+        transport.stub(
+            "GET",
+            "/v1/allowance-rule",
+            CloudSliceFixtures.allowanceSchedule(dueDate: today, occurrenceID: "o-today")
+        )
+
+        let continued = await store.continueLocallyAfterCloud()
+        XCTAssertTrue(continued, "a current Cloud reread must let the parent keep this wallet locally")
+        XCTAssertTrue(store.authorityState.isLocalAuthority)
+        XCTAssertFalse(local.isCloudAuthority)
+
+        XCTAssertEqual(
+            calendar.startOfDay(for: try XCTUnwrap(store.snapshot.allowance?.nextDate)),
+            today,
+            "already-paid Cloud weeks must not regress to the rule start date"
+        )
+        XCTAssertEqual(store.snapshot.allowance?.nextOccurrenceID, "o-today")
+        XCTAssertTrue(
+            store.missedAllowancePayouts.isEmpty,
+            "weeks paid in Cloud must not reappear as missed after continuing locally"
+        )
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 3)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 2_250)
+        XCTAssertEqual(
+            calendar.startOfDay(for: try XCTUnwrap(local.snapshot().allowance?.nextDate)),
+            today,
+            "the persisted replica, not only the in-memory overlay, must keep the chain head"
+        )
+
+        let replay = await store.recordAllMissedAllowance()
+        XCTAssertEqual(replay, .noMissed)
+        guard case .accepted = await store.submit(WalletCommand(kind: .deposit, amountCents: 100)) else {
+            return XCTFail("local authority must accept parent actions after the handoff")
+        }
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 2_350)
+        XCTAssertEqual(store.snapshot.activities.filter { $0.type == .allowance }.count, 3)
     }
 
     func testCloudRecordAllUsesConfirmedSetAndLeavesNewlyMissedOccurrenceUntouched() async throws {
@@ -4304,12 +4462,20 @@ enum CloudSliceFixtures {
         """.utf8)
     }
 
-    static func bootstrapWithAllowance(lineage: UUID) -> Data {
+    static func bootstrapWithAllowance(
+        lineage: UUID,
+        startDate: String = "2026-07-01",
+        amountCents: Int = 500,
+        nextDueDate: String? = nil,
+        nextOccurrenceID: String? = nil
+    ) -> Data {
+        var rule = "{\"id\":\"a-1\",\"amountCents\":\(amountCents),\"cadence\":\"weekly\",\"weekday\":5,\"startDate\":\"\(startDate)\",\"endDate\":null,\"active\":true"
+        if let nextDueDate, let nextOccurrenceID {
+            rule += ",\"nextOccurrenceId\":\"\(nextOccurrenceID)\",\"nextDueDate\":\"\(nextDueDate)\""
+        }
+        rule += "}"
         let source = String(decoding: bootstrap(lineage: lineage), as: UTF8.self)
-        return Data(source.replacingOccurrences(
-            of: "\"allowanceRule\":null",
-            with: "\"allowanceRule\":{\"id\":\"a-1\",\"amountCents\":500,\"cadence\":\"weekly\",\"weekday\":5,\"startDate\":\"2026-07-01\",\"endDate\":null,\"active\":true}"
-        ).utf8)
+        return Data(source.replacingOccurrences(of: "\"allowanceRule\":null", with: "\"allowanceRule\":\(rule)").utf8)
     }
 
     static func depositChangesWithAllowance(

@@ -132,9 +132,10 @@ extension CloudImportManifest {
     /// normalizes a missing value to `null` before hashing.
     ///
     /// `loanOccurrences` is appended only when this household actually has a
-    /// scheduled loan. The server adds that key to its own expected digest only
-    /// when a client sent it, so a household with no plan hashes byte-for-byte
-    /// what it hashed before installments existed.
+    /// scheduled loan. `allowanceRule` is appended only when it has a weekly
+    /// allowance. The server adds each key to its own expected digest only
+    /// when a client sent it, so a household with neither hashes
+    /// byte-for-byte what it hashed before those plans existed.
     var canonicalAggregate: CloudCanonicalJSON.Value {
         .object([
             ("lineageId", .string(lineageID.uuidString.lowercased())),
@@ -143,7 +144,28 @@ extension CloudImportManifest {
             ("avatarUrl", avatarURL.map { CloudCanonicalJSON.Value.string($0) } ?? .null),
             ("loans", .array(canonicalLoans)),
             ("entries", .array(canonicalEntries)),
-        ] + (loanOccurrences.isEmpty ? [] : [("loanOccurrences", .array(canonicalLoanOccurrences))]))
+        ] + (loanOccurrences.isEmpty ? [] : [("loanOccurrences", .array(canonicalLoanOccurrences))])
+          + (allowanceRule.map { [("allowanceRule", canonicalAllowanceRule($0))] } ?? []))
+    }
+
+    private func canonicalAllowanceRule(_ rule: AllowanceRule) -> CloudCanonicalJSON.Value {
+        .object([
+            ("id", rule.id.map { CloudCanonicalJSON.Value.string($0) } ?? .null),
+            ("amountCents", .integer(rule.amountCents)),
+            ("cadence", .string(rule.cadence)),
+            ("weekday", .integer(rule.weekday)),
+            ("startDate", .string(rule.startDate)),
+            ("endDate", rule.endDate.map { CloudCanonicalJSON.Value.string($0) } ?? .null),
+            ("active", .bool(rule.active)),
+            (
+                "nextOccurrenceId",
+                rule.nextOccurrenceID.map { CloudCanonicalJSON.Value.string($0) } ?? .null
+            ),
+            (
+                "nextDueDate",
+                rule.nextDueDate.map { CloudCanonicalJSON.Value.string($0) } ?? .null
+            ),
+        ])
     }
 
     public var aggregateSHA256: String { CloudCanonicalJSON.sha256Hex(of: canonicalAggregate) }

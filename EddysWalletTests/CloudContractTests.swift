@@ -642,6 +642,7 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(manifest.aggregateSHA256, expected.aggregateSHA256)
         let body = manifest.requestBody.jsonObject()
         XCTAssertNil(body["loanOccurrences"])
+        XCTAssertNil(body["allowanceRule"])
         XCTAssertNil((body["loans"] as? [[String: Any]])?.first?["schedule"])
     }
 
@@ -857,6 +858,127 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(sentOccurrences.map { $0["status"] as? String }, ["recorded", "scheduled"])
         XCTAssertEqual(sentOccurrences.first?["entryOperationId"] as? String, entryID.uuidString.lowercased())
         XCTAssertNil(sentOccurrences.last?["entryOperationId"] as? String)
+    }
+
+    /// `allowanceRule` is omitted from the digest when the household has no
+    /// plan, and included with the chain head when it does - the same
+    /// omit-when-absent rule `loanOccurrences` uses.
+    func testImportAggregateAddsAllowanceRuleOnlyWhenAPlanExists() throws {
+        let lineage = UUID(uuidString: "b1a1e1d1-0000-4000-8000-000000000001")!
+        let operation = UUID(uuidString: "b1a1e1d1-0000-4000-8000-000000000002")!
+        let withoutAllowance = CloudImportManifest(
+            lineageID: lineage,
+            operationID: operation,
+            familyName: "f",
+            nickname: "n",
+            loans: [],
+            entries: []
+        )
+        guard case .object(let withoutMembers) = withoutAllowance.canonicalAggregate else {
+            return XCTFail("aggregate must be a JSON object")
+        }
+        XCTAssertEqual(withoutMembers.map(\.0), ["lineageId", "familyName", "nickname", "avatarUrl", "loans", "entries"])
+        XCTAssertFalse(String(decoding: withoutAllowance.requestBody, as: UTF8.self).contains("allowanceRule"))
+
+        let withAllowance = CloudImportManifest(
+            lineageID: lineage,
+            operationID: operation,
+            familyName: "f",
+            nickname: "n",
+            loans: [],
+            entries: [],
+            allowanceRule: .init(
+                id: "local-allowance",
+                amountCents: 500,
+                cadence: "weekly",
+                weekday: 5,
+                startDate: "2026-08-07",
+                endDate: nil,
+                active: true,
+                nextOccurrenceID: "occ-1",
+                nextDueDate: "2026-08-07"
+            )
+        )
+        guard case .object(let withMembers) = withAllowance.canonicalAggregate else {
+            return XCTFail("aggregate must be a JSON object")
+        }
+        XCTAssertEqual(
+            withMembers.map(\.0),
+            ["lineageId", "familyName", "nickname", "avatarUrl", "loans", "entries", "allowanceRule"]
+        )
+        XCTAssertNotEqual(withAllowance.aggregateSHA256, withoutAllowance.aggregateSHA256)
+        let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: withAllowance.requestBody) as? [String: Any])
+        XCTAssertEqual(body["aggregateSha256"] as? String, withAllowance.aggregateSHA256)
+        let sent = try XCTUnwrap(body["allowanceRule"] as? [String: Any])
+        XCTAssertEqual(sent["nextDueDate"] as? String, "2026-08-07")
+        XCTAssertEqual(sent["nextOccurrenceId"] as? String, "occ-1")
+        XCTAssertEqual(sent["startDate"] as? String, "2026-08-07")
+    }
+
+    func testBuilderUploadsTheLocalAllowanceChainHead() throws {
+        let nextDate = try XCTUnwrap(CloudDayFormat.date(from: "2026-08-14"))
+        let snapshot = WalletSnapshot(
+            acceptedBalanceCents: 500,
+            activities: [
+                .init(
+                    id: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!,
+                    type: .allowance,
+                    amountCents: 500,
+                    date: Date(timeIntervalSince1970: 1_784_887_200),
+                    explanation: ""
+                )
+            ],
+            loan: nil,
+            allowance: AllowancePlan(
+                remoteID: "local-allowance",
+                amountCents: 500,
+                cadence: "every week",
+                weekday: 5,
+                nextDate: nextDate,
+                nextOccurrenceID: "local-next"
+            ),
+            pendingEvents: [],
+            lastUpdated: Date(timeIntervalSince1970: 1_784_887_200),
+            isStale: false,
+            childNickname: "Test Kid"
+        )
+        let manifest = try CloudImportManifestBuilder.manifest(
+            lineageID: UUID(),
+            operationID: UUID(),
+            familyName: "Test Kid's family",
+            nickname: "Test Kid",
+            snapshot: snapshot
+        )
+        XCTAssertEqual(manifest.allowanceRule?.amountCents, 500)
+        XCTAssertEqual(manifest.allowanceRule?.cadence, "weekly")
+        XCTAssertEqual(manifest.allowanceRule?.startDate, "2026-08-14")
+        XCTAssertEqual(manifest.allowanceRule?.nextDueDate, "2026-08-14")
+        XCTAssertEqual(manifest.allowanceRule?.nextOccurrenceID, "local-next")
+        let body = manifest.requestBody.jsonObject()
+        XCTAssertEqual((body["allowanceRule"] as? [String: Any])?["nextDueDate"] as? String, "2026-08-14")
+    }
+
+    func testReplicaMapsAllowanceNextOccurrenceWhenTheReplicaCarriesIt() throws {
+        let replica = try JSONDecoder.cloud.decode(
+            CloudReplica.self,
+            from: Data("""
+            {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":4},
+             "family":{"id":"f-1","name":"Test Kid's family"},
+             "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+             "wallet":{"id":"w-1","balanceCents":500},
+             "entries":[],"loans":[],
+             "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+              "startDate":"2026-07-01","endDate":null,"active":true,
+              "nextOccurrenceId":"o-head","nextDueDate":"2026-08-14"}}
+            """.utf8)
+        )
+        let snapshot = CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        XCTAssertEqual(snapshot.allowance?.nextOccurrenceID, "o-head")
+        XCTAssertEqual(
+            CloudDayFormat.string(from: try XCTUnwrap(snapshot.allowance?.nextDate)),
+            "2026-08-14",
+            "a replica that carries the chain head must not fall back to the rule start date"
+        )
     }
 
     // MARK: - Helpers
