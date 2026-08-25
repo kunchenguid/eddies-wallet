@@ -160,6 +160,62 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertEqual(recorded.nextDate, thirdDate)
     }
 
+    func testAllowancePlanRejectsDuplicateOccurrenceIDs() throws {
+        let calendar = Calendar.current
+        let firstDate = calendar.startOfDay(for: .now)
+        let secondDate = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: firstDate))
+        let entryID = UUID()
+        struct EncodedAllowance: Encodable {
+            let amountCents: Int
+            let cadence: String
+            let weekday: Int
+            let nextDate: Date
+            let nextOccurrenceID: String
+            let syncState: SyncState
+            let occurrences: [AllowancePlan.Occurrence]
+        }
+        let encoded = EncodedAllowance(
+            amountCents: 500,
+            cadence: "every week",
+            weekday: 5,
+            nextDate: secondDate,
+            nextOccurrenceID: "duplicate",
+            syncState: .recorded,
+            occurrences: [
+                .init(
+                    id: "duplicate",
+                    dueDate: firstDate,
+                    status: .recorded,
+                    amountCents: 500,
+                    entryID: entryID
+                ),
+                .init(id: "duplicate", dueDate: secondDate, status: .scheduled),
+            ]
+        )
+
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(AllowancePlan.self, from: JSONEncoder().encode(encoded))
+        )
+
+        let directPlan = AllowancePlan(
+            amountCents: 500,
+            cadence: "every week",
+            nextDate: secondDate,
+            nextOccurrenceID: "duplicate",
+            occurrences: encoded.occurrences
+        )
+        XCTAssertNil(
+            directPlan.recordingPayout(
+                amountCents: 500,
+                nextOccurrenceID: "following-head",
+                entryID: UUID(),
+                calendar: calendar
+            )
+        )
+        XCTAssertEqual(directPlan.occurrences.first?.entryID, entryID)
+        XCTAssertEqual(directPlan.nextOccurrence?.dueDate, secondDate)
+    }
+
     func testMockAllowanceRecordingLinksOccurrenceToAcceptedEvent() async throws {
         let dueDate = Calendar.current.startOfDay(for: .now)
         let repository = MockWalletRepository(

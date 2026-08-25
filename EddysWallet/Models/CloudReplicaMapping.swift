@@ -151,7 +151,8 @@ enum CloudReplicaMapper {
             .sorted { left, right in
                 left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
             }
-        guard mappedOccurrences.count == replicaOccurrences.count else {
+        guard mappedOccurrences.count == replicaOccurrences.count,
+              Set(mappedOccurrences.map(\.id)).count == mappedOccurrences.count else {
             throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
         }
         // Prefer the replica's occurrence chain when the service sent it.
@@ -161,11 +162,18 @@ enum CloudReplicaMapper {
         let chainHead: (date: Date, id: String)?
         if let scheduled = mappedOccurrences.first(where: { $0.status == .scheduled }) {
             chainHead = (scheduled.dueDate, scheduled.id)
-        } else if let id = rule.nextOccurrenceID, !id.isEmpty,
-                  let date = rule.nextDueDate.flatMap(CloudDayFormat.date(from:)) {
-            chainHead = (date, id)
         } else {
-            chainHead = nil
+            let ruleHeadID = rule.nextOccurrenceID.flatMap { $0.isEmpty ? nil : $0 }
+            let ruleHeadDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:))
+            let hasAnyRuleHeadValue = rule.nextOccurrenceID != nil || rule.nextDueDate != nil
+            guard !hasAnyRuleHeadValue || (ruleHeadID != nil && ruleHeadDate != nil) else {
+                throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
+            }
+            if let ruleHeadID, let ruleHeadDate {
+                chainHead = (ruleHeadDate, ruleHeadID)
+            } else {
+                chainHead = nil
+            }
         }
         let nextDate = chainHead?.date ?? startDate
         let isExhausted = !mappedOccurrences.isEmpty

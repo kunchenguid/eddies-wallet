@@ -840,6 +840,14 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let occurrences = try container.decodeIfPresent([Occurrence].self, forKey: .occurrences)
+        if let occurrences, Set(occurrences.map(\.id)).count != occurrences.count {
+            throw DecodingError.dataCorruptedError(
+                forKey: .occurrences,
+                in: container,
+                debugDescription: "Allowance occurrence IDs must be unique."
+            )
+        }
         try self.init(
             remoteID: container.decodeIfPresent(String.self, forKey: .remoteID),
             amountCents: container.decode(Int.self, forKey: .amountCents),
@@ -850,7 +858,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
             nextOccurrenceID: container.decodeIfPresent(String.self, forKey: .nextOccurrenceID),
             syncState: container.decode(SyncState.self, forKey: .syncState),
             isExhausted: container.decodeIfPresent(Bool.self, forKey: .isExhausted) ?? false,
-            occurrences: container.decodeIfPresent([Occurrence].self, forKey: .occurrences)
+            occurrences: occurrences
         )
     }
 
@@ -899,10 +907,12 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         entryID: UUID? = nil,
         calendar: Calendar = .current
     ) -> AllowancePlan? {
-        guard !isExhausted, let occurrence = nextOccurrence else { return nil }
+        guard !isExhausted, nextOccurrence != nil else { return nil }
         guard amountCents == self.amountCents else { return nil }
+        guard Set(occurrences.map(\.id)).count == occurrences.count else { return nil }
         var occurrences = self.occurrences
-        guard let index = occurrences.firstIndex(where: { $0.id == occurrence.id }) else { return nil }
+        guard let index = occurrences.firstIndex(where: { $0.status == .scheduled }) else { return nil }
+        let occurrence = occurrences[index]
         guard let followingDate = calendar.date(
             byAdding: .day,
             value: 7,
