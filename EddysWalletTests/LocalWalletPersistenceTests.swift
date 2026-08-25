@@ -644,6 +644,36 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertEqual(repository.snapshot().activities.filter { $0.type == .repayment }.count, 1)
     }
 
+    func testLocalReadSettlesAllowanceBatchBeforeOlderLoanInstallments() async throws {
+        let repository = try LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let firstLoanDue = try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: today))
+        _ = try await repository.setAllowance(
+            AllowanceRuleCommand(amountCents: 500, weekday: calendar.component(.weekday, from: today) - 1, startDate: today)
+        )
+        _ = try await repository.submit(WalletCommand(
+            kind: .loan,
+            amountCents: 800,
+            reason: "Bike helmet",
+            installmentPlan: LoanInstallmentPlan(cadence: .weekly, amountCents: 400, firstDueDate: firstLoanDue)
+        ))
+        _ = try await repository.submit(WalletCommand(kind: .withdrawal, amountCents: 800))
+        XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 0)
+
+        await repository.applyDueScheduledSettlements()
+
+        XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 100)
+        XCTAssertEqual(repository.snapshot().loan?.remainingCents, 400)
+        XCTAssertEqual(repository.snapshot().activities.filter { $0.type == .allowance }.count, 1)
+        XCTAssertEqual(repository.snapshot().activities.filter { $0.type == .repayment }.count, 1)
+        XCTAssertEqual(
+            calendar.startOfDay(for: try XCTUnwrap(repository.snapshot().loan?.schedule?.nextDueDate)),
+            today
+        )
+    }
+
     func testLocalReadSkipsLoanInstallmentWhenBalanceIsInsufficient() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))

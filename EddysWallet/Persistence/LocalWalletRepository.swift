@@ -275,8 +275,8 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// to call it when the published repository is Cloud. Each accepted
     /// occurrence uses the ordinary `submit` path, one save at a time.
     ///
-    /// Allowance credits run before loan debits on the same calendar day so a
-    /// same-day payout can fund a same-day installment. A loan installment
+    /// All due allowance credits run oldest-first before due loan debits run
+    /// oldest-first. A loan installment
     /// that would overdraft stays `scheduled` and is retried on a later pass.
     /// A schedule whose derived due count exceeds
     /// `ScheduledSettlementPolicy.maxOccurrencesPerPass` is left for the
@@ -300,79 +300,44 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
 
         let wallet = snapshot()
         let today = calendar.startOfDay(for: now)
-        var items: [ScheduledSettlementItem] = []
 
         let allowanceDue = wallet.allowance?.dueScheduledPayouts(asOf: now, calendar: calendar) ?? []
         if !allowanceDue.isEmpty,
            allowanceDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass {
-            items.append(contentsOf: allowanceDue.map {
-                ScheduledSettlementItem.allowance(dueDate: $0.dueDate, amountCents: $0.amountCents)
-            })
-        }
-
-        let loanDue = wallet.loan?.dueScheduledInstallments(asOf: now, calendar: calendar) ?? []
-        if !loanDue.isEmpty,
-           loanDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass {
-            items.append(contentsOf: loanDue.map { ScheduledSettlementItem.loan(dueDate: $0.dueDate) })
-        }
-
-        items.sort { left, right in
-            let leftDay = calendar.startOfDay(for: left.dueDate)
-            let rightDay = calendar.startOfDay(for: right.dueDate)
-            if leftDay != rightDay { return leftDay < rightDay }
-            return left.isAllowance && !right.isAllowance
-        }
-
-        var skipRemainingLoans = false
-        for item in items {
-            switch item {
-            case .allowance(let dueDate, let amountCents):
+            for occurrence in allowanceDue {
                 let result = try? await submit(
                     WalletCommand(
                         kind: .allowance,
-                        amountCents: amountCents,
-                        dueDate: dueDate,
+                        amountCents: occurrence.amountCents,
+                        dueDate: occurrence.dueDate,
                         idempotencyKey: UUID().uuidString
                     )
                 )
                 guard case .accepted = result else { return }
-            case .loan(let dueDate):
-                if skipRemainingLoans { continue }
-                let isToday = calendar.startOfDay(for: dueDate) == today
-                let result = try? await submit(
-                    WalletCommand(
-                        kind: .loanInstallment,
-                        amountCents: 0,
-                        dueDate: isToday ? nil : dueDate,
-                        idempotencyKey: UUID().uuidString
-                    )
+            }
+        }
+
+        let loanDue = wallet.loan?.dueScheduledInstallments(asOf: now, calendar: calendar) ?? []
+        guard !loanDue.isEmpty,
+              loanDue.count <= ScheduledSettlementPolicy.maxOccurrencesPerPass else { return }
+        for installment in loanDue {
+            let isToday = calendar.startOfDay(for: installment.dueDate) == today
+            let result = try? await submit(
+                WalletCommand(
+                    kind: .loanInstallment,
+                    amountCents: 0,
+                    dueDate: isToday ? nil : installment.dueDate,
+                    idempotencyKey: UUID().uuidString
                 )
-                switch result {
-                case .accepted:
-                    continue
-                case .rejected:
-                    skipRemainingLoans = true
-                default:
-                    return
-                }
+            )
+            switch result {
+            case .accepted:
+                continue
+            case .rejected:
+                return
+            default:
+                return
             }
-        }
-    }
-
-    private enum ScheduledSettlementItem {
-        case allowance(dueDate: Date, amountCents: Int)
-        case loan(dueDate: Date)
-
-        var dueDate: Date {
-            switch self {
-            case .allowance(let dueDate, _), .loan(let dueDate):
-                dueDate
-            }
-        }
-
-        var isAllowance: Bool {
-            if case .allowance = self { return true }
-            return false
         }
     }
 
