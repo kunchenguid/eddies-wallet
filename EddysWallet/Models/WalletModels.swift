@@ -810,16 +810,18 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         self.occurrences = normalizedOccurrences
     }
 
-    /// A missing or empty chain is the pre-chain snapshot: one scheduled
-    /// occurrence at `nextDate`, unless the plan is already exhausted.
+    /// A missing chain is the pre-chain snapshot: one scheduled occurrence at
+    /// `nextDate`, unless the plan is already exhausted.
     private static func normalizedOccurrences(
         _ occurrences: [Occurrence]?,
         nextDate: Date,
         nextOccurrenceID: String?,
         isExhausted: Bool
     ) throws -> [Occurrence] {
-        if let occurrences, !occurrences.isEmpty {
-            guard occurrences.filter({ $0.status == .scheduled }).count <= 1,
+        if let occurrences {
+            let scheduledCount = occurrences.filter { $0.status == .scheduled }.count
+            guard scheduledCount == (isExhausted ? 0 : 1),
+                  occurrences.allSatisfy({ !$0.id.isEmpty }),
                   occurrences.allSatisfy({ $0.status != .recorded || $0.entryID != nil }),
                   Set(occurrences.map(\.id)).count == occurrences.count else {
                 throw WalletAPIError.invalidResponse("The allowance occurrence chain is invalid.")

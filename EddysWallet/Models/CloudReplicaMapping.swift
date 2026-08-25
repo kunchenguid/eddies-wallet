@@ -42,7 +42,7 @@ enum CloudReplicaMapper {
             activities: activities,
             loan: openLoan.map { loan(from: $0, occurrences: replica.loanOccurrences ?? []) },
             allowance: try replica.allowanceRule.flatMap {
-                try allowance(from: $0, occurrences: replica.allowanceOccurrences ?? [])
+                try allowance(from: $0, occurrences: replica.allowanceOccurrences)
             },
             pendingEvents: [],
             lastUpdated: .now,
@@ -132,10 +132,11 @@ enum CloudReplicaMapper {
 
     private static func allowance(
         from rule: CloudReplica.AllowanceRule,
-        occurrences replicaOccurrences: [CloudReplica.CloudAllowanceOccurrence]
+        occurrences replicaOccurrences: [CloudReplica.CloudAllowanceOccurrence]?
     ) throws -> AllowancePlan? {
         guard rule.active != false, let startDate = rule.startDate.flatMap(CloudDayFormat.date(from:)) else { return nil }
-        let mappedOccurrences = replicaOccurrences
+        let rawOccurrences = replicaOccurrences ?? []
+        let mappedOccurrences = rawOccurrences
             .compactMap { occurrence -> AllowancePlan.Occurrence? in
                 guard let dueDate = CloudDayFormat.date(from: occurrence.dueOn),
                       let status = AllowancePlan.Occurrence.Status(rawValue: occurrence.status) else { return nil }
@@ -151,7 +152,7 @@ enum CloudReplicaMapper {
             .sorted { left, right in
                 left.dueDate == right.dueDate ? left.id < right.id : left.dueDate < right.dueDate
             }
-        guard mappedOccurrences.count == replicaOccurrences.count else {
+        guard mappedOccurrences.count == rawOccurrences.count else {
             throw WalletAPIError.invalidResponse("The Cloud allowance schedule is invalid.")
         }
         // Prefer the replica's occurrence chain when the service sent it.
@@ -195,7 +196,7 @@ enum CloudReplicaMapper {
                 AllowancePlan.Occurrence(id: chainHead.id, dueDate: chainHead.date, status: .scheduled)
             ]
         } else {
-            occurrences = nil
+            occurrences = replicaOccurrences == nil ? nil : []
         }
         return try AllowancePlan(
             remoteID: rule.id,

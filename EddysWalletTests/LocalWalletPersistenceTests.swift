@@ -265,6 +265,113 @@ final class LocalWalletPersistenceTests: XCTestCase {
         )
     }
 
+    func testAllowancePlanRejectsHeadExhaustionMismatches() throws {
+        let dueDate = Calendar.current.startOfDay(for: .now)
+        let entryID = UUID()
+
+        XCTAssertThrowsError(
+            try AllowancePlan(
+                amountCents: 500,
+                cadence: "every week",
+                nextDate: dueDate,
+                isExhausted: true,
+                occurrences: [.init(id: "head", dueDate: dueDate, status: .scheduled)]
+            )
+        )
+        XCTAssertThrowsError(
+            try AllowancePlan(
+                amountCents: 500,
+                cadence: "every week",
+                nextDate: dueDate,
+                occurrences: [
+                    .init(
+                        id: "recorded",
+                        dueDate: dueDate,
+                        status: .recorded,
+                        amountCents: 500,
+                        entryID: entryID
+                    ),
+                ]
+            )
+        )
+        XCTAssertThrowsError(
+            try AllowancePlan(
+                amountCents: 500,
+                cadence: "every week",
+                nextDate: dueDate,
+                occurrences: []
+            )
+        )
+        let exhausted = try AllowancePlan(
+            amountCents: 500,
+            cadence: "every week",
+            nextDate: dueDate,
+            isExhausted: true,
+            occurrences: []
+        )
+        XCTAssertTrue(exhausted.occurrences.isEmpty)
+        XCTAssertNil(exhausted.nextOccurrence)
+    }
+
+    func testAllowancePlanRejectsEmptyOccurrenceID() throws {
+        let dueDate = Calendar.current.startOfDay(for: .now)
+        let occurrences: [AllowancePlan.Occurrence] = [
+            .init(id: "", dueDate: dueDate, status: .scheduled),
+        ]
+        struct EncodedAllowance: Encodable {
+            let amountCents: Int
+            let cadence: String
+            let weekday: Int
+            let nextDate: Date
+            let syncState: SyncState
+            let occurrences: [AllowancePlan.Occurrence]
+        }
+        let encoded = EncodedAllowance(
+            amountCents: 500,
+            cadence: "every week",
+            weekday: 5,
+            nextDate: dueDate,
+            syncState: .recorded,
+            occurrences: occurrences
+        )
+
+        XCTAssertThrowsError(
+            try AllowancePlan(
+                amountCents: 500,
+                cadence: "every week",
+                nextDate: dueDate,
+                occurrences: occurrences
+            )
+        )
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(AllowancePlan.self, from: JSONEncoder().encode(encoded))
+        )
+    }
+
+    func testAllowancePlanDecodingRejectsExplicitEmptyLiveChain() throws {
+        let dueDate = Calendar.current.startOfDay(for: .now)
+        struct EncodedAllowance: Encodable {
+            let amountCents: Int
+            let cadence: String
+            let weekday: Int
+            let nextDate: Date
+            let syncState: SyncState
+            let occurrences: [AllowancePlan.Occurrence]
+        }
+        let encoded = EncodedAllowance(
+            amountCents: 500,
+            cadence: "every week",
+            weekday: 5,
+            nextDate: dueDate,
+            syncState: .recorded,
+            occurrences: []
+        )
+
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(AllowancePlan.self, from: JSONEncoder().encode(encoded))
+        )
+    }
+
     func testMockAllowanceRecordingLinksOccurrenceToAcceptedEvent() async throws {
         let dueDate = Calendar.current.startOfDay(for: .now)
         let repository = MockWalletRepository(

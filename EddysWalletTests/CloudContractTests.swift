@@ -1098,6 +1098,50 @@ final class CloudContractTests: XCTestCase {
         )
     }
 
+    func testReplicaRejectsEmptyScheduledAllowanceOccurrenceID() throws {
+        let replica = try JSONDecoder.cloud.decode(
+            CloudReplica.self,
+            from: Data("""
+            {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":4},
+             "family":{"id":"f-1","name":"Test Kid's family"},
+             "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+             "wallet":{"id":"w-1","balanceCents":1000},
+             "entries":[],"loans":[],
+             "allowanceOccurrences":[
+               {"id":"","dueOn":"2026-08-07","status":"scheduled","amountCents":null,
+                "acceptedEntryId":null}
+             ],
+             "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+              "startDate":"2026-07-01","endDate":null,"active":true,
+              "nextOccurrenceId":"valid-head","nextDueDate":"2026-08-14"}}
+            """.utf8)
+        )
+
+        XCTAssertThrowsError(
+            try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        )
+    }
+
+    func testReplicaRejectsExplicitEmptyLiveAllowanceChain() throws {
+        let replica = try JSONDecoder.cloud.decode(
+            CloudReplica.self,
+            from: Data("""
+            {"household":{"lineageId":"c715311d-e4c5-4878-99b7-f42adb8ff90e","authority":"cloud","revision":4},
+             "family":{"id":"f-1","name":"Test Kid's family"},
+             "child":{"id":"c-1","nickname":"Test Kid","avatarUrl":null},
+             "wallet":{"id":"w-1","balanceCents":1000},
+             "entries":[],"loans":[],"allowanceOccurrences":[],
+             "allowanceRule":{"id":"a-1","amountCents":500,"cadence":"weekly","weekday":5,
+              "startDate":"2026-07-01","endDate":null,"active":true,
+              "nextOccurrenceId":null,"nextDueDate":null}}
+            """.utf8)
+        )
+
+        XCTAssertThrowsError(
+            try CloudReplicaMapper.snapshot(from: replica, mergingInto: [], fallbackNickname: nil)
+        )
+    }
+
     func testReplicaRejectsIncompleteRuleHeadAfterRecordedAllowanceHistory() throws {
         let replica = try JSONDecoder.cloud.decode(
             CloudReplica.self,
