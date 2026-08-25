@@ -927,7 +927,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
             weekday: weekday,
             nextDate: followingDate,
             endDate: endDate,
-            nextOccurrenceID: nextOccurrenceID,
+            nextOccurrenceID: exhausted ? nil : nextOccurrenceID,
             syncState: syncState,
             isExhausted: exhausted,
             occurrences: occurrences

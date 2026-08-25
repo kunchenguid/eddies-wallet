@@ -143,14 +143,20 @@ final class CloudVerticalSliceTests: XCTestCase {
             )
         )
 
-        guard case .accepted = try await local.submit(
+        guard case .accepted(let event) = try await local.submit(
             WalletCommand(kind: .allowance, amountCents: 500, dueDate: today)
         ) else {
             return XCTFail("the final bounded allowance should be recorded")
         }
+        let plan = try XCTUnwrap(local.snapshot().allowance)
+        let finalOccurrence = try XCTUnwrap(plan.occurrences.last)
         let manifest = try local.cloudImportManifest(familyName: "Test Kid's family", operationID: UUID())
 
-        XCTAssertTrue(local.snapshot().allowance?.isExhausted == true)
+        XCTAssertTrue(plan.isExhausted)
+        XCTAssertNil(plan.nextOccurrenceID)
+        XCTAssertNil(plan.nextOccurrence)
+        XCTAssertEqual(finalOccurrence.status, .recorded)
+        XCTAssertEqual(finalOccurrence.entryID, event.id)
         XCTAssertNil(manifest.allowanceRule?.nextOccurrenceID)
         XCTAssertNil(manifest.allowanceRule?.nextDueDate)
     }
