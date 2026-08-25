@@ -369,6 +369,9 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     var unsettledCloudMutation: PendingCloudMutation? { aggregate?.metadata.unsettledCloudMutation }
     var cloudApplicationLease: Int { cloudHandoffGeneration }
     public var cloudImportOperationID: UUID? { aggregate?.metadata.cloudImportOperationID }
+    var hasUnresolvedCloudImport: Bool {
+        cloudImportOperationID != nil && aggregate?.metadata.cloudImportMayBeUnresolved == true
+    }
     public var hasCompletedCloudImport: Bool { aggregate?.metadata.cloudImportCompleted == true }
 
     func beginCloudImportTransition() async throws -> UUID {

@@ -404,6 +404,64 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(local.snapshot().acceptedBalanceCents, 775)
     }
 
+    func testInactiveContextReleasesAnUnresolvedImportForLocalUse() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        _ = try await local.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        _ = try await local.setAllowance(
+            AllowanceRuleCommand(
+                amountCents: 500,
+                weekday: calendar.component(.weekday, from: today) - 1,
+                startDate: today
+            )
+        )
+        _ = try local.reserveCloudImportOperation()
+        let relaunched = try LocalWalletRepository(directory: directory)
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextWithEntitlement("expired"))
+        let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
+        let store = elevatedStore(repository: relaunched, coordinator: coordinator)
+
+        await waitUntil("launch releases the definitively inactive import") {
+            relaunched.cloudImportOperationID == nil
+        }
+
+        XCTAssertEqual(store.authorityState, .local(lineageID: try XCTUnwrap(relaunched.lineageID)))
+        XCTAssertNil(relaunched.cloudImportOperationID)
+        await relaunched.applyDueScheduledSettlements()
+        XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 500)
+        guard case .accepted = try await relaunched.submit(WalletCommand(kind: .deposit, amountCents: 25)) else {
+            return XCTFail("server-confirmed inactive Cloud must restore local writes")
+        }
+        XCTAssertEqual(relaunched.snapshot().acceptedBalanceCents, 525)
+    }
+
+    func testInactiveContextAdoptsAnAcceptedUnresolvedImport() async throws {
+        let local = try await localWalletWithHistory()
+        let lineage = try XCTUnwrap(local.lineageID)
+        _ = try local.reserveCloudImportOperation()
+        let relaunched = try LocalWalletRepository(directory: directory)
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/context", CloudSliceFixtures.contextExpired(lineage: lineage))
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        let coordinator = CloudCoordinator(client: client(transport), subscriptions: silentSubscriptionStore(transport))
+        let store = elevatedStore(repository: relaunched, coordinator: coordinator)
+
+        await waitUntil("launch adopts the server-confirmed import") {
+            if case .cloud = store.authorityState { return true }
+            return false
+        }
+
+        guard case .cloud(let authorityLineage, let revision) = store.authorityState else {
+            return XCTFail("server-confirmed accepted import must become Cloud authority")
+        }
+        XCTAssertEqual(authorityLineage, lineage)
+        XCTAssertEqual(revision, 2)
+        XCTAssertTrue(relaunched.isCloudAuthority)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 750)
+    }
+
     func testActivationIsRefusedWithoutTheBackendProjectedEntitlement() async throws {
         let local = try await localWalletWithHistory()
         let transport = RoutingTransport()

@@ -284,6 +284,33 @@ public final class CloudCoordinator: ObservableObject, AccountDeletionPerforming
         }
     }
 
+    func reconcilePendingCloudImport(
+        from local: LocalWalletRepository,
+        familyName: String
+    ) async throws -> CloudWalletRepository? {
+        guard let operationID = local.cloudImportOperationID,
+              local.hasUnresolvedCloudImport else { return nil }
+        guard let context = await refreshContext() else {
+            throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
+        if let household = context.household {
+            if household.isCloudAuthoritative,
+               household.lineageID == local.lineageID,
+               let adopted = await adoptCloudHousehold(household, into: local) {
+                return adopted
+            }
+            try local.cancelCloudImportTransition(operationID: operationID)
+            activationConflict = true
+            message = "This wallet could not be moved to Cloud. Nothing was changed."
+            return nil
+        }
+        if context.entitlement?.grantsCloud == true {
+            return try await activateCloud(from: local, familyName: familyName)
+        }
+        try local.cancelCloudImportTransition(operationID: operationID)
+        return nil
+    }
+
     /// Second device for the same parent: no upload, only a complete bootstrap
     /// of the household the server already owns.
     public func adoptExistingCloudHousehold(into local: LocalWalletRepository) async throws -> CloudWalletRepository? {

@@ -342,7 +342,11 @@ public final class WalletStore: ObservableObject {
         }
 
         if self.isSignedIn, !isMockRepository, self.recoveryState == nil {
-            Task { [weak self] in await self?.refresh() }
+            Task { [weak self] in
+                guard let self else { return }
+                await self.refresh()
+                await self.activateCloudIfPaid()
+            }
         }
     }
 
@@ -2025,7 +2029,9 @@ public final class WalletStore: ObservableObject {
         guard permitsCloudActivation else { return }
         guard let cloudCoordinator else { return }
         guard let local = repository as? LocalWalletRepository else { return }
-        guard cloudCoordinator.isCloudActive || cloudCoordinator.household != nil else { return }
+        guard cloudCoordinator.isCloudActive
+                || cloudCoordinator.household != nil
+                || local.hasUnresolvedCloudImport else { return }
         if let cloudActivationTask {
             await cloudActivationTask.value
             return
@@ -2056,7 +2062,18 @@ public final class WalletStore: ObservableObject {
         authorityState = .transitioningToCloud
         do {
             let cloud: CloudWalletRepository
-            if let adopted = try await cloudCoordinator.adoptExistingCloudHousehold(into: local) {
+            if local.hasUnresolvedCloudImport {
+                guard let reconciled = try await cloudCoordinator.reconcilePendingCloudImport(
+                    from: local,
+                    familyName: cloudFamilyName
+                ) else {
+                    authorityState = previousAuthority
+                    snapshot = local.snapshot()
+                    cloudMessage = cloudCoordinator.message
+                    return
+                }
+                cloud = reconciled
+            } else if let adopted = try await cloudCoordinator.adoptExistingCloudHousehold(into: local) {
                 cloud = adopted
             } else {
                 cloud = try await cloudCoordinator.activateCloud(from: local, familyName: cloudFamilyName)
