@@ -119,11 +119,13 @@ final class EddysWalletUITests: XCTestCase {
     private func assertFocusedAmountFieldIsFullyAboveKeyboard(
         _ field: XCUIElement,
         in app: XCUIApplication,
+        primaryAction: XCUIElement,
         focusAfterPreScrolling: Bool = false,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         XCTAssertTrue(field.waitForExistence(timeout: 5), "the amount field must exist", file: file, line: line)
+        XCTAssertTrue(primaryAction.waitForExistence(timeout: 5), "the primary action must exist", file: file, line: line)
         let sheetScroll = app.scrollViews.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "sheet-form-scroll-fade-")
         ).firstMatch
@@ -147,23 +149,48 @@ final class EddysWalletUITests: XCTestCase {
         let settled = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
                 let fieldFrame = field.frame
+                let actionFrame = primaryAction.frame
                 let keyboardFrame = keyboard.frame
                 return fieldFrame.height > 8
+                    && actionFrame.height > 8
                     && keyboardFrame.height > 8
-                    && fieldFrame.maxY <= keyboardFrame.minY + 1
+                    && fieldFrame.maxY <= actionFrame.minY + 1
+                    && actionFrame.maxY <= keyboardFrame.minY + 1
             },
             object: nil
         )
         _ = XCTWaiter.wait(for: [settled], timeout: 3)
 
         let fieldFrame = field.frame
+        let actionFrame = primaryAction.frame
         let keyboardFrame = keyboard.frame
         XCTAssertGreaterThan(fieldFrame.height, 8, "the amount field must have a real layout frame", file: file, line: line)
+        XCTAssertGreaterThan(actionFrame.height, 8, "the primary action must have a real layout frame", file: file, line: line)
         XCTAssertGreaterThan(keyboardFrame.height, 8, "the amount keyboard must have a real layout frame", file: file, line: line)
         XCTAssertLessThanOrEqual(
             fieldFrame.maxY,
             keyboardFrame.minY + 1,
             "focused amount field \(fieldFrame) must sit fully above the keyboard \(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            fieldFrame.maxY,
+            actionFrame.minY + 1,
+            "focused amount field \(fieldFrame) must not sit under the pinned action \(actionFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            actionFrame.maxY,
+            keyboardFrame.minY + 1,
+            "primary action \(actionFrame) must stay fully above the keyboard \(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            app.windows.firstMatch.frame.contains(actionFrame),
+            "the primary action must stay fully on screen while the amount field is focused",
             file: file,
             line: line
         )
@@ -697,6 +724,7 @@ final class EddysWalletUITests: XCTestCase {
         assertFocusedAmountFieldIsFullyAboveKeyboard(
             app.textFields["allowance-weekly-amount"],
             in: app,
+            primaryAction: app.buttons["Review allowance"],
             focusAfterPreScrolling: true
         )
         app.buttons["Close"].tap()
@@ -713,7 +741,8 @@ final class EddysWalletUITests: XCTestCase {
             openParentAction(title, in: app)
             assertFocusedAmountFieldIsFullyAboveKeyboard(
                 app.textFields["Amount in virtual dollars"],
-                in: app
+                in: app,
+                primaryAction: app.buttons["Review"]
             )
             app.buttons["Cancel"].tap()
             XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
@@ -726,6 +755,7 @@ final class EddysWalletUITests: XCTestCase {
         assertFocusedAmountFieldIsFullyAboveKeyboard(
             app.textFields["loan-payment-amount"],
             in: app,
+            primaryAction: app.buttons["Review"],
             focusAfterPreScrolling: true
         )
         app.buttons["Cancel"].tap()

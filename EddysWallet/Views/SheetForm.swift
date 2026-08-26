@@ -6,9 +6,8 @@ import SwiftUI
 /// parent never has to discover that a sheet scrolls in order to find the
 /// control that finishes the job:
 ///
-/// - The actions normally sit in their own bar below the scroll region. On a
-///   short focused-field layout they join the scroll region so the field keeps
-///   enough visible space above the software keyboard.
+/// - The actions sit in their own bar below the scroll region, where they stay
+///   visible while the form scrolls above the software keyboard.
 /// - A focused money-amount field stays in the scrolling region so native
 ///   keyboard avoidance can keep its whole frame visible.
 /// - The scroll region scrolls only when the content genuinely does not fit
@@ -34,7 +33,6 @@ struct SheetForm<Content: View, Actions: View>: View {
     @State private var contentHeight: CGFloat = 0
     @State private var contentBottom: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
-    @State private var actionBarHeight: CGFloat = 0
     @State private var focusedAmount: FocusedAmountField?
 
     init(@ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
@@ -61,54 +59,37 @@ struct SheetForm<Content: View, Actions: View>: View {
     private var hasActions: Bool { Actions.self != EmptyView.self }
 
     var body: some View {
-        GeometryReader { viewport in
-            let scrollsActions = SheetFormLayout.needsScrollableActions(
-                viewportHeight: viewport.size.height,
-                actionBarHeight: actionBarHeight,
-                focusedFieldHeight: focusedAmount?.height ?? 0
-            )
-
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            content
-                                .padding(EW.Space.screenMargin)
-                                .frame(maxWidth: Self.contentWidth)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .background(
-                                    ContentMetricsReader(
-                                        height: $contentHeight,
-                                        bottom: $contentBottom
-                                    )
-                                )
-
-                            if hasActions, scrollsActions {
-                                actionBar
-                            }
-                        }
-                    }
-                    .scrollBounceBehavior(.basedOnSize)
-                    .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
-                    .accessibilityIdentifier(scrollFadeIdentifier)
-                    .background(HeightReader(height: $viewportHeight))
-                    .overlay(alignment: .bottom) { scrollFade }
-                    .onChange(of: focusedAmount?.id) { _, _ in
-                        scrollFocusedAmount(using: proxy)
-                    }
-                    .onChange(of: scrollsActions) { _, _ in
-                        scrollFocusedAmount(using: proxy)
-                    }
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    content
+                        .padding(EW.Space.screenMargin)
+                        .frame(maxWidth: Self.contentWidth)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .background(
+                            ContentMetricsReader(
+                                height: $contentHeight,
+                                bottom: $contentBottom
+                            )
+                        )
                 }
-
-                if hasActions, !scrollsActions {
-                    actionBar
+                .scrollBounceBehavior(.basedOnSize)
+                .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
+                .accessibilityIdentifier(scrollFadeIdentifier)
+                .background(HeightReader(height: $viewportHeight))
+                .overlay(alignment: .bottom) { scrollFade }
+                .onChange(of: focusedAmount?.id) { _, _ in
+                    scrollFocusedAmount(using: proxy)
                 }
             }
-            .background(EW.Color.appBackground)
-            .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
-                focusedAmount = fields.first
+
+            if hasActions {
+                actionBar
             }
+        }
+        .background(EW.Color.appBackground)
+        .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
+            focusedAmount = fields.first
         }
     }
 
@@ -138,7 +119,6 @@ struct SheetForm<Content: View, Actions: View>: View {
         .frame(maxWidth: Self.contentWidth)
         .frame(maxWidth: .infinity, alignment: .center)
         .background(EW.Color.appBackground)
-        .background(HeightReader(height: $actionBarHeight))
     }
 
     private func scrollFocusedAmount(using proxy: ScrollViewProxy) {
@@ -204,19 +184,6 @@ private struct FocusedAmountFieldPreference: PreferenceKey {
 
     static func reduce(value: inout [FocusedAmountField], nextValue: () -> [FocusedAmountField]) {
         value.append(contentsOf: nextValue())
-    }
-}
-
-enum SheetFormLayout {
-    static let focusedFieldClearance: CGFloat = 12
-
-    static func needsScrollableActions(
-        viewportHeight: CGFloat,
-        actionBarHeight: CGFloat,
-        focusedFieldHeight: CGFloat
-    ) -> Bool {
-        guard viewportHeight > 0, actionBarHeight > 0, focusedFieldHeight > 0 else { return false }
-        return viewportHeight - actionBarHeight < focusedFieldHeight + focusedFieldClearance
     }
 }
 

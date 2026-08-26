@@ -1425,25 +1425,3 @@ private final class TestAppleAuthorizationController: AppleAuthorizationControll
         onCancel?()
     }
 }
-
-final class SheetFormLayoutTests: XCTestCase {
-    func testTallActionsJoinScrollWhenLandscapeViewportCannotFitFocusedField() {
-        XCTAssertTrue(
-            SheetFormLayout.needsScrollableActions(
-                viewportHeight: 190,
-                actionBarHeight: 128,
-                focusedFieldHeight: 56
-            )
-        )
-    }
-
-    func testActionsStayPinnedWhenFocusedFieldFitsAboveKeyboard() {
-        XCTAssertFalse(
-            SheetFormLayout.needsScrollableActions(
-                viewportHeight: 260,
-                actionBarHeight: 128,
-                focusedFieldHeight: 56
-            )
-        )
-    }
-}
