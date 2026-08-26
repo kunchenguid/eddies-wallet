@@ -102,6 +102,7 @@ final class EddysWalletUITests: XCTestCase {
     private func assertFocusedAmountFieldIsFullyAboveKeyboard(
         _ field: XCUIElement,
         in app: XCUIApplication,
+        focusAfterPreScrolling: Bool = false,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -109,12 +110,13 @@ final class EddysWalletUITests: XCTestCase {
         let sheetScroll = app.scrollViews.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "sheet-form-scroll-fade-")
         ).firstMatch
-        if sheetScroll.exists {
-            for _ in 0..<6 where !field.isHittable {
-                sheetScroll.swipeUp()
+        if focusAfterPreScrolling {
+            if sheetScroll.exists {
+                for _ in 0..<6 where !field.isHittable {
+                    sheetScroll.swipeUp()
+                }
             }
-        }
-        if field.isHittable {
+            XCTAssertTrue(field.isHittable, "the amount field must be reachable before focusing", file: file, line: line)
             field.tap()
         }
         let keyboard = app.keyboards.element
@@ -654,7 +656,8 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
         assertFocusedAmountFieldIsFullyAboveKeyboard(
             app.textFields["allowance-weekly-amount"],
-            in: app
+            in: app,
+            focusAfterPreScrolling: true
         )
         app.buttons["Close"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
@@ -682,7 +685,8 @@ final class EddysWalletUITests: XCTestCase {
         paymentPlan.buttons["Weekly"].tap()
         assertFocusedAmountFieldIsFullyAboveKeyboard(
             app.textFields["loan-payment-amount"],
-            in: app
+            in: app,
+            focusAfterPreScrolling: true
         )
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
