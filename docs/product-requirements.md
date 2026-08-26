@@ -259,6 +259,8 @@ The kid home must not include a child request button, money action button, edit 
 - Rejected events are visible to the parent with the reason and are not shown as accepted child activity.
 - Accepted activity cannot be edited or deleted.
 
+Across parent money forms, the software keyboard must never cover any part of the focused money-amount field. The form scrolls that field fully into the visible area while keeping the step's primary action pinned and visible above the keyboard.
+
 ### 8.6 Allowance
 
 The parent can create one simple active allowance rule for the child profile in the MVP.
@@ -269,10 +271,11 @@ Flow:
 2. Enter an amount, a simple cadence initially centered on weekly allowance, a start date, and an optional end date.
 3. Review a sentence such as “Add US$10.00 virtual dollars every Friday starting August 1.”
 4. Save the rule behind the parent PIN.
-5. Show the earliest current or future expected date and distinguish the rule from an actual allowance entry. A past missed date must not be repeated as the next allowance summary.
-6. **Pay out allowance** settles the next occurrence one at a time after it is due; it must never pay a future occurrence. It must not claim that an allowance was paid out until the event is accepted.
-7. An unrecorded weekly occurrence due strictly before today is missed. Show every currently missed occurrence, **N missed weeks**, and **Owed total** in both free-local and Cloud modes. An occurrence due today remains the ordinary single payout and is not part of the missed set.
-8. **Pay out missed allowance** asks the parent to confirm the initially visible missed set, including its entry count and total, then **Pay out all** settles that fixed set sequentially as separate allowance entries. It never expands the batch to include a newly due occurrence. Accepted weeks remain durable after interruption, while the untouched weeks remain visible and payable later without duplicates.
+5. Once the current authority confirms the submitted rule and the current wallet shows that same rule, dismiss the complete allowance flow and return to the Parent area with the new schedule visible. If the request remains unresolved, or the authority accepted it but the latest schedule is unavailable, keep the flow open with its recovery status instead of claiming completion.
+6. Show the earliest current or future expected date and distinguish the rule from an actual allowance entry. A past missed date must not be repeated as the next allowance summary.
+7. **Pay out allowance** settles the next occurrence one at a time after it is due; it must never pay a future occurrence. It must not claim that an allowance was paid out until the event is accepted.
+8. An unrecorded weekly occurrence due strictly before today is missed. Show every currently missed occurrence, **N missed weeks**, and **Owed total** in both free-local and Cloud modes. An occurrence due today remains the ordinary single payout and is not part of the missed set.
+9. **Pay out missed allowance** asks the parent to confirm the initially visible missed set, including its entry count and total, then **Pay out all** settles that fixed set sequentially as separate allowance entries. It never expands the batch to include a newly due occurrence. Accepted weeks remain durable after interruption, while the untouched weeks remain visible and payable later without duplicates.
 
 Free-local authority records a valid rule immediately in protected local storage. A successful local read also settles due chain-head occurrences of that parent-created weekly rule, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass. A larger derived backlog stays on **Pay out missed allowance**. This weekly cadence limit belongs only to allowance rules; loan installment auto-settlement supports both weekly and monthly plans as specified in 8.9. When Cloud is on, the service records due occurrences; this device displays them from `/v1/cloud/changes` and never auto-writes. A parent-confirmed Cloud payout still uses the existing occurrence endpoint with the normal revision, `If-Match`, and idempotency protections, and a required Cloud review blocks the next payout rather than being bypassed by the batch. A service-authoritative wallet must confirm its current replica revision online before submitting a rule change or payout and must not queue an offline rule edit. Toggling Cloud off resumes local apply-on-read from the persisted occurrence chain, never from the rule start date, so already-recorded weeks cannot be paid again.
 
