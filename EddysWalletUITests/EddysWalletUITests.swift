@@ -693,12 +693,29 @@ final class EddysWalletUITests: XCTestCase {
         let refresh = app.buttons["Refresh allowance schedule"]
         XCTAssertTrue(refresh.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Set allowance"].exists)
-        refresh.tap()
+
+        app.buttons["Close"].tap()
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForNonExistence(timeout: 5))
+        let allowanceCard = app.buttons["parent-allowance-card"]
+        for _ in 0..<8 where !allowanceCard.isHittable { app.swipeDown() }
+        XCTAssertTrue(allowanceCard.isHittable)
+        allowanceCard.tap()
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+        let reopenedRefresh = app.buttons["Refresh allowance schedule"]
+        XCTAssertTrue(reopenedRefresh.waitForExistence(timeout: 5))
+        reopenedRefresh.tap()
 
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForNonExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Next allowance"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["US$10.00 every week"].waitForExistence(timeout: 5))
+
+        XCTAssertTrue(allowanceCard.isHittable)
+        allowanceCard.tap()
+        let review = app.buttons["Review allowance"]
+        XCTAssertTrue(review.waitForExistence(timeout: 5))
+        XCTAssertTrue(review.isEnabled, "the resolved allowance editor must not remain blocked")
+        app.buttons["Close"].tap()
     }
 
     func testPendingAllowanceCreateKeepsTheSheetOpenWithRecoveryStatus() throws {

@@ -910,6 +910,11 @@ public final class WalletStore: ObservableObject {
             snapshot = repository is CloudWalletRepository
                 ? (role == .child ? repository.childSnapshot() : repository.snapshot())
                 : (repository is LocalWalletRepository ? repository.snapshot() : refreshed)
+            if latestParentMutationOutcome == .acceptedScheduleUnavailable,
+               let latestSubmittedAllowanceRuleID,
+               snapshot.allowance?.remoteID == latestSubmittedAllowanceRuleID {
+                latestParentMutationOutcome = .recorded
+            }
             needsSetup = false
             if let cloud = repository as? CloudWalletRepository {
                 authorityState = .cloud(lineageID: cloud.lineageID, revision: cloud.revision)

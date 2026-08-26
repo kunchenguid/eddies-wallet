@@ -672,6 +672,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
     let mutationMode: ScriptedMutationMode
     private var rejectedCleanupFailures: Int
     private var rejectedCleanupActive: Bool
+    private var confirmedAllowance: AllowancePlan?
 
     init(
         snapshot: WalletSnapshot,
@@ -686,12 +687,13 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
         self.mutationMode = mutationMode
         self.rejectedCleanupFailures = rejectedCleanupFailures
         self.rejectedCleanupActive = mutationMode == .rejectedCleanup
+        self.confirmedAllowance = nil
     }
 
     var isAuthenticated: Bool { true }
     var hasConfiguredKid: Bool { inner.hasConfiguredKid && !requiresSetup }
-    func snapshot() -> WalletSnapshot { inner.snapshot() }
-    func childSnapshot() -> WalletSnapshot { inner.childSnapshot() }
+    func snapshot() -> WalletSnapshot { applyingConfirmedAllowance(to: inner.snapshot()) }
+    func childSnapshot() -> WalletSnapshot { applyingConfirmedAllowance(to: inner.childSnapshot()) }
 
     func refresh(for role: UserRole) async throws -> WalletSnapshot {
         if let refreshError { throw refreshError }
@@ -703,7 +705,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
             }
             rejectedCleanupActive = false
         }
-        return try await inner.refresh(for: role)
+        return applyingConfirmedAllowance(to: try await inner.refresh(for: role))
     }
 
     func activity(limit: Int) async throws -> [WalletEvent] { try await inner.activity(limit: limit) }
@@ -749,7 +751,21 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
             throw WalletAPIError.cloudMutationAwaitingReconciliation
         }
         if mutationMode == .allowanceAcceptedScheduleUnavailable {
-            _ = try await inner.setAllowance(command)
+            let refreshed = try await inner.setAllowance(command)
+            if let plan = refreshed.allowance {
+                confirmedAllowance = try AllowancePlan(
+                    remoteID: "debug-submitted-allowance-rule",
+                    amountCents: plan.amountCents,
+                    cadence: plan.cadence,
+                    weekday: plan.weekday,
+                    nextDate: plan.nextDate,
+                    endDate: plan.endDate,
+                    nextOccurrenceID: plan.nextOccurrenceID,
+                    syncState: plan.syncState,
+                    isExhausted: plan.isExhausted,
+                    occurrences: plan.occurrences
+                )
+            }
             throw WalletAPIError.cloudAcceptedScheduleUnavailable
         }
         if mutationMode == .allowanceAdvanced {
@@ -783,6 +799,13 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
             throw WalletAPIError.cloudAcceptedAwaitingReplica
         }
         return try await inner.updateChildProfile(update)
+    }
+
+    private func applyingConfirmedAllowance(to snapshot: WalletSnapshot) -> WalletSnapshot {
+        guard let confirmedAllowance else { return snapshot }
+        var snapshot = snapshot
+        snapshot.allowance = confirmedAllowance
+        return snapshot
     }
 
     private func scriptedEvent(

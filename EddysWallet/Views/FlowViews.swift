@@ -454,7 +454,6 @@ struct AllowanceView: View {
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
     @State private var isSubmitting = false
-    @State private var submittedAllowanceRuleID: String?
     @FocusState private var isAmountFocused: Bool
 
     init() {
@@ -554,7 +553,6 @@ struct AllowanceView: View {
                     )
                     let recorded = await store.setAllowance(command)
                     let submittedRuleID = store.latestSubmittedAllowanceRuleID
-                    submittedAllowanceRuleID = submittedRuleID
                     let outcome = store.latestParentMutationOutcome ?? .notRecorded
                     let refreshedPlan = store.snapshot.allowance
                     resultState = outcome.syncState
@@ -588,7 +586,7 @@ struct AllowanceView: View {
             resultMessage = store.errorMessage ?? ParentMutationOutcome.acceptedScheduleUnavailable.message
             return
         }
-        guard let submittedAllowanceRuleID,
+        guard let submittedAllowanceRuleID = store.latestSubmittedAllowanceRuleID,
               store.snapshot.allowance?.remoteID == submittedAllowanceRuleID else {
             resultMessage = ParentMutationOutcome.acceptedScheduleUnavailable.message
             return
