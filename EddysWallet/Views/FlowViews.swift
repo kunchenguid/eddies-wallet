@@ -532,6 +532,7 @@ struct AllowanceView: View {
                     )
                     let recorded = await store.setAllowance(command)
                     let outcome = store.latestParentMutationOutcome ?? .notRecorded
+                    let refreshedPlan = store.snapshot.allowance
                     resultState = outcome.syncState
                     switch outcome {
                     case .recorded:
@@ -543,10 +544,12 @@ struct AllowanceView: View {
                     }
                     showReview = false
                     showDraft = false
-                    // A successful create must leave the Parent area, with the
-                    // new schedule visible. Staying on this sheet is what made
-                    // a finished create look like it never completed.
-                    if recorded || outcome != .notRecorded {
+                    if recorded,
+                       outcome == .recorded,
+                       let refreshedPlan,
+                       refreshedPlan.amountCents == command.amountCents,
+                       refreshedPlan.weekday == command.weekday,
+                       Calendar(identifier: .gregorian).isDate(refreshedPlan.nextDate, inSameDayAs: command.startDate) {
                         dismiss()
                     }
                 }

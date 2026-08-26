@@ -715,6 +715,9 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
 
     func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {
         if let refreshError { throw refreshError }
+        if mutationMode == .waiting {
+            throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
         return try await inner.setAllowance(command)
     }
 

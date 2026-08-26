@@ -155,6 +155,22 @@ final class EddysWalletUITests: XCTestCase {
             file: file,
             line: line
         )
+        if sheetScroll.exists {
+            XCTAssertGreaterThanOrEqual(
+                sheetScroll.frame.height,
+                fieldFrame.height,
+                "the keyboard-adjusted scroll viewport must not collapse around the amount field",
+                file: file,
+                line: line
+            )
+            XCTAssertLessThanOrEqual(
+                sheetScroll.frame.maxY,
+                keyboardFrame.minY + 1,
+                "the scroll viewport must end above the keyboard rather than being clipped behind it",
+                file: file,
+                line: line
+            )
+        }
     }
 
     // Report criterion 1 (P1, P2): a configured signed-in launch rests on the
@@ -560,6 +576,33 @@ final class EddysWalletUITests: XCTestCase {
             app.staticTexts["US$10.00 every week"].waitForExistence(timeout: 5),
             "the Parent area must show the schedule that was just created"
         )
+    }
+
+    func testPendingAllowanceCreateKeepsTheSheetOpenWithRecoveryStatus() throws {
+        let app = launch("cloud-write-waiting")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let allowanceCard = app.buttons["parent-allowance-card"]
+        for _ in 0..<8 where !allowanceCard.isHittable { app.swipeDown() }
+        XCTAssertTrue(allowanceCard.waitForExistence(timeout: 5))
+        allowanceCard.tap()
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+
+        app.buttons["Review allowance"].tap()
+        let confirm = app.buttons["Confirm allowance"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Set allowance"].waitForExistence(timeout: 5),
+            "an unconfirmed allowance create must keep its sheet open"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Cloud has not confirmed this change yet. This device will retry the same protected request. Do not save it again."].waitForExistence(timeout: 5),
+            "the open allowance sheet must show its recovery status"
+        )
+        XCTAssertTrue(app.buttons["Close"].exists)
     }
 
     // Every money-amount field in the app - deposit, withdrawal, loan,

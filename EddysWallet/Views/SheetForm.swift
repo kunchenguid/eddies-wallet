@@ -37,7 +37,6 @@ struct SheetForm<Content: View, Actions: View>: View {
     @State private var contentHeight: CGFloat = 0
     @State private var contentBottom: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
-    @State private var sheetFrame: CGRect = .zero
     @State private var keyboardFrame: CGRect = .zero
     @State private var focusedAmount: FocusedAmountField?
 
@@ -64,63 +63,59 @@ struct SheetForm<Content: View, Actions: View>: View {
 
     private var hasActions: Bool { Actions.self != EmptyView.self }
 
-    private var keyboardBottomInset: CGFloat {
-        KeyboardAvoidance.bottomInset(sheet: sheetFrame, keyboard: keyboardFrame)
-    }
-
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    content
-                        .padding(EW.Space.screenMargin)
-                        .frame(maxWidth: Self.contentWidth)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .background(
-                            ContentMetricsReader(
-                                height: $contentHeight,
-                                bottom: $contentBottom
+        GeometryReader { viewport in
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        content
+                            .padding(EW.Space.screenMargin)
+                            .frame(maxWidth: Self.contentWidth)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .background(
+                                ContentMetricsReader(
+                                    height: $contentHeight,
+                                    bottom: $contentBottom
+                                )
                             )
-                        )
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
+                    .accessibilityIdentifier(scrollFadeIdentifier)
+                    .background(HeightReader(height: $viewportHeight))
+                    .overlay(alignment: .bottom) { scrollFade }
+                    .onChange(of: focusedAmount?.id) { _, _ in
+                        scrollFocusedAmount(using: proxy)
+                    }
+                    .onChange(of: keyboardFrame) { _, _ in
+                        scrollFocusedAmount(using: proxy)
+                    }
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
-                .accessibilityIdentifier(scrollFadeIdentifier)
-                .background(HeightReader(height: $viewportHeight))
-                .overlay(alignment: .bottom) { scrollFade }
-                .onChange(of: focusedAmount?.id) { _, _ in
-                    scrollFocusedAmount(using: proxy)
-                }
-                .onChange(of: keyboardFrame) { _, _ in
-                    scrollFocusedAmount(using: proxy)
-                }
-            }
 
-            if hasActions {
-                actionBar
+                if hasActions {
+                    actionBar
+                }
             }
-        }
-        .padding(.bottom, keyboardBottomInset)
-        .background(EW.Color.appBackground)
-        .background {
-            GeometryReader { proxy in
-                let frame = proxy.frame(in: .global)
-                Color.clear
-                    .onAppear { captureSheetFrame(frame) }
-                    .onChange(of: frame) { _, newValue in captureSheetFrame(newValue) }
+            .padding(
+                .bottom,
+                KeyboardAvoidance.bottomInset(
+                    viewport: viewport.frame(in: .global),
+                    keyboard: keyboardFrame
+                )
+            )
+            .background(EW.Color.appBackground)
+            .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
+                focusedAmount = fields.first
             }
-        }
-        .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
-            focusedAmount = fields.first
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
-            updateKeyboardFrame(from: notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { notification in
-            updateKeyboardFrame(from: notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardFrame = .zero
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+                updateKeyboardFrame(from: notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { notification in
+                updateKeyboardFrame(from: notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                keyboardFrame = .zero
+            }
         }
     }
 
@@ -150,14 +145,6 @@ struct SheetForm<Content: View, Actions: View>: View {
         .frame(maxWidth: Self.contentWidth)
         .frame(maxWidth: .infinity, alignment: .center)
         .background(EW.Color.appBackground)
-    }
-
-    /// Remember the sheet's unpadded frame. Measuring after our own keyboard
-    /// inset would shrink the recorded frame and chase the keyboard to zero.
-    private func captureSheetFrame(_ frame: CGRect) {
-        if keyboardFrame == .zero, sheetFrame != frame {
-            sheetFrame = frame
-        }
     }
 
     private func updateKeyboardFrame(from notification: Notification) {
@@ -252,10 +239,10 @@ enum KeyboardAvoidance {
         return converted.intersects(window.bounds) ? converted : .zero
     }
 
-    static func bottomInset(sheet: CGRect, keyboard: CGRect, clearance: CGFloat = clearance) -> CGFloat {
-        guard sheet.height > 0, keyboard.height > 0 else { return 0 }
-        guard keyboard.minY < sheet.maxY else { return 0 }
-        return max(0, sheet.maxY - keyboard.minY + clearance)
+    static func bottomInset(viewport: CGRect, keyboard: CGRect, clearance: CGFloat = clearance) -> CGFloat {
+        guard viewport.height > 0, keyboard.height > 0 else { return 0 }
+        guard keyboard.minY < viewport.maxY + clearance else { return 0 }
+        return max(0, viewport.maxY - keyboard.minY + clearance)
     }
 
     private static var activeWindow: UIWindow? {
