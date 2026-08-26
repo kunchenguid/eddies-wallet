@@ -444,6 +444,20 @@ struct MoneyFlowView: View {
     }
 }
 
+private struct AllowanceRuleIdentity: Equatable {
+    let amountCents: Int
+    let weekday: Int
+
+    init(_ command: AllowanceRuleCommand) {
+        amountCents = command.amountCents
+        weekday = command.weekday
+    }
+
+    func matches(_ plan: AllowancePlan) -> Bool {
+        plan.amountCents == amountCents && plan.weekday == weekday
+    }
+}
+
 struct AllowanceView: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.dismiss) private var dismiss
@@ -454,6 +468,7 @@ struct AllowanceView: View {
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
     @State private var isSubmitting = false
+    @State private var submittedAllowanceIdentity: AllowanceRuleIdentity?
     @FocusState private var isAmountFocused: Bool
 
     init() {
@@ -551,6 +566,8 @@ struct AllowanceView: View {
                         weekday: weekday,
                         startDate: startDate
                     )
+                    let identity = AllowanceRuleIdentity(command)
+                    submittedAllowanceIdentity = identity
                     let recorded = await store.setAllowance(command)
                     let outcome = store.latestParentMutationOutcome ?? .notRecorded
                     let refreshedPlan = store.snapshot.allowance
@@ -568,8 +585,7 @@ struct AllowanceView: View {
                     if recorded,
                        outcome == .recorded,
                        let refreshedPlan,
-                       refreshedPlan.amountCents == command.amountCents,
-                       refreshedPlan.weekday == command.weekday {
+                       identity.matches(refreshedPlan) {
                         dismiss()
                     }
                 }
@@ -585,8 +601,15 @@ struct AllowanceView: View {
             resultMessage = store.errorMessage ?? ParentMutationOutcome.acceptedScheduleUnavailable.message
             return
         }
+        guard let submittedAllowanceIdentity,
+              let refreshedPlan = store.snapshot.allowance,
+              submittedAllowanceIdentity.matches(refreshedPlan) else {
+            resultMessage = ParentMutationOutcome.acceptedScheduleUnavailable.message
+            return
+        }
         resultState = .recorded
         resultMessage = "The weekly allowance plan was recorded. The latest allowance schedule is ready."
+        dismiss()
     }
 }
 

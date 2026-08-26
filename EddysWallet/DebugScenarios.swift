@@ -249,6 +249,13 @@ enum DebugLaunchScenario {
                 entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: true
             )
+        case "cloud-allowance-refresh-confirmed":
+            return store(
+                repository: ScriptedWalletRepository(snapshot: emptySnapshot(environment: environment), mutationMode: .allowanceAcceptedScheduleUnavailable),
+                authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
+                hasValidCloudReplica: true
+            )
         case "cloud-write-waiting":
             return store(
                 repository: ScriptedWalletRepository(snapshot: snapshot(.fixture(), environment: environment), mutationMode: .waiting),
@@ -652,6 +659,7 @@ enum ScriptedMutationMode: Equatable {
     case rejectedCleanup
     case profileAcceptedWaiting
     case allowanceAdvanced
+    case allowanceAcceptedScheduleUnavailable
 }
 
 /// Mock repository wrapper that can fail refreshes (offline / expired
@@ -664,6 +672,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
     let mutationMode: ScriptedMutationMode
     private var rejectedCleanupFailures: Int
     private var rejectedCleanupActive: Bool
+    private var pendingAllowanceCommand: AllowanceRuleCommand?
 
     init(
         snapshot: WalletSnapshot,
@@ -678,6 +687,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
         self.mutationMode = mutationMode
         self.rejectedCleanupFailures = rejectedCleanupFailures
         self.rejectedCleanupActive = mutationMode == .rejectedCleanup
+        self.pendingAllowanceCommand = nil
     }
 
     var isAuthenticated: Bool { true }
@@ -695,6 +705,10 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
             }
             rejectedCleanupActive = false
         }
+        if let pendingAllowanceCommand {
+            _ = try await inner.setAllowance(pendingAllowanceCommand)
+            self.pendingAllowanceCommand = nil
+        }
         return try await inner.refresh(for: role)
     }
 
@@ -705,7 +719,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
     func submit(_ command: WalletCommand) async throws -> CommandResult {
         if let refreshError { throw refreshError }
         switch mutationMode {
-        case .normal, .profileAcceptedWaiting, .allowanceAdvanced, .rejectedCleanup:
+        case .normal, .profileAcceptedWaiting, .allowanceAdvanced, .allowanceAcceptedScheduleUnavailable, .rejectedCleanup:
             return try await inner.submit(command)
         case .waiting:
             return .pending(scriptedEvent(
@@ -739,6 +753,10 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
         if let refreshError { throw refreshError }
         if mutationMode == .waiting {
             throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
+        if mutationMode == .allowanceAcceptedScheduleUnavailable {
+            pendingAllowanceCommand = command
+            throw WalletAPIError.cloudAcceptedScheduleUnavailable
         }
         if mutationMode == .allowanceAdvanced {
             try? await Task.sleep(nanoseconds: 2_000_000_000)

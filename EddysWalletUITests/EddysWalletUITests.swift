@@ -619,6 +619,32 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Starting Jan 14"].waitForExistence(timeout: 5))
     }
 
+    func testConfirmedAllowanceRefreshDismissesAndShowsReturnedSchedule() throws {
+        let app = launch("cloud-allowance-refresh-confirmed")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let setAllowance = app.buttons["Set a weekly allowance"]
+        XCTAssertTrue(setAllowance.waitForExistence(timeout: 5))
+        setAllowance.tap()
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+
+        app.buttons["Review allowance"].tap()
+        let confirm = app.buttons["Confirm allowance"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+
+        let refresh = app.buttons["Refresh allowance schedule"]
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Set allowance"].exists)
+        refresh.tap()
+
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForNonExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Next allowance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["US$10.00 every week"].waitForExistence(timeout: 5))
+    }
+
     func testPendingAllowanceCreateKeepsTheSheetOpenWithRecoveryStatus() throws {
         let app = launch("cloud-write-waiting")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
