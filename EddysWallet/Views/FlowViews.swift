@@ -53,7 +53,12 @@ struct MoneyFlowView: View {
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
     @State private var isSubmitting = false
-    @FocusState private var isAmountFocused: Bool
+    @FocusState private var focusedAmount: AmountFocus?
+
+    private enum AmountFocus: Hashable {
+        case amount
+        case installment
+    }
 
     private enum Step { case amount, review, result }
 
@@ -137,7 +142,7 @@ struct MoneyFlowView: View {
                     #if DEBUG
                     // Evidence capture taps this copy to resign the amount field
                     // so iPad screenshots are not covered by the software keyboard.
-                    .onTapGesture { isAmountFocused = false }
+                    .onTapGesture { focusedAmount = nil }
                     #endif
                 VStack(alignment: .leading, spacing: EW.Space.three) {
                     Text("Amount")
@@ -151,7 +156,7 @@ struct MoneyFlowView: View {
                             .font(EW.Font.heading)
                             .keyboardType(.decimalPad)
                             .textFieldStyle(.plain)
-                            .focused($isAmountFocused)
+                            .focused($focusedAmount, equals: .amount)
                             .accessibilityLabel("Amount in virtual dollars")
                     }
                     .padding(.horizontal, EW.Space.four)
@@ -159,8 +164,9 @@ struct MoneyFlowView: View {
                     .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous)
-                            .stroke(amountFieldStroke, lineWidth: isAmountFocused && visibleValidationMessage == nil ? 2 : 1.5)
+                            .stroke(amountFieldStroke, lineWidth: focusedAmount == .amount && visibleValidationMessage == nil ? 2 : 1.5)
                     }
+                    .ewAmountKeyboardAnchor("money-amount", isFocused: focusedAmount == .amount)
                     if let visibleValidationMessage {
                         Text(visibleValidationMessage)
                             .font(EW.Font.caption)
@@ -189,7 +195,7 @@ struct MoneyFlowView: View {
         } actions: {
             Button("Review") {
                 if validationMessage == nil {
-                    isAmountFocused = false
+                    focusedAmount = nil
                     step = .review
                 }
             }
@@ -199,7 +205,7 @@ struct MoneyFlowView: View {
         }
         // The amount is the only thing this step is for, so it opens ready to
         // type: focused, keyboard already up, no extra tap.
-        .onAppear { isAmountFocused = true }
+        .onAppear { focusedAmount = .amount }
     }
 
     /// Choosing a cadence is what turns a loan into a scheduled one. The
@@ -231,6 +237,7 @@ struct MoneyFlowView: View {
                             .font(EW.Font.bodyBold)
                             .keyboardType(.decimalPad)
                             .textFieldStyle(.plain)
+                            .focused($focusedAmount, equals: .installment)
                             .accessibilityLabel("Amount for each loan payment")
                             .accessibilityIdentifier("loan-payment-amount")
                     }
@@ -241,6 +248,7 @@ struct MoneyFlowView: View {
                         RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous)
                             .stroke(EW.Color.border, lineWidth: 1.5)
                     }
+                    .ewAmountKeyboardAnchor("loan-payment-amount", isFocused: focusedAmount == .installment)
                     Text("The last payment is whatever is left to repay, so it can be smaller than this amount.")
                         .font(EW.Font.caption)
                         .foregroundStyle(EW.Color.textSecondary)
@@ -261,7 +269,7 @@ struct MoneyFlowView: View {
 
     private var amountFieldStroke: Color {
         if visibleValidationMessage != nil { return EW.Color.red600 }
-        return isAmountFocused ? EW.Color.primary : EW.Color.border
+        return focusedAmount == .amount ? EW.Color.primary : EW.Color.border
     }
 
     private var review: some View {
@@ -440,11 +448,23 @@ struct AllowanceView: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.dismiss) private var dismiss
     @State private var amount = "10.00"
-    @State private var startDate = Date().addingTimeInterval(60 * 60 * 24 * 5)
+    @State private var startDate: Date
     @State private var showDraft = false
     @State private var showReview = false
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
+    @State private var isSubmitting = false
+    @FocusState private var isAmountFocused: Bool
+
+    init() {
+        #if DEBUG
+        let initialStartDate = DebugLaunchScenario.allowanceStartDate()
+            ?? Date().addingTimeInterval(60 * 60 * 24 * 5)
+        #else
+        let initialStartDate = Date().addingTimeInterval(60 * 60 * 24 * 5)
+        #endif
+        _startDate = State(initialValue: initialStartDate)
+    }
 
     var body: some View {
         NavigationStack {
@@ -463,9 +483,12 @@ struct AllowanceView: View {
                                 .font(EW.Font.heading)
                                 .keyboardType(.decimalPad)
                                 .textFieldStyle(.plain)
+                                .focused($isAmountFocused)
+                                .accessibilityIdentifier("allowance-weekly-amount")
                         }
                         .padding(EW.Space.four)
                         .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                        .ewAmountKeyboardAnchor("allowance-weekly-amount", isFocused: isAmountFocused)
                         DatePicker("Starts", selection: $startDate, displayedComponents: .date)
                             .tint(EW.Color.primaryActive)
                     }
@@ -496,10 +519,13 @@ struct AllowanceView: View {
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(store.isLoading)
                 }
-                Button("Review allowance") { showReview = true }
+                Button("Review allowance") {
+                    guard !isSubmitting else { return }
+                    showReview = true
+                }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded))
-                    .opacity(Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded) ? 0.45 : 1)
+                    .disabled(isSubmitting || Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded))
+                    .opacity(isSubmitting || Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded) ? 0.45 : 1)
                 Button("Save as draft on this \(DeviceCopy.deviceNoun)") { showDraft = true }
                     .buttonStyle(SecondaryButtonStyle(compact: true))
                     .accessibilityIdentifier("allowance-save-draft")
@@ -507,10 +533,17 @@ struct AllowanceView: View {
             .navigationTitle("Set allowance")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                        .disabled(isSubmitting)
+                }
             }
             .sheet(isPresented: $showReview) {
-                AllowanceReviewView(amountCents: Money.parse(amount)?.cents ?? 0, startDate: startDate) {
+                AllowanceReviewView(
+                    amountCents: Money.parse(amount)?.cents ?? 0,
+                    startDate: startDate,
+                    isSubmitting: $isSubmitting
+                ) {
                     let calendar = Calendar(identifier: .gregorian)
                     let weekday = calendar.component(.weekday, from: startDate) - 1
                     let command = AllowanceRuleCommand(
@@ -518,8 +551,10 @@ struct AllowanceView: View {
                         weekday: weekday,
                         startDate: startDate
                     )
-                    _ = await store.setAllowance(command)
+                    let recorded = await store.setAllowance(command)
+                    let submittedRuleID = store.latestSubmittedAllowanceRuleID
                     let outcome = store.latestParentMutationOutcome ?? .notRecorded
+                    let refreshedPlan = store.snapshot.allowance
                     resultState = outcome.syncState
                     switch outcome {
                     case .recorded:
@@ -531,10 +566,18 @@ struct AllowanceView: View {
                     }
                     showReview = false
                     showDraft = false
+                    if recorded,
+                       outcome == .recorded,
+                       let submittedRuleID,
+                       let refreshedPlan,
+                       refreshedPlan.remoteID == submittedRuleID {
+                        dismiss()
+                    }
                 }
                 .ewDetailSheetPresentation()
             }
         }
+        .interactiveDismissDisabled(isSubmitting)
     }
 
     private func refreshAllowanceSchedule() async {
@@ -543,8 +586,14 @@ struct AllowanceView: View {
             resultMessage = store.errorMessage ?? ParentMutationOutcome.acceptedScheduleUnavailable.message
             return
         }
+        guard let submittedAllowanceRuleID = store.latestSubmittedAllowanceRuleID,
+              store.snapshot.allowance?.remoteID == submittedAllowanceRuleID else {
+            resultMessage = ParentMutationOutcome.acceptedScheduleUnavailable.message
+            return
+        }
         resultState = .recorded
         resultMessage = "The weekly allowance plan was recorded. The latest allowance schedule is ready."
+        dismiss()
     }
 }
 
@@ -552,6 +601,7 @@ private struct AllowanceReviewView: View {
     @Environment(\.dismiss) private var dismiss
     let amountCents: Int
     let startDate: Date
+    @Binding var isSubmitting: Bool
     let confirm: () async -> Void
 
     var body: some View {
@@ -572,12 +622,17 @@ private struct AllowanceReviewView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } actions: {
             Button("Confirm allowance") {
+                guard !isSubmitting else { return }
+                isSubmitting = true
                 Task {
                     await confirm()
+                    isSubmitting = false
                     dismiss()
                 }
             }
             .buttonStyle(PrimaryButtonStyle())
+            .disabled(isSubmitting)
+            .opacity(isSubmitting ? 0.45 : 1)
             Button("Back") { dismiss() }
                 .buttonStyle(SecondaryButtonStyle(compact: true))
         }

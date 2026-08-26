@@ -6,10 +6,10 @@ import SwiftUI
 /// parent never has to discover that a sheet scrolls in order to find the
 /// control that finishes the job:
 ///
-/// - The actions sit in their own bar below the scroll region, never inside
-///   it. They stay on screen at every detent, on every device size, and above
-///   the software keyboard, so nothing a parent must tap can be pushed under
-///   the fold by longer copy, a bigger text size, or a shorter sheet.
+/// - The actions sit in their own bar below the scroll region, where they stay
+///   visible while the form scrolls above the software keyboard.
+/// - A focused money-amount field stays in the scrolling region so native
+///   keyboard avoidance can keep its whole frame visible.
 /// - The scroll region scrolls only when the content genuinely does not fit
 ///   (`.scrollBounceBehavior(.basedOnSize)`), so a sheet whose content fits
 ///   never rubber-bands as though it were hiding something.
@@ -27,12 +27,14 @@ struct SheetForm<Content: View, Actions: View>: View {
     private static var contentWidth: CGFloat { 620 }
     /// Tall enough to read as a soft dissolve rather than a drawn edge.
     private static var fadeHeight: CGFloat { EW.Space.six }
+    private static var compactActionHeightThreshold: CGFloat { 220 }
 
     private let content: Content
     private let actions: Actions
     @State private var contentHeight: CGFloat = 0
     @State private var contentBottom: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    @State private var focusedAmount: FocusedAmountField?
 
     init(@ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.content = content()
@@ -58,30 +60,47 @@ struct SheetForm<Content: View, Actions: View>: View {
     private var hasActions: Bool { Actions.self != EmptyView.self }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                content
-                    .padding(EW.Space.screenMargin)
-                    .frame(maxWidth: Self.contentWidth)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .background(
-                        ContentMetricsReader(
-                            height: $contentHeight,
-                            bottom: $contentBottom
-                        )
-                    )
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
-            .accessibilityIdentifier(scrollFadeIdentifier)
-            .background(HeightReader(height: $viewportHeight))
-            .overlay(alignment: .bottom) { scrollFade }
+        GeometryReader { viewport in
+            // Tracked follow-up: accessibility sizes can wrap the long draft action in compact iPhone landscape.
+            let usesCompactActionBar = focusedAmount != nil
+                && viewport.size.height < Self.compactActionHeightThreshold
 
-            if hasActions {
-                actionBar
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        content
+                            .padding(EW.Space.screenMargin)
+                            .frame(maxWidth: Self.contentWidth)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .background(
+                                ContentMetricsReader(
+                                    height: $contentHeight,
+                                    bottom: $contentBottom
+                                )
+                            )
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
+                    .accessibilityIdentifier(scrollFadeIdentifier)
+                    .background(HeightReader(height: $viewportHeight))
+                    .overlay(alignment: .bottom) { scrollFade }
+                    .onChange(of: focusedAmount?.id) { _, _ in
+                        scrollFocusedAmount(using: proxy)
+                    }
+                    .onChange(of: usesCompactActionBar) { _, _ in
+                        scrollFocusedAmount(using: proxy)
+                    }
+                }
+
+                if hasActions {
+                    actionBar(compact: usesCompactActionBar)
+                }
+            }
+            .background(EW.Color.appBackground)
+            .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
+                focusedAmount = fields.first
             }
         }
-        .background(EW.Color.appBackground)
     }
 
     /// Only drawn while there really is more content below, and never over the
@@ -100,16 +119,33 @@ struct SheetForm<Content: View, Actions: View>: View {
         }
     }
 
-    private var actionBar: some View {
-        VStack(spacing: EW.Space.two) {
-            actions
+    @ViewBuilder
+    private func actionBar(compact: Bool) -> some View {
+        Group {
+            if compact {
+                HStack(spacing: EW.Space.two) {
+                    actions
+                }
+            } else {
+                VStack(spacing: EW.Space.two) {
+                    actions
+                }
+            }
         }
         .padding(.horizontal, EW.Space.screenMargin)
-        .padding(.top, EW.Space.three)
-        .padding(.bottom, EW.Space.three)
+        .padding(.vertical, compact ? EW.Space.two : EW.Space.three)
         .frame(maxWidth: Self.contentWidth)
         .frame(maxWidth: .infinity, alignment: .center)
         .background(EW.Color.appBackground)
+    }
+
+    private func scrollFocusedAmount(using proxy: ScrollViewProxy) {
+        guard let id = focusedAmount?.id else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.25)) {
+                proxy.scrollTo(id, anchor: .top)
+            }
+        }
     }
 }
 
@@ -156,7 +192,35 @@ private struct HeightReader: View {
     }
 }
 
+struct FocusedAmountField: Equatable {
+    let id: String
+    let height: CGFloat
+}
+
+private struct FocusedAmountFieldPreference: PreferenceKey {
+    static var defaultValue: [FocusedAmountField] = []
+
+    static func reduce(value: inout [FocusedAmountField], nextValue: () -> [FocusedAmountField]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
 extension View {
+    /// Marks a money-amount field so `SheetForm` can keep it fully above the
+    /// software keyboard while it holds focus.
+    func ewAmountKeyboardAnchor(_ id: String, isFocused: Bool) -> some View {
+        self
+            .id(id)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: FocusedAmountFieldPreference.self,
+                        value: isFocused ? [FocusedAmountField(id: id, height: proxy.size.height)] : []
+                    )
+                }
+            }
+    }
+
     /// Sheets that host a form the software keyboard can cover open at full
     /// height only: a half-height sheet plus a keyboard leaves too little room
     /// for the fields and the decision the parent came to make.

@@ -2782,6 +2782,7 @@ final class CloudVerticalSliceTests: XCTestCase {
 
         XCTAssertFalse(saved)
         XCTAssertEqual(store.latestParentMutationOutcome, .acceptedScheduleUnavailable)
+        XCTAssertEqual(store.latestSubmittedAllowanceRuleID, "a-2")
         XCTAssertNil(store.errorMessage)
         XCTAssertEqual(store.latestTransportDiagnostic?.route, "/v1/allowance-rule")
         XCTAssertEqual(cloud.snapshot().allowance?.amountCents, 600)

@@ -1432,11 +1432,14 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
     public func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {
         guard command.amountCents > 0 else { return current }
         current.allowance = try AllowancePlan(
+            remoteID: "local-allowance",
             amountCents: command.amountCents,
             cadence: "every week",
             weekday: command.weekday,
             nextDate: command.startDate,
-            endDate: command.endDate
+            endDate: command.endDate,
+            nextOccurrenceID: command.idempotencyKey,
+            syncState: .recorded
         )
         current.lastUpdated = .now
         current.isStale = false

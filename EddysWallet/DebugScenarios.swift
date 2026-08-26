@@ -14,6 +14,20 @@ enum DebugLaunchScenario {
         ProcessInfo.processInfo.environment["EW_UITEST_DISABLE_ANIMATIONS"] == "1"
     }
 
+    static func allowanceStartDate(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Date? {
+        guard environment["EW_UITEST_SCENARIO"] == "cloud-allowance-advanced" else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar.date(from: DateComponents(
+            year: 2099,
+            month: 1,
+            day: 7,
+            hour: 12
+        ))
+    }
+
     /// Opt-in entry points to the internal diagnostics surfaces (StoreKit
     /// resolution, Cloud recovery evidence). Absent - the default, and the only
     /// possibility in Release - the app offers no path into them at all, so a
@@ -224,6 +238,20 @@ enum DebugLaunchScenario {
         case "cloud-write-recorded":
             return store(
                 repository: ScriptedWalletRepository(snapshot: snapshot(.fixture(), environment: environment)),
+                authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
+                hasValidCloudReplica: true
+            )
+        case "cloud-allowance-advanced":
+            return store(
+                repository: ScriptedWalletRepository(snapshot: emptySnapshot(environment: environment), mutationMode: .allowanceAdvanced),
+                authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
+                hasValidCloudReplica: true
+            )
+        case "cloud-allowance-refresh-confirmed":
+            return store(
+                repository: ScriptedWalletRepository(snapshot: emptySnapshot(environment: environment), mutationMode: .allowanceAcceptedScheduleUnavailable),
                 authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
                 entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: true
@@ -630,6 +658,8 @@ enum ScriptedMutationMode: Equatable {
     case rejected
     case rejectedCleanup
     case profileAcceptedWaiting
+    case allowanceAdvanced
+    case allowanceAcceptedScheduleUnavailable
 }
 
 /// Mock repository wrapper that can fail refreshes (offline / expired
@@ -642,6 +672,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
     let mutationMode: ScriptedMutationMode
     private var rejectedCleanupFailures: Int
     private var rejectedCleanupActive: Bool
+    private var confirmedAllowance: AllowancePlan?
 
     init(
         snapshot: WalletSnapshot,
@@ -656,12 +687,13 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
         self.mutationMode = mutationMode
         self.rejectedCleanupFailures = rejectedCleanupFailures
         self.rejectedCleanupActive = mutationMode == .rejectedCleanup
+        self.confirmedAllowance = nil
     }
 
     var isAuthenticated: Bool { true }
     var hasConfiguredKid: Bool { inner.hasConfiguredKid && !requiresSetup }
-    func snapshot() -> WalletSnapshot { inner.snapshot() }
-    func childSnapshot() -> WalletSnapshot { inner.childSnapshot() }
+    func snapshot() -> WalletSnapshot { applyingConfirmedAllowance(to: inner.snapshot()) }
+    func childSnapshot() -> WalletSnapshot { applyingConfirmedAllowance(to: inner.childSnapshot()) }
 
     func refresh(for role: UserRole) async throws -> WalletSnapshot {
         if let refreshError { throw refreshError }
@@ -673,7 +705,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
             }
             rejectedCleanupActive = false
         }
-        return try await inner.refresh(for: role)
+        return applyingConfirmedAllowance(to: try await inner.refresh(for: role))
     }
 
     func activity(limit: Int) async throws -> [WalletEvent] { try await inner.activity(limit: limit) }
@@ -683,7 +715,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
     func submit(_ command: WalletCommand) async throws -> CommandResult {
         if let refreshError { throw refreshError }
         switch mutationMode {
-        case .normal, .profileAcceptedWaiting, .rejectedCleanup:
+        case .normal, .profileAcceptedWaiting, .allowanceAdvanced, .allowanceAcceptedScheduleUnavailable, .rejectedCleanup:
             return try await inner.submit(command)
         case .waiting:
             return .pending(scriptedEvent(
@@ -715,7 +747,47 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
 
     func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {
         if let refreshError { throw refreshError }
-        return try await inner.setAllowance(command)
+        if mutationMode == .waiting {
+            throw WalletAPIError.cloudMutationAwaitingReconciliation
+        }
+        if mutationMode == .allowanceAcceptedScheduleUnavailable {
+            let refreshed = try await inner.setAllowance(command)
+            if let plan = refreshed.allowance {
+                confirmedAllowance = try AllowancePlan(
+                    remoteID: "debug-submitted-allowance-rule",
+                    amountCents: plan.amountCents,
+                    cadence: plan.cadence,
+                    weekday: plan.weekday,
+                    nextDate: plan.nextDate,
+                    endDate: plan.endDate,
+                    nextOccurrenceID: plan.nextOccurrenceID,
+                    syncState: plan.syncState,
+                    isExhausted: plan.isExhausted,
+                    occurrences: plan.occurrences
+                )
+            }
+            throw WalletAPIError.cloudAcceptedScheduleUnavailable
+        }
+        if mutationMode == .allowanceAdvanced {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        var refreshed = try await inner.setAllowance(command)
+        if mutationMode == .allowanceAdvanced, let plan = refreshed.allowance {
+            let nextDate = Calendar(identifier: .gregorian).date(byAdding: .day, value: 7, to: plan.nextDate) ?? plan.nextDate
+            let advancedPlan = try AllowancePlan(
+                remoteID: "debug-submitted-allowance-rule",
+                amountCents: plan.amountCents,
+                cadence: plan.cadence,
+                weekday: plan.weekday,
+                nextDate: nextDate,
+                endDate: plan.endDate,
+                nextOccurrenceID: plan.nextOccurrenceID,
+                syncState: plan.syncState
+            )
+            confirmedAllowance = advancedPlan
+            refreshed.allowance = advancedPlan
+        }
+        return refreshed
     }
 
     func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {
@@ -729,6 +801,13 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
             throw WalletAPIError.cloudAcceptedAwaitingReplica
         }
         return try await inner.updateChildProfile(update)
+    }
+
+    private func applyingConfirmedAllowance(to snapshot: WalletSnapshot) -> WalletSnapshot {
+        guard let confirmedAllowance else { return snapshot }
+        var snapshot = snapshot
+        snapshot.allowance = confirmedAllowance
+        return snapshot
     }
 
     private func scriptedEvent(
