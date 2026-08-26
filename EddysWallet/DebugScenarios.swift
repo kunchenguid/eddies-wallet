@@ -18,14 +18,14 @@ enum DebugLaunchScenario {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Date? {
         guard environment["EW_UITEST_SCENARIO"] == "cloud-allowance-advanced" else { return nil }
-        var components = DateComponents()
-        components.calendar = Calendar(identifier: .gregorian)
-        components.timeZone = TimeZone(secondsFromGMT: 0)
-        components.year = 2099
-        components.month = 1
-        components.day = 7
-        components.hour = 12
-        return components.date
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar.date(from: DateComponents(
+            year: 2099,
+            month: 1,
+            day: 7,
+            hour: 12
+        ))
     }
 
     /// Opt-in entry points to the internal diagnostics surfaces (StoreKit
