@@ -1455,6 +1455,21 @@ final class KeyboardAvoidanceTests: XCTestCase {
         )
     }
 
+    func testFloatingKeyboardBesideFocusedFieldDoesNotInsetViewport() {
+        let viewport = CGRect(x: 100, y: 100, width: 620, height: 700)
+        let focusedField = CGRect(x: 140, y: 420, width: 260, height: 56)
+        let keyboard = CGRect(x: 430, y: 300, width: 280, height: 300)
+        XCTAssertEqual(
+            KeyboardAvoidance.bottomInset(
+                viewport: viewport,
+                keyboard: keyboard,
+                focusedField: focusedField,
+                clearance: 12
+            ),
+            0
+        )
+    }
+
     func testTallActionsJoinScrollWhenLandscapeViewportCannotFitFocusedField() {
         XCTAssertTrue(
             KeyboardAvoidance.needsScrollableActions(

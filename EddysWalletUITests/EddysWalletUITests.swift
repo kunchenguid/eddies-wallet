@@ -578,6 +578,31 @@ final class EddysWalletUITests: XCTestCase {
         )
     }
 
+    func testAdvancedRecordedAllowanceDismissesAndShowsReturnedSchedule() throws {
+        let app = launch("cloud-allowance-advanced")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let setAllowance = app.buttons["Set a weekly allowance"]
+        XCTAssertTrue(setAllowance.waitForExistence(timeout: 5))
+        setAllowance.tap()
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+
+        app.buttons["Review allowance"].tap()
+        let confirm = app.buttons["Confirm allowance"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForNonExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Next allowance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["US$10.00 every week"].waitForExistence(timeout: 5))
+        let advancedDate = Calendar(identifier: .gregorian).date(byAdding: .day, value: 12, to: Date()) ?? Date()
+        XCTAssertTrue(
+            app.staticTexts["Starting \(advancedDate.formatted(.dateTime.month(.abbreviated).day()))"].waitForExistence(timeout: 5)
+        )
+    }
+
     func testPendingAllowanceCreateKeepsTheSheetOpenWithRecoveryStatus() throws {
         let app = launch("cloud-write-waiting")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))

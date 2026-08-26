@@ -228,6 +228,13 @@ enum DebugLaunchScenario {
                 entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
                 hasValidCloudReplica: true
             )
+        case "cloud-allowance-advanced":
+            return store(
+                repository: ScriptedWalletRepository(snapshot: emptySnapshot(environment: environment), mutationMode: .allowanceAdvanced),
+                authority: .cloud(lineageID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!, revision: 7),
+                entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true),
+                hasValidCloudReplica: true
+            )
         case "cloud-write-waiting":
             return store(
                 repository: ScriptedWalletRepository(snapshot: snapshot(.fixture(), environment: environment), mutationMode: .waiting),
@@ -630,6 +637,7 @@ enum ScriptedMutationMode: Equatable {
     case rejected
     case rejectedCleanup
     case profileAcceptedWaiting
+    case allowanceAdvanced
 }
 
 /// Mock repository wrapper that can fail refreshes (offline / expired
@@ -683,7 +691,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
     func submit(_ command: WalletCommand) async throws -> CommandResult {
         if let refreshError { throw refreshError }
         switch mutationMode {
-        case .normal, .profileAcceptedWaiting, .rejectedCleanup:
+        case .normal, .profileAcceptedWaiting, .allowanceAdvanced, .rejectedCleanup:
             return try await inner.submit(command)
         case .waiting:
             return .pending(scriptedEvent(
@@ -718,7 +726,21 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
         if mutationMode == .waiting {
             throw WalletAPIError.cloudMutationAwaitingReconciliation
         }
-        return try await inner.setAllowance(command)
+        var refreshed = try await inner.setAllowance(command)
+        if mutationMode == .allowanceAdvanced, let plan = refreshed.allowance {
+            let nextDate = Calendar(identifier: .gregorian).date(byAdding: .day, value: 7, to: plan.nextDate) ?? plan.nextDate
+            refreshed.allowance = try AllowancePlan(
+                remoteID: plan.remoteID,
+                amountCents: plan.amountCents,
+                cadence: plan.cadence,
+                weekday: plan.weekday,
+                nextDate: nextDate,
+                endDate: plan.endDate,
+                nextOccurrenceID: plan.nextOccurrenceID,
+                syncState: plan.syncState
+            )
+        }
+        return refreshed
     }
 
     func setup(_ setup: ParentSetup) async throws -> WalletSnapshot {

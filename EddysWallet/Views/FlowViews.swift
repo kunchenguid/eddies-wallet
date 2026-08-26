@@ -548,8 +548,7 @@ struct AllowanceView: View {
                        outcome == .recorded,
                        let refreshedPlan,
                        refreshedPlan.amountCents == command.amountCents,
-                       refreshedPlan.weekday == command.weekday,
-                       Calendar(identifier: .gregorian).isDate(refreshedPlan.nextDate, inSameDayAs: command.startDate) {
+                       refreshedPlan.weekday == command.weekday {
                         dismiss()
                     }
                 }

@@ -68,7 +68,8 @@ struct SheetForm<Content: View, Actions: View>: View {
         GeometryReader { viewport in
             let bottomInset = KeyboardAvoidance.bottomInset(
                 viewport: viewport.frame(in: .global),
-                keyboard: keyboardFrame
+                keyboard: keyboardFrame,
+                focusedField: focusedAmount?.frame
             )
             let scrollsActions = KeyboardAvoidance.needsScrollableActions(
                 viewportHeight: viewport.size.height,
@@ -255,8 +256,15 @@ enum KeyboardAvoidance {
         return converted.intersects(window.bounds) ? converted : .zero
     }
 
-    static func bottomInset(viewport: CGRect, keyboard: CGRect, clearance: CGFloat = clearance) -> CGFloat {
+    static func bottomInset(
+        viewport: CGRect,
+        keyboard: CGRect,
+        focusedField: CGRect? = nil,
+        clearance: CGFloat = clearance
+    ) -> CGFloat {
         guard viewport.height > 0, keyboard.height > 0 else { return 0 }
+        let horizontalTarget = focusedField.flatMap { $0.width > 0 ? $0 : nil } ?? viewport
+        guard keyboard.maxX > horizontalTarget.minX, keyboard.minX < horizontalTarget.maxX else { return 0 }
         guard keyboard.minY < viewport.maxY + clearance else { return 0 }
         return max(0, viewport.maxY - keyboard.minY + clearance)
     }
