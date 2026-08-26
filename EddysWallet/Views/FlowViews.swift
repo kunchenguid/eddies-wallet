@@ -448,12 +448,22 @@ struct AllowanceView: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.dismiss) private var dismiss
     @State private var amount = "10.00"
-    @State private var startDate = Date().addingTimeInterval(60 * 60 * 24 * 5)
+    @State private var startDate: Date
     @State private var showDraft = false
     @State private var showReview = false
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
     @FocusState private var isAmountFocused: Bool
+
+    init() {
+        #if DEBUG
+        let initialStartDate = DebugLaunchScenario.allowanceStartDate()
+            ?? Date().addingTimeInterval(60 * 60 * 24 * 5)
+        #else
+        let initialStartDate = Date().addingTimeInterval(60 * 60 * 24 * 5)
+        #endif
+        _startDate = State(initialValue: initialStartDate)
+    }
 
     var body: some View {
         NavigationStack {

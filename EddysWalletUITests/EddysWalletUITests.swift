@@ -604,7 +604,6 @@ final class EddysWalletUITests: XCTestCase {
 
         let setAllowance = app.buttons["Set a weekly allowance"]
         XCTAssertTrue(setAllowance.waitForExistence(timeout: 5))
-        let allowanceStartReference = Date()
         setAllowance.tap()
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
 
@@ -617,10 +616,7 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Next allowance"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["US$10.00 every week"].waitForExistence(timeout: 5))
-        let advancedDate = Calendar(identifier: .gregorian).date(byAdding: .day, value: 12, to: allowanceStartReference) ?? allowanceStartReference
-        XCTAssertTrue(
-            app.staticTexts["Starting \(advancedDate.formatted(.dateTime.month(.abbreviated).day()))"].waitForExistence(timeout: 5)
-        )
+        XCTAssertTrue(app.staticTexts["Starting Jan 14"].waitForExistence(timeout: 5))
     }
 
     func testPendingAllowanceCreateKeepsTheSheetOpenWithRecoveryStatus() throws {

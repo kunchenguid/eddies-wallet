@@ -14,6 +14,20 @@ enum DebugLaunchScenario {
         ProcessInfo.processInfo.environment["EW_UITEST_DISABLE_ANIMATIONS"] == "1"
     }
 
+    static func allowanceStartDate(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Date? {
+        guard environment["EW_UITEST_SCENARIO"] == "cloud-allowance-advanced" else { return nil }
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.timeZone = TimeZone(secondsFromGMT: 0)
+        components.year = 2099
+        components.month = 1
+        components.day = 7
+        components.hour = 12
+        return components.date
+    }
+
     /// Opt-in entry points to the internal diagnostics surfaces (StoreKit
     /// resolution, Cloud recovery evidence). Absent - the default, and the only
     /// possibility in Release - the app offers no path into them at all, so a
