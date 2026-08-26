@@ -1428,30 +1428,57 @@ private final class TestAppleAuthorizationController: AppleAuthorizationControll
 }
 
 final class KeyboardAvoidanceTests: XCTestCase {
-    func testBottomInsetAddsOnlyClearanceAfterDockedKeyboardShrinksViewport() {
+    func testDockedKeyboardUsesSafeAreaWithoutCustomInset() {
         let viewport = CGRect(x: 0, y: 80, width: 400, height: 420)
+        let focusedField = CGRect(x: 40, y: 430, width: 320, height: 56)
         let keyboard = CGRect(x: 0, y: 500, width: 400, height: 280)
         XCTAssertEqual(
-            KeyboardAvoidance.bottomInset(viewport: viewport, keyboard: keyboard, clearance: 12),
-            12
+            KeyboardAvoidance.bottomInset(
+                viewport: viewport,
+                keyboard: keyboard,
+                focusedField: focusedField,
+                clearance: 12
+            ),
+            0
         )
     }
 
     func testBottomInsetIsZeroWhenTheKeyboardDoesNotMeetTheViewport() {
         let viewport = CGRect(x: 40, y: 60, width: 400, height: 360)
+        let focusedField = CGRect(x: 80, y: 350, width: 320, height: 56)
         let keyboard = CGRect(x: 0, y: 500, width: 800, height: 280)
         XCTAssertEqual(
-            KeyboardAvoidance.bottomInset(viewport: viewport, keyboard: keyboard, clearance: 12),
+            KeyboardAvoidance.bottomInset(
+                viewport: viewport,
+                keyboard: keyboard,
+                focusedField: focusedField,
+                clearance: 12
+            ),
             0
         )
     }
 
-    func testBottomInsetLiftsContentAboveAnIPadPopoverKeyboardInTheViewport() {
+    func testFloatingKeyboardCoveringFocusedFieldInsetsViewport() {
         let viewport = CGRect(x: 120, y: 200, width: 540, height: 640)
+        let focusedField = CGRect(x: 200, y: 500, width: 280, height: 56)
         let popover = CGRect(x: 180, y: 420, width: 320, height: 280)
         XCTAssertEqual(
-            KeyboardAvoidance.bottomInset(viewport: viewport, keyboard: popover, clearance: 12),
+            KeyboardAvoidance.bottomInset(
+                viewport: viewport,
+                keyboard: popover,
+                focusedField: focusedField,
+                clearance: 12
+            ),
             432
+        )
+    }
+
+    func testFloatingKeyboardWithoutFocusedAmountDoesNotInsetViewport() {
+        let viewport = CGRect(x: 100, y: 100, width: 620, height: 700)
+        let keyboard = CGRect(x: 240, y: 260, width: 320, height: 300)
+        XCTAssertEqual(
+            KeyboardAvoidance.bottomInset(viewport: viewport, keyboard: keyboard, clearance: 12),
+            0
         )
     }
 
@@ -1459,6 +1486,21 @@ final class KeyboardAvoidanceTests: XCTestCase {
         let viewport = CGRect(x: 100, y: 100, width: 620, height: 700)
         let focusedField = CGRect(x: 140, y: 420, width: 260, height: 56)
         let keyboard = CGRect(x: 430, y: 300, width: 280, height: 300)
+        XCTAssertEqual(
+            KeyboardAvoidance.bottomInset(
+                viewport: viewport,
+                keyboard: keyboard,
+                focusedField: focusedField,
+                clearance: 12
+            ),
+            0
+        )
+    }
+
+    func testFloatingKeyboardBelowFocusedFieldDoesNotInsetViewport() {
+        let viewport = CGRect(x: 100, y: 100, width: 620, height: 700)
+        let focusedField = CGRect(x: 200, y: 240, width: 320, height: 56)
+        let keyboard = CGRect(x: 180, y: 420, width: 360, height: 300)
         XCTAssertEqual(
             KeyboardAvoidance.bottomInset(
                 viewport: viewport,

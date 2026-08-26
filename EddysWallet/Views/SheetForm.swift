@@ -121,7 +121,10 @@ struct SheetForm<Content: View, Actions: View>: View {
             .padding(.bottom, bottomInset)
             .background(EW.Color.appBackground)
             .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
-                focusedAmount = fields.first
+                let next = fields.first
+                if keyboardFrame == .zero || focusedAmount?.id != next?.id {
+                    focusedAmount = next
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
                 updateKeyboardFrame(from: notification)
@@ -262,10 +265,13 @@ enum KeyboardAvoidance {
         focusedField: CGRect? = nil,
         clearance: CGFloat = clearance
     ) -> CGFloat {
-        guard viewport.height > 0, keyboard.height > 0 else { return 0 }
-        let horizontalTarget = focusedField.flatMap { $0.width > 0 ? $0 : nil } ?? viewport
-        guard keyboard.maxX > horizontalTarget.minX, keyboard.minX < horizontalTarget.maxX else { return 0 }
-        guard keyboard.minY < viewport.maxY + clearance else { return 0 }
+        guard viewport.height > 0, keyboard.height > 0,
+              let focusedField,
+              focusedField.width > 0,
+              focusedField.height > 0,
+              keyboard.minY < viewport.maxY,
+              keyboard.intersects(focusedField)
+        else { return 0 }
         return max(0, viewport.maxY - keyboard.minY + clearance)
     }
 

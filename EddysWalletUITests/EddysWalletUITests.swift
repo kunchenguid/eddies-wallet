@@ -163,10 +163,10 @@ final class EddysWalletUITests: XCTestCase {
                 file: file,
                 line: line
             )
-            XCTAssertLessThanOrEqual(
-                sheetScroll.frame.maxY,
-                keyboardFrame.minY + 1,
-                "the scroll viewport must end above the keyboard rather than being clipped behind it",
+            XCTAssertGreaterThanOrEqual(
+                min(sheetScroll.frame.maxY, keyboardFrame.minY) - sheetScroll.frame.minY,
+                fieldFrame.height,
+                "the keyboard must leave enough visible scroll viewport for the whole amount field",
                 file: file,
                 line: line
             )
