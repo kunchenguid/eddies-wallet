@@ -1454,4 +1454,26 @@ final class KeyboardAvoidanceTests: XCTestCase {
             432
         )
     }
+
+    func testTallActionsJoinScrollWhenLandscapeViewportCannotFitFocusedField() {
+        XCTAssertTrue(
+            KeyboardAvoidance.needsScrollableActions(
+                viewportHeight: 190,
+                actionBarHeight: 128,
+                focusedFieldHeight: 56,
+                bottomInset: 12
+            )
+        )
+    }
+
+    func testActionsStayPinnedWhenFocusedFieldFitsAboveKeyboard() {
+        XCTAssertFalse(
+            KeyboardAvoidance.needsScrollableActions(
+                viewportHeight: 260,
+                actionBarHeight: 128,
+                focusedFieldHeight: 56,
+                bottomInset: 12
+            )
+        )
+    }
 }

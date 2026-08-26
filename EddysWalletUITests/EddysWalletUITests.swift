@@ -618,7 +618,20 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+
+        let allowanceCard = app.buttons["parent-allowance-card"]
+        for _ in 0..<8 where !allowanceCard.isHittable { app.swipeDown() }
+        XCTAssertTrue(allowanceCard.waitForExistence(timeout: 5))
+        allowanceCard.tap()
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+
         XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+        assertFocusedAmountFieldIsFullyAboveKeyboard(
+            app.textFields["allowance-weekly-amount"],
+            in: app
+        )
+        app.buttons["Close"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
 
         let moneyFlows = [
@@ -647,24 +660,6 @@ final class EddysWalletUITests: XCTestCase {
             in: app
         )
         app.buttons["Cancel"].tap()
-        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
-
-        // The allowance editor is a separate sheet from the money flows. It is
-        // opened from the wallet cards, which stay reliably tappable in
-        // portrait after the landscape keyboard pass.
-        XCUIDevice.shared.orientation = .portrait
-        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
-
-        let allowanceCard = app.buttons["parent-allowance-card"]
-        for _ in 0..<8 where !allowanceCard.isHittable { app.swipeDown() }
-        XCTAssertTrue(allowanceCard.waitForExistence(timeout: 5))
-        allowanceCard.tap()
-        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
-        assertFocusedAmountFieldIsFullyAboveKeyboard(
-            app.textFields["allowance-weekly-amount"],
-            in: app
-        )
-        app.buttons["Close"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }
 

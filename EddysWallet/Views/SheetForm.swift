@@ -37,6 +37,7 @@ struct SheetForm<Content: View, Actions: View>: View {
     @State private var contentHeight: CGFloat = 0
     @State private var contentBottom: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    @State private var actionBarHeight: CGFloat = 0
     @State private var keyboardFrame: CGRect = .zero
     @State private var focusedAmount: FocusedAmountField?
 
@@ -65,19 +66,36 @@ struct SheetForm<Content: View, Actions: View>: View {
 
     var body: some View {
         GeometryReader { viewport in
+            let bottomInset = KeyboardAvoidance.bottomInset(
+                viewport: viewport.frame(in: .global),
+                keyboard: keyboardFrame
+            )
+            let scrollsActions = KeyboardAvoidance.needsScrollableActions(
+                viewportHeight: viewport.size.height,
+                actionBarHeight: actionBarHeight,
+                focusedFieldHeight: focusedAmount?.frame.height ?? 0,
+                bottomInset: bottomInset
+            )
+
             VStack(spacing: 0) {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        content
-                            .padding(EW.Space.screenMargin)
-                            .frame(maxWidth: Self.contentWidth)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .background(
-                                ContentMetricsReader(
-                                    height: $contentHeight,
-                                    bottom: $contentBottom
+                        VStack(spacing: 0) {
+                            content
+                                .padding(EW.Space.screenMargin)
+                                .frame(maxWidth: Self.contentWidth)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .background(
+                                    ContentMetricsReader(
+                                        height: $contentHeight,
+                                        bottom: $contentBottom
+                                    )
                                 )
-                            )
+
+                            if hasActions, scrollsActions {
+                                actionBar
+                            }
+                        }
                     }
                     .scrollBounceBehavior(.basedOnSize)
                     .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
@@ -90,19 +108,16 @@ struct SheetForm<Content: View, Actions: View>: View {
                     .onChange(of: keyboardFrame) { _, _ in
                         scrollFocusedAmount(using: proxy)
                     }
+                    .onChange(of: scrollsActions) { _, _ in
+                        scrollFocusedAmount(using: proxy)
+                    }
                 }
 
-                if hasActions {
+                if hasActions, !scrollsActions {
                     actionBar
                 }
             }
-            .padding(
-                .bottom,
-                KeyboardAvoidance.bottomInset(
-                    viewport: viewport.frame(in: .global),
-                    keyboard: keyboardFrame
-                )
-            )
+            .padding(.bottom, bottomInset)
             .background(EW.Color.appBackground)
             .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
                 focusedAmount = fields.first
@@ -145,6 +160,7 @@ struct SheetForm<Content: View, Actions: View>: View {
         .frame(maxWidth: Self.contentWidth)
         .frame(maxWidth: .infinity, alignment: .center)
         .background(EW.Color.appBackground)
+        .background(HeightReader(height: $actionBarHeight))
     }
 
     private func updateKeyboardFrame(from notification: Notification) {
@@ -243,6 +259,16 @@ enum KeyboardAvoidance {
         guard viewport.height > 0, keyboard.height > 0 else { return 0 }
         guard keyboard.minY < viewport.maxY + clearance else { return 0 }
         return max(0, viewport.maxY - keyboard.minY + clearance)
+    }
+
+    static func needsScrollableActions(
+        viewportHeight: CGFloat,
+        actionBarHeight: CGFloat,
+        focusedFieldHeight: CGFloat,
+        bottomInset: CGFloat
+    ) -> Bool {
+        guard viewportHeight > 0, actionBarHeight > 0, focusedFieldHeight > 0 else { return false }
+        return viewportHeight - bottomInset - actionBarHeight < focusedFieldHeight + clearance
     }
 
     private static var activeWindow: UIWindow? {
