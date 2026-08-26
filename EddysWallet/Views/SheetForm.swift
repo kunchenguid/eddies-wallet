@@ -27,6 +27,7 @@ struct SheetForm<Content: View, Actions: View>: View {
     private static var contentWidth: CGFloat { 620 }
     /// Tall enough to read as a soft dissolve rather than a drawn edge.
     private static var fadeHeight: CGFloat { EW.Space.six }
+    private static var compactActionHeightThreshold: CGFloat { 220 }
 
     private let content: Content
     private let actions: Actions
@@ -59,37 +60,45 @@ struct SheetForm<Content: View, Actions: View>: View {
     private var hasActions: Bool { Actions.self != EmptyView.self }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    content
-                        .padding(EW.Space.screenMargin)
-                        .frame(maxWidth: Self.contentWidth)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .background(
-                            ContentMetricsReader(
-                                height: $contentHeight,
-                                bottom: $contentBottom
-                            )
-                        )
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
-                .accessibilityIdentifier(scrollFadeIdentifier)
-                .background(HeightReader(height: $viewportHeight))
-                .overlay(alignment: .bottom) { scrollFade }
-                .onChange(of: focusedAmount?.id) { _, _ in
-                    scrollFocusedAmount(using: proxy)
-                }
-            }
+        GeometryReader { viewport in
+            let usesCompactActionBar = focusedAmount != nil
+                && viewport.size.height < Self.compactActionHeightThreshold
 
-            if hasActions {
-                actionBar
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        content
+                            .padding(EW.Space.screenMargin)
+                            .frame(maxWidth: Self.contentWidth)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .background(
+                                ContentMetricsReader(
+                                    height: $contentHeight,
+                                    bottom: $contentBottom
+                                )
+                            )
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
+                    .accessibilityIdentifier(scrollFadeIdentifier)
+                    .background(HeightReader(height: $viewportHeight))
+                    .overlay(alignment: .bottom) { scrollFade }
+                    .onChange(of: focusedAmount?.id) { _, _ in
+                        scrollFocusedAmount(using: proxy)
+                    }
+                    .onChange(of: usesCompactActionBar) { _, _ in
+                        scrollFocusedAmount(using: proxy)
+                    }
+                }
+
+                if hasActions {
+                    actionBar(compact: usesCompactActionBar)
+                }
             }
-        }
-        .background(EW.Color.appBackground)
-        .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
-            focusedAmount = fields.first
+            .background(EW.Color.appBackground)
+            .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
+                focusedAmount = fields.first
+            }
         }
     }
 
@@ -109,13 +118,21 @@ struct SheetForm<Content: View, Actions: View>: View {
         }
     }
 
-    private var actionBar: some View {
-        VStack(spacing: EW.Space.two) {
-            actions
+    @ViewBuilder
+    private func actionBar(compact: Bool) -> some View {
+        Group {
+            if compact {
+                HStack(spacing: EW.Space.two) {
+                    actions
+                }
+            } else {
+                VStack(spacing: EW.Space.two) {
+                    actions
+                }
+            }
         }
         .padding(.horizontal, EW.Space.screenMargin)
-        .padding(.top, EW.Space.three)
-        .padding(.bottom, EW.Space.three)
+        .padding(.vertical, compact ? EW.Space.two : EW.Space.three)
         .frame(maxWidth: Self.contentWidth)
         .frame(maxWidth: .infinity, alignment: .center)
         .background(EW.Color.appBackground)

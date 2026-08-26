@@ -120,12 +120,16 @@ final class EddysWalletUITests: XCTestCase {
         _ field: XCUIElement,
         in app: XCUIApplication,
         primaryAction: XCUIElement,
+        compactPeerAction: XCUIElement? = nil,
         focusAfterPreScrolling: Bool = false,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         XCTAssertTrue(field.waitForExistence(timeout: 5), "the amount field must exist", file: file, line: line)
         XCTAssertTrue(primaryAction.waitForExistence(timeout: 5), "the primary action must exist", file: file, line: line)
+        if let compactPeerAction {
+            XCTAssertTrue(compactPeerAction.waitForExistence(timeout: 5), "the compact peer action must exist", file: file, line: line)
+        }
         let sheetScroll = app.scrollViews.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "sheet-form-scroll-fade-")
         ).firstMatch
@@ -194,6 +198,31 @@ final class EddysWalletUITests: XCTestCase {
             file: file,
             line: line
         )
+        if let compactPeerAction {
+            let peerFrame = compactPeerAction.frame
+            XCTAssertGreaterThan(peerFrame.height, 8, "the compact peer action must have a real layout frame", file: file, line: line)
+            XCTAssertEqual(
+                peerFrame.midY,
+                actionFrame.midY,
+                accuracy: 2,
+                "constrained landscape actions must share one compact pinned row",
+                file: file,
+                line: line
+            )
+            XCTAssertLessThanOrEqual(
+                peerFrame.maxY,
+                keyboardFrame.minY + 1,
+                "the compact peer action must stay fully above the keyboard",
+                file: file,
+                line: line
+            )
+            XCTAssertTrue(
+                app.windows.firstMatch.frame.contains(peerFrame),
+                "the compact peer action must stay fully on screen",
+                file: file,
+                line: line
+            )
+        }
         let intersection = fieldFrame.intersection(keyboardFrame)
         XCTAssertTrue(
             intersection.isNull || intersection.height <= 1,
@@ -725,6 +754,7 @@ final class EddysWalletUITests: XCTestCase {
             app.textFields["allowance-weekly-amount"],
             in: app,
             primaryAction: app.buttons["Review allowance"],
+            compactPeerAction: app.buttons["allowance-save-draft"],
             focusAfterPreScrolling: true
         )
         app.buttons["Close"].tap()
