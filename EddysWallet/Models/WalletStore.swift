@@ -251,6 +251,10 @@ public final class WalletStore: ObservableObject {
     /// Opens the protected local store that a service-held wallet is mirrored
     /// into. Used only when a legacy device converges onto Cloud authority.
     private let localReplicaProvider: () throws -> LocalWalletRepository
+    /// Local due-day reminders. Garnish only: settlement never depends on
+    /// delivery, and the default no-op keeps tests off the system permission
+    /// dialog. Production composition injects `UserNotificationsReminderCenter`.
+    private let reminderCenter: any ScheduledReminderCentering
     /// The idempotency key of the one accepted recovery in flight. Minted once
     /// per acceptance and reused only for retries of that same action.
     private var acceptedRecoveryKey: String?
@@ -293,7 +297,8 @@ public final class WalletStore: ObservableObject {
         accountDeletionPendingStore: (any PendingCommandStore)? = nil,
         accountDeletionSnapshotCache: (any WalletSnapshotCache)? = nil,
         accountDeletionConfiguredKidStore: (any ConfiguredKidStore)? = nil,
-        accountDeletionFlush: @escaping () -> Bool = { UserDefaults.standard.synchronize() }
+        accountDeletionFlush: @escaping () -> Bool = { UserDefaults.standard.synchronize() },
+        reminderCenter: (any ScheduledReminderCentering)? = nil
     ) {
         let resolvedRepository = repository ?? WalletRepositoryFactory.makeDefault()
         self.repository = resolvedRepository
@@ -304,6 +309,7 @@ public final class WalletStore: ObservableObject {
         self.accountDeletionConfiguredKidStore = accountDeletionConfiguredKidStore ?? UserDefaultsConfiguredKidStore()
         self.accountDeletionFlush = accountDeletionFlush
         self.localReplicaProvider = localReplicaProvider ?? { try LocalWalletRepository() }
+        self.reminderCenter = reminderCenter ?? NoOpScheduledReminderCenter()
         self.snapshot = resolvedRepository.childSnapshot()
         let configured = resolvedRepository.hasConfiguredKid
         self.isSignedIn = initiallySignedIn ?? configured
@@ -913,6 +919,8 @@ public final class WalletStore: ObservableObject {
             connection = .reached
             sessionExpired = false
             await convergeLegacyDeviceOntoCloud(generation: generation)
+            guard id == newestReadID, generation == refreshGeneration, role == viewRole else { return }
+            await refreshDueReminders()
         case .failure(let error as WalletAPIError):
             isLoading = false
             guard !isCancellation(error) else { return }
@@ -996,6 +1004,19 @@ public final class WalletStore: ObservableObject {
             errorMessage = "The wallet could not be updated. Your last accepted balance is still shown."
             snapshot = role == .child ? repository.childSnapshot() : repository.snapshot()
         }
+    }
+
+    /// Due-day calendar reminders always refresh after a reached read.
+    /// They never fire for a settlement that already happened while this
+    /// process was in the foreground: those need no notification.
+    private func refreshDueReminders() async {
+        let reminders = ScheduledReminderPlanner.dueReminders(
+            allowanceDue: snapshot.allowance?.nextCurrentOrFuturePayout(),
+            paymentDue: snapshot.loan?.nextCurrentOrFutureInstallment()?.dueDate
+        )
+        await reminderCenter.replaceDueReminders(reminders, stillAuthorized: { [weak self] in
+            self?.elevation == .active
+        })
     }
 
     private func isCancellation(_ error: Error) -> Bool {
@@ -1293,10 +1314,11 @@ public final class WalletStore: ObservableObject {
                 snapshot = refreshed
                 latestParentMutationOutcome = .recorded
                 isLoading = false
+                await refreshDueReminders()
             }
             return true
         } catch let error as WalletAPIError {
-            return handleParentMutationFailure(error, generation: generation)
+            return await handleParentMutationFailure(error, generation: generation)
         } catch {
             if generation == refreshGeneration, elevation == .active {
                 latestParentMutationOutcome = .notRecorded
@@ -1311,7 +1333,7 @@ public final class WalletStore: ObservableObject {
         _ error: WalletAPIError,
         diagnostic: TransportDiagnostic? = nil,
         generation: Int
-    ) -> Bool {
+    ) async -> Bool {
         if generation == refreshGeneration {
             publishOperationDiagnostic(for: error, preferredDiagnostic: diagnostic)
         }
@@ -1329,6 +1351,7 @@ public final class WalletStore: ObservableObject {
                 latestParentMutationOutcome = .acceptedScheduleUnavailable
                 snapshot = repository.snapshot()
                 errorMessage = nil
+                await refreshDueReminders()
             case .cloudMutationAwaitingReconciliation:
                 latestParentMutationOutcome = .waitingForCloud
                 snapshot = repository.snapshot()
@@ -1372,7 +1395,7 @@ public final class WalletStore: ObservableObject {
             }
             return true
         } catch let error as WalletAPIError {
-            return handleParentMutationFailure(error, generation: generation)
+            return await handleParentMutationFailure(error, generation: generation)
         } catch {
             if generation == refreshGeneration, elevation == .active {
                 latestParentMutationOutcome = .notRecorded
@@ -1419,6 +1442,7 @@ public final class WalletStore: ObservableObject {
                     errorMessage = nil
                 }
                 snapshot = repository.snapshot()
+                await refreshDueReminders()
             }
             return result
         } catch let error as WalletAPIError {
@@ -1620,6 +1644,7 @@ public final class WalletStore: ObservableObject {
         } catch {
             throw SharedLocalEraseError.finalErase(error)
         }
+        reminderCenter.clearPendingReminders()
         accountDeletionPendingStore.clear()
         accountDeletionSnapshotCache.clear()
         accountDeletionConfiguredKidStore.clear()

@@ -1,6 +1,6 @@
 # Eddie's Wallet privacy policy
 
-Last reviewed against the code: 2026-08-11.
+Last reviewed against the code: 2026-08-25.
 
 This policy is published at https://eddies-wallet.kunchenguid.com/. Future revisions will update the "Last reviewed against the code" date on this page.
 
@@ -54,7 +54,7 @@ Where it lives depends on how the app is used:
 - **Optional Cloud wallet.** If a parent activates the optional paid Cloud subscription, the app uploads the household once - the child nickname, a family name derived from that nickname (for example "Robin's family"), the allowance rule and its next payout, and every ledger entry and loan, including optional loan payment plans and the parent's free-text notes - to the app's service, which then becomes the authority for that wallet. Afterwards, parent actions are sent to the service, the service records due allowance and loan occurrences, wallet changes are read back from it, and a protected copy stays on the device for offline reading.
 - **Existing service wallets.** A device that was already set up against the service before the on-device mode existed continues to read and write its ledger through the service, and keeps a cached copy on the device for offline display.
 
-Wallet data is never included in analytics, notifications, or crash reports, because the app sends none.
+Wallet data is never included in analytics or crash reports. Local due-day notifications use generic titles and body text: they contain no child nickname, amount, balance, loan detail, or parent-entered note. Notification permission is requested only while the Parent area is active, and pending due-day notifications are cleared when this device's wallet is erased during sign-out or account deletion.
 
 ### 5. Connection details
 

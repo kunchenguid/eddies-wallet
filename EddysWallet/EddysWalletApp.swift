@@ -27,7 +27,8 @@ struct EddysWalletApp: App {
             wrappedValue: WalletStore(
                 repository: repository,
                 appleSignInProvider: appleSignIn,
-                cloudCoordinator: CloudCoordinator(client: cloudClient)
+                cloudCoordinator: CloudCoordinator(client: cloudClient),
+                reminderCenter: UserNotificationsReminderCenter()
             )
         )
     }

@@ -55,8 +55,10 @@
 		30100000000000000000000B /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B000000000000000000001 /* WalletTests.swift */; };
 		3010000000000000000000AA /* TransportDiagnostic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2090000000000000000000AA /* TransportDiagnostic.swift */; };
 		3010000000000000000000AB /* ConnectionDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2090000000000000000000AB /* ConnectionDetailsView.swift */; };
+		3010000000000000000000AC /* ScheduledReminder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2090000000000000000000AC /* ScheduledReminder.swift */; };
 		30100000000000000000002F /* TransportDiagnosticTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000009 /* TransportDiagnosticTests.swift */; };
 		301000000000000000000030 /* DebugLaunchScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E00000000000000000000A /* DebugLaunchScenarioTests.swift */; };
+		301000000000000000000031 /* ScheduledReminderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E00000000000000000000B /* ScheduledReminderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -113,8 +115,10 @@
 		211000000000000000000001 /* EddysWalletTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EddysWalletTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2090000000000000000000AA /* TransportDiagnostic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportDiagnostic.swift; sourceTree = "<group>"; };
 		2090000000000000000000AB /* ConnectionDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionDetailsView.swift; sourceTree = "<group>"; };
+		2090000000000000000000AC /* ScheduledReminder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledReminder.swift; sourceTree = "<group>"; };
 		20E000000000000000000009 /* TransportDiagnosticTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportDiagnosticTests.swift; sourceTree = "<group>"; };
 		20E00000000000000000000A /* DebugLaunchScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLaunchScenarioTests.swift; sourceTree = "<group>"; };
+		20E00000000000000000000B /* ScheduledReminderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledReminderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -162,6 +166,7 @@
 			children = (
 				203000000000000000000001 /* WalletModels.swift */,
 				204000000000000000000001 /* WalletStore.swift */,
+				2090000000000000000000AC /* ScheduledReminder.swift */,
 				204000000000000000000002 /* WalletAPI.swift */,
 				204000000000000000000003 /* AppleSignIn.swift */,
 				204000000000000000000004 /* CloudModels.swift */,
@@ -240,6 +245,7 @@
 				20E000000000000000000008 /* AccountDeletionTests.swift */,
 				20E000000000000000000009 /* TransportDiagnosticTests.swift */,
 				20E00000000000000000000A /* DebugLaunchScenarioTests.swift */,
+				20E00000000000000000000B /* ScheduledReminderTests.swift */,
 				20E0000000000000000000F1 /* Fixtures */,
 			);
 			path = EddysWalletTests;
@@ -379,6 +385,7 @@
 				301000000000000000000002 /* NativeDesignSystem.swift in Sources */,
 				301000000000000000000003 /* WalletModels.swift in Sources */,
 				301000000000000000000004 /* WalletStore.swift in Sources */,
+				3010000000000000000000AC /* ScheduledReminder.swift in Sources */,
 				301000000000000000000005 /* DetailViews.swift in Sources */,
 				301000000000000000000006 /* FlowViews.swift in Sources */,
 				301000000000000000000009 /* WelcomeView.swift in Sources */,
@@ -427,6 +434,7 @@
 				30100000000000000000002D /* ChildHomeRefreshTests.swift in Sources */,
 				30100000000000000000002F /* TransportDiagnosticTests.swift in Sources */,
 				301000000000000000000030 /* DebugLaunchScenarioTests.swift in Sources */,
+				301000000000000000000031 /* ScheduledReminderTests.swift in Sources */,
 				30100000000000000000002E /* AccountDeletionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

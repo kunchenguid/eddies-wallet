@@ -1583,6 +1583,67 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 0)
     }
 
+    func testCloudSettledAllowanceReschedulesTheNextDueDayWithoutARecordedReminder() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let nextWeek = try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: today))
+        let transport = RoutingTransport()
+        let unsettled = CloudSliceFixtures.scheduledAllowanceReplica(
+            lineage: lineage,
+            revision: 2,
+            dueDate: today,
+            occurrenceID: "due-head"
+        )
+        transport.stub("GET", "/v1/cloud/bootstrap", unsettled)
+        transport.stub("GET", "/v1/cloud/changes", unsettled)
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+
+        let reminders = RecordingScheduledReminderCenter()
+        let store = WalletStore(
+            repository: cloud,
+            appleSignInProvider: SliceSignInProvider(),
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
+            reminderCenter: reminders
+        )
+        await store.refresh()
+        await store.refresh()
+        XCTAssertTrue(
+            store.snapshot.activities.filter { $0.type == .allowance }.isEmpty,
+            "the unsettled replica must publish before the settled changes feed arrives"
+        )
+        XCTAssertFalse(reminders.askedForAuthorization)
+
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.serverSettledAllowanceReplica(
+                lineage: lineage,
+                revision: 3,
+                recordedID: "due-head",
+                recordedDueDate: today,
+                entryID: "a3000000-0000-4000-8000-000000000001",
+                nextID: "next-head",
+                nextDueDate: nextWeek
+            )
+        )
+        await store.refresh()
+
+        XCTAssertEqual(store.snapshot.activities.filter { $0.recordedBy == AcceptedEventCopy.scheduleActor }.count, 1)
+        XCTAssertEqual(reminders.dueReminders.map(\.kind), [.allowanceDue])
+        let fire = try XCTUnwrap(reminders.dueReminders.first?.fireDate)
+        XCTAssertEqual(calendar.startOfDay(for: fire), nextWeek)
+        XCTAssertEqual(reminders.dueReminders.first?.title, ScheduledReminderCopy.allowanceDueTitle)
+        XCTAssertEqual(reminders.dueReminders.first?.body, ScheduledReminderCopy.body)
+        XCTAssertFalse(reminders.dueReminders.contains { $0.title.contains("US$") || $0.body.contains("US$") })
+        XCTAssertFalse(reminders.askedForAuthorization)
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 0)
+    }
+
     func testCloudToLocalHandoffDoesNotDoublePayAServerSettledAllowanceWeek() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
@@ -2702,9 +2763,15 @@ final class CloudVerticalSliceTests: XCTestCase {
 
     func testAcceptedAllowanceRuleReportsUnavailableScheduleAndRecovers() async throws {
         let (cloud, transport, lineage) = try await writableCloud()
-        let store = elevatedStore(repository: cloud, coordinator: nil)
+        let reminders = RecordingScheduledReminderCenter()
+        let store = elevatedStore(repository: cloud, coordinator: nil, reminderCenter: reminders)
         await waitUntil("the Parent-area read settles") { !store.isLoading }
         let nextDueDate = Date(timeIntervalSince1970: 1_800_000_000)
+        await reminders.replaceDueReminders(
+            [ScheduledReminder(id: "ew.due.allowance", kind: .allowanceDue, fireDate: nextDueDate)],
+            stillAuthorized: { true }
+        )
+        XCTAssertEqual(reminders.dueReminders.map(\.kind), [.allowanceDue])
         transport.stub("PUT", "/v1/allowance-rule", CloudSliceFixtures.profileAccepted(revision: 3), status: 200)
         transport.stub("GET", "/v1/cloud/changes", CloudSliceFixtures.allowanceRuleChanges(lineage: lineage, revision: 3))
         transport.stub("GET", "/v1/allowance-rule", Data("{}".utf8), status: 503)
@@ -2719,6 +2786,7 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(store.latestTransportDiagnostic?.route, "/v1/allowance-rule")
         XCTAssertEqual(cloud.snapshot().allowance?.amountCents, 600)
         XCTAssertNil(cloud.snapshot().allowance?.nextOccurrenceID)
+        XCTAssertTrue(reminders.dueReminders.isEmpty)
         XCTAssertFalse(cloud.isReadyForRuntimeMutations)
 
         transport.stub(
@@ -4145,14 +4213,19 @@ final class CloudVerticalSliceTests: XCTestCase {
         return local
     }
 
-    private func elevatedStore(repository: any WalletRepository, coordinator: CloudCoordinator?) -> WalletStore {
+    private func elevatedStore(
+        repository: any WalletRepository,
+        coordinator: CloudCoordinator?,
+        reminderCenter: (any ScheduledReminderCentering)? = nil
+    ) -> WalletStore {
         let store = WalletStore(
             repository: repository,
             appleSignInProvider: SliceSignInProvider(),
             initiallySignedIn: true,
             pinStore: InMemoryParentPINStore(pin: "1234"),
             identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
-            cloudCoordinator: coordinator
+            cloudCoordinator: coordinator,
+            reminderCenter: reminderCenter
         )
         store.openParentGate()
         for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
