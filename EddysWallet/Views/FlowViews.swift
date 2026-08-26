@@ -53,7 +53,12 @@ struct MoneyFlowView: View {
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
     @State private var isSubmitting = false
-    @FocusState private var isAmountFocused: Bool
+    @FocusState private var focusedAmount: AmountFocus?
+
+    private enum AmountFocus: Hashable {
+        case amount
+        case installment
+    }
 
     private enum Step { case amount, review, result }
 
@@ -137,7 +142,7 @@ struct MoneyFlowView: View {
                     #if DEBUG
                     // Evidence capture taps this copy to resign the amount field
                     // so iPad screenshots are not covered by the software keyboard.
-                    .onTapGesture { isAmountFocused = false }
+                    .onTapGesture { focusedAmount = nil }
                     #endif
                 VStack(alignment: .leading, spacing: EW.Space.three) {
                     Text("Amount")
@@ -151,7 +156,7 @@ struct MoneyFlowView: View {
                             .font(EW.Font.heading)
                             .keyboardType(.decimalPad)
                             .textFieldStyle(.plain)
-                            .focused($isAmountFocused)
+                            .focused($focusedAmount, equals: .amount)
                             .accessibilityLabel("Amount in virtual dollars")
                     }
                     .padding(.horizontal, EW.Space.four)
@@ -159,8 +164,9 @@ struct MoneyFlowView: View {
                     .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous)
-                            .stroke(amountFieldStroke, lineWidth: isAmountFocused && visibleValidationMessage == nil ? 2 : 1.5)
+                            .stroke(amountFieldStroke, lineWidth: focusedAmount == .amount && visibleValidationMessage == nil ? 2 : 1.5)
                     }
+                    .ewAmountKeyboardAnchor("money-amount", isFocused: focusedAmount == .amount)
                     if let visibleValidationMessage {
                         Text(visibleValidationMessage)
                             .font(EW.Font.caption)
@@ -189,7 +195,7 @@ struct MoneyFlowView: View {
         } actions: {
             Button("Review") {
                 if validationMessage == nil {
-                    isAmountFocused = false
+                    focusedAmount = nil
                     step = .review
                 }
             }
@@ -199,7 +205,7 @@ struct MoneyFlowView: View {
         }
         // The amount is the only thing this step is for, so it opens ready to
         // type: focused, keyboard already up, no extra tap.
-        .onAppear { isAmountFocused = true }
+        .onAppear { focusedAmount = .amount }
     }
 
     /// Choosing a cadence is what turns a loan into a scheduled one. The
@@ -231,6 +237,7 @@ struct MoneyFlowView: View {
                             .font(EW.Font.bodyBold)
                             .keyboardType(.decimalPad)
                             .textFieldStyle(.plain)
+                            .focused($focusedAmount, equals: .installment)
                             .accessibilityLabel("Amount for each loan payment")
                             .accessibilityIdentifier("loan-payment-amount")
                     }
@@ -241,6 +248,7 @@ struct MoneyFlowView: View {
                         RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous)
                             .stroke(EW.Color.border, lineWidth: 1.5)
                     }
+                    .ewAmountKeyboardAnchor("loan-payment-amount", isFocused: focusedAmount == .installment)
                     Text("The last payment is whatever is left to repay, so it can be smaller than this amount.")
                         .font(EW.Font.caption)
                         .foregroundStyle(EW.Color.textSecondary)
@@ -261,7 +269,7 @@ struct MoneyFlowView: View {
 
     private var amountFieldStroke: Color {
         if visibleValidationMessage != nil { return EW.Color.red600 }
-        return isAmountFocused ? EW.Color.primary : EW.Color.border
+        return focusedAmount == .amount ? EW.Color.primary : EW.Color.border
     }
 
     private var review: some View {
@@ -445,6 +453,7 @@ struct AllowanceView: View {
     @State private var showReview = false
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
+    @FocusState private var isAmountFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -463,9 +472,12 @@ struct AllowanceView: View {
                                 .font(EW.Font.heading)
                                 .keyboardType(.decimalPad)
                                 .textFieldStyle(.plain)
+                                .focused($isAmountFocused)
+                                .accessibilityIdentifier("allowance-weekly-amount")
                         }
                         .padding(EW.Space.four)
                         .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                        .ewAmountKeyboardAnchor("allowance-weekly-amount", isFocused: isAmountFocused)
                         DatePicker("Starts", selection: $startDate, displayedComponents: .date)
                             .tint(EW.Color.primaryActive)
                     }
@@ -518,7 +530,7 @@ struct AllowanceView: View {
                         weekday: weekday,
                         startDate: startDate
                     )
-                    _ = await store.setAllowance(command)
+                    let recorded = await store.setAllowance(command)
                     let outcome = store.latestParentMutationOutcome ?? .notRecorded
                     resultState = outcome.syncState
                     switch outcome {
@@ -531,6 +543,12 @@ struct AllowanceView: View {
                     }
                     showReview = false
                     showDraft = false
+                    // A successful create must leave the Parent area, with the
+                    // new schedule visible. Staying on this sheet is what made
+                    // a finished create look like it never completed.
+                    if recorded || outcome != .notRecorded {
+                        dismiss()
+                    }
                 }
                 .ewDetailSheetPresentation()
             }

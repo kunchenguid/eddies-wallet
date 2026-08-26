@@ -1,4 +1,5 @@
 import AuthenticationServices
+import CoreGraphics
 import Foundation
 import XCTest
 @testable import EddysWallet
@@ -1423,5 +1424,34 @@ private final class TestAppleAuthorizationController: AppleAuthorizationControll
     func cancel() {
         cancelCount += 1
         onCancel?()
+    }
+}
+
+final class KeyboardAvoidanceTests: XCTestCase {
+    func testBottomInsetCoversTheOverlapFromTheKeyboardTopEdgeDown() {
+        let sheet = CGRect(x: 0, y: 80, width: 400, height: 700)
+        let keyboard = CGRect(x: 0, y: 500, width: 400, height: 280)
+        XCTAssertEqual(
+            KeyboardAvoidance.bottomInset(sheet: sheet, keyboard: keyboard, clearance: 12),
+            292
+        )
+    }
+
+    func testBottomInsetIsZeroWhenTheKeyboardDoesNotMeetTheSheet() {
+        let sheet = CGRect(x: 40, y: 60, width: 400, height: 360)
+        let keyboard = CGRect(x: 0, y: 500, width: 800, height: 280)
+        XCTAssertEqual(
+            KeyboardAvoidance.bottomInset(sheet: sheet, keyboard: keyboard, clearance: 12),
+            0
+        )
+    }
+
+    func testBottomInsetLiftsContentAboveAnIPadPopoverKeyboardInTheSheet() {
+        let sheet = CGRect(x: 120, y: 200, width: 540, height: 640)
+        let popover = CGRect(x: 180, y: 420, width: 320, height: 280)
+        XCTAssertEqual(
+            KeyboardAvoidance.bottomInset(sheet: sheet, keyboard: popover, clearance: 12),
+            432
+        )
     }
 }

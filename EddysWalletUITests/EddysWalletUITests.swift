@@ -84,12 +84,77 @@ final class EddysWalletUITests: XCTestCase {
     }
 
     private func openDeposit(in app: XCUIApplication) {
-        let deposit = app.buttons["Add deposit"]
-        for _ in 0..<6 where !deposit.isHittable {
+        openParentAction("Add deposit", in: app)
+    }
+
+    private func openParentAction(_ title: String, in app: XCUIApplication) {
+        let action = app.buttons[title]
+        for _ in 0..<8 where !action.isHittable {
             app.swipeUp()
         }
-        XCTAssertTrue(deposit.waitForExistence(timeout: 5))
-        deposit.tap()
+        XCTAssertTrue(action.waitForExistence(timeout: 5), "\(title) must be reachable in the Parent area")
+        action.tap()
+    }
+
+    /// The focused money field must keep its whole frame above the software
+    /// keyboard. `isHittable` is not enough: a field can remain "hittable"
+    /// while its lower half sits under a numeric or popover keyboard.
+    private func assertFocusedAmountFieldIsFullyAboveKeyboard(
+        _ field: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "the amount field must exist", file: file, line: line)
+        let sheetScroll = app.scrollViews.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "sheet-form-scroll-fade-")
+        ).firstMatch
+        if sheetScroll.exists {
+            for _ in 0..<6 where !field.isHittable {
+                sheetScroll.swipeUp()
+            }
+        }
+        if field.isHittable {
+            field.tap()
+        }
+        let keyboard = app.keyboards.element
+        XCTAssertTrue(
+            keyboard.waitForExistence(timeout: 5),
+            "the amount keyboard must be up so the field can be judged against it",
+            file: file,
+            line: line
+        )
+
+        let settled = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let fieldFrame = field.frame
+                let keyboardFrame = keyboard.frame
+                return fieldFrame.height > 8
+                    && keyboardFrame.height > 8
+                    && fieldFrame.maxY <= keyboardFrame.minY + 1
+            },
+            object: nil
+        )
+        _ = XCTWaiter.wait(for: [settled], timeout: 3)
+
+        let fieldFrame = field.frame
+        let keyboardFrame = keyboard.frame
+        XCTAssertGreaterThan(fieldFrame.height, 8, "the amount field must have a real layout frame", file: file, line: line)
+        XCTAssertGreaterThan(keyboardFrame.height, 8, "the amount keyboard must have a real layout frame", file: file, line: line)
+        XCTAssertLessThanOrEqual(
+            fieldFrame.maxY,
+            keyboardFrame.minY + 1,
+            "focused amount field \(fieldFrame) must sit fully above the keyboard \(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        let intersection = fieldFrame.intersection(keyboardFrame)
+        XCTAssertTrue(
+            intersection.isNull || intersection.height <= 1,
+            "focused amount field \(fieldFrame) must not be occluded by the keyboard \(keyboardFrame)",
+            file: file,
+            line: line
+        )
     }
 
     // Report criterion 1 (P1, P2): a configured signed-in launch rests on the
@@ -461,6 +526,103 @@ final class EddysWalletUITests: XCTestCase {
         for _ in 0..<4 where !duePicker.isHittable { sheetScroll.swipeUp() }
         XCTAssertTrue(duePicker.isHittable, "the loan due date must be reachable by scrolling the sheet")
         assertActionIsReachable(app.buttons["Review"], "the loan review control after scrolling", in: app)
+    }
+
+    // Creating a weekly allowance must finish: the set-allowance sheet dismisses
+    // and the Parent area shows the new schedule. Leaving the dialog open after
+    // Confirm is what made a successful create look like it did not finish.
+    func testCreatingAnAllowanceScheduleDismissesTheSheetAndShowsThePlan() throws {
+        let app = launch("configured-empty")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+
+        let setAllowance = app.buttons["Set a weekly allowance"]
+        XCTAssertTrue(setAllowance.waitForExistence(timeout: 5))
+        setAllowance.tap()
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+
+        app.buttons["Review allowance"].tap()
+        let confirm = app.buttons["Confirm allowance"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Set allowance"].waitForNonExistence(timeout: 8),
+            "the allowance sheet must dismiss after a successful create"
+        )
+        XCTAssertFalse(
+            app.buttons["Confirm allowance"].exists,
+            "the leftover review dialog must not stay on screen after a successful create"
+        )
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Next allowance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts["US$10.00 every week"].waitForExistence(timeout: 5),
+            "the Parent area must show the schedule that was just created"
+        )
+    }
+
+    // Every money-amount field in the app - deposit, withdrawal, loan,
+    // repayment, allowance payout, loan installment, and the weekly
+    // allowance plan - must stay fully visible above the numeric keyboard.
+    // The amount step already pins Review above the keyboard; that does not
+    // prove the focused field itself is not sitting under it. Landscape is
+    // the tight case a real device actually hits: the keyboard leaves too
+    // little sheet to show a focused field unless the form insets and
+    // scrolls it up.
+    func testFocusedMoneyAmountFieldsStayFullyAboveTheKeyboard() throws {
+        let app = launch("configured")
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: app)
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+
+        let moneyFlows = [
+            "Add deposit",
+            "Record withdrawal",
+            "Create loan",
+            "Pay toward loan",
+            "Pay out allowance",
+        ]
+        for title in moneyFlows {
+            openParentAction(title, in: app)
+            assertFocusedAmountFieldIsFullyAboveKeyboard(
+                app.textFields["Amount in virtual dollars"],
+                in: app
+            )
+            app.buttons["Cancel"].tap()
+            XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        }
+
+        openParentAction("Create loan", in: app)
+        let paymentPlan = app.segmentedControls["loan-payment-plan"]
+        XCTAssertTrue(paymentPlan.waitForExistence(timeout: 5))
+        paymentPlan.buttons["Weekly"].tap()
+        assertFocusedAmountFieldIsFullyAboveKeyboard(
+            app.textFields["loan-payment-amount"],
+            in: app
+        )
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+
+        // The allowance editor is a separate sheet from the money flows. It is
+        // opened from the wallet cards, which stay reliably tappable in
+        // portrait after the landscape keyboard pass.
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+
+        let allowanceCard = app.buttons["parent-allowance-card"]
+        for _ in 0..<8 where !allowanceCard.isHittable { app.swipeDown() }
+        XCTAssertTrue(allowanceCard.waitForExistence(timeout: 5))
+        allowanceCard.tap()
+        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+        assertFocusedAmountFieldIsFullyAboveKeyboard(
+            app.textFields["allowance-weekly-amount"],
+            in: app
+        )
+        app.buttons["Close"].tap()
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }
 
     func testLoanCreationDefaultsToNoPlanAndRevealsOptionalPaymentFields() throws {

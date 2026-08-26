@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The one modal-sheet body layout in the app.
 ///
@@ -10,6 +11,9 @@ import SwiftUI
 ///   it. They stay on screen at every detent, on every device size, and above
 ///   the software keyboard, so nothing a parent must tap can be pushed under
 ///   the fold by longer copy, a bigger text size, or a shorter sheet.
+/// - A focused money-amount field is inset and scrolled so its whole frame
+///   stays above the keyboard, including a docked pad, a landscape keyboard,
+///   and an iPad popover keyboard that would otherwise sit on the field.
 /// - The scroll region scrolls only when the content genuinely does not fit
 ///   (`.scrollBounceBehavior(.basedOnSize)`), so a sheet whose content fits
 ///   never rubber-bands as though it were hiding something.
@@ -33,6 +37,9 @@ struct SheetForm<Content: View, Actions: View>: View {
     @State private var contentHeight: CGFloat = 0
     @State private var contentBottom: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    @State private var sheetFrame: CGRect = .zero
+    @State private var keyboardFrame: CGRect = .zero
+    @State private var focusedAmount: FocusedAmountField?
 
     init(@ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.content = content()
@@ -57,31 +64,64 @@ struct SheetForm<Content: View, Actions: View>: View {
 
     private var hasActions: Bool { Actions.self != EmptyView.self }
 
+    private var keyboardBottomInset: CGFloat {
+        KeyboardAvoidance.bottomInset(sheet: sheetFrame, keyboard: keyboardFrame)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                content
-                    .padding(EW.Space.screenMargin)
-                    .frame(maxWidth: Self.contentWidth)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .background(
-                        ContentMetricsReader(
-                            height: $contentHeight,
-                            bottom: $contentBottom
+            ScrollViewReader { proxy in
+                ScrollView {
+                    content
+                        .padding(EW.Space.screenMargin)
+                        .frame(maxWidth: Self.contentWidth)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .background(
+                            ContentMetricsReader(
+                                height: $contentHeight,
+                                bottom: $contentBottom
+                            )
                         )
-                    )
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
+                .accessibilityIdentifier(scrollFadeIdentifier)
+                .background(HeightReader(height: $viewportHeight))
+                .overlay(alignment: .bottom) { scrollFade }
+                .onChange(of: focusedAmount?.id) { _, _ in
+                    scrollFocusedAmount(using: proxy)
+                }
+                .onChange(of: keyboardFrame) { _, _ in
+                    scrollFocusedAmount(using: proxy)
+                }
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .coordinateSpace(name: SheetFormCoordinateSpace.scroll)
-            .accessibilityIdentifier(scrollFadeIdentifier)
-            .background(HeightReader(height: $viewportHeight))
-            .overlay(alignment: .bottom) { scrollFade }
 
             if hasActions {
                 actionBar
             }
         }
+        .padding(.bottom, keyboardBottomInset)
         .background(EW.Color.appBackground)
+        .background {
+            GeometryReader { proxy in
+                let frame = proxy.frame(in: .global)
+                Color.clear
+                    .onAppear { captureSheetFrame(frame) }
+                    .onChange(of: frame) { _, newValue in captureSheetFrame(newValue) }
+            }
+        }
+        .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
+            focusedAmount = fields.first
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            updateKeyboardFrame(from: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { notification in
+            updateKeyboardFrame(from: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardFrame = .zero
+        }
     }
 
     /// Only drawn while there really is more content below, and never over the
@@ -110,6 +150,31 @@ struct SheetForm<Content: View, Actions: View>: View {
         .frame(maxWidth: Self.contentWidth)
         .frame(maxWidth: .infinity, alignment: .center)
         .background(EW.Color.appBackground)
+    }
+
+    /// Remember the sheet's unpadded frame. Measuring after our own keyboard
+    /// inset would shrink the recorded frame and chase the keyboard to zero.
+    private func captureSheetFrame(_ frame: CGRect) {
+        if keyboardFrame == .zero, sheetFrame != frame {
+            sheetFrame = frame
+        }
+    }
+
+    private func updateKeyboardFrame(from notification: Notification) {
+        let next = KeyboardAvoidance.frame(from: notification)
+        let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        withAnimation(.easeOut(duration: duration)) {
+            keyboardFrame = next
+        }
+    }
+
+    private func scrollFocusedAmount(using proxy: ScrollViewProxy) {
+        guard let id = focusedAmount?.id else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.25)) {
+                proxy.scrollTo(id, anchor: .top)
+            }
+        }
     }
 }
 
@@ -156,7 +221,67 @@ private struct HeightReader: View {
     }
 }
 
+struct FocusedAmountField: Equatable {
+    let id: String
+    let frame: CGRect
+}
+
+private struct FocusedAmountFieldPreference: PreferenceKey {
+    static var defaultValue: [FocusedAmountField] = []
+
+    static func reduce(value: inout [FocusedAmountField], nextValue: () -> [FocusedAmountField]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+/// Geometry that keeps a sheet's focused amount field above the software
+/// keyboard. The keyboard's end frame is treated as covering everything from
+/// its top edge down, so a docked pad, a landscape keyboard, and an iPad
+/// popover pad all lift the field into the uncovered region.
+enum KeyboardAvoidance {
+    static let clearance: CGFloat = 12
+
+    static func frame(from notification: Notification) -> CGRect {
+        guard let screenFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+              screenFrame.width > 0,
+              screenFrame.height > 0
+        else { return .zero }
+
+        guard let window = activeWindow else { return screenFrame }
+        let converted = window.convert(screenFrame, from: nil)
+        return converted.intersects(window.bounds) ? converted : .zero
+    }
+
+    static func bottomInset(sheet: CGRect, keyboard: CGRect, clearance: CGFloat = clearance) -> CGFloat {
+        guard sheet.height > 0, keyboard.height > 0 else { return 0 }
+        guard keyboard.minY < sheet.maxY else { return 0 }
+        return max(0, sheet.maxY - keyboard.minY + clearance)
+    }
+
+    private static var activeWindow: UIWindow? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }
+    }
+}
+
 extension View {
+    /// Marks a money-amount field so `SheetForm` can keep it fully above the
+    /// software keyboard while it holds focus.
+    func ewAmountKeyboardAnchor(_ id: String, isFocused: Bool) -> some View {
+        self
+            .id(id)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: FocusedAmountFieldPreference.self,
+                        value: isFocused ? [FocusedAmountField(id: id, frame: proxy.frame(in: .global))] : []
+                    )
+                }
+            }
+    }
+
     /// Sheets that host a form the software keyboard can cover open at full
     /// height only: a half-height sheet plus a keyboard leaves too little room
     /// for the fields and the decision the parent came to make.
