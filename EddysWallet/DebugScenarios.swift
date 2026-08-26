@@ -774,8 +774,8 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
         var refreshed = try await inner.setAllowance(command)
         if mutationMode == .allowanceAdvanced, let plan = refreshed.allowance {
             let nextDate = Calendar(identifier: .gregorian).date(byAdding: .day, value: 7, to: plan.nextDate) ?? plan.nextDate
-            refreshed.allowance = try AllowancePlan(
-                remoteID: plan.remoteID,
+            let advancedPlan = try AllowancePlan(
+                remoteID: "debug-submitted-allowance-rule",
                 amountCents: plan.amountCents,
                 cadence: plan.cadence,
                 weekday: plan.weekday,
@@ -784,6 +784,8 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
                 nextOccurrenceID: plan.nextOccurrenceID,
                 syncState: plan.syncState
             )
+            confirmedAllowance = advancedPlan
+            refreshed.allowance = advancedPlan
         }
         return refreshed
     }
