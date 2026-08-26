@@ -583,6 +583,7 @@ private struct AllowanceReviewView: View {
     let amountCents: Int
     let startDate: Date
     let confirm: () async -> Void
+    @State private var isSubmitting = false
 
     var body: some View {
         SheetForm {
@@ -602,12 +603,17 @@ private struct AllowanceReviewView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } actions: {
             Button("Confirm allowance") {
+                guard !isSubmitting else { return }
+                isSubmitting = true
                 Task {
                     await confirm()
+                    isSubmitting = false
                     dismiss()
                 }
             }
             .buttonStyle(PrimaryButtonStyle())
+            .disabled(isSubmitting)
+            .opacity(isSubmitting ? 0.45 : 1)
             Button("Back") { dismiss() }
                 .buttonStyle(SecondaryButtonStyle(compact: true))
         }

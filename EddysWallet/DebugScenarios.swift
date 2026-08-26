@@ -740,6 +740,9 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
         if mutationMode == .waiting {
             throw WalletAPIError.cloudMutationAwaitingReconciliation
         }
+        if mutationMode == .allowanceAdvanced {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
         var refreshed = try await inner.setAllowance(command)
         if mutationMode == .allowanceAdvanced, let plan = refreshed.allowance {
             let nextDate = Calendar(identifier: .gregorian).date(byAdding: .day, value: 7, to: plan.nextDate) ?? plan.nextDate

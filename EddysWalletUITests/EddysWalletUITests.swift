@@ -611,6 +611,11 @@ final class EddysWalletUITests: XCTestCase {
         let confirm = app.buttons["Confirm allowance"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
+        let disabledWhileSubmitting = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "enabled == false"),
+            object: confirm
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [disabledWhileSubmitting], timeout: 1), .completed)
 
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForNonExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
