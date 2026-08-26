@@ -453,6 +453,7 @@ struct AllowanceView: View {
     @State private var showReview = false
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
+    @State private var isSubmitting = false
     @FocusState private var isAmountFocused: Bool
 
     init() {
@@ -518,10 +519,13 @@ struct AllowanceView: View {
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(store.isLoading)
                 }
-                Button("Review allowance") { showReview = true }
+                Button("Review allowance") {
+                    guard !isSubmitting else { return }
+                    showReview = true
+                }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded))
-                    .opacity(Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded) ? 0.45 : 1)
+                    .disabled(isSubmitting || Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded))
+                    .opacity(isSubmitting || Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded) ? 0.45 : 1)
                 Button("Save as draft on this \(DeviceCopy.deviceNoun)") { showDraft = true }
                     .buttonStyle(SecondaryButtonStyle(compact: true))
                     .accessibilityIdentifier("allowance-save-draft")
@@ -529,10 +533,17 @@ struct AllowanceView: View {
             .navigationTitle("Set allowance")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                        .disabled(isSubmitting)
+                }
             }
             .sheet(isPresented: $showReview) {
-                AllowanceReviewView(amountCents: Money.parse(amount)?.cents ?? 0, startDate: startDate) {
+                AllowanceReviewView(
+                    amountCents: Money.parse(amount)?.cents ?? 0,
+                    startDate: startDate,
+                    isSubmitting: $isSubmitting
+                ) {
                     let calendar = Calendar(identifier: .gregorian)
                     let weekday = calendar.component(.weekday, from: startDate) - 1
                     let command = AllowanceRuleCommand(
@@ -565,6 +576,7 @@ struct AllowanceView: View {
                 .ewDetailSheetPresentation()
             }
         }
+        .interactiveDismissDisabled(isSubmitting)
     }
 
     private func refreshAllowanceSchedule() async {
@@ -582,8 +594,8 @@ private struct AllowanceReviewView: View {
     @Environment(\.dismiss) private var dismiss
     let amountCents: Int
     let startDate: Date
+    @Binding var isSubmitting: Bool
     let confirm: () async -> Void
-    @State private var isSubmitting = false
 
     var body: some View {
         SheetForm {
