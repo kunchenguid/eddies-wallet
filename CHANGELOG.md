@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.18](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.17...eddies-wallet-v0.1.18) (2026-08-26)
+
+
+### Features
+
+* add due-day allowance and loan reminders ([#132](https://github.com/kunchenguid/eddies-wallet/issues/132)) ([90a4ba7](https://github.com/kunchenguid/eddies-wallet/commit/90a4ba7ec25e790a8953aff84e735dddb7dcd8f4))
+* auto-settle due local schedules on wallet reads ([#130](https://github.com/kunchenguid/eddies-wallet/issues/130)) ([39a4c91](https://github.com/kunchenguid/eddies-wallet/commit/39a4c91dd6df009ae4e388adc7d35a3112ee4667))
+* support Cloud auto-pay activity ([#131](https://github.com/kunchenguid/eddies-wallet/issues/131)) ([13b5dff](https://github.com/kunchenguid/eddies-wallet/commit/13b5dff4a7b57cca9a716a02bf1dad3393ed9be9))
+
+
+### Bug Fixes
+
+* **app-review:** bind SOURCE-named subscription review screenshots ([#81](https://github.com/kunchenguid/eddies-wallet/issues/81)) ([facd6a2](https://github.com/kunchenguid/eddies-wallet/commit/facd6a26bfb6b79b6d3a6a6ec52343b5dba35e74))
+* **app-review:** correct App Store Connect submit reads ([#89](https://github.com/kunchenguid/eddies-wallet/issues/89)) ([5acb230](https://github.com/kunchenguid/eddies-wallet/commit/5acb2300fd3c61a095249e282d6f99c15d75faae))
+* **app-review:** defer listing screenshot matching until upload ([#119](https://github.com/kunchenguid/eddies-wallet/issues/119)) ([c47f5e9](https://github.com/kunchenguid/eddies-wallet/commit/c47f5e9e939411d8ab2beba628670924a9ee6b4f))
+* **app-review:** keep iPad listing slots from collapsing to one image ([#116](https://github.com/kunchenguid/eddies-wallet/issues/116)) ([79159a7](https://github.com/kunchenguid/eddies-wallet/commit/79159a721a70a029ff0a4a890e6148a9b2d55759))
+* **app-review:** reconcile review submission writes safely ([#93](https://github.com/kunchenguid/eddies-wallet/issues/93)) ([865f053](https://github.com/kunchenguid/eddies-wallet/commit/865f05325fd40b98d045e3909777fdb91cf285b9))
+* **app-review:** remove invalid review submission field ([#86](https://github.com/kunchenguid/eddies-wallet/issues/86)) ([3007637](https://github.com/kunchenguid/eddies-wallet/commit/30076379cce5ee416ad2922b1421050c999ac12c))
+* make iPad screenshot capture frame the intended screens ([#74](https://github.com/kunchenguid/eddies-wallet/issues/74)) ([50e031d](https://github.com/kunchenguid/eddies-wallet/commit/50e031da7f507f8f6183237ada24dfaacecf9454))
+* preserve allowance occurrence chains across Cloud sync ([#128](https://github.com/kunchenguid/eddies-wallet/issues/128)) ([66ef741](https://github.com/kunchenguid/eddies-wallet/commit/66ef74119e8ce36ba93ff0b46ca0161b941fc4ec))
+* preserve allowance schedules across Cloud toggles ([#127](https://github.com/kunchenguid/eddies-wallet/issues/127)) ([653f392](https://github.com/kunchenguid/eddies-wallet/commit/653f39244efd9b50b0c3273b395f5a14ea5f8c6b))
+
 ## [0.1.17](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.16...eddies-wallet-v0.1.17) (2026-08-13)
 
 
