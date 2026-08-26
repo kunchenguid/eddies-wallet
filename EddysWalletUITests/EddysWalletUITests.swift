@@ -96,6 +96,23 @@ final class EddysWalletUITests: XCTestCase {
         action.tap()
     }
 
+    private func waitForLandscape(in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let landscape = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let frame = app.windows.firstMatch.frame
+                return frame.width > frame.height && frame.height > 0
+            },
+            object: nil
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [landscape], timeout: 5),
+            .completed,
+            "the app window must finish rotating to landscape",
+            file: file,
+            line: line
+        )
+    }
+
     /// The focused money field must keep its whole frame above the software
     /// keyboard. `isHittable` is not enough: a field can remain "hittable"
     /// while its lower half sits under a numeric or popover keyboard.
@@ -587,6 +604,7 @@ final class EddysWalletUITests: XCTestCase {
 
         let setAllowance = app.buttons["Set a weekly allowance"]
         XCTAssertTrue(setAllowance.waitForExistence(timeout: 5))
+        let allowanceStartReference = Date()
         setAllowance.tap()
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
 
@@ -599,7 +617,7 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Next allowance"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["US$10.00 every week"].waitForExistence(timeout: 5))
-        let advancedDate = Calendar(identifier: .gregorian).date(byAdding: .day, value: 12, to: Date()) ?? Date()
+        let advancedDate = Calendar(identifier: .gregorian).date(byAdding: .day, value: 12, to: allowanceStartReference) ?? allowanceStartReference
         XCTAssertTrue(
             app.staticTexts["Starting \(advancedDate.formatted(.dateTime.month(.abbreviated).day()))"].waitForExistence(timeout: 5)
         )
@@ -653,7 +671,7 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
 
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+        waitForLandscape(in: app)
         assertFocusedAmountFieldIsFullyAboveKeyboard(
             app.textFields["allowance-weekly-amount"],
             in: app,
