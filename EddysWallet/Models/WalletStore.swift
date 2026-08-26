@@ -220,6 +220,7 @@ public final class WalletStore: ObservableObject {
     /// Last result for profile and allowance mutations, which do not create a
     /// ledger event but still need truthful accepted/waiting/rejected copy.
     @Published public private(set) var latestParentMutationOutcome: ParentMutationOutcome?
+    @Published public private(set) var latestSubmittedAllowanceRuleID: String?
     /// True only while a deliberate parent record-all action is sequentially
     /// settling the originally visible missed allowance occurrences.
     @Published public private(set) var isRecordingMissedAllowance = false
@@ -1308,17 +1309,25 @@ public final class WalletStore: ObservableObject {
         isLoading = true
         errorMessage = nil
         latestParentMutationOutcome = nil
+        latestSubmittedAllowanceRuleID = nil
         do {
             let refreshed = try await repository.setAllowance(command)
             if generation == refreshGeneration, elevation == .active {
                 snapshot = refreshed
                 latestParentMutationOutcome = .recorded
+                latestSubmittedAllowanceRuleID = refreshed.allowance?.remoteID
                 isLoading = false
                 await refreshDueReminders()
             }
             return true
         } catch let error as WalletAPIError {
-            return await handleParentMutationFailure(error, generation: generation)
+            let recorded = await handleParentMutationFailure(error, generation: generation)
+            if error.operationError == .cloudAcceptedScheduleUnavailable,
+               generation == refreshGeneration,
+               elevation == .active {
+                latestSubmittedAllowanceRuleID = snapshot.allowance?.remoteID
+            }
+            return recorded
         } catch {
             if generation == refreshGeneration, elevation == .active {
                 latestParentMutationOutcome = .notRecorded
@@ -1386,6 +1395,7 @@ public final class WalletStore: ObservableObject {
         isLoading = true
         errorMessage = nil
         latestParentMutationOutcome = nil
+        latestSubmittedAllowanceRuleID = nil
         do {
             let refreshed = try await repository.updateChildProfile(ChildProfileUpdate(nickname: nickname))
             if generation == refreshGeneration, elevation == .active {
@@ -1694,6 +1704,7 @@ public final class WalletStore: ObservableObject {
         latestTransportDiagnostic = nil
         cloudReview = nil
         latestParentMutationOutcome = nil
+        latestSubmittedAllowanceRuleID = nil
         showsFirstActionsHandoff = false
         clearPINFailureState()
         hasDeletedAccount = false

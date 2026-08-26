@@ -444,20 +444,6 @@ struct MoneyFlowView: View {
     }
 }
 
-private struct AllowanceRuleIdentity: Equatable {
-    let amountCents: Int
-    let weekday: Int
-
-    init(_ command: AllowanceRuleCommand) {
-        amountCents = command.amountCents
-        weekday = command.weekday
-    }
-
-    func matches(_ plan: AllowancePlan) -> Bool {
-        plan.amountCents == amountCents && plan.weekday == weekday
-    }
-}
-
 struct AllowanceView: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.dismiss) private var dismiss
@@ -468,7 +454,7 @@ struct AllowanceView: View {
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
     @State private var isSubmitting = false
-    @State private var submittedAllowanceIdentity: AllowanceRuleIdentity?
+    @State private var submittedAllowanceRuleID: String?
     @FocusState private var isAmountFocused: Bool
 
     init() {
@@ -566,9 +552,9 @@ struct AllowanceView: View {
                         weekday: weekday,
                         startDate: startDate
                     )
-                    let identity = AllowanceRuleIdentity(command)
-                    submittedAllowanceIdentity = identity
                     let recorded = await store.setAllowance(command)
+                    let submittedRuleID = store.latestSubmittedAllowanceRuleID
+                    submittedAllowanceRuleID = submittedRuleID
                     let outcome = store.latestParentMutationOutcome ?? .notRecorded
                     let refreshedPlan = store.snapshot.allowance
                     resultState = outcome.syncState
@@ -584,8 +570,9 @@ struct AllowanceView: View {
                     showDraft = false
                     if recorded,
                        outcome == .recorded,
+                       let submittedRuleID,
                        let refreshedPlan,
-                       identity.matches(refreshedPlan) {
+                       refreshedPlan.remoteID == submittedRuleID {
                         dismiss()
                     }
                 }
@@ -601,9 +588,8 @@ struct AllowanceView: View {
             resultMessage = store.errorMessage ?? ParentMutationOutcome.acceptedScheduleUnavailable.message
             return
         }
-        guard let submittedAllowanceIdentity,
-              let refreshedPlan = store.snapshot.allowance,
-              submittedAllowanceIdentity.matches(refreshedPlan) else {
+        guard let submittedAllowanceRuleID,
+              store.snapshot.allowance?.remoteID == submittedAllowanceRuleID else {
             resultMessage = ParentMutationOutcome.acceptedScheduleUnavailable.message
             return
         }

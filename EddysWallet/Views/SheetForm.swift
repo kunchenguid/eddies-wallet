@@ -61,6 +61,7 @@ struct SheetForm<Content: View, Actions: View>: View {
 
     var body: some View {
         GeometryReader { viewport in
+            // Tracked follow-up: accessibility sizes can wrap the long draft action in compact iPhone landscape.
             let usesCompactActionBar = focusedAmount != nil
                 && viewport.size.height < Self.compactActionHeightThreshold
 

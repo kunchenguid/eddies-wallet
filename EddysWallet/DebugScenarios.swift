@@ -672,7 +672,6 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
     let mutationMode: ScriptedMutationMode
     private var rejectedCleanupFailures: Int
     private var rejectedCleanupActive: Bool
-    private var pendingAllowanceCommand: AllowanceRuleCommand?
 
     init(
         snapshot: WalletSnapshot,
@@ -687,7 +686,6 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
         self.mutationMode = mutationMode
         self.rejectedCleanupFailures = rejectedCleanupFailures
         self.rejectedCleanupActive = mutationMode == .rejectedCleanup
-        self.pendingAllowanceCommand = nil
     }
 
     var isAuthenticated: Bool { true }
@@ -704,10 +702,6 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
                 throw WalletAPIError.cloudMutationAwaitingReconciliation
             }
             rejectedCleanupActive = false
-        }
-        if let pendingAllowanceCommand {
-            _ = try await inner.setAllowance(pendingAllowanceCommand)
-            self.pendingAllowanceCommand = nil
         }
         return try await inner.refresh(for: role)
     }
@@ -755,7 +749,7 @@ final class ScriptedWalletRepository: WalletRepository, CloudMutationStatusProvi
             throw WalletAPIError.cloudMutationAwaitingReconciliation
         }
         if mutationMode == .allowanceAcceptedScheduleUnavailable {
-            pendingAllowanceCommand = command
+            _ = try await inner.setAllowance(command)
             throw WalletAPIError.cloudAcceptedScheduleUnavailable
         }
         if mutationMode == .allowanceAdvanced {

@@ -781,6 +781,13 @@ final class EddysWalletUITests: XCTestCase {
         openParentAction("Create loan", in: app)
         let paymentPlan = app.segmentedControls["loan-payment-plan"]
         XCTAssertTrue(paymentPlan.waitForExistence(timeout: 5))
+        let loanScroll = app.scrollViews.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "sheet-form-scroll-fade-")
+        ).firstMatch
+        for _ in 0..<6 where !paymentPlan.isHittable {
+            loanScroll.swipeUp()
+        }
+        XCTAssertTrue(paymentPlan.isHittable)
         paymentPlan.buttons["Weekly"].tap()
         assertFocusedAmountFieldIsFullyAboveKeyboard(
             app.textFields["loan-payment-amount"],
