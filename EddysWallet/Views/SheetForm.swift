@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// The one modal-sheet body layout in the app.
 ///
@@ -7,13 +6,11 @@ import UIKit
 /// parent never has to discover that a sheet scrolls in order to find the
 /// control that finishes the job:
 ///
-/// - The actions sit in their own bar below the scroll region, never inside
-///   it. They stay on screen at every detent, on every device size, and above
-///   the software keyboard, so nothing a parent must tap can be pushed under
-///   the fold by longer copy, a bigger text size, or a shorter sheet.
-/// - A focused money-amount field is inset and scrolled so its whole frame
-///   stays above the keyboard, including a docked pad, a landscape keyboard,
-///   and an iPad popover keyboard that would otherwise sit on the field.
+/// - The actions normally sit in their own bar below the scroll region. On a
+///   short focused-field layout they join the scroll region so the field keeps
+///   enough visible space above the software keyboard.
+/// - A focused money-amount field stays in the scrolling region so native
+///   keyboard avoidance can keep its whole frame visible.
 /// - The scroll region scrolls only when the content genuinely does not fit
 ///   (`.scrollBounceBehavior(.basedOnSize)`), so a sheet whose content fits
 ///   never rubber-bands as though it were hiding something.
@@ -38,7 +35,6 @@ struct SheetForm<Content: View, Actions: View>: View {
     @State private var contentBottom: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
     @State private var actionBarHeight: CGFloat = 0
-    @State private var keyboardFrame: CGRect = .zero
     @State private var focusedAmount: FocusedAmountField?
 
     init(@ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
@@ -66,16 +62,10 @@ struct SheetForm<Content: View, Actions: View>: View {
 
     var body: some View {
         GeometryReader { viewport in
-            let bottomInset = KeyboardAvoidance.bottomInset(
-                viewport: viewport.frame(in: .global),
-                keyboard: keyboardFrame,
-                focusedField: focusedAmount?.frame
-            )
-            let scrollsActions = KeyboardAvoidance.needsScrollableActions(
+            let scrollsActions = SheetFormLayout.needsScrollableActions(
                 viewportHeight: viewport.size.height,
                 actionBarHeight: actionBarHeight,
-                focusedFieldHeight: focusedAmount?.frame.height ?? 0,
-                bottomInset: bottomInset
+                focusedFieldHeight: focusedAmount?.height ?? 0
             )
 
             VStack(spacing: 0) {
@@ -106,9 +96,6 @@ struct SheetForm<Content: View, Actions: View>: View {
                     .onChange(of: focusedAmount?.id) { _, _ in
                         scrollFocusedAmount(using: proxy)
                     }
-                    .onChange(of: keyboardFrame) { _, _ in
-                        scrollFocusedAmount(using: proxy)
-                    }
                     .onChange(of: scrollsActions) { _, _ in
                         scrollFocusedAmount(using: proxy)
                     }
@@ -118,22 +105,9 @@ struct SheetForm<Content: View, Actions: View>: View {
                     actionBar
                 }
             }
-            .padding(.bottom, bottomInset)
             .background(EW.Color.appBackground)
             .onPreferenceChange(FocusedAmountFieldPreference.self) { fields in
-                let next = fields.first
-                if keyboardFrame == .zero || focusedAmount?.id != next?.id {
-                    focusedAmount = next
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
-                updateKeyboardFrame(from: notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { notification in
-                updateKeyboardFrame(from: notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                keyboardFrame = .zero
+                focusedAmount = fields.first
             }
         }
     }
@@ -165,14 +139,6 @@ struct SheetForm<Content: View, Actions: View>: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .background(EW.Color.appBackground)
         .background(HeightReader(height: $actionBarHeight))
-    }
-
-    private func updateKeyboardFrame(from notification: Notification) {
-        let next = KeyboardAvoidance.frame(from: notification)
-        let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-        withAnimation(.easeOut(duration: duration)) {
-            keyboardFrame = next
-        }
     }
 
     private func scrollFocusedAmount(using proxy: ScrollViewProxy) {
@@ -230,7 +196,7 @@ private struct HeightReader: View {
 
 struct FocusedAmountField: Equatable {
     let id: String
-    let frame: CGRect
+    let height: CGFloat
 }
 
 private struct FocusedAmountFieldPreference: PreferenceKey {
@@ -241,55 +207,16 @@ private struct FocusedAmountFieldPreference: PreferenceKey {
     }
 }
 
-/// Geometry that keeps a sheet's focused amount field above the software
-/// keyboard. The keyboard's end frame is treated as covering everything from
-/// its top edge down, so a docked pad, a landscape keyboard, and an iPad
-/// popover pad all lift the field into the uncovered region.
-enum KeyboardAvoidance {
-    static let clearance: CGFloat = 12
-
-    static func frame(from notification: Notification) -> CGRect {
-        guard let screenFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-              screenFrame.width > 0,
-              screenFrame.height > 0
-        else { return .zero }
-
-        guard let window = activeWindow else { return screenFrame }
-        let converted = window.convert(screenFrame, from: nil)
-        return converted.intersects(window.bounds) ? converted : .zero
-    }
-
-    static func bottomInset(
-        viewport: CGRect,
-        keyboard: CGRect,
-        focusedField: CGRect? = nil,
-        clearance: CGFloat = clearance
-    ) -> CGFloat {
-        guard viewport.height > 0, keyboard.height > 0,
-              let focusedField,
-              focusedField.width > 0,
-              focusedField.height > 0,
-              keyboard.minY < viewport.maxY,
-              keyboard.intersects(focusedField)
-        else { return 0 }
-        return max(0, viewport.maxY - keyboard.minY + clearance)
-    }
+enum SheetFormLayout {
+    static let focusedFieldClearance: CGFloat = 12
 
     static func needsScrollableActions(
         viewportHeight: CGFloat,
         actionBarHeight: CGFloat,
-        focusedFieldHeight: CGFloat,
-        bottomInset: CGFloat
+        focusedFieldHeight: CGFloat
     ) -> Bool {
         guard viewportHeight > 0, actionBarHeight > 0, focusedFieldHeight > 0 else { return false }
-        return viewportHeight - bottomInset - actionBarHeight < focusedFieldHeight + clearance
-    }
-
-    private static var activeWindow: UIWindow? {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first { $0.isKeyWindow }
+        return viewportHeight - actionBarHeight < focusedFieldHeight + focusedFieldClearance
     }
 }
 
@@ -303,7 +230,7 @@ extension View {
                 GeometryReader { proxy in
                     Color.clear.preference(
                         key: FocusedAmountFieldPreference.self,
-                        value: isFocused ? [FocusedAmountField(id: id, frame: proxy.frame(in: .global))] : []
+                        value: isFocused ? [FocusedAmountField(id: id, height: proxy.size.height)] : []
                     )
                 }
             }
