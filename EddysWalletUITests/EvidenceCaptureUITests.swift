@@ -62,10 +62,9 @@ final class EvidenceCaptureUITests: XCTestCase {
         try? screenshot.pngRepresentation.write(to: url)
     }
 
-    /// On iPad, `isHittable` can be true while the control is still clipped at
-    /// the viewport edge, so a full-screen capture misses the content the tour
+    /// `isHittable` can be true while the control is still clipped at the
+    /// viewport edge, so a full-screen capture misses the content the tour
     /// meant to show. Scroll until the whole frame sits inside the window.
-    /// iPhone keeps the existing hittable contract so its captures do not shift.
     @discardableResult
     private func scrollIntoCaptureFrame(_ element: XCUIElement, in app: XCUIApplication) -> XCUIElement {
         XCTAssertTrue(element.waitForExistence(timeout: 5), "expected \(element) to exist before scrolling it on screen")
@@ -74,7 +73,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         for _ in 0..<12 {
             let visible = window.frame.insetBy(dx: 0, dy: edge)
             let frame = element.frame
-            if element.isHittable && (edge == 0 || visible.contains(frame)) {
+            if element.isHittable && visible.contains(frame) {
                 return element
             }
             if frame.maxY > visible.maxY {
@@ -85,14 +84,10 @@ final class EvidenceCaptureUITests: XCTestCase {
                 app.swipeUp()
             }
         }
-        if isPad {
-            XCTAssertTrue(
-                window.frame.insetBy(dx: 0, dy: edge).contains(element.frame),
-                "iPad capture requires \(element) fully on screen, not merely hittable"
-            )
-        } else {
-            XCTAssertTrue(element.isHittable, "expected \(element) to be hittable")
-        }
+        XCTAssertTrue(
+            window.frame.insetBy(dx: 0, dy: edge).contains(element.frame),
+            "capture requires \(element) fully on screen, not merely hittable"
+        )
         return element
     }
 

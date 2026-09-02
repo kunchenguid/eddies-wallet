@@ -1,0 +1,80 @@
+{
+  "version": {
+    "type": "appStoreVersions",
+    "id": "version-0-1-17",
+    "attributes": {
+      "versionString": "0.1.17",
+      "platform": "IOS",
+      "appStoreState": "REJECTED",
+      "appVersionState": "REJECTED"
+    }
+  },
+  "submissions": [
+    {
+      "submission": {
+        "type": "reviewSubmissions",
+        "id": "review-old-0-1-17",
+        "attributes": {
+          "platform": "IOS",
+          "state": "COMPLETE"
+        }
+      },
+      "items": [
+        {
+          "type": "reviewSubmissionItems",
+          "id": "item-old-0-1-17",
+          "attributes": {
+            "state": "REMOVED"
+          },
+          "relationships": {
+            "reviewSubmission": {
+              "data": {
+                "type": "reviewSubmissions",
+                "id": "review-old-0-1-17"
+              }
+            },
+            "appStoreVersion": {
+              "data": {
+                "type": "appStoreVersions",
+                "id": "version-0-1-17"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "submission": {
+        "type": "reviewSubmissions",
+        "id": "review-current-0-1-17",
+        "attributes": {
+          "platform": "IOS",
+          "state": "UNRESOLVED_ISSUES"
+        }
+      },
+      "items": [
+        {
+          "type": "reviewSubmissionItems",
+          "id": "item-current-0-1-17",
+          "attributes": {
+            "state": "REJECTED"
+          },
+          "relationships": {
+            "reviewSubmission": {
+              "data": {
+                "type": "reviewSubmissions",
+                "id": "review-current-0-1-17"
+              }
+            },
+            "appStoreVersion": {
+              "data": {
+                "type": "appStoreVersions",
+                "id": "version-0-1-17"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 "use strict";
 
-// GET-only live classifier for one App Store marketing version.
+// GET-only classifier for a recorded App Review observation fixture.
 //
-// Reconstructs the shared app-review-submit read-only client the way
-// app_review_pipeline.js / runMonitor does (activate config, load ASC
-// credentials, ApiClient { readOnly: true }, AppStoreRepository), then
-// calls the engine's exported observeReviewStatus. It never loads
-// app_review_pipeline.js, never calls runMonitor/status, and never
-// constructs a GitHub issue client.
-//
-// This script is the executable behind app-review-monitor-e2e.yml.
+// Live App Store Connect currently shows the armed 0.1.17 cycle as APPROVED.
+// The double-submission rejection that previously broke classification is a
+// historical shape: an older COMPLETE+REMOVED submission plus a current
+// UNRESOLVED_ISSUES+REJECTED submission (the 8e9fbd18 cycle, Apple ids
+// redacted). This harness loads that recorded fixture and calls the engine's
+// observeReviewStatus. It never contacts Apple, never loads
+// app_review_pipeline.js, and never constructs a GitHub issue client.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -30,6 +29,12 @@ const TERMINAL_OUTCOMES = new Set([
   "resolved_other",
   "unavailable",
 ]);
+const DEFAULT_FIXTURE = path.join(
+  __dirname,
+  "fixtures",
+  "monitor",
+  "multiple-submissions-0.1.17.json",
+);
 
 function fail(message) {
   const error = new Error(message);
@@ -37,23 +42,43 @@ function fail(message) {
   throw error;
 }
 
-function requiredEnv(env, name) {
-  const value = typeof env[name] === "string" ? env[name].trim() : "";
-  if (value.length === 0 || value.includes("\0")) {
-    fail(`${name} is missing or invalid`);
-  }
-  return value;
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function loadCredentials(monitor, env) {
-  if (typeof monitor.loadAscCredentials === "function") {
-    return monitor.loadAscCredentials(env);
+function loadFixture(filePath) {
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch {
+    fail(`review fixture is missing at ${filePath}`);
   }
-  return Object.freeze({
-    apiKey: requiredEnv(env, "APP_STORE_CONNECT_API_KEY"),
-    issuerId: requiredEnv(env, "APP_STORE_CONNECT_ISSUER_ID"),
-    keyId: requiredEnv(env, "APP_STORE_CONNECT_KEY_ID"),
-  });
+  if (!isObject(raw) || !isObject(raw.version) || !Array.isArray(raw.submissions) || raw.submissions.length < 2) {
+    fail("review fixture is invalid");
+  }
+  for (const bundle of raw.submissions) {
+    if (!isObject(bundle) || !isObject(bundle.submission) || !Array.isArray(bundle.items)) {
+      fail("review fixture is invalid");
+    }
+  }
+  return raw;
+}
+
+function fixtureRepository(fixture) {
+  return {
+    async loadApp() {
+      return Object.freeze({ type: "apps", id: "6795664301" });
+    },
+    async loadPlatformVersions() {
+      return [fixture.version];
+    },
+    async loadSubmissions() {
+      return fixture.submissions.map((bundle) => ({
+        submission: bundle.submission,
+        items: bundle.items,
+      }));
+    },
+  };
 }
 
 function printObserve(payload) {
@@ -78,14 +103,9 @@ async function main(env = process.env, argv = process.argv.slice(2)) {
   }
 
   const config = require(path.join(engineDir, "config.js"));
-  const submit = require(path.join(engineDir, "app_review_submit.js"));
   const monitor = require(monitorPath);
-
   if (typeof config.activateFromArgv !== "function") {
     fail("engine config.activateFromArgv is missing");
-  }
-  if (typeof submit.ApiClient !== "function" || typeof submit.AppStoreRepository !== "function") {
-    fail("engine ApiClient/AppStoreRepository is missing");
   }
   if (typeof monitor.observeReviewStatus !== "function") {
     fail("engine observeReviewStatus is missing");
@@ -111,14 +131,13 @@ async function main(env = process.env, argv = process.argv.slice(2)) {
   if (engineSha.length > 0 && !SHA_PATTERN.test(engineSha)) {
     fail("APP_REVIEW_ENGINE_SHA is invalid");
   }
-
-  const credentials = loadCredentials(monitor, env);
-  const client = new submit.ApiClient(credentials, { readOnly: true });
-  if (client.readOnly !== true) {
-    fail("ApiClient was not constructed read-only");
-  }
-  const repository = new submit.AppStoreRepository(client, { version });
-  const observation = await monitor.observeReviewStatus(repository, version);
+  const fixturePath = path.resolve(
+    typeof env.APP_REVIEW_FIXTURE === "string" && env.APP_REVIEW_FIXTURE.trim()
+      ? env.APP_REVIEW_FIXTURE.trim()
+      : DEFAULT_FIXTURE,
+  );
+  const fixture = loadFixture(fixturePath);
+  const observation = await monitor.observeReviewStatus(fixtureRepository(fixture), version);
   if (!observation || typeof observation !== "object" || typeof observation.outcome !== "string") {
     fail("observeReviewStatus returned an invalid observation");
   }
@@ -127,6 +146,7 @@ async function main(env = process.env, argv = process.argv.slice(2)) {
     version,
     outcome: observation.outcome,
     terminal: observation.terminal === true,
+    fixture: path.basename(fixturePath),
   };
   if (engineSha) payload.engine = engineSha;
   if (Array.isArray(observation.rejectedItemKinds)) {
@@ -143,7 +163,7 @@ async function main(env = process.env, argv = process.argv.slice(2)) {
   return 0;
 }
 
-module.exports = { main };
+module.exports = { DEFAULT_FIXTURE, fixtureRepository, loadFixture, main };
 
 if (require.main === module) {
   main().then((code) => {

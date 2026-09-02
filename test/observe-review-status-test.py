@@ -204,6 +204,31 @@ class ObserveHarnessTests(unittest.TestCase):
         self.assertEqual(observe["version"], "0.1.17")
         self.assertTrue(observe["readOnly"])
 
+    def test_the_harness_accepts_a_terminal_approved_observation(self):
+        completed = self.run_harness(
+            {
+                "APP_REVIEW_OBSERVE_EXPECTED": "approved",
+                "FAKE_OBSERVE_OUTCOME": "approved",
+                "FAKE_OBSERVE_TERMINAL": "true",
+            }
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn('outcome: "approved"', completed.stdout)
+        self.assertIn("terminal: true", completed.stdout)
+
+    def test_the_harness_rejects_a_nonterminal_approved_observation(self):
+        completed = self.run_harness(
+            {
+                "APP_REVIEW_OBSERVE_EXPECTED": "approved",
+                "FAKE_OBSERVE_OUTCOME": "approved",
+                "FAKE_OBSERVE_TERMINAL": "false",
+            }
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn('outcome: "approved"', completed.stdout)
+        self.assertIn("terminal: false", completed.stdout)
+        self.assertIn("approved observation was not terminal", completed.stderr)
+
     def test_the_harness_fails_when_the_engine_classifies_unavailable(self):
         completed = self.run_harness(
             {
