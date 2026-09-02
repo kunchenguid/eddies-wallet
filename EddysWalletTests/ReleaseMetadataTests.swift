@@ -4,10 +4,11 @@ import XCTest
 
 /// Guards the App Store Connect distribution metadata that a TestFlight
 /// upload validates: every built app bundle must carry the registered bundle
-/// identifier, deterministic numeric versions, and the exempt-encryption
-/// declaration. `.github/workflows/release.yml` overrides the versions per
-/// release tag; these tests prove the project defaults are already valid so
-/// a local Release archive is never missing required keys.
+/// identifier, deterministic numeric versions, the exempt-encryption
+/// declaration, and the privacy manifest. `.github/workflows/release.yml`
+/// overrides the versions per release tag; these tests prove the project
+/// defaults are already valid so a local Release archive is never missing
+/// required metadata.
 final class ReleaseMetadataTests: XCTestCase {
     private var appInfo: [String: Any] {
         guard let bundle = Bundle(identifier: AppleAppIdentity.bundleIdentifier),
