@@ -23,6 +23,15 @@ gh workflow run app-review-monitor-e2e.yml -R kunchenguid/eddies-wallet --ref ma
 
 Those are also the workflow defaults. Current App Store Connect for 0.1.17 is APPROVED (resubmitted 2026-08-25, issue #129). The same run then classifies the recorded 8e9fbd18 double-submission rejection fixture (`tools/app-review/fixtures/monitor/multiple-submissions-0.1.17.json`, Apple ids redacted) as `rejected` without contacting Apple. Bump the scheduled monitor pin in `app-review-monitor.yml` only after this live run classifies the armed version as the expected terminal class. A unit test, mock, or argument is not that proof.
 
+The separate dispatch-only GitHub proof creates one bot-authored throwaway issue in the isolated `eddies-app-review-surface-e2e` marker namespace. It runs the real consumer with the issue aged two hours against a one-hour proof window, verifies the real captain assignment and bot-authored mention, requires the consumer's stale failure, records the issue number, comment id, and nonzero exit in the job summary, and closes the throwaway even after failure. It has no App Store Connect credential or shared engine. Dispatch the pushed feature ref that contains the workflow:
+
+```sh
+gh workflow run app-review-surface-e2e.yml -R kunchenguid/eddies-wallet \
+  --ref <feature-branch>
+```
+
+The resulting Actions run and its automatically closed throwaway issue are the live delivery and stale-consumer evidence. Fake GitHub clients do not satisfy that acceptance proof.
+
 ## Pin and consumption
 
 The workflow follows the shared tool's pinned-checkout consumption model:
