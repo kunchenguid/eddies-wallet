@@ -24,6 +24,12 @@ const OUTCOMES = new Set([
   "resolved_other",
   "unavailable",
 ]);
+const TERMINAL_OUTCOMES = new Set([
+  "approved",
+  "rejected",
+  "resolved_other",
+  "unavailable",
+]);
 
 function fail(message) {
   const error = new Error(message);
@@ -131,8 +137,8 @@ async function main(env = process.env, argv = process.argv.slice(2)) {
   if (observation.outcome !== expected) {
     fail(`expected outcome ${expected}, got ${observation.outcome}`);
   }
-  if (expected === "rejected" && observation.terminal !== true) {
-    fail("rejected observation was not terminal");
+  if (TERMINAL_OUTCOMES.has(expected) && observation.terminal !== true) {
+    fail(`${expected} observation was not terminal`);
   }
   return 0;
 }

@@ -53,10 +53,14 @@ async function observeReviewStatus(repository, versionString) {
     && current.submission.attributes.state === "UNRESOLVED_ISSUES"
     && current.items[0].attributes.state === "REJECTED"
   ) {
+    const outcome = process.env.FAKE_OBSERVE_OUTCOME || "rejected";
+    const terminal = process.env.FAKE_OBSERVE_TERMINAL !== "false";
     return Object.freeze({
-      outcome: "rejected",
-      terminal: true,
-      rejectedItemKinds: Object.freeze(["app_store_version"]),
+      outcome,
+      terminal,
+      ...(outcome === "rejected"
+        ? { rejectedItemKinds: Object.freeze(["app_store_version"]) }
+        : {}),
     });
   }
   throw new Error("fixture was not the recorded double-submission rejection");
@@ -83,6 +87,26 @@ function writeEngine(directory) {
 function readLog(filePath) {
   if (!fs.existsSync(filePath)) return [];
   return fs.readFileSync(filePath, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+}
+
+function runFixtureHarness(extraEnv = {}) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "observe-fixture-"));
+  const engine = path.join(temp, "engine");
+  writeEngine(engine);
+  const completed = spawnSync("node", [HARNESS], {
+    encoding: "utf8",
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      APP_REVIEW_ENGINE_DIR: engine,
+      APP_REVIEW_CONFIG: path.join(ROOT, "tools", "app-review", "app-review.config.json"),
+      APP_REVIEW_FIXTURE: FIXTURE,
+      APP_REVIEW_OBSERVE_VERSION: "0.1.17",
+      ...extraEnv,
+    },
+  });
+  fs.rmSync(temp, { recursive: true, force: true });
+  return completed;
 }
 
 async function test(name, fn) {
@@ -120,6 +144,29 @@ async function main() {
     assert.deepEqual(observe.itemStates, ["REMOVED", "REJECTED"]);
     assert.equal(readLog(logPath).some((entry) => entry.fn === "runMonitor"), false);
     fs.rmSync(temp, { recursive: true, force: true });
+  });
+
+  await test("a terminal approved fixture observation is accepted", () => {
+    const completed = runFixtureHarness({
+      APP_REVIEW_OBSERVE_EXPECTED: "approved",
+      FAKE_OBSERVE_OUTCOME: "approved",
+      FAKE_OBSERVE_TERMINAL: "true",
+    });
+    assert.equal(completed.status, 0, completed.stderr);
+    assert.match(completed.stdout, /outcome: "approved"/);
+    assert.match(completed.stdout, /terminal: true/);
+  });
+
+  await test("a nonterminal approved fixture observation fails closed", () => {
+    const completed = runFixtureHarness({
+      APP_REVIEW_OBSERVE_EXPECTED: "approved",
+      FAKE_OBSERVE_OUTCOME: "approved",
+      FAKE_OBSERVE_TERMINAL: "false",
+    });
+    assert.notEqual(completed.status, 0);
+    assert.match(completed.stdout, /outcome: "approved"/);
+    assert.match(completed.stdout, /terminal: false/);
+    assert.match(completed.stderr, /approved observation was not terminal/);
   });
 
   await test("the fixture file is the recorded double-submission rejection shape", () => {
