@@ -51,6 +51,7 @@
 		30100000000000000000002D /* ChildHomeRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000007 /* ChildHomeRefreshTests.swift */; };
 		30100000000000000000002E /* AccountDeletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000008 /* AccountDeletionTests.swift */; };
 		30100000000000000000000A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 20A000000000000000000001 /* Assets.xcassets */; };
+		30100000000000000000000C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 20A000000000000000000002 /* PrivacyInfo.xcprivacy */; };
 		3010000000000000000000F1 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 20E0000000000000000000F1 /* Fixtures */; };
 		30100000000000000000000B /* WalletTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B000000000000000000001 /* WalletTests.swift */; };
 		3010000000000000000000AA /* TransportDiagnostic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2090000000000000000000AA /* TransportDiagnostic.swift */; };
@@ -70,6 +71,7 @@
 		206000000000000000000001 /* FlowViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowViews.swift; sourceTree = "<group>"; };
 		209000000000000000000001 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		20A000000000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		20A000000000000000000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		20E0000000000000000000F1 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fixtures; sourceTree = "<group>"; };
 		20B000000000000000000001 /* WalletTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletTests.swift; sourceTree = "<group>"; };
 		20C000000000000000000001 /* EddysWallet.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = EddysWallet.entitlements; sourceTree = "<group>"; };
@@ -151,6 +153,7 @@
 				201000000000000000000001 /* EddysWalletApp.swift */,
 				20F000000000000000000006 /* DebugScenarios.swift */,
 				20C000000000000000000001 /* EddysWallet.entitlements */,
+				20A000000000000000000002 /* PrivacyInfo.xcprivacy */,
 				120000000000000000000001 /* DesignSystem */,
 				119000000000000000000001 /* Models */,
 				207000000000000000000010 /* Persistence */,
@@ -357,6 +360,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				30100000000000000000000A /* Assets.xcassets in Resources */,
+				30100000000000000000000C /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
