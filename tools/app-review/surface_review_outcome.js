@@ -27,6 +27,7 @@ const COMMENTS_PER_PAGE = 100;
 const DEFAULT_ASSIGNEE = "kunchenguid";
 const DEFAULT_STALE_AFTER_HOURS = 24;
 const SURFACE_MARKER = "<!-- eddies-app-review-surface:v1 -->";
+const TRUSTED_GITHUB_ACTOR = "github-actions[bot]";
 const MONITOR_OUTCOMES = new Set([
   "pending",
   "approved",
@@ -158,6 +159,12 @@ function issueHasMonitorMarker(issue, markerNeedle) {
   return typeof issue.body === "string" && issue.body.includes(markerNeedle);
 }
 
+function hasTrustedActor(resource) {
+  return isObject(resource.user)
+    && resource.user.login === TRUSTED_GITHUB_ACTOR
+    && resource.user.type === "Bot";
+}
+
 function issueKind(issue, prefix) {
   if (typeof issue.body !== "string") return null;
   const match = issue.body.match(new RegExp(`<!-- ${prefix}:v1:[0-9a-f]{64}:([A-Za-z0-9_]+) -->`, "u"));
@@ -261,6 +268,7 @@ class GithubClient {
         ensure(isObject(issue), "GitHub returned a malformed issue");
         if (hasOwn(issue, "pull_request")) continue;
         if (!issueHasMonitorMarker(issue, markerNeedle)) continue;
+        if (!hasTrustedActor(issue)) continue;
         ensure(Number.isSafeInteger(issue.number) && issue.number >= 1, "GitHub returned a malformed issue");
         ensure(["open", "closed"].includes(issue.state), "GitHub returned a malformed issue");
         ensure(typeof issue.created_at === "string" && Number.isFinite(Date.parse(issue.created_at)), "GitHub returned a malformed issue");
@@ -295,7 +303,7 @@ class GithubClient {
       ensure(Array.isArray(batch) && batch.length <= COMMENTS_PER_PAGE, "GitHub returned a malformed comment page");
       for (const comment of batch) {
         ensure(isObject(comment) && typeof comment.body === "string", "GitHub returned a malformed comment");
-        comments.push(comment.body);
+        if (hasTrustedActor(comment)) comments.push(comment.body);
       }
       if (batch.length < COMMENTS_PER_PAGE) {
         complete = true;
@@ -318,7 +326,13 @@ class GithubClient {
       expected: 201,
       body: { body },
     });
-    ensure(isObject(created) && typeof created.body === "string" && created.body.includes(SURFACE_MARKER), "GitHub did not record the captain mention");
+    ensure(
+      isObject(created)
+        && hasTrustedActor(created)
+        && typeof created.body === "string"
+        && created.body.includes(SURFACE_MARKER),
+      "GitHub did not record the captain mention",
+    );
   }
 }
 
@@ -392,14 +406,24 @@ async function main(env = process.env, argv = process.argv.slice(2), deps = {}) 
   ensure(argv.length === 1, "surface_review_outcome requires exactly one monitor stdout file");
   const toonPath = argv[0];
   ensure(typeof toonPath === "string" && toonPath.length > 0, "monitor stdout path is invalid");
+  const monitorSucceededRaw = typeof env.APP_REVIEW_MONITOR_SUCCEEDED === "string"
+    ? env.APP_REVIEW_MONITOR_SUCCEEDED.trim()
+    : "true";
+  ensure(["true", "false"].includes(monitorSucceededRaw), "APP_REVIEW_MONITOR_SUCCEEDED is invalid");
+  const monitorSucceeded = monitorSucceededRaw === "true";
   const readFile = deps.readFile || fs.readFileSync;
-  let text;
-  try {
-    text = readFile(toonPath, "utf8");
-  } catch {
-    fail("monitor stdout file is missing");
+  let monitor;
+  if (monitorSucceeded) {
+    let text;
+    try {
+      text = readFile(toonPath, "utf8");
+    } catch {
+      fail("monitor stdout file is missing");
+    }
+    monitor = parseMonitorStdout(text);
+  } else {
+    monitor = Object.freeze({ outcome: "poll_failed", armed: false });
   }
-  const monitor = parseMonitorStdout(text);
   const config = loadEddieConfig(env, readFile);
   const repository = requiredEnv(env, "GITHUB_REPOSITORY", 128);
   ensure(repository === config.repository, "this action runs only in the trusted configured repository");
@@ -431,6 +455,7 @@ async function main(env = process.env, argv = process.argv.slice(2), deps = {}) 
     writeAnnotations(result.staleIssues);
     fail(`open App Review outcome issue ${result.stale[0]} has been unacked past ${DEFAULT_STALE_AFTER_HOURS}h`);
   }
+  if (!monitorSucceeded) fail("monitor poll failed after GitHub reconciliation");
   return 0;
 }
 
@@ -440,6 +465,7 @@ module.exports = {
   GithubClient,
   SURFACE_MARKER,
   SURFACED_OUTCOMES,
+  TRUSTED_GITHUB_ACTOR,
   main,
   parseMonitorStdout,
   surfaceReviewOutcome,

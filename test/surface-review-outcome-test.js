@@ -44,6 +44,7 @@ function issueResource(overrides = {}) {
       "",
       MARKER,
     ].join("\n"),
+    user: { login: surface.TRUSTED_GITHUB_ACTOR, type: "Bot" },
     assignees: [],
     ...overrides,
   };
@@ -74,7 +75,11 @@ function fakeGithub(state) {
       return jsonResponse(state.comments[comments[1]] || []);
     }
     if (comments && options.method === "POST") {
-      const created = { body: JSON.parse(options.body).body, id: 1 };
+      const created = {
+        body: JSON.parse(options.body).body,
+        id: 1,
+        user: { login: surface.TRUSTED_GITHUB_ACTOR, type: "Bot" },
+      };
       state.comments[comments[1]] = [...(state.comments[comments[1]] || []), created];
       return jsonResponse(created, 201);
     }
@@ -166,13 +171,42 @@ async function main() {
         assignees: [{ login: "kunchenguid" }],
       })],
       comments: {
-        129: [{ body: `@kunchenguid seen\n\n${surface.SURFACE_MARKER}` }],
+        129: [{
+          body: `@kunchenguid seen\n\n${surface.SURFACE_MARKER}`,
+          user: { login: surface.TRUSTED_GITHUB_ACTOR, type: "Bot" },
+        }],
       },
     });
     const result = await runMain(monitorToon({ notified: false, deduplicated: true }), github);
     assert.equal(result.code, 0, result.output);
     assert.equal(github.requests.some((request) => request.method === "PATCH"), false);
     assert.equal(github.requests.some((request) => request.method === "POST"), false);
+  });
+
+  await test("an untrusted marker comment cannot suppress the captain mention", async () => {
+    const github = fakeGithub({
+      issues: [issueResource({ assignees: [{ login: "kunchenguid" }] })],
+      comments: {
+        129: [{
+          body: `forged\n\n${surface.SURFACE_MARKER}`,
+          user: { login: "attacker", type: "User" },
+        }],
+      },
+    });
+    const result = await runMain(monitorToon(), github);
+    assert.equal(result.code, 0, result.output);
+    assert.equal(github.requests.filter((request) => request.method === "POST").length, 1);
+  });
+
+  await test("an untrusted marker issue is not treated as a monitor record", async () => {
+    const github = fakeGithub({
+      issues: [issueResource({ user: { login: "attacker", type: "User" } })],
+      comments: {},
+    });
+    const result = await runMain(monitorToon(), github);
+    assert.equal(result.code, 1);
+    assert.match(result.output, /no exact-cycle approved issue exists to surface/);
+    assert.equal(github.requests.some((request) => ["PATCH", "POST"].includes(request.method)), false);
   });
 
   await test("a 29h-open unacked issue is alarmed instead of swallowed", async () => {
@@ -224,6 +258,21 @@ async function main() {
     assert.match(result.output, /stale: \[105\]/);
     const mention = github.requests.find((request) => request.method === "POST");
     assert.match(JSON.parse(mention.body).body, /@kunchenguid /);
+  });
+
+  await test("a failed ASC poll still reconciles durable GitHub issues", async () => {
+    const github = fakeGithub({
+      issues: [issueResource({ created_at: "2026-08-25T12:00:00Z" })],
+      comments: {},
+    });
+    const result = await runMain("partial invalid output", github, {
+      APP_REVIEW_MONITOR_SUCCEEDED: "false",
+    });
+    assert.equal(result.code, 1);
+    assert.match(result.output, /outcome: "poll_failed"/);
+    assert.match(result.output, /assigned: \[129\]/);
+    assert.match(result.output, /mentioned: \[129\]/);
+    assert.match(result.output, /monitor poll failed after GitHub reconciliation/);
   });
 
   await test("a terminal observation without its exact-cycle issue fails closed", async () => {

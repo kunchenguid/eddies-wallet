@@ -502,6 +502,8 @@ class SharedMonitorTests(WorkflowModelCase):
         )
         self.assertIn("${{ github.token }}", environment["GITHUB_TOKEN"])
         self.assertIn('tee "${RUNNER_TEMP}/monitor.toon"', command)
+        self.assertEqual(polling[0]["id"], "poll")
+        self.assertIs(polling[0]["continue-on-error"], True)
 
     def test_the_monitor_surfaces_open_outcomes_without_apple_credentials(self):
         steps = steps_of(self.jobs(MONITOR)["observe"])
@@ -527,6 +529,11 @@ class SharedMonitorTests(WorkflowModelCase):
         )
         self.assertEqual(environment["GITHUB_TOKEN"], "${{ github.token }}")
         self.assertEqual(environment["GITHUB_REPOSITORY"], "${{ github.repository }}")
+        self.assertEqual(
+            environment["APP_REVIEW_MONITOR_SUCCEEDED"],
+            "${{ steps.poll.outcome == 'success' }}",
+        )
+        self.assertEqual(steps[surface]["if"], "always()")
         self.assertEqual(secrets_of(steps[surface]) & set(MUTATION_SECRETS), set())
         self.assertNotIn(SHARED_TOOL_READ_TOKEN, secrets_of(steps[surface]))
         self.assertNotIn("APP_STORE_CONNECT_API_KEY", environment)

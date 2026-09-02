@@ -8,7 +8,6 @@ name: Monitor App Store review status
 # not keep the schedule red between cycles.
 #
 # This workflow does not submit, mutate, release, or touch a live App Review
-# This workflow does not submit, mutate, release, or touch a live App Review
 # submission. Assemble-only mutation is a separate lane in app-review-submit.yml.
 #
 # The cadence is four-hourly and off the top of the hour: App Review states move
@@ -53,6 +52,8 @@ jobs:
           persist-credentials: false
 
       - name: Poll the armed App Review cycle
+        id: poll
+        continue-on-error: true
         env:
           APP_REVIEW_CONFIG: ${{ github.workspace }}/tools/app-review/app-review.config.json
           GITHUB_TOKEN: ${{ github.token }}
@@ -68,8 +69,10 @@ jobs:
       # outcome issue stays open past 24h. This path does not depend on any
       # firstmate home being alive. Closing the issue is the captain ack.
       - name: Surface the terminal outcome to the captain
+        if: always()
         env:
           APP_REVIEW_CONFIG: ${{ github.workspace }}/tools/app-review/app-review.config.json
+          APP_REVIEW_MONITOR_SUCCEEDED: ${{ steps.poll.outcome == 'success' }}
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: node tools/app-review/surface_review_outcome.js "${RUNNER_TEMP}/monitor.toon"
