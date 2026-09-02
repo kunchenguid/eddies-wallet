@@ -32,14 +32,12 @@ DEMO_PREFLIGHT = "app-review-demo-preflight.yml"
 EULA_APPEND = "app-review-eula-append.yml"
 MONITOR = "app-review-monitor.yml"
 MONITOR_E2E = "app-review-monitor-e2e.yml"
-SURFACE_E2E = "app-review-surface-e2e.yml"
 LIST_VERSIONS = "app-review-list-versions.yml"
 LIST_APP_INFO = "app-review-list-app-info.yml"
 APP_REVIEW_WORKFLOWS = (PREPARE, SUBMIT, DEMO_PREFLIGHT)
 MODELED_WORKFLOWS = APP_REVIEW_WORKFLOWS + (
     MONITOR,
     MONITOR_E2E,
-    SURFACE_E2E,
     EULA_APPEND,
     LIST_VERSIONS,
     LIST_APP_INFO,
@@ -790,28 +788,32 @@ class AssembleEngineTests(WorkflowModelCase):
 
 
 class SurfaceProofTests(WorkflowModelCase):
-    def test_the_surface_proof_is_an_isolated_manual_dispatch(self):
-        model = self.models[SURFACE_E2E]
+    def test_the_surface_proof_is_an_isolated_manual_dispatch_mode(self):
+        model = self.models[MONITOR_E2E]
         self.assertEqual(list(model["on"]), ["workflow_dispatch"])
-        dispatch = model["on"]["workflow_dispatch"]
-        self.assertIn(dispatch, (None, True, {}, {"inputs": None}))
+        proof_input = model["on"]["workflow_dispatch"]["inputs"]["surface_proof"]
+        self.assertEqual(proof_input["type"], "boolean")
+        self.assertIs(proof_input["default"], False)
         self.assertEqual(model["permissions"], {"contents": "read"})
-        job = self.jobs(SURFACE_E2E)["prove"]
+        job = self.jobs(MONITOR_E2E)["prove"]
         self.assertEqual(job["permissions"], {"contents": "read", "issues": "write"})
         guard = " ".join(str(job.get("if", "")).split())
         self.assertIn(REPOSITORY_GUARD, guard)
+        self.assertIn("inputs.surface_proof == true", guard)
         self.assertNotIn(DEFAULT_BRANCH_GUARD, guard)
         prefix = job["env"]["SURFACE_PREFIX"]
         self.assertEqual(
             prefix,
             "eddies-app-review-surface-e2e-${{ github.run_id }}-${{ github.run_attempt }}",
         )
-        monitor_prefix = json.loads(MONITOR_CONFIG.read_text())["monitor"]["recordMarkerPrefix"]
+        monitor_prefix = json.loads(MONITOR_CONFIG.read_text())["monitor"][
+            "recordMarkerPrefix"
+        ]
         self.assertNotEqual(prefix, monitor_prefix)
         self.assertNotIn("environment", job)
 
     def test_the_surface_proof_uses_only_the_repository_token(self):
-        job = self.jobs(SURFACE_E2E)["prove"]
+        job = self.jobs(MONITOR_E2E)["prove"]
         blob = json.dumps(job)
         for secret in MUTATION_SECRETS:
             self.assertNotIn(secret, blob)
@@ -827,7 +829,11 @@ class SurfaceProofTests(WorkflowModelCase):
                 self.assertEqual(environment["GITHUB_TOKEN"], "${{ github.token }}")
 
     def test_the_surface_proof_executes_delivery_stale_verification_and_cleanup(self):
-        steps = {step.get("id"): step for step in steps_of(self.jobs(SURFACE_E2E)["prove"]) if step.get("id")}
+        steps = {
+            step.get("id"): step
+            for step in steps_of(self.jobs(MONITOR_E2E)["prove"])
+            if step.get("id")
+        }
         self.assertEqual(set(steps), {"create", "surface", "verify"})
         surface = steps["surface"]
         self.assertIs(surface["continue-on-error"], True)
@@ -841,7 +847,9 @@ class SurfaceProofTests(WorkflowModelCase):
             surface["env"]["APP_REVIEW_CONFIG"],
             "${{ runner.temp }}/surface-e2e.config.json",
         )
-        self.assertEqual(surface["env"]["GITHUB_REPOSITORY"], "${{ github.repository }}")
+        self.assertEqual(
+            surface["env"]["GITHUB_REPOSITORY"], "${{ github.repository }}"
+        )
         verify = steps["verify"]
         self.assertEqual(
             verify["env"]["ISSUE_NUMBER"],
@@ -853,16 +861,19 @@ class SurfaceProofTests(WorkflowModelCase):
         )
         cleanup = next(
             step
-            for step in steps_of(self.jobs(SURFACE_E2E)["prove"])
+            for step in steps_of(self.jobs(MONITOR_E2E)["prove"])
             if step.get("name") == "Close the throwaway issue"
         )
         self.assertEqual(cleanup["if"], "always()")
-        self.assertEqual(cleanup["env"]["ISSUE_NUMBER"], "${{ steps.create.outputs.issue_number }}")
+        self.assertEqual(
+            cleanup["env"]["ISSUE_NUMBER"],
+            "${{ steps.create.outputs.issue_number }}",
+        )
 
     def test_the_surface_proof_pins_checkout_without_credentials(self):
         checkouts = [
             step
-            for step in steps_of(self.jobs(SURFACE_E2E)["prove"])
+            for step in steps_of(self.jobs(MONITOR_E2E)["prove"])
             if str(step.get("uses", "")).startswith("actions/checkout@")
         ]
         self.assertEqual(len(checkouts), 1)
@@ -880,6 +891,8 @@ class LiveMonitorProofTests(WorkflowModelCase):
         self.assertEqual(inputs["engine_sha"]["default"], FIXED_MONITOR_ENGINE_SHA)
         self.assertEqual(inputs["version"]["default"], "0.1.17")
         self.assertEqual(inputs["expected_outcome"]["default"], "approved")
+        self.assertIs(inputs["surface_proof"]["default"], False)
+        self.assertEqual(inputs["surface_proof"]["type"], "boolean")
         self.assertEqual(
             inputs["expected_outcome"]["options"],
             ["approved", "rejected", "pending", "resolved_other", "unavailable"],
@@ -892,6 +905,7 @@ class LiveMonitorProofTests(WorkflowModelCase):
         guard = " ".join(str(job.get("if", "")).split())
         self.assertIn(REPOSITORY_GUARD, guard)
         self.assertIn(DEFAULT_BRANCH_GUARD, guard)
+        self.assertIn("inputs.surface_proof != true", guard)
         self.assertEqual(job.get("permissions"), {"contents": "read"})
         self.assertNotIn("environment", job)
         self.assertNotIn("issues", job.get("permissions", {}))

@@ -350,11 +350,11 @@ function printSurface(payload) {
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 
-function writeAnnotations(stale) {
+function writeAnnotations(stale, staleAfterHours) {
   for (const issue of stale) {
     const hours = Math.floor(issue.ageMs / (60 * 60 * 1000));
     process.stdout.write(
-      `::error title=Unacked App Review outcome::issue #${issue.number} has been open for ${hours}h (limit ${DEFAULT_STALE_AFTER_HOURS}h)\n`,
+      `::error title=Unacked App Review outcome::issue #${issue.number} has been open for ${hours}h (limit ${staleAfterHours}h)\n`,
     );
   }
 }
@@ -429,6 +429,7 @@ async function main(env = process.env, argv = process.argv.slice(2), deps = {}) 
   ensure(repository === config.repository, "this action runs only in the trusted configured repository");
   const assignee = parseAssignee(env);
   const staleAfterMs = parseStaleAfterMs(env);
+  const staleAfterHours = staleAfterMs / (60 * 60 * 1000);
   const now = parseNow(env, deps.now);
   const client = deps.client || new GithubClient(
     requiredEnv(env, "GITHUB_TOKEN"),
@@ -452,8 +453,8 @@ async function main(env = process.env, argv = process.argv.slice(2), deps = {}) 
     stale: result.stale,
   });
   if (result.stale.length > 0) {
-    writeAnnotations(result.staleIssues);
-    fail(`open App Review outcome issue ${result.stale[0]} has been unacked past ${DEFAULT_STALE_AFTER_HOURS}h`);
+    writeAnnotations(result.staleIssues, staleAfterHours);
+    fail(`open App Review outcome issue ${result.stale[0]} has been unacked past ${staleAfterHours}h`);
   }
   if (!monitorSucceeded) fail("monitor poll failed after GitHub reconciliation");
   return 0;

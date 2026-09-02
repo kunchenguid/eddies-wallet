@@ -10,7 +10,7 @@ path.
 
 ## Live classification proof
 
-`.github/workflows/app-review-monitor-e2e.yml` is the reusable GET-only gate that proves a candidate `app-review-submit` SHA against Eddie's real App Store Connect state. It checks out that SHA, reconstructs the read-only client, and runs `tools/app-review/observe_review_status.js`, which calls the engine's exported `observeReviewStatus`. It does **not** run `app_review_pipeline.js monitor` or `status`, does not create a GitHub issue, and does not mutate any App Store Connect resource.
+The default classification job in `.github/workflows/app-review-monitor-e2e.yml` is the reusable GET-only gate that proves a candidate `app-review-submit` SHA against Eddie's real App Store Connect state. It checks out that SHA, reconstructs the read-only client, and runs `tools/app-review/observe_review_status.js`, which calls the engine's exported `observeReviewStatus`. That job does **not** run `app_review_pipeline.js monitor` or `status`, does not create a GitHub issue, and does not mutate any App Store Connect resource.
 
 Dispatch it from `main` after the workflow itself is merged:
 
@@ -23,11 +23,11 @@ gh workflow run app-review-monitor-e2e.yml -R kunchenguid/eddies-wallet --ref ma
 
 Those are also the workflow defaults. Current App Store Connect for 0.1.17 is APPROVED (resubmitted 2026-08-25, issue #129). The same run then classifies the recorded 8e9fbd18 double-submission rejection fixture (`tools/app-review/fixtures/monitor/multiple-submissions-0.1.17.json`, Apple ids redacted) as `rejected` without contacting Apple. Bump the scheduled monitor pin in `app-review-monitor.yml` only after this live run classifies the armed version as the expected terminal class. A unit test, mock, or argument is not that proof.
 
-The separate dispatch-only GitHub proof creates one bot-authored throwaway issue in the isolated `eddies-app-review-surface-e2e` marker namespace. It runs the real consumer with the issue aged two hours against a one-hour proof window, verifies the real captain assignment and bot-authored mention, requires the consumer's stale failure, records the issue number, comment id, and nonzero exit in the job summary, and closes the throwaway even after failure. It has no App Store Connect credential or shared engine. Dispatch the pushed feature ref that contains the workflow:
+The same dispatch-only workflow has an isolated `surface_proof` mode that creates one bot-authored throwaway issue in a run-unique `eddies-app-review-surface-e2e` marker namespace. It runs the real consumer with the issue aged two hours against a one-hour proof window, verifies the real captain assignment and bot-authored mention, requires the consumer's stale failure, records the issue number, comment id, and nonzero exit in the job summary, and closes the throwaway even after failure. It has no App Store Connect credential or shared engine. Because `app-review-monitor-e2e.yml` already exists on the default branch, dispatch the pushed feature ref that contains the proof job:
 
 ```sh
-gh workflow run app-review-surface-e2e.yml -R kunchenguid/eddies-wallet \
-  --ref <feature-branch>
+gh workflow run app-review-monitor-e2e.yml -R kunchenguid/eddies-wallet \
+  --ref <feature-branch> -f surface_proof=true
 ```
 
 The resulting Actions run and its automatically closed throwaway issue are the live delivery and stale-consumer evidence. Fake GitHub clients do not satisfy that acceptance proof.
@@ -80,4 +80,4 @@ The workflow has only `contents: read` and `issues: write` permission. The latte
 
 Do not run this workflow from a pull request, and do not invoke the shared tool's `submit` command from this workflow.
 
-The live proof workflow has only `contents: read`. It is `workflow_dispatch` only, gated to this repository and `main`, and must not be given `issues: write` or a `GITHUB_TOKEN`. The recorded-rejection fixture step also maps no App Store Connect credential. Do not run it from a pull request.
+The live proof workflow is `workflow_dispatch` only and starts with `contents: read`. Its default classification job is gated to this repository and `main`, has no issue write or `GITHUB_TOKEN`, and the recorded-rejection fixture step maps no App Store Connect credential. The opt-in `surface_proof` job is repository-gated but deliberately not main-gated so a pushed feature ref can prove the change before merge; only that job adds `issues: write` and maps `GITHUB_TOKEN`, and it receives no App Store Connect credential. Do not run either mode from a pull request.

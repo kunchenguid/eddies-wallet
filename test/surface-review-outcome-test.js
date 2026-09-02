@@ -223,6 +223,20 @@ async function main() {
     assert.equal(github.requests.some((request) => request.method === "POST"), true);
   });
 
+  await test("a custom stale window is reported accurately", async () => {
+    const github = fakeGithub({
+      issues: [issueResource({ created_at: "2026-08-25T22:00:00Z" })],
+      comments: {},
+    });
+    const result = await runMain(monitorToon(), github, {
+      APP_REVIEW_SURFACE_STALE_AFTER_HOURS: "1",
+    });
+    assert.equal(result.code, 1);
+    assert.match(result.output, /open for 2h \(limit 1h\)/);
+    assert.match(result.output, /unacked past 1h/);
+    assert.doesNotMatch(result.output, /limit 24h|unacked past 24h/);
+  });
+
   await test("a closed issue is the captain ack and does not alarm", async () => {
     const github = fakeGithub({
       issues: [issueResource({
