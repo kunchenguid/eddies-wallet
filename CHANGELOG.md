@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.19](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.18...eddies-wallet-v0.1.19) (2026-09-02)
+
+
+### Bug Fixes
+
+* add App Store privacy manifest ([#135](https://github.com/kunchenguid/eddies-wallet/issues/135)) ([a40cbe9](https://github.com/kunchenguid/eddies-wallet/commit/a40cbe9d3d3cbef951818ed5235ab06de516796c))
+* **app-review:** reliably surface review outcomes to the captain ([#136](https://github.com/kunchenguid/eddies-wallet/issues/136)) ([37d7da8](https://github.com/kunchenguid/eddies-wallet/commit/37d7da897e336669e047d3af781be438d95d30b4))
+* finish allowance setup and keep amount fields visible ([#133](https://github.com/kunchenguid/eddies-wallet/issues/133)) ([501a28d](https://github.com/kunchenguid/eddies-wallet/commit/501a28d21c3abc0fb8d96365e333518d65f91f5d))
+
 ## [0.1.18](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.17...eddies-wallet-v0.1.18) (2026-08-26)
 
 
