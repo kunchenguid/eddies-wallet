@@ -68,7 +68,8 @@ function fakeGithub(state) {
     });
     const parsed = new URL(url);
     if (options.method === "GET" && parsed.pathname === "/repos/kunchenguid/eddies-wallet/issues") {
-      return jsonResponse(state.issues);
+      const issues = state.issuePages?.length ? state.issuePages.shift() : state.issues;
+      return jsonResponse(issues);
     }
     const comments = parsed.pathname.match(/^\/repos\/kunchenguid\/eddies-wallet\/issues\/(\d+)\/comments$/u);
     if (comments && options.method === "GET") {
@@ -122,7 +123,7 @@ async function runMain(toon, github, extraEnv = {}) {
     const code = await surface.main(
       { ...env(toonPath), ...extraEnv },
       [toonPath],
-      { fetch: github.fetchImpl, now: () => NOW },
+      { fetch: github.fetchImpl, now: () => NOW, sleep: async () => {} },
     );
     return { code, output: captured.join(""), requests: github.requests };
   } catch (error) {
@@ -162,6 +163,22 @@ async function main() {
     assert.match(body, /eddies-app-review-surface:v1/);
     assert.equal(body.includes("c0fb330ac4693cf51df735363d36cf417f75a2097d87e0e83d0796c25c8294a4"), false);
     assert.equal(JSON.stringify(github.requests).includes(TOKEN), false);
+  });
+
+  await test("a just-created terminal issue is surfaced after GitHub's issue list catches up", async () => {
+    const issue = issueResource({ created_at: "2026-08-25T12:00:00Z" });
+    const github = fakeGithub({
+      issues: [issue],
+      issuePages: [[], [issue]],
+      comments: {},
+    });
+    const result = await runMain(monitorToon(), github);
+    assert.equal(result.code, 0, result.output);
+    const issueLists = github.requests.filter((request) => request.method === "GET"
+      && new URL(request.url).pathname === "/repos/kunchenguid/eddies-wallet/issues");
+    assert.equal(issueLists.length, 2);
+    assert.match(result.output, /assigned: \[129\]/);
+    assert.match(result.output, /mentioned: \[129\]/);
   });
 
   await test("already delivered issues are not mentioned again", async () => {

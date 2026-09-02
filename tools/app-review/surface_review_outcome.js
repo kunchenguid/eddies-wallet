@@ -24,6 +24,8 @@ const MAX_ISSUE_PAGES = 10;
 const ISSUES_PER_PAGE = 100;
 const MAX_COMMENT_PAGES = 5;
 const COMMENTS_PER_PAGE = 100;
+const MAX_DISCOVERY_ATTEMPTS = 6;
+const DISCOVERY_RETRY_MS = 1_000;
 const DEFAULT_ASSIGNEE = "kunchenguid";
 const DEFAULT_STALE_AFTER_HOURS = 24;
 const SURFACE_MARKER = "<!-- eddies-app-review-surface:v1 -->";
@@ -359,13 +361,22 @@ function writeAnnotations(stale, staleAfterHours) {
   }
 }
 
-async function surfaceReviewOutcome({ monitor, config, assignee, staleAfterMs, now, client }) {
-  const issues = await client.listMonitorIssues(config.markerNeedle);
-  const open = issues.filter((issue) => issue.state === "open");
-  if (SURFACED_OUTCOMES.has(monitor.outcome)) {
+async function surfaceReviewOutcome({ monitor, config, assignee, staleAfterMs, now, client, sleep }) {
+  const terminal = SURFACED_OUTCOMES.has(monitor.outcome);
+  let issues;
+  for (let attempt = 1; attempt <= MAX_DISCOVERY_ATTEMPTS; attempt += 1) {
+    issues = await client.listMonitorIssues(config.markerNeedle);
+    const matching = terminal
+      ? issues.filter((issue) => issueKind(issue, config.prefix) === monitor.outcome)
+      : issues;
+    if (!terminal || matching.length > 0) break;
+    if (attempt < MAX_DISCOVERY_ATTEMPTS) await sleep(DISCOVERY_RETRY_MS);
+  }
+  if (terminal) {
     const matching = issues.filter((issue) => issueKind(issue, config.prefix) === monitor.outcome);
     ensure(matching.length > 0, `no exact-cycle ${monitor.outcome} issue exists to surface`);
   }
+  const open = issues.filter((issue) => issue.state === "open");
 
   const assigned = [];
   const mentioned = [];
@@ -443,6 +454,7 @@ async function main(env = process.env, argv = process.argv.slice(2), deps = {}) 
     staleAfterMs,
     now,
     client,
+    sleep: deps.sleep || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))),
   });
   printSurface({
     outcome: result.outcome,
