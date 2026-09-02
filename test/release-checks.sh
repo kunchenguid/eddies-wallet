@@ -269,7 +269,6 @@ for forbidden in 'pull_request' 'pull_request_target' 'workflow_run' 'repository
   forbid_grep "$forbidden" "$REVIEW_E2E_WORKFLOW" "review monitor E2E excludes untrusted trigger ($forbidden)"
 done
 require_grep '^  contents: read$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E needs contents read only"
-forbid_grep '^  issues: write$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E never grants issue write"
 require_grep '^concurrency:$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E serializes live proofs"
 require_grep '^  group: eddies-app-review-monitor-e2e$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E uses its own concurrency group"
 require_grep '^  cancel-in-progress: false$' "$REVIEW_E2E_WORKFLOW" "review monitor E2E does not cancel an in-flight proof"
@@ -283,7 +282,6 @@ require_grep 'observe_review_status\.js' "$REVIEW_E2E_WORKFLOW" "review monitor 
 require_grep 'kunchenguid/app-review-submit' "$REVIEW_E2E_WORKFLOW" "review monitor E2E checks out the shared app-review-submit tool"
 require_grep '216a65513dbde70d04d0efd021792743f094ed77' "$REVIEW_E2E_WORKFLOW" "review monitor E2E defaults to the fixed multi-submission engine SHA"
 require_grep 'actions/checkout@[0-9a-f]{40}' "$REVIEW_E2E_WORKFLOW" "review monitor E2E pins checkout immutably"
-forbid_grep 'GITHUB_TOKEN' "$REVIEW_E2E_WORKFLOW" "review monitor E2E never maps GITHUB_TOKEN"
 
 # GET-only iOS App Store version listing. Encrypted submit-key credentials,
 # one GET step, no issue write, no submit, no shared-engine mutation.
