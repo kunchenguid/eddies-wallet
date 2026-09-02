@@ -1,0 +1,60 @@
+{
+  "builtProduct": "Release-iphoneos/EddysWallet.app",
+  "bundleIdentifier": "com.kunchenguid.eddieswallet",
+  "privacyManifestAtBundleRoot": true,
+  "allPrivacyManifestLocations": [
+    "PrivacyInfo.xcprivacy"
+  ],
+  "tracking": false,
+  "trackingDomains": [],
+  "accessedAPITypes": [
+    {
+      "type": "NSPrivacyAccessedAPICategoryUserDefaults",
+      "reasons": [
+        "CA92.1"
+      ]
+    }
+  ],
+  "collectedDataTypes": [
+    {
+      "type": "NSPrivacyCollectedDataTypeEmailAddress",
+      "linked": true,
+      "tracking": false,
+      "purposes": [
+        "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+      ]
+    },
+    {
+      "type": "NSPrivacyCollectedDataTypeName",
+      "linked": true,
+      "tracking": false,
+      "purposes": [
+        "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+      ]
+    },
+    {
+      "type": "NSPrivacyCollectedDataTypeOtherUserContent",
+      "linked": true,
+      "tracking": false,
+      "purposes": [
+        "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+      ]
+    },
+    {
+      "type": "NSPrivacyCollectedDataTypePurchaseHistory",
+      "linked": true,
+      "tracking": false,
+      "purposes": [
+        "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+      ]
+    },
+    {
+      "type": "NSPrivacyCollectedDataTypeUserID",
+      "linked": true,
+      "tracking": false,
+      "purposes": [
+        "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+      ]
+    }
+  ]
+}
