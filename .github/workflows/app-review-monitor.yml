@@ -44,7 +44,9 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Pin: kunchenguid/app-review-submit#7 (multi-submission classification).
-          # Proven live against Eddie 0.1.17 REJECTED by app-review-monitor-e2e.yml.
+          # Live-proven against Eddie 0.1.17; current ASC is APPROVED after the
+          # 2026-08-25 resubmission. Rejection classification is pinned by the
+          # recorded 8e9fbd18-shape fixture in app-review-monitor-e2e.yml.
           ref: 216a65513dbde70d04d0efd021792743f094ed77
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
@@ -58,4 +60,16 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
           APP_REVIEW_MONITOR_VERSION: ${{ vars.APP_REVIEW_MONITOR_VERSION }}
-        run: node .app-review-submit/app_review_pipeline.js monitor
+        run: |
+          set -euo pipefail
+          node .app-review-submit/app_review_pipeline.js monitor | tee "${RUNNER_TEMP}/monitor.toon"
+
+      # GitHub-native surfacing: assign the captain, mention once, and fail if an
+      # outcome issue stays open past 24h. This path does not depend on any
+      # firstmate home being alive. Closing the issue is the captain ack.
+      - name: Surface the terminal outcome to the captain
+        env:
+          APP_REVIEW_CONFIG: ${{ github.workspace }}/tools/app-review/app-review.config.json
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node tools/app-review/surface_review_outcome.js "${RUNNER_TEMP}/monitor.toon"

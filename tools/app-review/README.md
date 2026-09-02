@@ -19,6 +19,8 @@ python3 test/app-review-lanes-test.py
 python3 test/app-review-eula-append-test.py
 python3 test/app-review-screenshot-preflight-test.py
 python3 test/observe-review-status-test.py
+node test/observe-review-fixture-test.js
+node test/surface-review-outcome-test.js
 node test/app-review-assemble-test.js
 node test/app-review-full-submit-test.js
 node test/app-review-upload-test.js
@@ -45,6 +47,9 @@ Store Connect. `test/release-checks.sh` runs these suites.
 | `full_submit.js` | Eddie's gated full-submit adapter. It requires `--submit`, refuses assemble-only flags, maps onto `runSubmission({ assembleOnly: false })`, injects `MonitorVariableClient` from `APP_REVIEW_MONITOR_VARIABLE_TOKEN`, and refuses any result that is not `submitted` or `already_submitted`. |
 | `upload_screenshots.js` | Eddie's screenshot-upload adapter. It requires `--upload-screenshots`, refuses `--submit` and assemble-only flags, requires `SCREENSHOT_UPLOAD_ENGINE_ARGV` to be `["node","app_review_pipeline.js","upload-screenshots"]`, and maps onto `runSubmission({ uploadScreenshots: true })`. |
 | `append_standard_eula.py` | One-shot Guideline 3.1.2 remediation: GET the 0.1.17 en-US description, append Apple's standard EULA line if absent, PATCH only that field, GET to verify. It does not import a Python write boundary. |
+| `observe_review_status.js` | GET-only live classifier: loads the pinned engine and calls `observeReviewStatus`. Used by `app-review-monitor-e2e.yml`. |
+| `observe_review_fixture.js` | GET-only classifier for the recorded 8e9fbd18-shape double-submission rejection fixture. Never contacts Apple. |
+| `surface_review_outcome.js` | Mini-independent captain surfacing: assigns, mentions once, and fails open unacked monitor issues after 24 hours. |
 
 ## Mutation boundary
 

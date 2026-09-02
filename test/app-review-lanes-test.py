@@ -49,6 +49,8 @@ SCREENSHOT_UPLOAD_ENGINE_ARGV = ["node", "app_review_pipeline.js", "upload-scree
 SHARED_TOOL_REPO = "kunchenguid/app-review-submit"
 MONITOR_CONFIG = TOOLS / "app-review.config.json"
 OBSERVE_HARNESS = "tools/app-review/observe_review_status.js"
+OBSERVE_FIXTURE_HARNESS = "tools/app-review/observe_review_fixture.js"
+SURFACE_HARNESS = "tools/app-review/surface_review_outcome.js"
 
 REPOSITORY_GUARD = "github.repository == 'kunchenguid/eddies-wallet'"
 DEFAULT_BRANCH_GUARD = "github.ref == 'refs/heads/main'"
@@ -498,6 +500,36 @@ class SharedMonitorTests(WorkflowModelCase):
                 "APP_STORE_CONNECT_API_KEY": "${{ secrets.APP_STORE_CONNECT_API_KEY }}",
             },
         )
+        self.assertIn("${{ github.token }}", environment["GITHUB_TOKEN"])
+        self.assertIn('tee "${RUNNER_TEMP}/monitor.toon"', command)
+
+    def test_the_monitor_surfaces_open_outcomes_without_apple_credentials(self):
+        steps = steps_of(self.jobs(MONITOR)["observe"])
+        poll = next(
+            index
+            for index, step in enumerate(steps)
+            if "app_review_pipeline.js monitor" in str(step.get("run", ""))
+        )
+        surface = next(
+            index
+            for index, step in enumerate(steps)
+            if SURFACE_HARNESS in str(step.get("run", ""))
+        )
+        self.assertLess(poll, surface)
+        command = steps[surface]["run"]
+        self.assertIn(SURFACE_HARNESS, command)
+        self.assertIn("${RUNNER_TEMP}/monitor.toon", command)
+        self.assertNotIn("app_review_pipeline.js", command)
+        environment = steps[surface]["env"]
+        self.assertEqual(
+            environment["APP_REVIEW_CONFIG"],
+            "${{ github.workspace }}/tools/app-review/app-review.config.json",
+        )
+        self.assertEqual(environment["GITHUB_TOKEN"], "${{ github.token }}")
+        self.assertEqual(environment["GITHUB_REPOSITORY"], "${{ github.repository }}")
+        self.assertEqual(secrets_of(steps[surface]) & set(MUTATION_SECRETS), set())
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, secrets_of(steps[surface]))
+        self.assertNotIn("APP_STORE_CONNECT_API_KEY", environment)
 
     def test_the_committed_config_is_the_eddie_monitor_consumer(self):
         config = json.loads(MONITOR_CONFIG.read_text())
@@ -757,10 +789,10 @@ class LiveMonitorProofTests(WorkflowModelCase):
         inputs = triggers["workflow_dispatch"]["inputs"]
         self.assertEqual(inputs["engine_sha"]["default"], FIXED_MONITOR_ENGINE_SHA)
         self.assertEqual(inputs["version"]["default"], "0.1.17")
-        self.assertEqual(inputs["expected_outcome"]["default"], "rejected")
+        self.assertEqual(inputs["expected_outcome"]["default"], "approved")
         self.assertEqual(
             inputs["expected_outcome"]["options"],
-            ["rejected", "approved", "pending", "resolved_other", "unavailable"],
+            ["approved", "rejected", "pending", "resolved_other", "unavailable"],
         )
         self.assertEqual(self.models[MONITOR_E2E]["permissions"], {"contents": "read"})
         concurrency = self.models[MONITOR_E2E]["concurrency"]
@@ -849,6 +881,42 @@ class LiveMonitorProofTests(WorkflowModelCase):
             self.assertNotIn("app_review_pipeline.js monitor", blob)
             self.assertNotIn("app_review_pipeline.js status", blob)
             self.assertNotIn("app_review_pipeline.js submit", blob)
+
+    def test_the_proof_classifies_the_recorded_double_submission_rejection_without_apple_or_github(self):
+        fixture_steps = [
+            step
+            for step in steps_of(self.jobs(MONITOR_E2E)["observe"])
+            if OBSERVE_FIXTURE_HARNESS in str(step.get("run", ""))
+        ]
+        self.assertEqual(len(fixture_steps), 1)
+        command = fixture_steps[0]["run"]
+        self.assertIn("observe_review_fixture.js", command)
+        self.assertNotIn("app_review_pipeline.js", command)
+        environment = fixture_steps[0]["env"]
+        self.assertEqual(
+            environment["APP_REVIEW_ENGINE_DIR"],
+            "${{ github.workspace }}/.app-review-submit",
+        )
+        self.assertEqual(environment["APP_REVIEW_OBSERVE_EXPECTED"], "rejected")
+        self.assertEqual(environment["APP_REVIEW_OBSERVE_VERSION"], "0.1.17")
+        self.assertIn("multiple-submissions-0.1.17.json", environment["APP_REVIEW_FIXTURE"])
+        self.assertNotIn("GITHUB_TOKEN", environment)
+        self.assertNotIn("APP_REVIEW_MONITOR_VERSION", environment)
+        self.assertEqual(secrets_of(fixture_steps[0]) & set(MUTATION_SECRETS), set())
+        self.assertNotIn(VARIABLE_TOKEN, secrets_of(fixture_steps[0]))
+        self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(fixture_steps[0]))
+        self.assertNotIn(SHARED_TOOL_READ_TOKEN, secrets_of(fixture_steps[0]))
+        live = next(
+            index
+            for index, step in enumerate(steps_of(self.jobs(MONITOR_E2E)["observe"]))
+            if OBSERVE_HARNESS in str(step.get("run", ""))
+        )
+        fixture = next(
+            index
+            for index, step in enumerate(steps_of(self.jobs(MONITOR_E2E)["observe"]))
+            if OBSERVE_FIXTURE_HARNESS in str(step.get("run", ""))
+        )
+        self.assertLess(live, fixture)
 
     def test_the_proof_rejects_a_non_sha_engine_pin_before_checkout(self):
         steps = steps_of(self.jobs(MONITOR_E2E)["observe"])

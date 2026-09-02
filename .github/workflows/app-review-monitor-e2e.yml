@@ -6,9 +6,11 @@ name: Prove App Review monitor against live ASC
 # `pipeline monitor` or `status`, does not create a GitHub issue, and does
 # not mutate any App Store Connect resource.
 #
-# Default fixture: marketing version 0.1.17 against engine SHA 216a655
-# (kunchenguid/app-review-submit#7). Dispatch from main after this workflow
-# is merged. Prefer this over the scheduled monitor when proving a pin.
+# Default live fixture: marketing version 0.1.17 against engine SHA 216a655
+# (kunchenguid/app-review-submit#7), classified against current ASC as approved
+# after the 2026-08-25 resubmission. A second GET-only step classifies the
+# recorded 8e9fbd18 double-submission rejection fixture (Apple ids redacted)
+# without contacting Apple. Dispatch from main after this workflow is merged.
 
 on:
   workflow_dispatch:
@@ -24,16 +26,16 @@ on:
         type: string
         default: "0.1.17"
       expected_outcome:
-        description: Classified outcome the live engine must return
+        description: Classified outcome the live engine must return for current ASC
         required: false
         type: choice
         options:
-          - rejected
           - approved
+          - rejected
           - pending
           - resolved_other
           - unavailable
-        default: rejected
+        default: approved
 
 permissions:
   contents: read
@@ -91,3 +93,15 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
         run: node tools/app-review/observe_review_status.js
+
+      # Historical 8e9fbd18 UNRESOLVED_ISSUES cycle, Apple ids redacted. Live
+      # ASC is no longer in that state; this step never contacts Apple.
+      - name: Classify the recorded double-submission rejection fixture
+        env:
+          APP_REVIEW_CONFIG: ${{ github.workspace }}/tools/app-review/app-review.config.json
+          APP_REVIEW_ENGINE_DIR: ${{ github.workspace }}/.app-review-submit
+          APP_REVIEW_ENGINE_SHA: ${{ inputs.engine_sha }}
+          APP_REVIEW_OBSERVE_VERSION: "0.1.17"
+          APP_REVIEW_OBSERVE_EXPECTED: rejected
+          APP_REVIEW_FIXTURE: ${{ github.workspace }}/tools/app-review/fixtures/monitor/multiple-submissions-0.1.17.json
+        run: node tools/app-review/observe_review_fixture.js

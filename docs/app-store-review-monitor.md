@@ -18,10 +18,10 @@ Dispatch it from `main` after the workflow itself is merged:
 gh workflow run app-review-monitor-e2e.yml -R kunchenguid/eddies-wallet --ref main \
   -f engine_sha=216a65513dbde70d04d0efd021792743f094ed77 \
   -f version=0.1.17 \
-  -f expected_outcome=rejected
+  -f expected_outcome=approved
 ```
 
-Those are also the workflow defaults. Bump the scheduled monitor pin in `app-review-monitor.yml` only after this live run classifies the armed version as the expected terminal class. A unit test, mock, or argument is not that proof.
+Those are also the workflow defaults. Current App Store Connect for 0.1.17 is APPROVED (resubmitted 2026-08-25, issue #129). The same run then classifies the recorded 8e9fbd18 double-submission rejection fixture (`tools/app-review/fixtures/monitor/multiple-submissions-0.1.17.json`, Apple ids redacted) as `rejected` without contacting Apple. Bump the scheduled monitor pin in `app-review-monitor.yml` only after this live run classifies the armed version as the expected terminal class. A unit test, mock, or argument is not that proof.
 
 ## Pin and consumption
 
@@ -59,14 +59,16 @@ accepts, the engine writes `APP_REVIEW_MONITOR_VERSION`.
 
 The schedule polls every four hours, off the top of the hour. App Review states move in hours, not minutes, so a quieter cadence keeps the one notification that matters worth reading. A manual dispatch is always available when a faster answer is wanted: **Actions > Monitor App Store review status > Run workflow**. Dispatch polls the same armed `APP_REVIEW_MONITOR_VERSION`. It cannot submit, release, reject, cancel, upload, alter TestFlight, or change any App Store Connect resource.
 
-The monitor reads only the stable Eddie App Store app resource `6795664301`, bound to bundle ID `com.kunchenguid.eddieswallet`, and requires exactly one matching iOS marketing version. It never lists apps or falls back to the newest version. It uses the shared tool's frozen GET-only `reviewSubmissions` queries. Pending polls stay silent. On a terminal or sustained-unavailable observation it creates one unassigned bookkeeping issue, closes it, and later deduplicates against that exact-cycle marker. The visible body names the app and whether the target resolved as approved or reached a non-approved terminal state. It never copies Apple resource ids, the marketing version, or credentials.
+The monitor reads only the stable Eddie App Store app resource `6795664301`, bound to bundle ID `com.kunchenguid.eddieswallet`, and requires exactly one matching iOS marketing version. It never lists apps or falls back to the newest version. It uses the shared tool's frozen GET-only `reviewSubmissions` queries. Pending polls stay silent. On a terminal or sustained-unavailable observation the shared engine creates one exact-cycle bookkeeping issue and later deduplicates against that marker. The visible body names the app and whether the target resolved as approved or reached a non-approved terminal state. It never copies Apple resource ids or credentials.
+
+That issue is the durable record. It is not enough on its own: a firstmate home that polls it can be offline for days, which is how the 0.1.17 approval sat unseen after 2026-08-25. Eddie's consumer is `tools/app-review/surface_review_outcome.js`, run by the same trusted monitor workflow after the poll. It assigns `kunchenguid`, posts one `@kunchenguid` mention, and **fails the job** if any such issue is still open after 24 hours. GitHub assignment mail, the mention, and the failed Actions run are independent of any mini or poller being alive. Closing the issue is the captain ack. The consumer never closes or acks on its own.
 
 An empty `APP_REVIEW_MONITOR_VERSION` disarms the schedule. To stop the workflow from running at all, disable **Monitor App Store review status** in GitHub Actions (or remove its `schedule` trigger in a normal PR).
 
 ## Trust and API boundaries
 
-The workflow has only `contents: read` and `issues: write` permission. The latter is required solely for the one bounded exact-cycle issue. It is triggered only by `schedule` and `workflow_dispatch`; it has no pull-request, workflow-run, repository-dispatch, or other untrusted-code trigger. GitHub schedules execute the committed default-branch workflow. The job is gated to `github.repository == 'kunchenguid/eddies-wallet'` and `github.ref == 'refs/heads/main'`; the shared tool also fail-closes on any other repository, ref, or event.
+The workflow has only `contents: read` and `issues: write` permission. The latter is required for the exact-cycle issue and for assigning/mentioning the captain on it. It is triggered only by `schedule` and `workflow_dispatch`; it has no pull-request, workflow-run, repository-dispatch, or other untrusted-code trigger. GitHub schedules execute the committed default-branch workflow. The job is gated to `github.repository == 'kunchenguid/eddies-wallet'` and `github.ref == 'refs/heads/main'`; the shared tool also fail-closes on any other repository, ref, or event. The surfacing step maps `GITHUB_TOKEN` only, never an App Store Connect credential.
 
 Do not run this workflow from a pull request, and do not invoke the shared tool's `submit` command from this workflow.
 
-The live proof workflow has only `contents: read`. It is `workflow_dispatch` only, gated to this repository and `main`, and must not be given `issues: write` or a `GITHUB_TOKEN`. Do not run it from a pull request.
+The live proof workflow has only `contents: read`. It is `workflow_dispatch` only, gated to this repository and `main`, and must not be given `issues: write` or a `GITHUB_TOKEN`. The recorded-rejection fixture step also maps no App Store Connect credential. Do not run it from a pull request.

@@ -257,6 +257,7 @@ require_grep 'APP_STORE_CONNECT_API_KEY' "$REVIEW_WORKFLOW" "review monitor reus
 forbid_grep 'ASC_REVIEW_MONITOR_' "$REVIEW_WORKFLOW" "review monitor never references a dedicated monitor credential"
 forbid_grep 'app_review_pipeline\.js submit' "$REVIEW_WORKFLOW" "review monitor never invokes the shared submit command"
 require_grep 'app_review_pipeline\.js monitor' "$REVIEW_WORKFLOW" "review monitor runs the shared GET-only monitor command"
+require_grep 'surface_review_outcome\.js' "$REVIEW_WORKFLOW" "review monitor surfaces the exact-cycle issue to the captain"
 require_grep 'kunchenguid/app-review-submit' "$REVIEW_WORKFLOW" "review monitor checks out the shared app-review-submit tool"
 require_grep '216a65513dbde70d04d0efd021792743f094ed77' "$REVIEW_WORKFLOW" "review monitor pins the shared tool at the live-proven multi-submission SHA"
 require_grep 'actions/checkout@[0-9a-f]{40}' "$REVIEW_WORKFLOW" "review monitor pins checkout immutably"
@@ -280,6 +281,7 @@ require_grep 'APP_STORE_CONNECT_API_KEY' "$REVIEW_E2E_WORKFLOW" "review monitor 
 forbid_grep 'ASC_REVIEW_MONITOR_' "$REVIEW_E2E_WORKFLOW" "review monitor E2E never references a dedicated monitor credential"
 forbid_grep 'app_review_pipeline\.js' "$REVIEW_E2E_WORKFLOW" "review monitor E2E never invokes the shared pipeline CLI"
 require_grep 'observe_review_status\.js' "$REVIEW_E2E_WORKFLOW" "review monitor E2E runs the GET-only observe harness"
+require_grep 'observe_review_fixture\.js' "$REVIEW_E2E_WORKFLOW" "review monitor E2E classifies the recorded double-submission rejection fixture"
 require_grep 'kunchenguid/app-review-submit' "$REVIEW_E2E_WORKFLOW" "review monitor E2E checks out the shared app-review-submit tool"
 require_grep '216a65513dbde70d04d0efd021792743f094ed77' "$REVIEW_E2E_WORKFLOW" "review monitor E2E defaults to the fixed multi-submission engine SHA"
 require_grep 'actions/checkout@[0-9a-f]{40}' "$REVIEW_E2E_WORKFLOW" "review monitor E2E pins checkout immutably"
@@ -399,6 +401,16 @@ if python3 test/observe-review-status-test.py >/dev/null 2>&1; then
   pass "App Review live-observe harness fake-engine tests"
 else
   fail "App Review live-observe harness fake-engine tests"
+fi
+if node test/observe-review-fixture-test.js >/dev/null; then
+  pass "App Review recorded-rejection fixture harness tests"
+else
+  fail "App Review recorded-rejection fixture harness tests"
+fi
+if node test/surface-review-outcome-test.js >/dev/null; then
+  pass "App Review monitor surfacing consumer tests"
+else
+  fail "App Review monitor surfacing consumer tests"
 fi
 
 # The submission gate is the captain-approved manifest plus a double-confirm
