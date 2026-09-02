@@ -4,10 +4,11 @@ import XCTest
 
 /// Guards the App Store Connect distribution metadata that a TestFlight
 /// upload validates: every built app bundle must carry the registered bundle
-/// identifier, deterministic numeric versions, and the exempt-encryption
-/// declaration. `.github/workflows/release.yml` overrides the versions per
-/// release tag; these tests prove the project defaults are already valid so
-/// a local Release archive is never missing required keys.
+/// identifier, deterministic numeric versions, the exempt-encryption
+/// declaration, and the privacy manifest. `.github/workflows/release.yml`
+/// overrides the versions per release tag; these tests prove the project
+/// defaults are already valid so a local Release archive is never missing
+/// required metadata.
 final class ReleaseMetadataTests: XCTestCase {
     private var appInfo: [String: Any] {
         guard let bundle = Bundle(identifier: AppleAppIdentity.bundleIdentifier),
@@ -56,5 +57,52 @@ final class ReleaseMetadataTests: XCTestCase {
                 .allSatisfy { !$0.hasSuffix(".storekit") },
             "no StoreKit configuration resource may be present in the built app bundle"
         )
+    }
+
+    /// The privacy manifest must ship at the app bundle root so App Store
+    /// Connect can ingest it. Assertions are against the parsed plist the
+    /// store consumes, not the source file on disk.
+    func testBuiltAppBundlesPrivacyManifestAtRoot() throws {
+        let appBundle = try XCTUnwrap(Bundle(identifier: AppleAppIdentity.bundleIdentifier))
+        let url = try XCTUnwrap(
+            appBundle.url(forResource: "PrivacyInfo", withExtension: "xcprivacy"),
+            "PrivacyInfo.xcprivacy must land at the built app bundle root"
+        )
+        XCTAssertEqual(
+            url.deletingLastPathComponent().standardizedFileURL,
+            URL(fileURLWithPath: appBundle.bundlePath, isDirectory: true).standardizedFileURL
+        )
+
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: Data(contentsOf: url), format: nil) as? [String: Any],
+            "PrivacyInfo.xcprivacy must be a dictionary plist"
+        )
+        XCTAssertEqual(plist["NSPrivacyTracking"] as? Bool, false)
+
+        let apiTypes = try XCTUnwrap(plist["NSPrivacyAccessedAPITypes"] as? [[String: Any]])
+        XCTAssertEqual(apiTypes.count, 1)
+        XCTAssertEqual(apiTypes[0]["NSPrivacyAccessedAPIType"] as? String, "NSPrivacyAccessedAPICategoryUserDefaults")
+        XCTAssertEqual(apiTypes[0]["NSPrivacyAccessedAPITypeReasons"] as? [String], ["CA92.1"])
+
+        let collected = try XCTUnwrap(plist["NSPrivacyCollectedDataTypes"] as? [[String: Any]])
+        let types = collected.compactMap { $0["NSPrivacyCollectedDataType"] as? String }
+        XCTAssertEqual(
+            Set(types),
+            [
+                "NSPrivacyCollectedDataTypeUserID",
+                "NSPrivacyCollectedDataTypeEmailAddress",
+                "NSPrivacyCollectedDataTypeName",
+                "NSPrivacyCollectedDataTypeOtherUserContent",
+                "NSPrivacyCollectedDataTypePurchaseHistory",
+            ]
+        )
+        for entry in collected {
+            XCTAssertEqual(entry["NSPrivacyCollectedDataTypeLinked"] as? Bool, true, "\(entry["NSPrivacyCollectedDataType"] ?? "?") must be linked")
+            XCTAssertEqual(entry["NSPrivacyCollectedDataTypeTracking"] as? Bool, false, "\(entry["NSPrivacyCollectedDataType"] ?? "?") must not be used for tracking")
+            XCTAssertEqual(
+                entry["NSPrivacyCollectedDataTypePurposes"] as? [String],
+                ["NSPrivacyCollectedDataTypePurposeAppFunctionality"]
+            )
+        }
     }
 }

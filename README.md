@@ -15,7 +15,7 @@ Eddie's Wallet is an **unfinished native SwiftUI frontend MVP** for iPhone and i
 - A copied web design system and click-through prototype, packaged as the `eddies-wallet-design` agent skill under `.agents/skills/eddies-wallet-design/`, kept as visual reference material; the native app is the maintained implementation.
 - A `0.1.0` source release and `eddies-wallet-v0.1.0` tag, with release notes in `CHANGELOG.md`.
 
-What does not exist: an App Store listing, a privacy manifest, verified live sign-in, or a public release. See [Known limitations](#known-limitations).
+What does not exist: an App Store listing, verified live sign-in, or a public release. See [Known limitations](#known-limitations).
 
 ## Getting started
 
