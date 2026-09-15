@@ -761,6 +761,7 @@ class AssembleEngineTests(WorkflowModelCase):
         self.assertEqual(config["listingPolicy"], "observe")
         self.assertIs(config["listing"]["screenshotWrites"], True)
         self.assertNotIn("screenshots", config["listing"]["alignmentWrites"])
+        self.assertNotIn("listing", config["listing"]["alignmentWrites"])
         self.assertEqual(config["commerce"]["kind"], "subscriptions")
         self.assertEqual(
             config["commerce"]["productIds"],
@@ -780,7 +781,10 @@ class AssembleEngineTests(WorkflowModelCase):
             listing["description"],
         )
         self.assertEqual(listing["whatsNew"], "")
-        self.assertEqual(config["listing"]["alignmentWrites"], ["releaseType", "build", "reviewNotes"])
+        self.assertEqual(
+            config["listing"]["alignmentWrites"],
+            ["releaseType", "build", "reviewNotes", "version"],
+        )
         self.assertEqual(config["evidence"]["adapter"], "demoPreflight")
         self.assertEqual(config["listing"]["approvedSubtitle"], "Virtual allowance practice")
         self.assertEqual(config["reviewDetails"]["demoAccountRequired"], False)

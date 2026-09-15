@@ -93,6 +93,44 @@ async function main() {
   assert.equal(config.reviewDetails.contactEmail, "kun@kunchenguid.com");
 });
 
+  await test("0.1.19 upload bytes come from the config screenshotDirectory and match the bound hashes", () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(ROOT, "tools", "app-review", "manifests", "0.1.19.json"),
+    "utf8",
+  ));
+  const config = JSON.parse(fs.readFileSync(
+    path.join(ROOT, "tools", "app-review", "app-review.config.json"),
+    "utf8",
+  ));
+  const directory = path.join(ROOT, ...config.listing.screenshotDirectory);
+  assert.equal(
+    directory,
+    path.join(ROOT, "tools", "app-review", "assets", "screenshots", "0.1.17"),
+  );
+  const source = adapter.buildEngineSource(ROOT, manifest, config);
+  assert.equal(manifest.candidate.version, "0.1.19");
+  assert.equal(source.screenshots.length, manifest.content.screenshots.length);
+  for (const [setIndex, bound] of manifest.content.screenshots.entries()) {
+    const mapped = source.screenshots[setIndex];
+    assert.equal(mapped.displayType, bound.displayType);
+    assert.equal(mapped.files.length, bound.files.length);
+    for (const [fileIndex, descriptor] of bound.files.entries()) {
+      const file = mapped.files[fileIndex];
+      const expectedPath = path.join(directory, descriptor.fileName);
+      assert.equal(file.fileName, descriptor.fileName);
+      assert.equal(file.filePath, expectedPath);
+      assert.equal(file.fileSize, descriptor.fileSize);
+      assert.equal(file.sha256, descriptor.sha256);
+      const bytes = fs.readFileSync(expectedPath);
+      assert.equal(bytes.length, descriptor.fileSize);
+      assert.equal(
+        require("node:crypto").createHash("sha256").update(bytes).digest("hex"),
+        descriptor.sha256,
+      );
+    }
+  }
+});
+
   await test("engine source refuses screenshot order not approved by the manifest", () => {
   const manifest = JSON.parse(fs.readFileSync(
     path.join(ROOT, "tools", "app-review", "manifests", "0.1.17.json"),
