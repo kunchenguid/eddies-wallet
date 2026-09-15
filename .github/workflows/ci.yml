@@ -36,7 +36,7 @@ concurrency:
 
 jobs:
   checks:
-    name: Release pipeline and simulator-wrapper checks
+    name: Release pipeline checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -48,12 +48,6 @@ jobs:
 
       - name: Release pipeline regression checks
         run: ./test/release-checks.sh
-
-      # Boot-free: proves the wrapper boundary and lifecycle's reaping/teardown decisions.
-      - name: Simulator lifecycle checks
-        run: |
-          ./test/check-sim-usage.sh
-          ./test/sim-lib-test.sh
 
   xcode:
     name: Xcode build and unit tests
@@ -75,6 +69,11 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ inputs.tag_name || github.event.release.tag_name || '' }}
+
+      - name: Simulator lifecycle checks
+        run: |
+          ./test/check-sim-usage.sh
+          ./test/sim-lib-test.sh
 
       - name: Select Xcode 26
         run: |
