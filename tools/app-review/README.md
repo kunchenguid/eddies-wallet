@@ -18,6 +18,7 @@ python3 test/app-review-pipeline-test.py
 python3 test/app-review-lanes-test.py
 python3 test/app-review-eula-append-test.py
 python3 test/app-review-screenshot-preflight-test.py
+python3 test/app-review-first-release-args-test.py
 python3 test/observe-review-status-test.py
 node test/observe-review-fixture-test.js
 node test/surface-review-outcome-test.js
@@ -40,6 +41,7 @@ Store Connect. `test/release-checks.sh` runs these suites.
 | `github_api.py` | The durable issue-record boundary on `GITHUB_TOKEN`. The post-acceptance monitor-variable handoff is in the Node engine, injected only on the gated submit job. |
 | `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by verify, assemble, upload, and submit. |
 | `prepare.py`, `demo_preflight.py`, `verify.py` | The Python workflow entrypoints. Verify is credential-free. |
+| `first_release_args.py` | Credential-free: prints `--first-release` only when the pinned captain-approved manifest has `firstRelease: true`. Update manifests (`baselineVersion`) emit nothing. |
 | `screenshot_preflight.py` | Eddie-side listing-screenshot validation before any live write: required display types, RGB8 dimensions, unique bytes per size, and checksums matching the captain-approved manifest. |
 | `list_app_store_versions.py` | GET-only iOS App Store version listing. |
 | `list_app_info_categories.py` | GET-only App Info primary and secondary category listing. |

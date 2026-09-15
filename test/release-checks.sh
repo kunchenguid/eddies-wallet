@@ -383,6 +383,11 @@ if node test/app-review-upload-test.js >/dev/null; then
 else
   fail "App Review screenshot-upload adapter tests"
 fi
+if python3 test/app-review-first-release-args-test.py >/dev/null 2>&1; then
+  pass "App Review first-release vs update adapter argv tests"
+else
+  fail "App Review first-release vs update adapter argv tests"
+fi
 if python3 test/app-review-screenshot-preflight-test.py >/dev/null 2>&1; then
   pass "App Review listing-screenshot preflight tests"
 else
@@ -429,8 +434,11 @@ done
 require_grep 'APP_REVIEW_MONITOR_VARIABLE_TOKEN: \$\{\{ secrets\.EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN \}\}' .github/workflows/app-review-submit.yml "submit maps the existing Eddie monitor variable token onto the engine env"
 forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-prepare.yml "preparation never receives the monitor variable token"
 forbid_grep 'EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN' .github/workflows/app-review-demo-preflight.yml "the readiness preflight never receives the monitor variable token"
-require_grep 'assemble_only.js --assemble-only --first-release' .github/workflows/app-review-submit.yml "submit workflow runs Node assemble-only first-release"
-require_grep 'full_submit.js --submit --first-release' .github/workflows/app-review-submit.yml "submit workflow runs Node full-submit first-release when mode=submit"
+require_grep 'assemble_only.js --assemble-only' .github/workflows/app-review-submit.yml "submit workflow runs Node assemble-only"
+require_grep 'first_release_args.py' .github/workflows/app-review-submit.yml "submit workflow derives --first-release from the pinned manifest"
+forbid_grep 'assemble_only.js --assemble-only --first-release' .github/workflows/app-review-submit.yml "submit workflow does not hardcode assemble-only --first-release"
+require_grep 'full_submit.js --submit' .github/workflows/app-review-submit.yml "submit workflow runs Node full-submit when mode=submit"
+forbid_grep 'full_submit.js --submit --first-release' .github/workflows/app-review-submit.yml "submit workflow does not hardcode full-submit --first-release"
 forbid_grep 'app_review_pipeline.js submit' .github/workflows/app-review-submit.yml "submit workflow never invokes the Node pipeline submit command"
 forbid_grep 'python3 tools/app-review/submit.py' .github/workflows/app-review-submit.yml "submit workflow never invokes the retired Python submit engine"
 forbid_grep '16df9345ada8d50f4e1f7637839b8f2616c54ddb' .github/workflows/app-review-submit.yml "submit workflow no longer pins the superseded first-release-only SHA"
