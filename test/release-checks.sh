@@ -178,6 +178,58 @@ else
   fail "ci.yml pull_request ignores every config-derived release-please output: $release_ci_ignore_out"
 fi
 
+# Pull requests must not consume macOS minutes. Linux checks stay on the PR
+# path; Xcode jobs remain for tags, published releases, and tag dispatches.
+if ci_pr_mac_out="$(ruby -ryaml -e '
+  wf = YAML.load_file(".github/workflows/ci.yml")
+  jobs = wf["jobs"]
+  abort "ci.yml missing jobs:" unless jobs.is_a?(Hash)
+  pr_linux = []
+  mac_jobs = []
+  jobs.each do |name, job|
+    abort "ci.yml job #{name} is not a mapping" unless job.is_a?(Hash)
+    runs_on = job["runs-on"].to_s
+    condition = job["if"].to_s
+    macos = runs_on.match?(/macos/i)
+    positive_pr = condition.include?("github.event_name == '\''pull_request'\''") ||
+                  condition.include?('\''github.event_name == "pull_request"'\'')
+    fires_on_pr = condition.empty? || positive_pr
+    if macos && fires_on_pr
+      abort "ci.yml mac job #{name} still fires on pull_request (runs-on=#{runs_on.inspect})"
+    end
+    mac_jobs << name if macos
+    pr_linux << name if fires_on_pr && !macos
+  end
+  abort "ci.yml has no non-mac pull_request job" if pr_linux.empty?
+  abort "ci.yml lost mac jobs for tag/release/dispatch" if mac_jobs.empty?
+  unless pr_linux.any? { |name| jobs[name]["runs-on"].to_s == "ubuntu-latest" }
+    abort "ci.yml pull_request path has no ubuntu-latest job (have #{pr_linux.inspect})"
+  end
+  puts "pr_linux=#{pr_linux.join(",")} mac=#{mac_jobs.join(",")}"
+')"; then
+  pass "ci.yml pull requests stay off macOS runners ($ci_pr_mac_out)"
+else
+  fail "ci.yml pull requests stay off macOS runners: $ci_pr_mac_out"
+fi
+
+if release_runner_out="$(ruby -ryaml -e '
+  wf = YAML.load_file(".github/workflows/release.yml")
+  jobs = wf["jobs"]
+  abort "release.yml missing jobs:" unless jobs.is_a?(Hash)
+  testflight = jobs["testflight"]
+  abort "release.yml missing testflight job" unless testflight.is_a?(Hash)
+  runs_on = testflight["runs-on"].to_s
+  expected = "${{ vars.MAC_RUNNER || '\''macos-26'\'' }}"
+  unless runs_on == expected
+    abort "release.yml testflight runs-on drifted: expected #{expected.inspect}, got #{runs_on.inspect}"
+  end
+  puts "testflight=#{runs_on}"
+')"; then
+  pass "release.yml TestFlight runner uses MAC_RUNNER with macos-26 fallback ($release_runner_out)"
+else
+  fail "release.yml TestFlight runner uses MAC_RUNNER with macos-26 fallback: $release_runner_out"
+fi
+
 require_grep '"release-type": "simple"' release-please-config.json \
   "release-please still uses the simple strategy (output set: CHANGELOG.md, version.txt, manifest)"
 
