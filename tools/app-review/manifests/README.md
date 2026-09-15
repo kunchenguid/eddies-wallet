@@ -12,6 +12,7 @@ image descriptor, and a binding hash over the whole document - so an edited fiel
 invalidates the file rather than quietly changing what gets submitted.
 
 `0.1.17.json` is the first captain-approved manifest, now present on `main`.
-Later versions get their own generated `<version>.json` the same way: generate
-the file, never hand-write it, and merge it after captain review. See
-`docs/app-review.md` and `tools/app-review/README.md`.
+`0.1.19.json` is the generated update candidate for marketing version 0.1.19
+(baseline 0.1.17). Later versions get their own generated `<version>.json` the
+same way: generate the file, never hand-write it, and merge it after captain
+review. See `docs/app-review.md` and `tools/app-review/README.md`.
