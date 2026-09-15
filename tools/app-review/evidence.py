@@ -10,6 +10,7 @@ evidence names the same approved candidate and is still fresh.
 
 What this is: a freshness and binding gate. Evidence generated for another
 version, another manifest, or hours ago cannot authorize a submission.
+`mode=create-version` does not consume this document.
 
 What this deliberately is not: proof of authorship. There is no shared signing
 secret here, because the dispatcher is already the captain and adding a secret

@@ -24,17 +24,24 @@ Submission is gated by two independent things, and both are the captain's.
    submission uses.
 2. **The captain's explicit double-confirm dispatch.** `app-review-submit.yml`
    is manual only, requires the version to be typed twice, and defaults to the
-   `verify` dry run. `mode=assemble` stages the review submission and stops
+   `verify` dry run. `mode=create-version` creates a missing App Store update
+   version without reviewer-path evidence (`create_version.js --create-version`
+   onto `runSubmission({ createVersion: true })`, with
+   `CREATE_VERSION_ENGINE_ARGV` pinned to
+   `["node","app_review_pipeline.js","create-version"]`). It writes the new
+   version's en-US localization including What's New and listing screenshot
+   sets the version cannot inherit, under `listingPolicy: observe`. It never
+   submits. `mode=assemble` stages the review submission and stops
    before Submit. `mode=upload` writes listing screenshots while the version is
-   editable, before assemble attaches it, and does not submit
+   editable if a slot still needs it after create-version, and does not submit
    (`upload_screenshots.js --upload-screenshots` onto
    `runSubmission({ uploadScreenshots: true })`, with
    `SCREENSHOT_UPLOAD_ENGINE_ARGV` pinned to
    `["node","app_review_pipeline.js","upload-screenshots"]`). If the version is
    already on an unsubmitted review submission, upload deletes only that version
    `reviewSubmissionItem` (Cloud items survive), then reserve/upload/commit and
-   verify-before-live. Assemble, upload, and submit all check out `2fc70e51`,
-   the merge of
+   verify-before-live. Create-version, assemble, upload, and submit all check
+   out `2fc70e51`, the merge of
    [`kunchenguid/app-review-submit#19`](https://github.com/kunchenguid/app-review-submit/pull/19).
    `mode=submit` is a separate captain-gated dispatch that asks
    the engine to submit for review. Default remains `verify`.
@@ -44,8 +51,8 @@ the captain a second approval prompt for a run the captain just started by hand,
 which is ceremony rather than a boundary. The manifest is the content gate and
 the dispatch is the intent gate.
 
-The App Review assemble, upload, and submit mutation credential belongs to
-`app-review-submit.yml`'s assemble, upload, and submit jobs; the GET-only shared monitor
+The App Review create-version, assemble, upload, and submit mutation credential belongs to
+`app-review-submit.yml`'s create-version, assemble, upload, and submit jobs; the GET-only shared monitor
 reuses that same submit key. A separate one-shot Guideline 3.1.2 workflow,
 `app-review-eula-append.yml`, maps that key to PATCH only the 0.1.17 en-US
 description. Preparation and readiness use the same shared credential only
@@ -76,16 +83,19 @@ for `kunchenguid/app-review-submit`, not a console chore.
 - Pasting demo-preflight evidence into the GitHub dispatch `evidence` input.
   That is a GitHub gate, not App Store Connect.
 
-### Automated shared-engine behavior (assemble / upload / submit)
+### Automated shared-engine behavior (create-version / assemble / upload / submit)
 
 - App Info categories `EDUCATION` + `FINANCE`, even under `listingPolicy:
   observe`.
 - Bound-build attach and `releaseType` (`alignmentWrites`).
-- Create a missing App Store version when `alignmentWrites` includes
-  `version` (`listingPolicy` stays `observe`, so listing copy is never
-  written). Copyright on create still comes from
-  `config.reviewDetails.copyright`. 0.1.17 already carries it; 0.1.19
-  receives it on create.
+- Create a missing App Store update version when `alignmentWrites` includes
+  `version` (`listingPolicy` stays `observe`, so live listing copy is never
+  written). `mode=create-version` is that lane: no reviewer-path evidence,
+  update-only (a first-release manifest is refused). Copyright on create still
+  comes from `config.reviewDetails.copyright`. 0.1.17 already carries it;
+  0.1.19 receives it on create. The same lane writes en-US localization
+  including What's New and listing screenshot sets the new version cannot
+  inherit.
 - First-release review contact, notes, and `demoAccountRequired: false` from
   `config.reviewDetails`.
 - Create or reuse the review submission; attach the app version, both Cloud
@@ -101,18 +111,22 @@ for `kunchenguid/app-review-submit`, not a console chore.
 
 ### Screenshot upload
 
-Listing screenshot reserve, upload, and commit is `mode=upload` before assemble
-attaches the version (screenshots are locked once the version is
-`READY_FOR_REVIEW`). Eddie maps onto `runSubmission({ uploadScreenshots: true })`
-via `upload_screenshots.js --upload-screenshots`. The shared engine CLI, pinned
+For a missing update, listing screenshot reserve, upload, and commit happens
+inside `mode=create-version` while the new version is still editable.
+`mode=upload` is the recovery lane if a slot still needs a write after that
+(screenshots are locked once the version is `READY_FOR_REVIEW`). Eddie maps
+upload onto `runSubmission({ uploadScreenshots: true })` via
+`upload_screenshots.js --upload-screenshots`. The shared engine CLI, pinned
 as `SCREENSHOT_UPLOAD_ENGINE_ARGV`, is `node app_review_pipeline.js
-upload-screenshots`. Opt-in is `listing.screenshotWrites=true` on the
-captain-approved manifest and config. `listingPolicy` stays `observe` so listing
-copy is never written. Do not add `listing` or `screenshots` to `alignmentWrites`. Asset path
+upload-screenshots`. Create-version's CLI pin is `CREATE_VERSION_ENGINE_ARGV`:
+`node app_review_pipeline.js create-version`. Opt-in is
+`listing.screenshotWrites=true` on the captain-approved manifest and config.
+`listingPolicy` stays `observe` so listing copy is never written. Do not add
+`listing` or `screenshots` to `alignmentWrites`. Asset path
 is `{sourceRoot}/{listing.screenshotDirectory joined}/{fileName}`. Manifest
 `content.screenshots[]` is `{displayType,width,height,files[{fileName,fileSize,sha256}]}`.
-The engine computes MD5 of those bytes as Apple's `sourceFileChecksum`. This
-lane uses the same shared-engine pin as assemble and submit. Replacement
+The engine computes MD5 of those bytes as Apple's `sourceFileChecksum`. These
+lanes use the same shared-engine pin as assemble and submit. Replacement
 reserves under a unique staging `fileName` (a set cannot hold two screenshots
 with the same name), proves the reservation from the POST 201 body, commits
 and polls `assetDeliveryState.state` to `COMPLETE`, then deletes the old
@@ -153,16 +167,18 @@ Eddie-side flags for them, and do not ask the captain to do them in the UI.
 | 3. Attended functional proof | One physical-device proof of Sign in with Apple, the Parent gate, the Cloud plan offer, an Apple review or sandbox purchase, and Cloud activation, using a synthetic test account. A runner cannot do this: both steps are user-mediated. | Nothing in this repository. |
 | 4. Approve the manifest | Generate the manifest from the final candidate and merge it after captain review. | The repository only. |
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only, including the default exact live listing-screenshot match. | The recovery issue only. |
-| 6. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered matching review assets, and the production service publishing Cloud activation with exactly those two products. When `listing.screenshotWrites` is true, it defers only the live listing-screenshot match because the later `mode=upload` owns that live write. Emits base64 readiness evidence. | Nothing. |
-| 7. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the listing-screenshot preflight, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
-| 8. `app-review-submit.yml` with `mode=upload` | Before assemble, while the version is editable. Runs the Eddie-side screenshot preflight, then `upload_screenshots.js --upload-screenshots` onto `runSubmission({ uploadScreenshots: true })` with `SCREENSHOT_UPLOAD_ENGINE_ARGV` set to `["node","app_review_pipeline.js","upload-screenshots"]`. `--first-release` is passed only when the pinned captain-approved manifest has `firstRelease: true`; an update (`baselineVersion`) omits it. If the version is already on an unsubmitted review submission, the engine deletes only that version item (Cloud items survive), then reserve/upload/commit and verify-before-live. It never submits. `listingPolicy` stays `observe`. `listing.screenshotWrites` is true. | Listing screenshots only. Version-item detach when recovering an already-assembled draft. |
-| 9. `app-review-submit.yml` with `mode=assemble` | Checks out the pinned shared engine and runs assemble-only (`--assemble-only`, plus `--first-release` only for a first-release manifest). The engine accepts a `REJECTED` first-release target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version, both Cloud subscription versions, and their subscription group version, proves every item by authoritative readback, then hard-returns before Submit (`status: assembled`, `submitted: false`). After upload, this re-attaches the version; Cloud items already on the draft stay. | App Store Connect assembly only. |
-| 10. `app-review-submit.yml` with `mode=submit` | Same pin. Runs `full_submit.js --submit` (plus `--first-release` only for a first-release manifest), which calls `runSubmission({ assembleOnly: false })`. After Apple accepts, the engine writes `APP_REVIEW_MONITOR_VERSION`. | Apple's Submit for Review, plus monitor arming. |
-| 11. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; on a terminal or sustained-unavailable observation the engine writes one exact-cycle issue, then Eddie assigns and mentions the captain and fails if that issue stays open past 24 hours. | One GitHub issue, assignment, and mention. |
-| 12. `app-review-monitor-e2e.yml` | By default, GET-only live classification of a candidate `app-review-submit` SHA via `observeReviewStatus`, then the recorded 8e9fbd18-shape rejection fixture via `observe_review_fixture.js`. Its opt-in `surface_proof` mode instead proves real GitHub assignment, mention, and stale failure without Apple access. | Default mode changes nothing. Surface proof creates, assigns, comments on, and closes one isolated throwaway issue. |
+| 6. `app-review-submit.yml` with `mode=create-version` | For a missing update only. No reviewer-path evidence. Checks out the pinned shared engine and runs `create_version.js --create-version` onto `runSubmission({ createVersion: true })` with `CREATE_VERSION_ENGINE_ARGV` set to `["node","app_review_pipeline.js","create-version"]`. Creates the App Store version, en-US localization including What's New, and listing screenshot sets the new version cannot inherit. `listingPolicy` stays `observe`. A first-release manifest is refused. It never submits (`status: version_created`, `submitted: false`). Skip this step when the version already exists. | New version, localization, and listing screenshot sets. |
+| 7. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered matching review assets, and the production service publishing Cloud activation with exactly those two products. When `listing.screenshotWrites` is true, it defers only the live listing-screenshot match because create-version (or a later `mode=upload`) owns that live write. Emits base64 readiness evidence. Requires the App Store version to exist, so it runs after create-version for a missing update. Assemble stays evidence-gated, so this cannot move after assemble. | Nothing. |
+| 8. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the listing-screenshot preflight, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
+| 9. `app-review-submit.yml` with `mode=assemble` | Checks out the pinned shared engine and runs assemble-only (`--assemble-only`, plus `--first-release` only for a first-release manifest). Requires fresh demo-preflight evidence. The engine accepts a `REJECTED` first-release target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version, both Cloud subscription versions, and their subscription group version, proves every item by authoritative readback, then hard-returns before Submit (`status: assembled`, `submitted: false`). After create-version (and after upload if a slot still needed it), this attaches the version; Cloud items already on the draft stay. | App Store Connect assembly only. |
+| 10. `app-review-submit.yml` with `mode=upload` | Only if a listing-screenshot slot still needs a write after create-version. Runs the Eddie-side screenshot preflight, then `upload_screenshots.js --upload-screenshots` onto `runSubmission({ uploadScreenshots: true })` with `SCREENSHOT_UPLOAD_ENGINE_ARGV` set to `["node","app_review_pipeline.js","upload-screenshots"]`. `--first-release` is passed only when the pinned captain-approved manifest has `firstRelease: true`; an update (`baselineVersion`) omits it. If the version is already on an unsubmitted review submission, the engine deletes only that version item (Cloud items survive), then reserve/upload/commit and verify-before-live. It never submits. `listingPolicy` stays `observe`. `listing.screenshotWrites` is true. Requires evidence. | Listing screenshots only. Version-item detach when recovering an already-assembled draft. |
+| 11. `app-review-submit.yml` with `mode=submit` | Same pin. Runs `full_submit.js --submit` (plus `--first-release` only for a first-release manifest), which calls `runSubmission({ assembleOnly: false })`. After Apple accepts, the engine writes `APP_REVIEW_MONITOR_VERSION`. | Apple's Submit for Review, plus monitor arming. |
+| 12. `app-review-monitor.yml` | GET-only shared-tool poll of the armed marketing version, roughly every four hours; on a terminal or sustained-unavailable observation the engine writes one exact-cycle issue, then Eddie assigns and mentions the captain and fails if that issue stays open past 24 hours. | One GitHub issue, assignment, and mention. |
+| 13. `app-review-monitor-e2e.yml` | By default, GET-only live classification of a candidate `app-review-submit` SHA via `observeReviewStatus`, then the recorded 8e9fbd18-shape rejection fixture via `observe_review_fixture.js`. Its opt-in `surface_proof` mode instead proves real GitHub assignment, mention, and stale failure without Apple access. | Default mode changes nothing. Surface proof creates, assigns, comments on, and closes one isolated throwaway issue. |
 
-Steps 5 to 10 all take the same `version` twice. A mismatch refuses before
-anything else happens.
+Steps 5 to 11 all take the same `version` twice. A mismatch refuses before
+anything else happens. `mode=create-version` does not take the `evidence`
+input; verify, upload, assemble, and submit still do.
 
 App Store Connect will not attach an `appStoreVersion` to a review
 submission until the App Privacy / data-collection declaration is complete.
@@ -177,8 +193,9 @@ rating as console follow-ups when attach fails.
 
 The preflight prints a base64 document naming the candidate, the manifest hashes,
 a UTC timestamp, and its allowlisted check names. Paste it into the submit
-dispatch's `evidence` input. Submission refuses evidence for another candidate,
-another manifest, or one older than six hours.
+dispatch's `evidence` input for verify, upload, assemble, and submit.
+`mode=create-version` is evidence-free. Submission refuses evidence for another
+candidate, another manifest, or one older than six hours.
 
 This is a freshness and binding gate, not a proof of authorship: there is no
 shared signing secret, because the dispatcher is already the captain. It exists
@@ -190,7 +207,9 @@ The prepare step opens one GitHub issue keyed by app, version, manifest binding
 hash, and manifest-approved commit, with a single mutable comment holding phase,
 reconciliation outcome, and timestamp. Nothing else is recorded there.
 
-Rerunning `mode=assemble` after an interruption is safe. The shared engine
+Rerunning `mode=create-version` after an interruption is safe: the engine
+reconciles against authoritative Apple state and is idempotent from exact live
+ground truth. Rerunning `mode=assemble` after an interruption is safe. The shared engine
 reconciles against authoritative Apple state first. A first-release
 captain-approved manifest has no `baselineVersion`, and assemble-only passes
 `--first-release`. An update manifest names `baselineVersion` and the workflow
@@ -205,12 +224,13 @@ clears only when readback finds the intended item; an unproven create remains
 pending and is not replayed. A rerun therefore cannot create a duplicate review
 item or a second review submission.
 
-When `listing.screenshotWrites` is true, upload runs before assemble so listing
-images write while the version is editable. Upload writes listing screenshots
+When `listing.screenshotWrites` is true, `mode=create-version` writes listing
+images while the new version is still editable. `mode=upload` runs only if a
+slot still needs a write after that. Upload writes listing screenshots
 only (`status: screenshots_uploaded`, `submitted: false`). After a successful
 assemble the review submission is staged and unsubmitted (`status: assembled`,
 `submitted: false`). Submit asks the engine to submit for review and arms
-`APP_REVIEW_MONITOR_VERSION` after Apple accepts. Assemble and
+`APP_REVIEW_MONITOR_VERSION` after Apple accepts. Create-version, assemble, and
 upload never map the monitor variable token and never ask the engine to submit.
 Eddie never invokes the shared pipeline submit subcommand; the adapters map onto
 `runSubmission`.
@@ -222,8 +242,8 @@ Already in place and reused as-is: `APP_STORE_CONNECT_KEY_ID`,
 and assemble/submit credential). The GET-only status monitor authenticates with
 that same key. Checkout of the private shared tool uses the already-configured
 `APP_REVIEW_SUBMIT_READ_TOKEN` (`contents:read` on `kunchenguid/app-review-submit`);
-that token is not an Apple credential and is not mapped into the assemble,
-submit, or poll steps. The gated submit job maps the existing
+that token is not an Apple credential and is not mapped into the create-version,
+assemble, submit, or poll steps. The gated submit job maps the existing
 `EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN` secret onto the engine env
 `APP_REVIEW_MONITOR_VARIABLE_TOKEN` so the engine can write
 `APP_REVIEW_MONITOR_VERSION` after Apple accepts. Do not create a dedicated
@@ -243,10 +263,10 @@ marketing version). Assemble-only does not write that variable; the gated
 - Send the captain to App Store Connect for an API-able step. Listing copy
   stays `observe` this cycle because live 0.1.17 already matches. First-release
   assemble writes review contact, notes, and `demoAccountRequired: false`.
-  Listing screenshot upload is a separate `mode=upload` job that does not
-  submit (`--upload-screenshots`). `listing.screenshotWrites` is true;
-  `listingPolicy` stays `observe`. All three mutation lanes use the shared-engine
-  pin named in [The gate](#the-gate). A captain-directed one-shot exception
+  Listing screenshot upload for a missing update is `mode=create-version`;
+  `mode=upload` is only if a slot still needs a write. Neither submits.
+  `listing.screenshotWrites` is true; `listingPolicy` stays `observe`. All four
+  mutation lanes use the shared-engine pin named in [The gate](#the-gate). A captain-directed one-shot exception
   lives in `app-review-eula-append.yml`: it
   may PATCH only the 0.1.17 en-US description to append Apple's standard EULA
   link. That is not listing-sync and does not submit for review. The 0.1.17

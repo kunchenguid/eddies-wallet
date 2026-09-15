@@ -64,6 +64,8 @@ async function main() {
         runSubmission: async (args, credentials, dependencies) => {
           calls.push({ args, dependencies });
           assert.equal(args.assembleOnly, false);
+          assert.equal(args.uploadScreenshots, false);
+          assert.equal(args.createVersion, false);
           assert.equal(args.firstRelease, true);
           assert.equal(args.baselineVersion, null);
           assert.equal(dependencies.monitorVariable, monitorVariable);

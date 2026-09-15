@@ -25,6 +25,7 @@ node test/surface-review-outcome-test.js
 node test/app-review-assemble-test.js
 node test/app-review-full-submit-test.js
 node test/app-review-upload-test.js
+node test/app-review-create-version-test.js
 ```
 
 None of them reads a credential, contacts a network endpoint, or touches App
@@ -39,13 +40,14 @@ Store Connect. `test/release-checks.sh` runs these suites.
 | `content.py` | The two byte-level bindings: recomputing every approved image's bytes from the pinned commit, and normalizing live App Store Connect state into the exact document shape `core` reconciles. |
 | `asc_read.py` | The GET-only App Store Connect boundary - credential loading, JWT signing, URL safety, pagination. It can construct no other method. |
 | `github_api.py` | The durable issue-record boundary on `GITHUB_TOKEN`. The post-acceptance monitor-variable handoff is in the Node engine, injected only on the gated submit job. |
-| `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by verify, assemble, upload, and submit. |
+| `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by verify, assemble, upload, and submit. Create-version does not take evidence. |
 | `prepare.py`, `demo_preflight.py`, `verify.py` | The Python workflow entrypoints. Verify is credential-free. |
 | `first_release_args.py` | Credential-free: prints `--first-release` only when the pinned captain-approved manifest has `firstRelease: true`. Update manifests (`baselineVersion`) emit nothing. |
 | `screenshot_preflight.py` | Eddie-side listing-screenshot validation before any live write: required display types, RGB8 dimensions, unique bytes per size, and checksums matching the captain-approved manifest. |
 | `list_app_store_versions.py` | GET-only iOS App Store version listing. |
 | `list_app_info_categories.py` | GET-only App Info primary and secondary category listing. |
 | `assemble_only.js` | Eddie's assemble-only adapter onto `kunchenguid/app-review-submit`. It maps the captain-approved Eddie manifest, demo-preflight evidence, and Cloud product ids onto `runSubmission({ assembleOnly: true })`, then refuses any result other than `status: assembled` / `submitted: false` / `remaining: submit`. It hard-refuses `--submit`. |
+| `create_version.js` | Eddie's no-evidence create-version adapter. It requires `--create-version`, refuses `--submit`, assemble-only, and upload flags, requires `CREATE_VERSION_ENGINE_ARGV` to be `["node","app_review_pipeline.js","create-version"]`, and maps onto `runSubmission({ createVersion: true })`. Update-only: a first-release manifest is refused. |
 | `full_submit.js` | Eddie's gated full-submit adapter. It requires `--submit`, refuses assemble-only flags, maps onto `runSubmission({ assembleOnly: false })`, injects `MonitorVariableClient` from `APP_REVIEW_MONITOR_VARIABLE_TOKEN`, and refuses any result that is not `submitted` or `already_submitted`. |
 | `upload_screenshots.js` | Eddie's screenshot-upload adapter. It requires `--upload-screenshots`, refuses `--submit` and assemble-only flags, requires `SCREENSHOT_UPLOAD_ENGINE_ARGV` to be `["node","app_review_pipeline.js","upload-screenshots"]`, and maps onto `runSubmission({ uploadScreenshots: true })`. |
 | `append_standard_eula.py` | One-shot Guideline 3.1.2 remediation: GET the 0.1.17 en-US description, append Apple's standard EULA line if absent, PATCH only that field, GET to verify. It does not import a Python write boundary. |
@@ -56,7 +58,7 @@ Store Connect. `test/release-checks.sh` runs these suites.
 ## Mutation boundary
 
 The vendored Python submit engine (`submit.py`, `submission.py`, `asc_write.py`)
-is retired. Apple mutation uses the pinned shared Node engine through the three
+is retired. Apple mutation uses the pinned shared Node engine through the four
 adapters documented above. `append_standard_eula.py` remains a separate,
 one-shot description PATCH.
 

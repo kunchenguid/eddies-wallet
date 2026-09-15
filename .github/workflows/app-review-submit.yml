@@ -13,15 +13,28 @@ name: App Review submission
 #   1. the captain merges the content-bound manifest on main,
 #   2. the captain dispatches this workflow manually and types the version twice,
 #   3. fresh readiness evidence from app-review-demo-preflight.yml must bind the
-#      same candidate, and
+#      same candidate for verify, upload, assemble, and submit, and
 #   4. the mutation-capable App Store Connect credential exists only inside the
-#      assemble, upload, and submit jobs' one mutating step each. Those jobs are
-#      mutually exclusive: only the dispatched mode runs. Upload never submits.
+#      create-version, assemble, upload, and submit jobs' one mutating step
+#      each. Those jobs are mutually exclusive: only the dispatched mode runs.
+#      Create-version and upload never submit.
 #
 # Credential lanes, deliberately separated by job:
 #   verify   - no App Store Connect credential and no variable token. The verify
 #              lane refuses to start if an App Store Connect credential is present.
-#              It also runs the Eddie-side listing-screenshot preflight.
+#              It also runs the Eddie-side listing-screenshot preflight. It does
+#              not run for mode=create-version, which is evidence-free.
+#   create-version - mutation-capable App Store Connect credentials, same as
+#              assemble, never the monitor variable token, never evidence.
+#              Checks out kunchenguid/app-review-submit@2fc70e51 and runs
+#              create_version.js --create-version onto
+#              runSubmission({ createVersion: true }). CREATE_VERSION_ENGINE_ARGV
+#              is ["node","app_review_pipeline.js","create-version"]. For a
+#              missing update it creates the App Store version, en-US
+#              localization including What's New, and listing screenshot sets
+#              the new version cannot inherit, under listingPolicy observe.
+#              `--first-release` is refused: this lane is update-only.
+#              It never asks the engine to submit.
 #   assemble - mutation-capable App Store Connect credentials. It checks out
 #              kunchenguid/app-review-submit@2fc70e51 and runs assemble-only
 #              (`args.assembleOnly: true`). `--first-release` is passed only
@@ -31,8 +44,9 @@ name: App Review submission
 #              the app version, both Cloud subscription versions, and their
 #              subscription group version, then hard-returns before submit.
 #              When listing.screenshotWrites is on, assemble runs after
-#              mode=upload so the version attaches only once screenshots are
-#              live. It never maps the monitor variable token.
+#              create-version (and after mode=upload only if a slot still
+#              needs it) so the version attaches once screenshots are live.
+#              It never maps the monitor variable token.
 #   upload   - the same App Store Connect credentials as assemble, never the
 #              monitor variable token. Positioned before assemble so listing
 #              screenshots write while the version is editable. If the version
@@ -71,18 +85,19 @@ on:
         required: true
         type: string
       mode:
-        description: verify performs no App Store mutation; upload writes listing screenshots while the version is editable; assemble attaches the version (and Cloud items) without submitting; submit asks the engine to submit for review
+        description: verify performs no App Store mutation; create-version creates a missing update version without evidence; upload writes listing screenshots while the version is editable; assemble attaches the version (and Cloud items) without submitting; submit asks the engine to submit for review
         required: true
         default: verify
         type: choice
         options:
           - verify
+          - create-version
           - assemble
           - upload
           - submit
       evidence:
-        description: Base64 readiness evidence from a fresh app-review-demo-preflight run
-        required: true
+        description: Base64 readiness evidence from a fresh app-review-demo-preflight run. Required for verify, upload, assemble, and submit. Unused for create-version.
+        required: false
         type: string
 
 permissions:
@@ -95,7 +110,10 @@ concurrency:
 jobs:
   verify:
     name: Verify the manifest binding and readiness evidence
-    if: github.repository == 'kunchenguid/eddies-wallet' && github.ref == 'refs/heads/main'
+    if: >-
+      github.repository == 'kunchenguid/eddies-wallet' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.mode != 'create-version'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -130,6 +148,75 @@ jobs:
           EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
           EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
         run: python3 tools/app-review/verify.py
+
+  create-version:
+    name: Create the missing App Store update version without submitting
+    if: >-
+      github.repository == 'kunchenguid/eddies-wallet' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.mode == 'create-version'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pin the manifest-approved commit
+        env:
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+        run: .github/scripts/pin_app_review_manifest.sh
+
+      - name: Restore the create-version adapter from the dispatch SHA
+        env:
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          git show "${DISPATCH_SHA}:tools/app-review/assemble_only.js" > tools/app-review/assemble_only.js
+          git show "${DISPATCH_SHA}:tools/app-review/create_version.js" > tools/app-review/create_version.js
+          git show "${DISPATCH_SHA}:tools/app-review/screenshot_preflight.py" > tools/app-review/screenshot_preflight.py
+          git show "${DISPATCH_SHA}:tools/app-review/first_release_args.py" > tools/app-review/first_release_args.py
+          git show "${DISPATCH_SHA}:tools/app-review/app-review.config.json" > tools/app-review/app-review.config.json
+
+      - name: Check out the shared review-submission CLI
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: kunchenguid/app-review-submit
+          # Same shared-engine pin as assemble.
+          ref: 2fc70e5108f2315c770c9cb273b6254d48bd61a4
+          path: .app-review-submit
+          token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Preflight listing screenshot slots
+        env:
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+        run: python3 tools/app-review/screenshot_preflight.py --version "${EDDIES_APP_REVIEW_VERSION}"
+
+      # Mutation-capable App Store Connect credential for create-version only.
+      # It never maps the monitor variable token, never takes reviewer-path
+      # evidence, and never asks the engine to submit for review.
+      - name: Create the missing App Store version and stop before Submit
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_REVIEW_CONFIG: ${{ github.workspace }}/tools/app-review/app-review.config.json
+          APP_REVIEW_ENGINE_DIR: ${{ github.workspace }}/.app-review-submit
+          CREATE_VERSION_ENGINE_ARGV: '["node","app_review_pipeline.js","create-version"]'
+          EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
+          EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          extra=()
+          flag="$(python3 tools/app-review/first_release_args.py)"
+          if [ -n "$flag" ]; then
+            extra+=("$flag")
+          fi
+          node tools/app-review/create_version.js --create-version "${extra[@]}"
 
   assemble:
     name: Assemble the captain-approved candidate without submitting

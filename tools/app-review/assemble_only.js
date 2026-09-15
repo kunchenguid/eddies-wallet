@@ -379,6 +379,15 @@ function assertSubmitted(result) {
   }
 }
 
+function assertVersionCreated(result) {
+  if (!result || result.status !== "version_created" || result.submitted !== false) {
+    fail(
+      "create-version did not prove an unsubmitted created App Store version "
+      + `(status=${result && result.status}, submitted=${result && result.submitted})`,
+    );
+  }
+}
+
 function loadMonitorVariable(engineDir, token) {
   const pipeline = require(path.join(engineDir, "app_review_pipeline.js"));
   return new pipeline.MonitorVariableClient(new pipeline.GitHubRecordClient(token));
@@ -388,6 +397,7 @@ async function runEngine({
   firstRelease: firstReleaseFlag,
   assembleOnly,
   uploadScreenshots = false,
+  createVersion = false,
   env,
   runSubmission,
   loadEngineModules,
@@ -399,6 +409,9 @@ async function runEngine({
   }
   if (uploadScreenshots && assembleOnly) {
     fail("screenshot upload cannot be combined with assemble-only");
+  }
+  if (createVersion && (assembleOnly || uploadScreenshots)) {
+    fail("create-version cannot be combined with assemble-only or screenshot upload");
   }
   const processEnv = env || process.env;
   trustedContext(processEnv);
@@ -423,14 +436,21 @@ async function runEngine({
   if (!firstRelease && (manifest.candidate.baselineVersion == null || manifest.candidate.baselineVersion === "")) {
     fail("update manifest requires baselineVersion");
   }
-  (verifyEvidence || verifyEddieEvidence)(processEnv, toolsDir);
+  if (createVersion && firstRelease) {
+    fail("create-version is only valid for an update with baselineVersion");
+  }
+  if (!createVersion) {
+    (verifyEvidence || verifyEddieEvidence)(processEnv, toolsDir);
+  }
   const source = buildEngineSource(sourceRoot, manifest, config);
 
   const scratch = ownerOnlyDirectory(path.join(
     processEnv.RUNNER_TEMP || path.join(sourceRoot, ".build"),
-    uploadScreenshots
-      ? "eddies-app-review-upload"
-      : (assembleOnly ? "eddies-app-review-assemble" : "eddies-app-review-submit"),
+    createVersion
+      ? "eddies-app-review-create-version"
+      : uploadScreenshots
+        ? "eddies-app-review-upload"
+        : (assembleOnly ? "eddies-app-review-assemble" : "eddies-app-review-submit"),
   ));
   const journal = path.join(scratch, "journal.json");
   const evidencePath = writeOwnerOnlyFile(path.join(scratch, "evidence.json"), "{}\n");
@@ -459,14 +479,21 @@ async function runEngine({
     preflight: false,
     assembleOnly,
     uploadScreenshots: Boolean(uploadScreenshots),
+    createVersion: Boolean(createVersion),
     resume: false,
   });
   if (args.assembleOnly !== assembleOnly) fail("internal adapter dropped assembleOnly");
   if (args.uploadScreenshots !== Boolean(uploadScreenshots)) {
     fail("internal adapter dropped uploadScreenshots");
   }
+  if (args.createVersion !== Boolean(createVersion)) {
+    fail("internal adapter dropped createVersion");
+  }
   if (uploadScreenshots && source.listing.screenshotWrites !== true) {
     fail("screenshot upload requires listing.screenshotWrites=true");
+  }
+  if (createVersion && source.listing.screenshotWrites !== true) {
+    fail("create-version requires listing.screenshotWrites=true");
   }
   if (firstRelease && (args.firstRelease !== true || args.baselineVersion !== null)) {
     fail("internal adapter dropped first-release mode");
@@ -476,7 +503,7 @@ async function runEngine({
     ? loadEngineModules()
     : loadEngine(engineDir, configPath);
   let handoff = monitorVariable;
-  if (!assembleOnly && !uploadScreenshots && !handoff) {
+  if (!assembleOnly && !uploadScreenshots && !createVersion && !handoff) {
     const tokenName = config.env && config.env.monitorVariableToken;
     if (!tokenName) fail("config.env.monitorVariableToken is required for full submit");
     handoff = loadMonitorVariable(engineDir, requiredEnv(processEnv, tokenName));
@@ -490,11 +517,12 @@ async function runEngine({
   const outcome = await submit(args, credentials, {
     source,
     env: {},
-    verifyEvidence: () => true,
-    ...(assembleOnly || uploadScreenshots ? {} : { monitorVariable: handoff }),
+    verifyEvidence: createVersion ? undefined : () => true,
+    ...(assembleOnly || uploadScreenshots || createVersion ? {} : { monitorVariable: handoff }),
   });
   const result = outcome && outcome.result ? outcome.result : outcome;
-  if (uploadScreenshots) assertUploaded(result);
+  if (createVersion) assertVersionCreated(result);
+  else if (uploadScreenshots) assertUploaded(result);
   else if (assembleOnly) {
     assertAssembled(result);
   } else assertSubmitted(result);
@@ -547,6 +575,7 @@ module.exports = {
   assertAssembled,
   assertUploaded,
   assertSubmitted,
+  assertVersionCreated,
   buildEngineSource,
   confirmedVersion,
   descriptionWithAppliedEula,
