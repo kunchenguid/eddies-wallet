@@ -22,6 +22,8 @@ Ordinary infrastructure and feature PRs carry no release side effects and follow
 5. The TestFlight workflow checks out exactly the release tag, archives the Release build with automatic App Store Connect cloud signing, exports an IPA with `ExportOptions.plist`, uploads it with `xcrun altool --upload-app`, and runs best-effort App Store Connect development-certificate cleanup (`.github/scripts/prune_asc_development_certs.js` keeps the newest two `DEVELOPMENT` certificates and never touches distribution certificates; its failures are warnings). The archive job selects its runner with repository variable `MAC_RUNNER`, falling back to hosted `macos-26` when that variable is unset.
 6. Release-time CI independently builds and tests the same tag.
 
+Set `MAC_RUNNER=mini-mac` only after a runner with that label is registered for this repository. Deleting the variable immediately restores hosted `macos-26` selection for subsequent TestFlight jobs; it does not move the other release-time macOS CI jobs off hosted runners.
+
 ## Versions, build numbers, and traceability
 
 Until the first release PR merges, `version.txt` and `.release-please-manifest.json` stay at the pre-release seed `0.0.0`.

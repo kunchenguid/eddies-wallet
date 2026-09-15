@@ -181,6 +181,7 @@ fi
 # Pull requests must run only Linux checks. Evaluate each job condition for the
 # workflow's supported event contexts so any non-Ubuntu runner is unreachable
 # from pull_request while Xcode remains reachable for every release event.
+# shellcheck disable=SC2016 # Ruby program intentionally uses single-quoted strings.
 if ci_pr_runner_out="$(ruby -ryaml -rjson -e '
   def startsWith(value, prefix)
     value.to_s.start_with?(prefix.to_s)
@@ -254,6 +255,7 @@ else
   fail "ci.yml pull requests use only ubuntu-latest: $ci_pr_runner_out"
 fi
 
+# shellcheck disable=SC2016 # Ruby program intentionally uses single-quoted strings.
 if release_runner_out="$(ruby -ryaml -e '
   wf = YAML.load_file(".github/workflows/release.yml")
   jobs = wf["jobs"]
