@@ -1,0 +1,3 @@
+PASS success: runner-temp restore, transient altool copy, and final removal verified
+PASS failure: failed upload removed discovery copy and final cleanup removed runner-temp copy
+PASS interruption: TERM removed discovery copy and final cleanup removed runner-temp copy
