@@ -24,7 +24,9 @@ name: App Review submission
 #              It also runs the Eddie-side listing-screenshot preflight.
 #   assemble - mutation-capable App Store Connect credentials. It checks out
 #              kunchenguid/app-review-submit@ea05e1fe and runs assemble-only
-#              first-release (`args.assembleOnly: true`). The engine aligns
+#              (`args.assembleOnly: true`). `--first-release` is passed only
+#              when the pinned captain-approved manifest has firstRelease:true;
+#              an update manifest (baselineVersion) omits it. The engine aligns
 #              App Info categories from config (EDUCATION + FINANCE), attaches
 #              the app version, both Cloud subscription versions, and their
 #              subscription group version, then hard-returns before submit.
@@ -38,7 +40,8 @@ name: App Review submission
 #              deletes only that version reviewSubmissionItem (Cloud items
 #              survive), then reserve/upload/commit and verify-before-live.
 #              Runs tools/app-review/upload_screenshots.js --upload-screenshots
-#              --first-release onto runSubmission({ uploadScreenshots: true }).
+#              onto runSubmission({ uploadScreenshots: true }), with
+#              --first-release only when the pinned manifest is first-release.
 #              SCREENSHOT_UPLOAD_ENGINE_ARGV is the engine CLI
 #              ["node","app_review_pipeline.js","upload-screenshots"].
 #              listingPolicy stays observe. Opt-in is
@@ -47,9 +50,10 @@ name: App Review submission
 #   submit   - the same App Store Connect credentials plus the existing
 #              EDDIES_REVIEW_MONITOR_VARIABLE_TOKEN, mapped onto the engine
 #              env APP_REVIEW_MONITOR_VARIABLE_TOKEN. It runs
-#              tools/app-review/full_submit.js --submit --first-release, which
-#              calls runSubmission({ assembleOnly: false }) - the engine's real
-#              submit. After Apple accepts, the engine writes
+#              tools/app-review/full_submit.js --submit, which calls
+#              runSubmission({ assembleOnly: false }) - the engine's real
+#              submit. `--first-release` is passed only when the pinned
+#              manifest is first-release. After Apple accepts, the engine writes
 #              APP_REVIEW_MONITOR_VERSION. Default mode remains verify.
 #
 # Assembly is not release: the approved manifest may only choose MANUAL or
@@ -155,6 +159,7 @@ jobs:
           DISPATCH_SHA: ${{ github.sha }}
         run: |
           git show "${DISPATCH_SHA}:tools/app-review/assemble_only.js" > tools/app-review/assemble_only.js
+          git show "${DISPATCH_SHA}:tools/app-review/first_release_args.py" > tools/app-review/first_release_args.py
           git show "${DISPATCH_SHA}:tools/app-review/app-review.config.json" > tools/app-review/app-review.config.json
 
       - name: Check out the shared review-submission CLI
@@ -182,7 +187,14 @@ jobs:
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
           EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
           EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
-        run: node tools/app-review/assemble_only.js --assemble-only --first-release
+        run: |
+          set -euo pipefail
+          extra=()
+          flag="$(python3 tools/app-review/first_release_args.py)"
+          if [ -n "$flag" ]; then
+            extra+=("$flag")
+          fi
+          node tools/app-review/assemble_only.js --assemble-only "${extra[@]}"
 
   upload:
     name: Upload listing screenshots without submitting
@@ -214,6 +226,7 @@ jobs:
           git show "${DISPATCH_SHA}:tools/app-review/assemble_only.js" > tools/app-review/assemble_only.js
           git show "${DISPATCH_SHA}:tools/app-review/upload_screenshots.js" > tools/app-review/upload_screenshots.js
           git show "${DISPATCH_SHA}:tools/app-review/screenshot_preflight.py" > tools/app-review/screenshot_preflight.py
+          git show "${DISPATCH_SHA}:tools/app-review/first_release_args.py" > tools/app-review/first_release_args.py
           git show "${DISPATCH_SHA}:tools/app-review/app-review.config.json" > tools/app-review/app-review.config.json
 
       - name: Check out the shared review-submission CLI
@@ -247,7 +260,14 @@ jobs:
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
           EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
           EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
-        run: node tools/app-review/upload_screenshots.js --upload-screenshots --first-release
+        run: |
+          set -euo pipefail
+          extra=()
+          flag="$(python3 tools/app-review/first_release_args.py)"
+          if [ -n "$flag" ]; then
+            extra+=("$flag")
+          fi
+          node tools/app-review/upload_screenshots.js --upload-screenshots "${extra[@]}"
 
   submit:
     name: Submit the captain-approved candidate for App Review
@@ -278,6 +298,7 @@ jobs:
         run: |
           git show "${DISPATCH_SHA}:tools/app-review/assemble_only.js" > tools/app-review/assemble_only.js
           git show "${DISPATCH_SHA}:tools/app-review/full_submit.js" > tools/app-review/full_submit.js
+          git show "${DISPATCH_SHA}:tools/app-review/first_release_args.py" > tools/app-review/first_release_args.py
           git show "${DISPATCH_SHA}:tools/app-review/app-review.config.json" > tools/app-review/app-review.config.json
 
       - name: Check out the shared review-submission CLI
@@ -307,4 +328,11 @@ jobs:
           EDDIES_APP_REVIEW_VERSION: ${{ inputs.version }}
           EDDIES_APP_REVIEW_CONFIRM: ${{ inputs.confirm }}
           EDDIES_APP_REVIEW_EVIDENCE: ${{ inputs.evidence }}
-        run: node tools/app-review/full_submit.js --submit --first-release
+        run: |
+          set -euo pipefail
+          extra=()
+          flag="$(python3 tools/app-review/first_release_args.py)"
+          if [ -n "$flag" ]; then
+            extra+=("$flag")
+          fi
+          node tools/app-review/full_submit.js --submit "${extra[@]}"

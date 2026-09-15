@@ -604,7 +604,9 @@ class AssembleEngineTests(WorkflowModelCase):
         ]
         self.assertEqual(len(mutating), 1)
         command = mutating[0]["run"]
-        self.assertIn("assemble_only.js --assemble-only --first-release", command)
+        self.assertIn("first_release_args.py", command)
+        self.assertIn("assemble_only.js --assemble-only", command)
+        self.assertNotIn("assemble_only.js --assemble-only --first-release", command)
         self.assertNotIn("full_submit.js", command)
         self.assertNotIn("app_review_pipeline.js submit", command)
         self.assertNotIn("submit.py", command)
@@ -638,7 +640,9 @@ class AssembleEngineTests(WorkflowModelCase):
         ]
         self.assertEqual(len(mutating), 1)
         command = mutating[0]["run"]
-        self.assertIn("upload_screenshots.js --upload-screenshots --first-release", command)
+        self.assertIn("first_release_args.py", command)
+        self.assertIn("upload_screenshots.js --upload-screenshots", command)
+        self.assertNotIn("upload_screenshots.js --upload-screenshots --first-release", command)
         self.assertNotIn("--submit", command)
         self.assertNotIn("full_submit.js", command)
         self.assertNotIn("assemble_only.js --assemble-only", command)
@@ -675,7 +679,9 @@ class AssembleEngineTests(WorkflowModelCase):
         ]
         self.assertEqual(len(mutating), 1)
         command = mutating[0]["run"]
-        self.assertIn("full_submit.js --submit --first-release", command)
+        self.assertIn("first_release_args.py", command)
+        self.assertIn("full_submit.js --submit", command)
+        self.assertNotIn("full_submit.js --submit --first-release", command)
         self.assertNotIn("assemble_only.js --assemble-only", command)
         self.assertNotIn("app_review_pipeline.js submit", command)
         self.assertNotIn("submit.py", command)
@@ -706,17 +712,18 @@ class AssembleEngineTests(WorkflowModelCase):
 
     def test_assemble_upload_and_submit_restore_dispatch_sha_config_after_the_manifest_pin(self):
         for job_name, required in (
-            ("assemble", ("assemble_only.js", "app-review.config.json")),
+            ("assemble", ("assemble_only.js", "first_release_args.py", "app-review.config.json")),
             (
                 "upload",
                 (
                     "assemble_only.js",
                     "upload_screenshots.js",
                     "screenshot_preflight.py",
+                    "first_release_args.py",
                     "app-review.config.json",
                 ),
             ),
-            ("submit", ("assemble_only.js", "full_submit.js", "app-review.config.json")),
+            ("submit", ("assemble_only.js", "full_submit.js", "first_release_args.py", "app-review.config.json")),
         ):
             with self.subTest(job=job_name):
                 runs = [step.get("run", "") for step in steps_of(self.jobs(SUBMIT)[job_name])]
@@ -741,7 +748,9 @@ class AssembleEngineTests(WorkflowModelCase):
         self.assertNotIn("app_review_pipeline.js submit", blob)
         self.assertIn("assemble_only.js --assemble-only", blob)
         self.assertIn("upload_screenshots.js", blob)
-        self.assertIn("full_submit.js --submit --first-release", blob)
+        self.assertIn("full_submit.js --submit", blob)
+        self.assertIn("first_release_args.py", blob)
+        self.assertNotIn("full_submit.js --submit --first-release", blob)
         inputs = self.models[SUBMIT]["on"]["workflow_dispatch"]["inputs"]
         self.assertEqual(inputs["mode"]["default"], "verify")
         self.assertIn("submit", inputs["mode"]["options"])
