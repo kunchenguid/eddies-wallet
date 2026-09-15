@@ -479,6 +479,11 @@ if node test/app-review-upload-test.js >/dev/null; then
 else
   fail "App Review screenshot-upload adapter tests"
 fi
+if node test/app-review-create-version-test.js >/dev/null; then
+  pass "App Review create-version adapter tests"
+else
+  fail "App Review create-version adapter tests"
+fi
 if python3 test/app-review-first-release-args-test.py >/dev/null 2>&1; then
   pass "App Review first-release vs update adapter argv tests"
 else

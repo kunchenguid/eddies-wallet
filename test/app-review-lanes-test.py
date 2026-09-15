@@ -46,6 +46,7 @@ SHARED_TOOL_PIN = "216a65513dbde70d04d0efd021792743f094ed77"
 FIXED_MONITOR_ENGINE_SHA = "216a65513dbde70d04d0efd021792743f094ed77"
 SUBMIT_ENGINE_PIN = "2fc70e5108f2315c770c9cb273b6254d48bd61a4"
 SCREENSHOT_UPLOAD_ENGINE_ARGV = ["node", "app_review_pipeline.js", "upload-screenshots"]
+CREATE_VERSION_ENGINE_ARGV = ["node", "app_review_pipeline.js", "create-version"]
 SHARED_TOOL_REPO = "kunchenguid/app-review-submit"
 MONITOR_CONFIG = TOOLS / "app-review.config.json"
 OBSERVE_HARNESS = "tools/app-review/observe_review_status.js"
@@ -144,28 +145,43 @@ class TriggerAndGuardTests(WorkflowModelCase):
                 self.assertTrue(inputs["confirm"]["required"])
                 self.assertIn("Repeat the exact same version", inputs["confirm"]["description"])
 
-    def test_the_submission_dispatch_defaults_to_the_dry_run_and_needs_evidence(self):
+    def test_the_submission_dispatch_defaults_to_the_dry_run(self):
         inputs = self.models[SUBMIT]["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(inputs["mode"]["options"], ["verify", "assemble", "upload", "submit"])
+        self.assertEqual(
+            inputs["mode"]["options"],
+            ["verify", "create-version", "assemble", "upload", "submit"],
+        )
         self.assertEqual(inputs["mode"]["default"], "verify")
-        self.assertTrue(inputs["evidence"]["required"])
+        self.assertFalse(inputs["evidence"]["required"])
+        self.assertIn("Unused for create-version", inputs["evidence"]["description"])
 
-    def test_only_an_explicit_assemble_upload_or_submit_mode_reaches_its_mutation_job(self):
+    def test_only_an_explicit_assemble_upload_submit_or_create_version_mode_reaches_its_mutation_job(self):
         assemble = " ".join(str(self.jobs(SUBMIT)["assemble"]["if"]).split())
         upload = " ".join(str(self.jobs(SUBMIT)["upload"]["if"]).split())
         submit = " ".join(str(self.jobs(SUBMIT)["submit"]["if"]).split())
+        create_version = " ".join(str(self.jobs(SUBMIT)["create-version"]["if"]).split())
+        verify = " ".join(str(self.jobs(SUBMIT)["verify"]["if"]).split())
         self.assertIn("inputs.mode == 'assemble'", assemble)
         self.assertNotIn("inputs.mode == 'submit'", assemble)
         self.assertNotIn("inputs.mode == 'upload'", assemble)
+        self.assertNotIn("inputs.mode == 'create-version'", assemble)
         self.assertIn("inputs.mode == 'upload'", upload)
         self.assertNotIn("inputs.mode == 'assemble'", upload)
         self.assertNotIn("inputs.mode == 'submit'", upload)
+        self.assertNotIn("inputs.mode == 'create-version'", upload)
         self.assertIn("inputs.mode == 'submit'", submit)
         self.assertNotIn("inputs.mode == 'assemble'", submit)
         self.assertNotIn("inputs.mode == 'upload'", submit)
+        self.assertNotIn("inputs.mode == 'create-version'", submit)
+        self.assertIn("inputs.mode == 'create-version'", create_version)
+        self.assertNotIn("inputs.mode == 'assemble'", create_version)
+        self.assertNotIn("inputs.mode == 'upload'", create_version)
+        self.assertNotIn("inputs.mode == 'submit'", create_version)
+        self.assertIn("inputs.mode != 'create-version'", verify)
         self.assertEqual(self.jobs(SUBMIT)["assemble"]["needs"], "verify")
         self.assertEqual(self.jobs(SUBMIT)["upload"]["needs"], "verify")
         self.assertEqual(self.jobs(SUBMIT)["submit"]["needs"], "verify")
+        self.assertNotIn("needs", self.jobs(SUBMIT)["create-version"])
 
     def test_the_pipeline_serializes_on_one_non_cancelling_group(self):
         for name in APP_REVIEW_WORKFLOWS:
@@ -203,15 +219,16 @@ class CredentialLaneTests(WorkflowModelCase):
                         (MONITOR, "observe"),
                         (PREPARE, "preflight"),
                         (SUBMIT, "assemble"),
+                        (SUBMIT, "create-version"),
                         (SUBMIT, "submit"),
                         (SUBMIT, "upload"),
                     ],
                 )
 
-    def test_exactly_three_submit_workflow_steps_can_mutate_app_store_connect(self):
+    def test_exactly_four_submit_workflow_steps_can_mutate_app_store_connect(self):
         mutating = self.steps_holding("APP_STORE_CONNECT_API_KEY")
         holders = sorted(job for workflow, job, _ in mutating if workflow == SUBMIT)
-        self.assertEqual(holders, ["assemble", "submit", "upload"])
+        self.assertEqual(holders, ["assemble", "create-version", "submit", "upload"])
 
     def test_the_nonexistent_engine_named_monitor_secret_is_never_mapped(self):
         self.assertEqual(self.steps_holding(MONITOR_VARIABLE_TOKEN), [])
@@ -222,7 +239,7 @@ class CredentialLaneTests(WorkflowModelCase):
             for workflow, job, _ in self.steps_holding(VARIABLE_TOKEN)
         ]
         self.assertEqual(holders, [(SUBMIT, "submit")])
-        for job_name in ("assemble", "upload"):
+        for job_name in ("assemble", "create-version", "upload"):
             for step in steps_of(self.jobs(SUBMIT)[job_name]):
                 self.assertNotIn(VARIABLE_TOKEN, secrets_of(step))
                 self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(step))
@@ -297,6 +314,9 @@ class PermissionAndPinTests(WorkflowModelCase):
         )
         self.assertNotIn(
             "issues", self.jobs(SUBMIT)["assemble"].get("permissions", {})
+        )
+        self.assertNotIn(
+            "issues", self.jobs(SUBMIT)["create-version"].get("permissions", {})
         )
         self.assertNotIn(
             "issues", self.jobs(SUBMIT)["upload"].get("permissions", {})
@@ -436,6 +456,12 @@ class SharedMonitorTests(WorkflowModelCase):
         self.assertEqual(
             located,
             [
+                (
+                    SUBMIT,
+                    "create-version",
+                    "Check out the shared review-submission CLI",
+                    "with",
+                ),
                 (
                     SUBMIT,
                     "assemble",
@@ -590,6 +616,9 @@ class AssembleEngineTests(WorkflowModelCase):
     def test_assemble_checks_out_the_pinned_shared_tool(self):
         self._shared_tool_checkout("assemble")
 
+    def test_create_version_checks_out_the_pinned_shared_tool(self):
+        self._shared_tool_checkout("create-version")
+
     def test_upload_checks_out_the_pinned_shared_tool(self):
         self._shared_tool_checkout("upload")
 
@@ -631,6 +660,47 @@ class AssembleEngineTests(WorkflowModelCase):
                 "APP_STORE_CONNECT_API_KEY": "${{ secrets.APP_STORE_CONNECT_API_KEY }}",
             },
         )
+
+    def test_create_version_runs_the_no_evidence_adapter_and_never_submits(self):
+        mutating = [
+            step
+            for step in steps_of(self.jobs(SUBMIT)["create-version"])
+            if "APP_STORE_CONNECT_API_KEY" in secrets_of(step)
+        ]
+        self.assertEqual(len(mutating), 1)
+        command = mutating[0]["run"]
+        self.assertIn("first_release_args.py", command)
+        self.assertIn("create_version.js --create-version", command)
+        self.assertNotIn("create_version.js --create-version --first-release", command)
+        self.assertNotIn("--submit", command)
+        self.assertNotIn("full_submit.js", command)
+        self.assertNotIn("assemble_only.js --assemble-only", command)
+        self.assertNotIn("upload_screenshots.js", command)
+        self.assertNotIn("app_review_pipeline.js submit", command)
+        environment = mutating[0]["env"]
+        self.assertEqual(
+            json.loads(environment["CREATE_VERSION_ENGINE_ARGV"]),
+            CREATE_VERSION_ENGINE_ARGV,
+        )
+        self.assertNotIn("EDDIES_APP_REVIEW_EVIDENCE", environment)
+        self.assertNotIn("GITHUB_TOKEN", environment)
+        self.assertNotIn(VARIABLE_TOKEN, secrets_of(mutating[0]))
+        self.assertNotIn(MONITOR_VARIABLE_TOKEN, secrets_of(mutating[0]))
+        self.assertEqual(
+            {name: environment[name] for name in MUTATION_SECRETS},
+            {
+                "APP_STORE_CONNECT_KEY_ID": "${{ secrets.APP_STORE_CONNECT_KEY_ID }}",
+                "APP_STORE_CONNECT_ISSUER_ID": "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}",
+                "APP_STORE_CONNECT_API_KEY": "${{ secrets.APP_STORE_CONNECT_API_KEY }}",
+            },
+        )
+        preflight = [
+            step
+            for step in steps_of(self.jobs(SUBMIT)["create-version"])
+            if str(step.get("run", "")).strip().startswith("python3 tools/app-review/screenshot_preflight.py")
+        ]
+        self.assertEqual(len(preflight), 1)
+        self.assertFalse(secrets_of(preflight[0]) & set(MUTATION_SECRETS))
 
     def test_upload_runs_the_parameterized_adapter_and_never_submits(self):
         mutating = [
@@ -710,9 +780,19 @@ class AssembleEngineTests(WorkflowModelCase):
             },
         )
 
-    def test_assemble_upload_and_submit_restore_dispatch_sha_config_after_the_manifest_pin(self):
+    def test_assemble_upload_submit_and_create_version_restore_dispatch_sha_config_after_the_manifest_pin(self):
         for job_name, required in (
             ("assemble", ("assemble_only.js", "first_release_args.py", "app-review.config.json")),
+            (
+                "create-version",
+                (
+                    "assemble_only.js",
+                    "create_version.js",
+                    "screenshot_preflight.py",
+                    "first_release_args.py",
+                    "app-review.config.json",
+                ),
+            ),
             (
                 "upload",
                 (
@@ -747,6 +827,7 @@ class AssembleEngineTests(WorkflowModelCase):
         self.assertNotIn("python3 tools/app-review/submit.py submit", blob)
         self.assertNotIn("app_review_pipeline.js submit", blob)
         self.assertIn("assemble_only.js --assemble-only", blob)
+        self.assertIn("create_version.js --create-version", blob)
         self.assertIn("upload_screenshots.js", blob)
         self.assertIn("full_submit.js --submit", blob)
         self.assertIn("first_release_args.py", blob)
@@ -1562,6 +1643,11 @@ class NegativeControlTests(WorkflowModelCase):
         model = parse_workflow(SUBMIT)
         model["jobs"]["assemble"]["if"] = REPOSITORY_GUARD
         self.assertNotIn("inputs.mode == 'assemble'", model["jobs"]["assemble"]["if"])
+
+    def test_dropping_the_create_version_mode_guard_would_be_caught(self):
+        model = parse_workflow(SUBMIT)
+        model["jobs"]["create-version"]["if"] = REPOSITORY_GUARD
+        self.assertNotIn("inputs.mode == 'create-version'", model["jobs"]["create-version"]["if"])
 
     def test_dropping_the_submit_mode_guard_would_be_caught(self):
         model = parse_workflow(SUBMIT)

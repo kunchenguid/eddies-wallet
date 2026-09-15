@@ -82,6 +82,7 @@ async function main() {
         calls.push({ args, dependencies });
         assert.equal(args.assembleOnly, false);
         assert.equal(args.uploadScreenshots, true);
+        assert.equal(args.createVersion, false);
         assert.equal(args.firstRelease, true);
         assert.equal(args.baselineVersion, null);
         assert.equal(dependencies.monitorVariable, undefined);

@@ -180,6 +180,7 @@ async function main() {
         calls.push(args);
         assert.equal(args.assembleOnly, true);
         assert.equal(args.uploadScreenshots, false);
+        assert.equal(args.createVersion, false);
         assert.equal(args.firstRelease, true);
         assert.equal(args.baselineVersion, null);
         assert.equal(args.preflight, false);
