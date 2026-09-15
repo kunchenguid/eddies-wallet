@@ -2,9 +2,9 @@ name: CI
 
 # Ordinary pull requests validate here without any Apple credential: this
 # workflow references no secrets and runs with read-only permissions.
-# Private repositories may keep macOS CI release-only to control runner costs;
-# this repository is public, so macOS runner minutes are free and pull requests
-# get the same build-and-test gate.
+# Pull requests run only the Linux checks. Xcode build, unit, UI, and
+# Release compile jobs stay on macOS for eddies-wallet-v* tags, published
+# releases, and explicit tag dispatches.
 on:
   # release-please opens its release PR with GITHUB_TOKEN, which creates a
   # pull_request run that can only sit in action_required. Its output set is
@@ -35,10 +35,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  checks:
+    name: Release pipeline checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.tag_name || github.event.release.tag_name || '' }}
+
+      - name: Release pipeline regression checks
+        run: ./test/release-checks.sh
+
   xcode:
     name: Xcode build and unit tests
     if: >-
-      (github.event_name == 'pull_request') ||
       (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'eddies-wallet-v')) ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/eddies-wallet-v')) ||
       (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'eddies-wallet-v'))
@@ -57,10 +70,6 @@ jobs:
         with:
           ref: ${{ inputs.tag_name || github.event.release.tag_name || '' }}
 
-      - name: Release pipeline regression checks
-        run: ./test/release-checks.sh
-
-      # Boot-free: proves the wrapper boundary and lifecycle's reaping/teardown decisions.
       - name: Simulator lifecycle checks
         run: |
           ./test/check-sim-usage.sh
@@ -145,7 +154,6 @@ jobs:
   xcode-ui:
     name: Xcode UI tests (${{ matrix.name }})
     if: >-
-      (github.event_name == 'pull_request') ||
       (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'eddies-wallet-v')) ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/eddies-wallet-v')) ||
       (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'eddies-wallet-v'))

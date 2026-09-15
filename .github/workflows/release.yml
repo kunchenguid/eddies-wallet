@@ -24,7 +24,7 @@ concurrency:
 jobs:
   testflight:
     name: Archive and upload to TestFlight
-    runs-on: macos-26
+    runs-on: ${{ vars.MAC_RUNNER || 'macos-26' }}
     timeout-minutes: 60
 
     env:
@@ -99,8 +99,10 @@ jobs:
           : "${APP_STORE_CONNECT_ISSUER_ID:?Missing APP_STORE_CONNECT_ISSUER_ID}"
           : "${APP_STORE_CONNECT_API_KEY:?Missing APP_STORE_CONNECT_API_KEY}"
 
-          mkdir -p "$HOME/private_keys"
-          KEY_PATH="$HOME/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          KEY_DIR="$RUNNER_TEMP/app-store-connect"
+          mkdir -p "$KEY_DIR"
+          chmod 700 "$KEY_DIR"
+          KEY_PATH="$KEY_DIR/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           export KEY_PATH
 
           python3 <<'PY'
@@ -171,8 +173,21 @@ jobs:
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ steps.asc-key.outputs.key_path }}
         run: |
           set -euo pipefail
+
+          ALTOOL_KEY_DIR="$HOME/private_keys"
+          ALTOOL_KEY_PATH="$ALTOOL_KEY_DIR/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          cleanup_altool_key() {
+            rm -f "$ALTOOL_KEY_PATH"
+            rmdir "$ALTOOL_KEY_DIR" 2>/dev/null || true
+          }
+          trap cleanup_altool_key EXIT INT TERM
+
+          mkdir -p "$ALTOOL_KEY_DIR"
+          cp "$ASC_KEY_PATH" "$ALTOOL_KEY_PATH"
+          chmod 600 "$ALTOOL_KEY_PATH"
 
           IPA_PATH="$(find "$EXPORT_PATH" -maxdepth 1 -name '*.ipa' -print -quit)"
           if [ -z "$IPA_PATH" ]; then
@@ -185,6 +200,18 @@ jobs:
             --file "$IPA_PATH" \
             --apiKey "$APP_STORE_CONNECT_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+
+      - name: Remove App Store Connect API key files
+        if: always()
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_KEY_PATH: ${{ steps.asc-key.outputs.key_path }}
+        run: |
+          rm -f "$ASC_KEY_PATH"
+          rm -f "$RUNNER_TEMP/app-store-connect/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          rmdir "$RUNNER_TEMP/app-store-connect" 2>/dev/null || true
+          rm -f "$HOME/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          rmdir "$HOME/private_keys" 2>/dev/null || true
 
       - name: Prune surplus Apple Development certificates
         if: always()
