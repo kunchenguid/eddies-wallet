@@ -30,7 +30,7 @@
     "screenshotDirectory": ["tools", "app-review", "assets", "screenshots", "0.1.17"],
     "screenshotWrites": true,
     "approvedSubtitle": "Virtual allowance practice",
-    "alignmentWrites": ["releaseType", "build", "reviewNotes"],
+    "alignmentWrites": ["releaseType", "build", "reviewNotes", "version"],
     "screenshotSpecs": [
       {
         "displayType": "APP_IPHONE_67",

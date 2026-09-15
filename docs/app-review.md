@@ -81,10 +81,13 @@ for `kunchenguid/app-review-submit`, not a console chore.
 - App Info categories `EDUCATION` + `FINANCE`, even under `listingPolicy:
   observe`.
 - Bound-build attach and `releaseType` (`alignmentWrites`).
+- Create a missing App Store version when `alignmentWrites` includes
+  `version` (`listingPolicy` stays `observe`, so listing copy is never
+  written). Copyright on create still comes from
+  `config.reviewDetails.copyright`. 0.1.17 already carries it; 0.1.19
+  receives it on create.
 - First-release review contact, notes, and `demoAccountRequired: false` from
   `config.reviewDetails`.
-- Copyright on version create from `config.reviewDetails.copyright`. 0.1.17
-  already carries it.
 - Create or reuse the review submission; attach the app version, both Cloud
   subscription versions, and their subscription group version. Every item is
   proven through authoritative relationship readback before assembly succeeds.
@@ -105,7 +108,7 @@ via `upload_screenshots.js --upload-screenshots`. The shared engine CLI, pinned
 as `SCREENSHOT_UPLOAD_ENGINE_ARGV`, is `node app_review_pipeline.js
 upload-screenshots`. Opt-in is `listing.screenshotWrites=true` on the
 captain-approved manifest and config. `listingPolicy` stays `observe` so listing
-copy is never written. Do not add `screenshots` to `alignmentWrites`. Asset path
+copy is never written. Do not add `listing` or `screenshots` to `alignmentWrites`. Asset path
 is `{sourceRoot}/{listing.screenshotDirectory joined}/{fileName}`. Manifest
 `content.screenshots[]` is `{displayType,width,height,files[{fileName,fileSize,sha256}]}`.
 The engine computes MD5 of those bytes as Apple's `sourceFileChecksum`. This
@@ -140,9 +143,6 @@ Eddie-side flags for them, and do not ask the captain to do them in the UI.
 3. Reserve / upload / commit replacement Cloud IAP review screenshots
    (`subscriptionAppStoreReviewScreenshots`) if delivery ever leaves `COMPLETE`.
 4. PATCH copyright on an existing App Store version if it drifted.
-5. Create a missing App Store version while `listingPolicy` is `observe`. The
-   engine can create when `listingWritesAllowed("version")`; 0.1.17 already
-   exists.
 
 ## Order of operations
 
