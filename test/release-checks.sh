@@ -178,38 +178,80 @@ else
   fail "ci.yml pull_request ignores every config-derived release-please output: $release_ci_ignore_out"
 fi
 
-# Pull requests must not consume macOS minutes. Linux checks stay on the PR
-# path; Xcode jobs remain for tags, published releases, and tag dispatches.
-if ci_pr_mac_out="$(ruby -ryaml -e '
+# Pull requests must run only Linux checks. Evaluate each job condition for the
+# workflow's supported event contexts so any non-Ubuntu runner is unreachable
+# from pull_request while Xcode remains reachable for every release event.
+if ci_pr_runner_out="$(ruby -ryaml -rjson -e '
+  def startsWith(value, prefix)
+    value.to_s.start_with?(prefix.to_s)
+  end
+
+  def condition_matches?(condition, context)
+    return true if condition.nil? || condition.to_s.strip.empty?
+
+    expression = condition.to_s.strip
+    expression = expression[3...-2].strip if expression.start_with?("${{") && expression.end_with?("}}")
+    variables = {
+      "github.event.release.tag_name" => context.fetch(:release_tag),
+      "github.event_name" => context.fetch(:event_name),
+      "github.ref" => context.fetch(:ref),
+      "inputs.tag_name" => context.fetch(:input_tag)
+    }
+    without_strings = expression.gsub(/'\''(?:\\.|[^'\''])*'\''|"(?:\\.|[^"])*"/, "")
+    unless without_strings.match?(/\A[A-Za-z0-9_.\s(),=!&|]*\z/)
+      abort "unsupported GitHub Actions expression syntax: #{condition.inspect}"
+    end
+    identifiers = without_strings.scan(/[A-Za-z_][A-Za-z0-9_.]*/).uniq
+    allowed = variables.keys + %w[startsWith true false nil]
+    unknown = identifiers - allowed
+    abort "unsupported GitHub Actions expression names #{unknown.inspect}: #{condition.inspect}" unless unknown.empty?
+
+    variables.sort_by { |name, _| -name.length }.each do |name, value|
+      expression = expression.gsub(name, JSON.generate(value))
+    end
+    result = eval(expression, binding, "ci.yml job condition")
+    abort "job condition did not evaluate to boolean: #{condition.inspect}" unless result == true || result == false
+    result
+  rescue SyntaxError, StandardError => error
+    abort "could not evaluate job condition #{condition.inspect}: #{error.message}"
+  end
+
   wf = YAML.load_file(".github/workflows/ci.yml")
   jobs = wf["jobs"]
   abort "ci.yml missing jobs:" unless jobs.is_a?(Hash)
-  pr_linux = []
+  contexts = {
+    pull_request: { event_name: "pull_request", ref: "refs/pull/1/merge", release_tag: "", input_tag: "" },
+    tag: { event_name: "push", ref: "refs/tags/eddies-wallet-v1.2.3", release_tag: "", input_tag: "" },
+    release: { event_name: "release", ref: "refs/tags/eddies-wallet-v1.2.3", release_tag: "eddies-wallet-v1.2.3", input_tag: "" },
+    dispatch: { event_name: "workflow_dispatch", ref: "refs/heads/main", release_tag: "", input_tag: "eddies-wallet-v1.2.3" }
+  }
+  reachable = contexts.transform_values { [] }
   mac_jobs = []
+
   jobs.each do |name, job|
     abort "ci.yml job #{name} is not a mapping" unless job.is_a?(Hash)
-    runs_on = job["runs-on"].to_s
-    condition = job["if"].to_s
-    macos = runs_on.match?(/macos/i)
-    positive_pr = condition.include?("github.event_name == '\''pull_request'\''") ||
-                  condition.include?('\''github.event_name == "pull_request"'\'')
-    fires_on_pr = condition.empty? || positive_pr
-    if macos && fires_on_pr
-      abort "ci.yml mac job #{name} still fires on pull_request (runs-on=#{runs_on.inspect})"
+    contexts.each do |event, context|
+      reachable[event] << name if condition_matches?(job["if"], context)
     end
-    mac_jobs << name if macos
-    pr_linux << name if fires_on_pr && !macos
+    runs_on = job["runs-on"]
+    if reachable[:pull_request].include?(name) && runs_on != "ubuntu-latest"
+      abort "ci.yml pull_request job #{name} must run on ubuntu-latest (runs-on=#{runs_on.inspect})"
+    end
+    mac_jobs << name if runs_on.to_s.match?(/\Amacos-/)
   end
-  abort "ci.yml has no non-mac pull_request job" if pr_linux.empty?
+
+  abort "ci.yml has no pull_request job" if reachable[:pull_request].empty?
   abort "ci.yml lost mac jobs for tag/release/dispatch" if mac_jobs.empty?
-  unless pr_linux.any? { |name| jobs[name]["runs-on"].to_s == "ubuntu-latest" }
-    abort "ci.yml pull_request path has no ubuntu-latest job (have #{pr_linux.inspect})"
+  mac_jobs.each do |name|
+    abort "ci.yml mac job #{name} is reachable from pull_request" if reachable[:pull_request].include?(name)
+    missing = %i[tag release dispatch].reject { |event| reachable[event].include?(name) }
+    abort "ci.yml mac job #{name} is unreachable for #{missing.join(",")}" unless missing.empty?
   end
-  puts "pr_linux=#{pr_linux.join(",")} mac=#{mac_jobs.join(",")}"
+  puts "pull_request=#{reachable[:pull_request].join(",")} mac=#{mac_jobs.join(",")}"
 ')"; then
-  pass "ci.yml pull requests stay off macOS runners ($ci_pr_mac_out)"
+  pass "ci.yml pull requests use only ubuntu-latest ($ci_pr_runner_out)"
 else
-  fail "ci.yml pull requests stay off macOS runners: $ci_pr_mac_out"
+  fail "ci.yml pull requests use only ubuntu-latest: $ci_pr_runner_out"
 fi
 
 if release_runner_out="$(ruby -ryaml -e '
