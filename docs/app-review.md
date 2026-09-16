@@ -28,9 +28,10 @@ Submission is gated by two independent things, and both are the captain's.
    version without reviewer-path evidence (`create_version.js --create-version`
    onto `runSubmission({ createVersion: true })`, with
    `CREATE_VERSION_ENGINE_ARGV` pinned to
-   `["node","app_review_pipeline.js","create-version"]`). It writes the new
-   version's en-US localization including What's New and listing screenshot
-   sets the version cannot inherit, under `listingPolicy: observe`. It never
+   `["node","app_review_pipeline.js","create-version"]`). It populates the
+   new version's full empty auto-created en-US localization from the approved
+   manifest after the live-baseline check, and listing screenshot sets the
+   version cannot inherit, under `listingPolicy: observe`. It never
    submits. `mode=assemble` stages the review submission and stops
    before Submit. `mode=upload` writes listing screenshots while the version is
    editable if a slot still needs it after create-version, and does not submit
@@ -41,10 +42,12 @@ Submission is gated by two independent things, and both are the captain's.
    already on an unsubmitted review submission, upload deletes only that version
    `reviewSubmissionItem` (Cloud items survive), then reserve/upload/commit and
    verify-before-live. Create-version, assemble, upload, and submit all check
-   out `70108f3c`, the merge of
-   [`kunchenguid/app-review-submit#21`](https://github.com/kunchenguid/app-review-submit/pull/21)
-   (auto-created en-US localization PATCH under observe; includes
-   [`#19`](https://github.com/kunchenguid/app-review-submit/pull/19)).
+   out `6769d778`, the merge of
+   [`kunchenguid/app-review-submit#22`](https://github.com/kunchenguid/app-review-submit/pull/22)
+   (populate full empty auto-created en-US localization from the approved
+   manifest after the live-baseline check; includes
+   [`#21`](https://github.com/kunchenguid/app-review-submit/pull/21) leftover
+   adopt and [`#19`](https://github.com/kunchenguid/app-review-submit/pull/19)).
    `mode=submit` is a separate captain-gated dispatch that asks
    the engine to submit for review. Default remains `verify`.
 
@@ -95,8 +98,9 @@ for `kunchenguid/app-review-submit`, not a console chore.
   written). `mode=create-version` is that lane: no reviewer-path evidence,
   update-only (a first-release manifest is refused). Copyright on create still
   comes from `config.reviewDetails.copyright`. 0.1.17 already carries it;
-  0.1.19 receives it on create. The same lane writes en-US localization
-  including What's New and listing screenshot sets the new version cannot
+  0.1.19 receives it on create. The same lane populates the full empty
+  auto-created en-US localization from the approved manifest after the
+  live-baseline check, and listing screenshot sets the new version cannot
   inherit.
 - First-release review contact, notes, and `demoAccountRequired: false` from
   `config.reviewDetails`.
@@ -169,7 +173,7 @@ Eddie-side flags for them, and do not ask the captain to do them in the UI.
 | 3. Attended functional proof | One physical-device proof of Sign in with Apple, the Parent gate, the Cloud plan offer, an Apple review or sandbox purchase, and Cloud activation, using a synthetic test account. A runner cannot do this: both steps are user-mediated. | Nothing in this repository. |
 | 4. Approve the manifest | Generate the manifest from the final candidate and merge it after captain review. | The repository only. |
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only, including the default exact live listing-screenshot match. | The recovery issue only. |
-| 6. `app-review-submit.yml` with `mode=create-version` | For a missing update only. No reviewer-path evidence. Checks out the pinned shared engine and runs `create_version.js --create-version` onto `runSubmission({ createVersion: true })` with `CREATE_VERSION_ENGINE_ARGV` set to `["node","app_review_pipeline.js","create-version"]`. Creates the App Store version, en-US localization including What's New, and listing screenshot sets the new version cannot inherit. `listingPolicy` stays `observe`. A first-release manifest is refused. It never submits (`status: version_created`, `submitted: false`). Skip this step when the version already exists. | New version, localization, and listing screenshot sets. |
+| 6. `app-review-submit.yml` with `mode=create-version` | For a missing update only. No reviewer-path evidence. Checks out the pinned shared engine and runs `create_version.js --create-version` onto `runSubmission({ createVersion: true })` with `CREATE_VERSION_ENGINE_ARGV` set to `["node","app_review_pipeline.js","create-version"]`. Creates the App Store version, populates the full empty auto-created en-US localization from the approved manifest after the live-baseline check, and listing screenshot sets the new version cannot inherit. `listingPolicy` stays `observe`. A first-release manifest is refused. It never submits (`status: version_created`, `submitted: false`). Skip this step when the version already exists. | New version, localization, and listing screenshot sets. |
 | 7. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered matching review assets, and the production service publishing Cloud activation with exactly those two products. When `listing.screenshotWrites` is true, it defers only the live listing-screenshot match because create-version (or a later `mode=upload`) owns that live write. Emits base64 readiness evidence. Requires the App Store version to exist, so it runs after create-version for a missing update. Assemble stays evidence-gated, so this cannot move after assemble. | Nothing. |
 | 8. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the listing-screenshot preflight, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
 | 9. `app-review-submit.yml` with `mode=assemble` | Checks out the pinned shared engine and runs assemble-only (`--assemble-only`, plus `--first-release` only for a first-release manifest). Requires fresh demo-preflight evidence. The engine accepts a `REJECTED` first-release target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version, both Cloud subscription versions, and their subscription group version, proves every item by authoritative readback, then hard-returns before Submit (`status: assembled`, `submitted: false`). After create-version (and after upload if a slot still needed it), this attaches the version; Cloud items already on the draft stay. | App Store Connect assembly only. |
