@@ -41,8 +41,10 @@ Submission is gated by two independent things, and both are the captain's.
    already on an unsubmitted review submission, upload deletes only that version
    `reviewSubmissionItem` (Cloud items survive), then reserve/upload/commit and
    verify-before-live. Create-version, assemble, upload, and submit all check
-   out `2fc70e51`, the merge of
-   [`kunchenguid/app-review-submit#19`](https://github.com/kunchenguid/app-review-submit/pull/19).
+   out `70108f3c`, the merge of
+   [`kunchenguid/app-review-submit#21`](https://github.com/kunchenguid/app-review-submit/pull/21)
+   (auto-created en-US localization PATCH under observe; includes
+   [`#19`](https://github.com/kunchenguid/app-review-submit/pull/19)).
    `mode=submit` is a separate captain-gated dispatch that asks
    the engine to submit for review. Default remains `verify`.
 

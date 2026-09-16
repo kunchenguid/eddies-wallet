@@ -26,7 +26,7 @@ name: App Review submission
 #              not run for mode=create-version, which is evidence-free.
 #   create-version - mutation-capable App Store Connect credentials, same as
 #              assemble, never the monitor variable token, never evidence.
-#              Checks out kunchenguid/app-review-submit@2fc70e51 and runs
+#              Checks out kunchenguid/app-review-submit@70108f3c and runs
 #              create_version.js --create-version onto
 #              runSubmission({ createVersion: true }). CREATE_VERSION_ENGINE_ARGV
 #              is ["node","app_review_pipeline.js","create-version"]. For a
@@ -36,7 +36,7 @@ name: App Review submission
 #              `--first-release` is refused: this lane is update-only.
 #              It never asks the engine to submit.
 #   assemble - mutation-capable App Store Connect credentials. It checks out
-#              kunchenguid/app-review-submit@2fc70e51 and runs assemble-only
+#              kunchenguid/app-review-submit@70108f3c and runs assemble-only
 #              (`args.assembleOnly: true`). `--first-release` is passed only
 #              when the pinned captain-approved manifest has firstRelease:true;
 #              an update manifest (baselineVersion) omits it. The engine aligns
@@ -186,7 +186,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 2fc70e5108f2315c770c9cb273b6254d48bd61a4
+          ref: 70108f3c92ac3a24c358c1747c2f60f42d5898c1
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -253,9 +253,10 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit#19 (create missing update
-          # versions under observe; includes #18 editable recovery).
-          ref: 2fc70e5108f2315c770c9cb273b6254d48bd61a4
+          # Pin: kunchenguid/app-review-submit#21 (adopt leftover update
+          # versions and PATCH Apple auto-created en-US What's New under
+          # observe; includes #19 create-version and #18 editable recovery).
+          ref: 70108f3c92ac3a24c358c1747c2f60f42d5898c1
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -320,7 +321,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 2fc70e5108f2315c770c9cb273b6254d48bd61a4
+          ref: 70108f3c92ac3a24c358c1747c2f60f42d5898c1
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -392,7 +393,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 2fc70e5108f2315c770c9cb273b6254d48bd61a4
+          ref: 70108f3c92ac3a24c358c1747c2f60f42d5898c1
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false

@@ -44,7 +44,7 @@ MODELED_WORKFLOWS = APP_REVIEW_WORKFLOWS + (
 )
 SHARED_TOOL_PIN = "216a65513dbde70d04d0efd021792743f094ed77"
 FIXED_MONITOR_ENGINE_SHA = "216a65513dbde70d04d0efd021792743f094ed77"
-SUBMIT_ENGINE_PIN = "2fc70e5108f2315c770c9cb273b6254d48bd61a4"
+SUBMIT_ENGINE_PIN = "70108f3c92ac3a24c358c1747c2f60f42d5898c1"
 SCREENSHOT_UPLOAD_ENGINE_ARGV = ["node", "app_review_pipeline.js", "upload-screenshots"]
 CREATE_VERSION_ENGINE_ARGV = ["node", "app_review_pipeline.js", "create-version"]
 SHARED_TOOL_REPO = "kunchenguid/app-review-submit"
