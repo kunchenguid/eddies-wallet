@@ -52,6 +52,9 @@ jobs:
           echo "ARCHIVE_PATH=$RUNNER_TEMP/EddysWallet.xcarchive" >> "$GITHUB_ENV"
           echo "EXPORT_PATH=$RUNNER_TEMP/EddysWallet-export" >> "$GITHUB_ENV"
 
+      # DEVELOPER_DIR, not `sudo xcode-select`: the self-hosted MAC_RUNNER has
+      # no passwordless sudo, and GITHUB_ENV carries the choice to every later
+      # step on hosted and self-hosted runners alike.
       - name: Select Xcode 26
         run: |
           XCODE_APP=$(python3 <<'PY'
@@ -70,7 +73,8 @@ jobs:
           print(apps[-1])
           PY
           )
-          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_APP/Contents/Developer"
           xcodebuild -version
           echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
 

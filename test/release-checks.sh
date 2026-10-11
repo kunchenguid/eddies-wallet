@@ -274,6 +274,44 @@ else
   fail "release.yml TestFlight runner uses MAC_RUNNER with macos-26 fallback: $release_runner_out"
 fi
 
+# The self-hosted MAC_RUNNER has no passwordless sudo. Run the workflow's own
+# "Select Xcode 26" step against a fixture Applications folder, with a sudo
+# that always refuses, and require that it still hands the newest Xcode 26 to
+# its own commands and to every later step through GITHUB_ENV.
+# shellcheck disable=SC2016 # Ruby program intentionally uses single-quoted strings.
+if select_xcode_script="$(ruby -ryaml -e '
+  steps = YAML.load_file(".github/workflows/release.yml").dig("jobs", "testflight", "steps") || []
+  step = steps.find { |s| s["name"] == "Select Xcode 26" }
+  abort "release.yml testflight job has no Select Xcode 26 step" unless step
+  print step["run"]
+')"; then
+  select_xcode_sandbox="$(mktemp -d)"
+  select_xcode_apps="$select_xcode_sandbox/Applications"
+  select_xcode_expected="$select_xcode_apps/Xcode_26.4.app/Contents/Developer"
+  mkdir -p "$select_xcode_sandbox/bin" \
+    "$select_xcode_apps/Xcode_26.1.app/Contents/Developer" \
+    "$select_xcode_apps/Xcode_26.4.app/Contents/Developer" \
+    "$select_xcode_apps/Xcode_16.4.app/Contents/Developer"
+  printf '#!/usr/bin/env bash\ntouch "%s/sudo-called"\necho "sudo: a password is required" >&2\nexit 1\n' "$select_xcode_sandbox" > "$select_xcode_sandbox/bin/sudo"
+  printf '#!/usr/bin/env bash\necho "xcodebuild DEVELOPER_DIR=${DEVELOPER_DIR:-unset}"\n' > "$select_xcode_sandbox/bin/xcodebuild"
+  printf '#!/usr/bin/env bash\necho 26.4\n' > "$select_xcode_sandbox/bin/xcrun"
+  chmod +x "$select_xcode_sandbox/bin/sudo" "$select_xcode_sandbox/bin/xcodebuild" "$select_xcode_sandbox/bin/xcrun"
+  printf '%s' "${select_xcode_script//\/Applications/$select_xcode_apps}" > "$select_xcode_sandbox/step.sh"
+  : > "$select_xcode_sandbox/github_env"
+  if select_xcode_out="$(PATH="$select_xcode_sandbox/bin:$PATH" GITHUB_ENV="$select_xcode_sandbox/github_env" \
+      bash --noprofile --norc -eo pipefail "$select_xcode_sandbox/step.sh" 2>&1)" \
+    && [ ! -e "$select_xcode_sandbox/sudo-called" ] \
+    && [ "$(cat "$select_xcode_sandbox/github_env")" = "DEVELOPER_DIR=$select_xcode_expected" ] \
+    && printf '%s\n' "$select_xcode_out" | grep -qxF "xcodebuild DEVELOPER_DIR=$select_xcode_expected"; then
+    pass "release.yml selects the newest Xcode 26 through DEVELOPER_DIR without sudo"
+  else
+    fail "release.yml selects the newest Xcode 26 through DEVELOPER_DIR without sudo (output: $select_xcode_out; GITHUB_ENV: $(cat "$select_xcode_sandbox/github_env"); sudo called: $([ -e "$select_xcode_sandbox/sudo-called" ] && echo yes || echo no))"
+  fi
+  rm -rf "$select_xcode_sandbox"
+else
+  fail "release.yml selects the newest Xcode 26 through DEVELOPER_DIR without sudo: $select_xcode_script"
+fi
+
 require_grep '"release-type": "simple"' release-please-config.json \
   "release-please still uses the simple strategy (output set: CHANGELOG.md, version.txt, manifest)"
 
