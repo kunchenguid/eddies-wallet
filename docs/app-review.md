@@ -7,9 +7,17 @@ Review. `tools/app-review/README.md` owns the module boundaries;
 
 Merging the pull request that adds this pipeline submits nothing. It creates no
 App Store Connect resource, no credential, and no review submission. Every
-workflow here is manual. The content half of the submission gate is now in
-place: `tools/app-review/manifests/0.1.17.json` is the first captain-approved
-manifest, merged on `main`. App Review remains HELD; nothing has been submitted.
+workflow here is manual.
+
+The content gate is in place for more than one version.
+`tools/app-review/manifests/0.1.17.json` is the first-release manifest (approved
+and released). `tools/app-review/manifests/0.1.19.json` is the update manifest
+(baseline 0.1.17, build 21.1, release type AFTER_APPROVAL). 0.1.19 was submitted
+on 2026-09-15 Pacific (the submit job finished at 2026-09-16T02:43:25Z) and
+approved on 2026-09-16; the monitor variable `APP_REVIEW_MONITOR_VERSION` is
+`0.1.19`. 0.1.18 was tagged for TestFlight and was not submitted. Read the live
+monitor issue before claiming a newer review state. This file's step list is
+the procedure for the next version; it is not a claim that review is still held.
 
 ## The gate
 
@@ -78,10 +86,9 @@ for `kunchenguid/app-review-submit`, not a console chore.
   the shared team. Never re-request them.
 - App Privacy / nutrition-label answers: Apple exposes no public App Store
   Connect API. Incomplete declarations surface as HTTP 409 on version-attach
-  (`E_APP_PRIVACY`). Confirmed blocker on 2026-08-14. Later assemble runs have
-  failed earlier at listing screenshots, so completeness after that date is
-  unproven until attach runs. This is the only remaining App Store Connect UI
-  step in the 0.1.17 flow.
+  (`E_APP_PRIVACY`). This blocked 0.1.17 on 2026-08-14, before its successful
+  submission. For a future version, the captain updates these answers only
+  if the declarations are incomplete or collection has changed.
 - Physical-device proof of Sign in with Apple, the Parent gate, and a sandbox
   Cloud purchase. Both steps are user-mediated; a runner cannot do them.
 - Pasting demo-preflight evidence into the GitHub dispatch `evidence` input.
@@ -170,7 +177,7 @@ Eddie-side flags for them, and do not ask the captain to do them in the UI.
 | Step | What runs | What it may change |
 | --- | --- | --- |
 | 1. Release the candidate | The existing captain-merged release PR uploads the build to TestFlight (`docs/release.md`). | TestFlight only. |
-| 2. Bind listing screenshots | Distinct listing screenshots for every live display type live under `tools/app-review/assets/screenshots/<version>/` as `{fileName}` (engine path `{screenshotDirectory}/{fileName}`). The captain-approved manifest binds `displayType`, `width`, `height`, and `{fileName,fileSize,sha256}` per slot. App Privacy is the only remaining App Store Connect UI irreducible. See Hands-off bar. | Repository screenshot bytes. |
+| 2. Bind listing screenshots | Distinct listing screenshots for every live display type live under `tools/app-review/assets/screenshots/<version>/` as `{fileName}` (engine path `{screenshotDirectory}/{fileName}`). The captain-approved manifest binds `displayType`, `width`, `height`, and `{fileName,fileSize,sha256}` per slot. App Privacy answers, if an update is needed, remain an App Store Connect UI irreducible. See Hands-off bar. | Repository screenshot bytes. |
 | 3. Attended functional proof | One physical-device proof of Sign in with Apple, the Parent gate, the Cloud plan offer, an Apple review or sandbox purchase, and Cloud activation, using a synthetic test account. A runner cannot do this: both steps are user-mediated. | Nothing in this repository. |
 | 4. Approve the manifest | Generate the manifest from the final candidate and merge it after captain review. | The repository only. |
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only, including the default exact live listing-screenshot match. | The recovery issue only. |
@@ -214,9 +221,14 @@ The prepare step opens one GitHub issue keyed by app, version, manifest binding
 hash, and manifest-approved commit, with a single mutable comment holding phase,
 reconciliation outcome, and timestamp. Nothing else is recorded there.
 
-Rerunning `mode=create-version` after an interruption is safe: the engine
-reconciles against authoritative Apple state and is idempotent from exact live
-ground truth. Rerunning `mode=assemble` after an interruption is safe. The shared engine
+`mode=create-version` accepts a missing version or a `PREPARE_FOR_SUBMISSION`
+target. If the target is already `READY_FOR_REVIEW` and matches the manifest,
+skip create-version. Continue with demo-preflight, verify, upload only if a
+screenshot slot still needs it, assemble, and submit. Do not treat
+`E_TARGET_EXISTS` on that rerun as a failed release. Making create-version
+succeed idempotently in that state is an engine follow-up, not a console step.
+
+Rerunning `mode=assemble` after an interruption is safe. The shared engine
 reconciles against authoritative Apple state first. A first-release
 captain-approved manifest has no `baselineVersion`, and assemble-only passes
 `--first-release`. An update manifest names `baselineVersion` and the workflow
