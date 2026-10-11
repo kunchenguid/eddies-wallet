@@ -138,7 +138,30 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             throw WalletAPIError.invalidResponse("Enter a valid weekly allowance.")
         }
         var candidate = try writableAggregate()
-        candidate.snapshot.allowance = try AllowancePlan(remoteID: "local-allowance", amountCents: command.amountCents, cadence: "every week", weekday: command.weekday, nextDate: command.startDate, endDate: command.endDate, nextOccurrenceID: command.idempotencyKey, syncState: .recorded)
+        // One rule per wallet, like the service: a live plan saved again with
+        // its own start date is edited in place, so its recorded weeks and
+        // start date survive. A command naming a different start date starts
+        // a new chain, as this store always did; the editor never sends one
+        // for a live plan, because the service refuses it.
+        if let plan = candidate.snapshot.allowance, !plan.isExhausted, plan.keepsStartDate(of: command) {
+            candidate.snapshot.allowance = try plan.editing(
+                amountCents: command.amountCents,
+                weekday: command.weekday,
+                endDate: command.endDate
+            )
+        } else {
+            candidate.snapshot.allowance = try AllowancePlan(
+                remoteID: "local-allowance",
+                amountCents: command.amountCents,
+                cadence: "every week",
+                weekday: command.weekday,
+                nextDate: command.startDate,
+                startDate: command.startDate,
+                endDate: command.endDate,
+                nextOccurrenceID: command.idempotencyKey,
+                syncState: .recorded
+            )
+        }
         candidate.snapshot.lastUpdated = .now
         candidate.snapshot.isStale = false
         try persist(candidate)

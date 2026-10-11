@@ -1,20 +1,40 @@
 import SwiftUI
 
+/// Where the Parent area's navigation can go from its one scroll.
+enum ParentRoute: Hashable {
+    /// Cloud, child profile, PIN, connection details, sign-out and deletion.
+    case settings
+    /// The whole activity history, past the five rows kept on the wallet.
+    case allActivity
+}
+
 /// The transient, visibly distinct parent administrative area. Presented as a
 /// full-screen cover over the kid home while elevation is active, with an
-/// unmistakable header and an explicit exit. Every money control, the
-/// allowance rule, PIN change, and sign-out live only on this screen.
+/// unmistakable header and an explicit exit.
+///
+/// The screen is one scroll in the order a parent needs it: the balance, the
+/// four money actions directly under it, anything that needs attention (a
+/// write block with its own way out, missed allowance, loan payments, an
+/// unsettled Cloud change), the plans, and the five most recent activity rows
+/// with the rest one tap away. Cloud, profile, PIN, connection details,
+/// sign-out and account deletion live on `ParentSettingsView` behind the gear,
+/// so nothing a parent came to do sits below the fold however long the
+/// history grows.
 struct ParentAreaView: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var path = NavigationPath()
     @State private var selectedEvent: WalletEvent?
     @State private var isShowingLoan = false
     @State private var flow: MoneyFlowKind?
     @State private var isShowingAllowance = false
-    @State private var isShowingChangePIN = false
-    @State private var isShowingEditProfile = false
-    @State private var isShowingConnectionDetails = false
-    @State private var isConfirmingSignOut = false
+    /// A one-line confirmation of the last change made from a sheet, shown at
+    /// the top of the scroll for a few seconds in place of a second screen.
+    @State private var confirmation: String?
+    @State private var confirmationTask: Task<Void, Never>?
+    /// A failure already shown inside the sheet that produced it is not shown
+    /// a second time as a banner once that sheet closes.
+    @State private var acknowledgedErrorMessage: String?
     @State private var isConfirmingRecordAllMissedAllowance = false
     @State private var confirmedMissedAllowancePayouts: AllowanceMissedPayouts?
     @State private var recordAllMissedAllowanceOutcome: AllowanceRecordAllOutcome?
@@ -70,90 +90,103 @@ struct ParentAreaView: View {
                 && store.snapshot.allowance == nil))
     }
 
+    /// How many activity rows stay on the wallet before the rest move behind
+    /// a See all link, so the actions above never sink as history grows.
+    static let recentActivityLimit = 5
+
+    private var visibleErrorMessage: String? {
+        guard let errorMessage = store.errorMessage, errorMessage != acknowledgedErrorMessage else { return nil }
+        return errorMessage
+    }
+
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { scroll in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: EW.Space.six) {
-                        if let errorMessage = store.errorMessage {
-                            Label(errorMessage, systemImage: "exclamationmark.triangle")
-                                .font(EW.Font.caption)
-                                .foregroundStyle(EW.Color.red600)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(EW.Space.three)
-                                .background(EW.Color.dangerTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
-                        }
-
-                        if store.canShowWalletData {
-                            if showsHandoffCard {
-                                firstActionsCard
-                            }
-
-                            walletCards
-
-                            if !missedAllowancePayouts.isEmpty {
-                                missedAllowanceCard
-                            }
-
-                            if hasScheduledLoan {
-                                loanPaymentsCard
-                            }
-
-                            SectionHeader("Recent activity")
-                            if store.snapshot.activities.isEmpty {
-                                Text("Nothing recorded yet. Add a first deposit or set the weekly allowance.")
-                                    .font(EW.Font.body)
-                                    .foregroundStyle(EW.Color.textSecondary)
-                            } else {
-                                ActivityListCard(events: store.snapshot.activities) { event in
-                                    selectedEvent = event
-                                }
-                            }
-
-                            if store.canModifyWallet {
-                                SectionHeader("Parent actions")
-                                if let block = store.parentMutationBlock {
-                                    mutationControlsNotice(block, scroll: scroll)
-                                }
-                                actionGrid
-                            }
-                        } else {
-                            cloudReplicaUnavailableCard
-                        }
-
-                        SectionHeader("Cloud")
-                            .id(Self.cloudSectionAnchor)
-                        CloudStatusView()
-
-                        SectionHeader("Settings")
-                        settingsCard
-
-                        SectionHeader("Account")
-                        accountCard
+        NavigationStack(path: $path) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: EW.Space.six) {
+                    if let confirmation {
+                        Label(confirmation, systemImage: "checkmark.circle.fill")
+                            .font(EW.Font.caption)
+                            .foregroundStyle(EW.Color.green700)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(EW.Space.three)
+                            .background(EW.Color.green100, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                            .accessibilityIdentifier("parent-confirmation")
                     }
-                    .padding(.horizontal, EW.Space.screenMargin)
-                    .padding(.top, EW.Space.five)
-                    .padding(.bottom, EW.Space.ten)
-                    .frame(maxWidth: 980)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                }
-                .accessibilityIdentifier("parent-area-scroll")
-                .background(EW.Color.appBackground.ignoresSafeArea())
-                .navigationTitle("Parent area")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    if !store.isDeletingAccount && !store.hasDeletedAccount {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            doneButton
+                    if let errorMessage = visibleErrorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .font(EW.Font.caption)
+                            .foregroundStyle(EW.Color.red600)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(EW.Space.three)
+                            .background(EW.Color.dangerTint, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                    }
+
+                    if store.canShowWalletData {
+                        if showsHandoffCard {
+                            firstActionsCard
                         }
+
+                        balanceCard
+
+                        if store.canModifyWallet {
+                            actionTiles
+                            if let block = store.parentMutationBlock {
+                                mutationControlsNotice(block)
+                            }
+                        }
+
+                        if !missedAllowancePayouts.isEmpty {
+                            missedAllowanceCard
+                        }
+
+                        if hasScheduledLoan {
+                            loanPaymentsCard
+                        }
+
+                        if hasPendingCloudWork {
+                            syncStatusCard
+                        }
+
+                        SectionHeader("Plans")
+                        plansCards
+
+                        SectionHeader("Recent activity")
+                        recentActivity
+                    } else {
+                        cloudReplicaUnavailableCard
                     }
                 }
-                .toolbarBackground(EW.Color.green900, for: .navigationBar)
-                .toolbarBackground(.visible, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
-                .refreshable {
-                    await store.refresh()
+                .padding(.horizontal, EW.Space.screenMargin)
+                .padding(.top, EW.Space.five)
+                .padding(.bottom, EW.Space.ten)
+                .frame(maxWidth: 980)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .accessibilityIdentifier("parent-area-scroll")
+            .background(EW.Color.appBackground.ignoresSafeArea())
+            .navigationTitle("Parent area")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if !store.isDeletingAccount && !store.hasDeletedAccount {
+                    ToolbarItem(placement: .topBarLeading) {
+                        settingsButton
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        doneButton
+                    }
                 }
+            }
+            .toolbarBackground(EW.Color.green900, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .navigationDestination(for: ParentRoute.self) { route in
+                switch route {
+                case .settings: ParentSettingsView()
+                case .allActivity: ParentActivityListView()
+                }
+            }
+            .refreshable {
+                await store.refresh()
             }
         }
         .sheet(item: $selectedEvent) { event in
@@ -167,27 +200,15 @@ struct ParentAreaView: View {
             })
             .ewDetailSheetPresentation()
         }
-        .sheet(item: $flow) { kind in
+        .sheet(item: $flow, onDismiss: acknowledgeSheetFailure) { kind in
             MoneyFlowView(kind: kind)
                 .ewFormSheetPresentation()
         }
-        .sheet(isPresented: $isShowingAllowance) {
-            AllowanceView()
-                .ewFormSheetPresentation()
-        }
-        .sheet(isPresented: $isShowingChangePIN) {
-            ChangePINView()
-                .ewFormSheetPresentation()
-        }
-        .sheet(isPresented: $isShowingEditProfile) {
-            EditChildProfileView()
-                .ewFormSheetPresentation()
-        }
-        .sheet(isPresented: $isShowingConnectionDetails) {
-            if let diagnostic = store.latestTransportDiagnostic {
-                ConnectionDetailsView(diagnostic: diagnostic)
-                    .ewFormSheetPresentation()
+        .sheet(isPresented: $isShowingAllowance, onDismiss: acknowledgeSheetFailure) {
+            AllowanceView { summary in
+                showConfirmation("Allowance is now \(summary).")
             }
+            .ewFormSheetPresentation()
         }
         .confirmationDialog(
             "Pay out \(confirmedMissedAllowancePayouts?.count ?? 0) missed allowance weeks?",
@@ -278,6 +299,39 @@ struct ParentAreaView: View {
         }
     }
 
+    /// A sheet shows its own failure, so the banner at the top of the scroll
+    /// does not repeat it after the sheet closes. A later failure still shows.
+    private func acknowledgeSheetFailure() {
+        acknowledgedErrorMessage = store.errorMessage
+    }
+
+    private func showConfirmation(_ message: String) {
+        confirmationTask?.cancel()
+        withAnimation { confirmation = message }
+        confirmationTask = Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation { confirmation = nil }
+        }
+    }
+
+    /// Cloud, child profile, PIN, connection details, sign-out and deletion
+    /// sit on their own screen behind this gear, off the money scroll.
+    private var settingsButton: some View {
+        Button {
+            path.append(ParentRoute.settings)
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(EW.Color.cream50)
+                .frame(width: 36, height: 36)
+                .background(EW.Color.cream50.opacity(0.16), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Settings")
+        .accessibilityIdentifier("parent-settings")
+    }
+
     /// Persistent, explicit exit in the dark-green Parent area bar: visibly
     /// not the kid's space, always one tap back to the kid home.
     private var doneButton: some View {
@@ -355,39 +409,138 @@ struct ParentAreaView: View {
         .accessibilityIdentifier("parent-cloud-replica-unavailable")
     }
 
-    /// Balance + allowance pair on top; loan + sync pair below. On regular
-    /// widths a lone second-row card spans the full width so the grid never
-    /// leaves an orphan gap.
+    private var hasPendingCloudWork: Bool {
+        !store.snapshot.pendingEvents.isEmpty || store.hasUnsettledCloudMutation
+    }
+
+    /// The four things a parent comes here to do, directly under the balance.
+    /// The loan tile follows the wallet: it creates a loan while none is open
+    /// and pays toward the open one otherwise, so neither action is offered
+    /// when it would only fail. All four disable together behind the one
+    /// write guard, and the block below them says why and carries the way out.
     @ViewBuilder
-    private var walletCards: some View {
-        let loan = store.snapshot.loan
-        let hasPending = !store.snapshot.pendingEvents.isEmpty || store.hasUnsettledCloudMutation
+    private var actionTiles: some View {
         if isRegularWidth {
-            HStack(alignment: .top, spacing: EW.Space.five) {
-                balanceCard.frame(maxWidth: .infinity)
-                allowanceCard.frame(maxWidth: .infinity)
+            HStack(alignment: .top, spacing: EW.Space.three) {
+                depositTile
+                withdrawalTile
+                loanTile
+                allowanceTile
             }
             .fixedSize(horizontal: false, vertical: true)
-            if let loan, hasPending {
-                HStack(alignment: .top, spacing: EW.Space.five) {
-                    LoanCardView(loan: loan, isParent: true) { isShowingLoan = true }
-                        .frame(maxWidth: .infinity)
-                    syncStatusCard.frame(maxWidth: .infinity)
+        } else {
+            VStack(spacing: EW.Space.three) {
+                HStack(alignment: .top, spacing: EW.Space.three) {
+                    depositTile
+                    withdrawalTile
                 }
                 .fixedSize(horizontal: false, vertical: true)
-            } else if let loan {
-                LoanCardView(loan: loan, isParent: true) { isShowingLoan = true }
-            } else if hasPending {
-                syncStatusCard
+                HStack(alignment: .top, spacing: EW.Space.three) {
+                    loanTile
+                    allowanceTile
+                }
+                .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private var depositTile: some View {
+        ActionTile(
+            title: "Add deposit",
+            detail: "Add pretend dollars",
+            icon: "arrow.down",
+            tint: EW.Color.green600,
+            background: EW.Color.green100,
+            isEnabled: store.canStartParentMutation
+        ) { flow = .deposit }
+    }
+
+    private var withdrawalTile: some View {
+        ActionTile(
+            title: "Record withdrawal",
+            detail: "Record dollars used",
+            icon: "arrow.up",
+            tint: EW.Color.ink700,
+            background: EW.Color.ink100,
+            isEnabled: store.canStartParentMutation
+        ) { flow = .withdrawal }
+    }
+
+    @ViewBuilder
+    private var loanTile: some View {
+        if let loan = store.snapshot.loan, !loan.isPaid {
+            ActionTile(
+                title: "Pay toward loan",
+                detail: "\(Money(cents: loan.remainingCents).display) left to repay",
+                icon: "arrow.triangle.2.circlepath",
+                tint: EW.Color.peach600,
+                background: EW.Color.peach100,
+                isEnabled: store.canStartParentMutation
+            ) { flow = .repayment }
         } else {
-            balanceCard
+            ActionTile(
+                title: "Create loan",
+                detail: "Give now, repay later",
+                icon: "hand.raised",
+                tint: EW.Color.peach600,
+                background: EW.Color.peach100,
+                isEnabled: store.canStartParentMutation
+            ) { flow = .loan }
+        }
+    }
+
+    private var allowanceTile: some View {
+        ActionTile(
+            title: "Allowance",
+            detail: store.snapshot.allowance.flatMap { $0.isExhausted ? nil : $0 }
+                .map { AllowanceCopy.summary(amountCents: $0.amountCents, weekday: $0.weekday) }
+                ?? "Set a weekly plan",
+            icon: "gift",
+            tint: EW.Color.gold600,
+            background: EW.Color.goldTint,
+            isEnabled: store.canStartParentMutation
+        ) { isShowingAllowance = true }
+        .accessibilityIdentifier("parent-action-allowance")
+    }
+
+    /// The next allowance and the open loan. On regular widths they share a
+    /// row; a lone card spans the full width so the grid never leaves a gap.
+    @ViewBuilder
+    private var plansCards: some View {
+        let loan = store.snapshot.loan
+        if isRegularWidth, let loan {
+            HStack(alignment: .top, spacing: EW.Space.five) {
+                allowanceCard.frame(maxWidth: .infinity)
+                LoanCardView(loan: loan, isParent: true) { isShowingLoan = true }
+                    .frame(maxWidth: .infinity)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
             allowanceCard
             if let loan {
                 LoanCardView(loan: loan, isParent: true) { isShowingLoan = true }
             }
-            if hasPending {
-                syncStatusCard
+        }
+    }
+
+    /// Five rows, then the rest behind See all, so the actions above never
+    /// sink as the history grows. The full list is a continuation of this
+    /// one, not a second activity entry point.
+    @ViewBuilder
+    private var recentActivity: some View {
+        let activities = store.snapshot.activities
+        if activities.isEmpty {
+            Text("Nothing recorded yet. Add a first deposit or set the weekly allowance.")
+                .font(EW.Font.body)
+                .foregroundStyle(EW.Color.textSecondary)
+        } else {
+            let shown = Array(activities.prefix(Self.recentActivityLimit))
+            ActivityListCard(
+                events: shown,
+                seeAllTitle: activities.count > shown.count ? "See all \(activities.count) entries" : nil,
+                onSeeAll: { path.append(ParentRoute.allActivity) }
+            ) { event in
+                selectedEvent = event
             }
         }
     }
@@ -444,11 +597,11 @@ struct ParentAreaView: View {
                     .font(EW.Font.bodyBold)
                     .foregroundStyle(EW.Color.textPrimary)
                 if let allowance = store.snapshot.allowance {
-                    Text("\(Money(cents: allowance.amountCents).display) \(allowance.cadence)")
+                    Text(AllowanceCopy.summary(amountCents: allowance.amountCents, weekday: allowance.weekday))
                         .font(EW.Font.body)
                         .foregroundStyle(EW.Color.textSecondary)
                     if let nextDate = allowance.nextCurrentOrFuturePayout() {
-                        Text("Starting \(nextDate.formatted(.dateTime.month(.abbreviated).day()))")
+                        Text(nextDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
                             .font(EW.Font.caption)
                             .foregroundStyle(EW.Color.textTertiary)
                     }
@@ -717,7 +870,7 @@ struct ParentAreaView: View {
     /// generic notice named nothing to do, and the Cloud card's `Got it`
     /// - the only clear on the screen - is shown for a pending review alone.
     /// Every case now answers with its own way out, on the block itself.
-    private func mutationControlsNotice(_ block: ParentMutationBlock, scroll: ScrollViewProxy) -> some View {
+    private func mutationControlsNotice(_ block: ParentMutationBlock) -> some View {
         let isTerminal = block == .rejectedCleanup
         return VStack(alignment: .leading, spacing: EW.Space.two) {
             HStack(alignment: .top, spacing: EW.Space.three) {
@@ -734,7 +887,7 @@ struct ParentAreaView: View {
                 case .readLatest:
                     Task { await store.clearParentMutationBlock() }
                 case .cloudPlan:
-                    withAnimation { scroll.scrollTo(Self.cloudSectionAnchor, anchor: .top) }
+                    path.append(ParentRoute.settings)
                 }
             }
             .buttonStyle(.plain)
@@ -752,8 +905,6 @@ struct ParentAreaView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("cloud-mutation-controls-notice")
     }
-
-    private static let cloudSectionAnchor = "parent-cloud-section"
 
     /// An unresolved request describes itself best - it knows which phase it is
     /// in. Every other block states its own reason.
@@ -839,167 +990,6 @@ struct ParentAreaView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .ewCard(variant: .alt)
-    }
-
-    /// Non-lazy so every action stays in the accessibility tree; the odd
-    /// fifth action spans the full width on regular layouts instead of
-    /// leaving an orphan cell.
-    @ViewBuilder
-    private var actionGrid: some View {
-        if isRegularWidth {
-            VStack(spacing: EW.Space.three) {
-                HStack(spacing: EW.Space.three) {
-                    depositButton
-                    withdrawalButton
-                }
-                HStack(spacing: EW.Space.three) {
-                    loanButton
-                    repaymentButton
-                }
-                allowanceActionButton
-            }
-        } else {
-            VStack(spacing: EW.Space.three) {
-                depositButton
-                withdrawalButton
-                loanButton
-                repaymentButton
-                allowanceActionButton
-            }
-        }
-    }
-
-    private var depositButton: some View {
-        ActionButton(title: "Add deposit", icon: "arrow.down.circle", tint: EW.Color.primary, isEnabled: store.canStartParentMutation) { flow = .deposit }
-    }
-
-    private var withdrawalButton: some View {
-        ActionButton(title: "Record withdrawal", icon: "arrow.up.circle", tint: EW.Color.textSecondary, isEnabled: store.canStartParentMutation) { flow = .withdrawal }
-    }
-
-    private var loanButton: some View {
-        ActionButton(title: "Create loan", icon: "hand.raised", tint: EW.Color.peach700, isEnabled: store.canStartParentMutation) { flow = .loan }
-    }
-
-    private var repaymentButton: some View {
-        ActionButton(title: "Pay toward loan", icon: "arrow.triangle.2.circlepath", tint: EW.Color.green700, isEnabled: store.canStartParentMutation) { flow = .repayment }
-    }
-
-    private var allowanceActionButton: some View {
-        ActionButton(title: "Pay out allowance", icon: "gift", tint: EW.Color.gold700, isEnabled: store.canStartParentMutation) { flow = .allowance }
-    }
-
-    private var settingsCard: some View {
-        VStack(spacing: 0) {
-            if store.canModifyWallet {
-                settingsRow(title: "Edit child profile", icon: "person.crop.circle", isEnabled: store.canStartParentMutation, accessibilityIdentifier: "edit-child-profile-settings") {
-                    isShowingEditProfile = true
-                }
-                Divider().overlay(EW.Color.border)
-            }
-            settingsRow(title: "Change PIN", icon: "lock.rotation") {
-                isShowingChangePIN = true
-            }
-            Divider().overlay(EW.Color.border)
-            // Only offered once something actually failed: a family with a
-            // healthy connection is never shown a diagnostics row.
-            if store.latestTransportDiagnostic != nil {
-                settingsRow(
-                    title: "Connection details",
-                    icon: "antenna.radiowaves.left.and.right",
-                    accessibilityIdentifier: "connection-details-settings"
-                ) {
-                    isShowingConnectionDetails = true
-                }
-                Divider().overlay(EW.Color.border)
-            }
-            settingsRow(title: "Sign out", icon: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                isConfirmingSignOut = true
-            }
-        }
-        .padding(.horizontal, EW.Space.five)
-        .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.large, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: EW.Radius.large, style: .continuous).stroke(EW.Color.border, lineWidth: 1)
-        }
-        .confirmationDialog(signOutTitle, isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
-            Button(signOutButtonTitle, role: .destructive) {
-                if store.canSignOutOfCloudOnThisDevice {
-                    Task { await store.signOutOfCloudOnThisDevice() }
-                } else {
-                    store.signOut()
-                }
-            }
-            Button("Stay signed in", role: .cancel) {}
-        } message: {
-            Text(signOutMessage)
-        }
-    }
-
-    private var accountCard: some View {
-        NavigationLink {
-            DeleteAccountView()
-        } label: {
-            settingsRowLabel(title: "Delete account and wallet", icon: "trash", role: .destructive)
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, EW.Space.five)
-        .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.large, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: EW.Radius.large, style: .continuous).stroke(EW.Color.border, lineWidth: 1)
-        }
-        .accessibilityIdentifier("delete-account-settings")
-    }
-
-    private var signOutTitle: String {
-        switch store.cloudSignOutMode {
-        case .cloudDevice: "Sign out of Cloud on this \(DeviceCopy.deviceNoun)?"
-        case .serviceDevice: "Sign out?"
-        case .localErase: "Sign out and erase this device's wallet?"
-        }
-    }
-
-    private var signOutButtonTitle: String {
-        store.cloudSignOutMode == .localErase ? "Sign out and erase wallet" : "Sign out from this \(DeviceCopy.deviceNoun)"
-    }
-
-    private var signOutMessage: String {
-        switch store.cloudSignOutMode {
-        case .cloudDevice:
-            "This \(DeviceCopy.deviceNoun) stops syncing with Cloud. The wallet keeps working here and nothing is deleted."
-        case .serviceDevice:
-            "This removes the local Cloud view and parent PIN from this \(DeviceCopy.deviceNoun). It does not delete the Cloud wallet."
-        case .localErase:
-            "There is no Cloud backup for this wallet. This permanently erases the wallet, parent PIN, and parent identity evidence from this \(DeviceCopy.deviceNoun)."
-        }
-    }
-
-    private func settingsRow(title: String, icon: String, role: ButtonRole? = nil, isEnabled: Bool = true, accessibilityIdentifier: String? = nil, action: @escaping () -> Void) -> some View {
-        Button(role: role, action: action) {
-            settingsRowLabel(title: title, icon: icon, role: role)
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.5)
-        .accessibilityIdentifier(accessibilityIdentifier ?? title)
-    }
-
-    private func settingsRowLabel(title: String, icon: String, role: ButtonRole? = nil) -> some View {
-        HStack(spacing: EW.Space.three) {
-            Image(systemName: icon)
-                .foregroundStyle(role == .destructive ? EW.Color.red600 : EW.Color.textSecondary)
-                .frame(width: 24)
-            Text(title)
-                .font(EW.Font.bodyBold)
-                .foregroundStyle(role == .destructive ? EW.Color.red600 : EW.Color.textPrimary)
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(EW.Color.textTertiary)
-        }
-        .padding(.vertical, EW.Space.three)
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
     }
 
     private func stateColor(_ state: SyncState) -> Color {

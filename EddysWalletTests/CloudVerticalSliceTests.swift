@@ -1377,6 +1377,59 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(writes.compactMap { $0.value(forHTTPHeaderField: "If-Match") }, ["\"rev-2\"", "\"rev-3\"", "\"rev-4\""])
     }
 
+    /// The reported defect: changing only the amount of a Cloud allowance
+    /// was refused, because the editor sent a fresh start date and the
+    /// service keeps a rule's start date fixed. Driven through the real
+    /// `CloudWalletRepository`: the plan carries the service's start date, an
+    /// edit command sends it back unchanged with the new amount, and the
+    /// accepted revision plus the reread schedule prove the change recorded.
+    func testEditingTheAllowanceAmountSendsTheRuleStartDateBackUnchanged() async throws {
+        let local = try LocalWalletRepository(directory: directory)
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        let calendar = Calendar.current
+        let nextFriday = AllowancePlan.nextPayoutDay(onOrAfter: calendar.startOfDay(for: .now), weekday: 5, calendar: calendar)
+        let head = CloudDayFormat.string(from: nextFriday)
+        let current = CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage, nextDueDate: head, nextOccurrenceID: "o-head")
+        transport.stub("GET", "/v1/cloud/bootstrap", current)
+        transport.stub("GET", "/v1/cloud/changes", current)
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: nextFriday, occurrenceID: "o-head"))
+        let cloud = CloudWalletRepository(client: client(transport), replica: local, lineageID: lineage, revision: 2)
+        _ = try await cloud.bootstrap()
+        let store = elevatedStore(repository: cloud, coordinator: nil)
+        await waitUntilParentReadSettles(store, transport)
+
+        let plan = try XCTUnwrap(store.snapshot.allowance)
+        XCTAssertEqual(plan.amountCents, 500)
+        XCTAssertEqual(plan.startDate.map { CloudDayFormat.string(from: $0) }, "2026-07-01", "the plan carries the service's fixed start date")
+        XCTAssertTrue(store.canStartParentMutation)
+
+        // The service accepts the edit at revision 3 and answers every later
+        // read with the rule at the new amount.
+        transport.stub("PUT", "/v1/allowance-rule", CloudSliceFixtures.revisionAccepted(revision: 3))
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            CloudSliceFixtures.bootstrapWithAllowance(lineage: lineage, amountCents: 1_250, nextDueDate: head, nextOccurrenceID: "o-head", revision: 3)
+        )
+        transport.stub("GET", "/v1/allowance-rule", CloudSliceFixtures.allowanceSchedule(dueDate: nextFriday, occurrenceID: "o-head", amountCents: 1_250))
+
+        let recorded = await store.setAllowance(AllowanceRuleCommand(editing: plan, amountCents: 1_250, weekday: 5))
+
+        XCTAssertTrue(recorded)
+        XCTAssertNil(store.errorMessage)
+        XCTAssertEqual(store.latestParentMutationOutcome, .recorded)
+        XCTAssertEqual(store.snapshot.allowance?.amountCents, 1_250, "the Parent area shows the new amount")
+        XCTAssertEqual(store.snapshot.allowance?.startDate.map { CloudDayFormat.string(from: $0) }, "2026-07-01")
+        let put = try XCTUnwrap(transport.requests.first { $0.httpMethod == "PUT" && $0.url?.path == "/v1/allowance-rule" })
+        let body = try XCTUnwrap(put.httpBody).jsonObject()
+        XCTAssertEqual(body["startDate"] as? String, "2026-07-01", "the stored start date goes back unchanged")
+        XCTAssertEqual(body["amountCents"] as? Int, 1_250)
+        XCTAssertEqual(body["weekday"] as? Int, 5)
+        XCTAssertEqual(body["cadence"] as? String, "weekly")
+        XCTAssertEqual(put.value(forHTTPHeaderField: "If-Match"), "\"rev-2\"")
+    }
+
     func testCloudToLocalHandoffPersistsAnExhaustedAllowanceWithoutReopeningWeeks() async throws {
         let local = try LocalWalletRepository(directory: directory)
         let lineage = UUID()
@@ -5415,7 +5468,8 @@ enum CloudSliceFixtures {
         startDate: String = "2026-07-01",
         amountCents: Int = 500,
         nextDueDate: String? = nil,
-        nextOccurrenceID: String? = nil
+        nextOccurrenceID: String? = nil,
+        revision: Int64 = 2
     ) -> Data {
         var rule = "{\"id\":\"a-1\",\"amountCents\":\(amountCents),\"cadence\":\"weekly\",\"weekday\":5,\"startDate\":\"\(startDate)\",\"endDate\":null,\"active\":true"
         if let nextDueDate, let nextOccurrenceID {
@@ -5423,6 +5477,7 @@ enum CloudSliceFixtures {
         }
         rule += "}"
         let source = String(decoding: bootstrap(lineage: lineage), as: UTF8.self)
+            .replacingOccurrences(of: "\"revision\":2", with: "\"revision\":\(revision)")
         return Data(source.replacingOccurrences(of: "\"allowanceRule\":null", with: "\"allowanceRule\":\(rule)").utf8)
     }
 

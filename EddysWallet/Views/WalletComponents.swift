@@ -20,6 +20,10 @@ enum DeviceCopy {
 struct ActivityListCard: View {
     let events: [WalletEvent]
     var announcesVirtualMoney: Bool = true
+    /// A trailing row that opens the rest of a capped list, named for what it
+    /// opens ("See all 21 entries"). Absent when the card shows everything.
+    var seeAllTitle: String? = nil
+    var onSeeAll: (() -> Void)? = nil
     let onSelect: (WalletEvent) -> Void
 
     var body: some View {
@@ -28,9 +32,27 @@ struct ActivityListCard: View {
                 ActivityRowView(event: event, announcesVirtualMoney: announcesVirtualMoney) {
                     onSelect(event)
                 }
-                if index < events.count - 1 {
+                if index < events.count - 1 || seeAllTitle != nil {
                     Divider().overlay(EW.Color.border)
                 }
+            }
+            if let seeAllTitle, let onSeeAll {
+                Button(action: onSeeAll) {
+                    HStack {
+                        Text(seeAllTitle)
+                            .font(EW.Font.bodyBold)
+                            .foregroundStyle(EW.Color.primaryActive)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(EW.Color.textTertiary)
+                    }
+                    .padding(.vertical, EW.Space.three)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("parent-activity-see-all")
             }
         }
         .padding(.horizontal, EW.Space.five)
@@ -117,7 +139,7 @@ struct LoanCardView: View {
                         Text(loan.isPaid ? "Loan paid off" : "\(Money(cents: loan.remainingCents).display) left to repay")
                             .font(EW.Font.headingSmall)
                             .foregroundStyle(EW.Color.textPrimary)
-                        Text(isParent ? "Secondary wallet card" : "A little at a time is okay")
+                        Text(isParent ? "Details and payments" : "A little at a time is okay")
                             .font(EW.Font.caption)
                             .foregroundStyle(EW.Color.textSecondary)
                     }
@@ -181,6 +203,63 @@ struct ActionButton: View {
         .buttonStyle(ActionButtonStyle(tint: tint))
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.5)
+    }
+}
+
+/// One of the Parent area's main actions: an icon, the action's name, and a
+/// line saying what it does or where the wallet stands. Four of them sit
+/// directly under the balance so nothing a parent came to do is below the
+/// fold. Fill, stroke and hit target share `ActionButtonMetrics.shape`, like
+/// `ActionButton`, so the tinted fill never leaves unfilled corners. The
+/// accessibility label is the title alone; the detail line is its hint.
+struct ActionTile: View {
+    let title: String
+    let detail: String
+    let icon: String
+    let tint: Color
+    let background: Color
+    var isEnabled = true
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: EW.Space.two) {
+                IconBadge(icon, foreground: EW.Color.white, background: tint, size: 32)
+                Text(title)
+                    .font(EW.Font.bodyBold)
+                    .foregroundStyle(EW.Color.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(detail)
+                    .font(EW.Font.caption)
+                    .foregroundStyle(EW.Color.textSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .buttonStyle(ActionTileStyle(background: background))
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.5)
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
+    }
+}
+
+private struct ActionTileStyle: ButtonStyle {
+    let background: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(EW.Space.four)
+            .frame(minHeight: 104)
+            .background(background, in: ActionButtonMetrics.shape)
+            .overlay {
+                ActionButtonMetrics.shape
+                    .stroke(EW.Color.ink900.opacity(configuration.isPressed ? 0.18 : 0.08), lineWidth: 1)
+            }
+            .contentShape(ActionButtonMetrics.shape)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

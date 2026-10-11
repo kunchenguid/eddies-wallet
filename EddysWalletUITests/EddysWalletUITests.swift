@@ -8,7 +8,10 @@ import XCTest
 /// PIN 1234) - no real accounts, families, or services.
 final class EddysWalletUITests: XCTestCase {
     private let doorLabel = "Parent area. Asks for the parent PIN."
-    private let parentActionTitles = ["Add deposit", "Record withdrawal", "Create loan", "Pay toward loan", "Pay out allowance"]
+    /// The actions every Parent area carries. The loan tile follows the
+    /// wallet - `Create loan` with no open loan, `Pay toward loan` with one -
+    /// so tests name it per scenario.
+    private let parentActionTitles = ["Add deposit", "Record withdrawal", "Allowance"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -85,6 +88,20 @@ final class EddysWalletUITests: XCTestCase {
 
     private func openDeposit(in app: XCUIApplication) {
         openParentAction("Add deposit", in: app)
+    }
+
+    /// Cloud, child profile, PIN, connection details, sign-out and deletion
+    /// live on their own screen behind the gear in the Parent area bar.
+    private func openParentSettings(in app: XCUIApplication) {
+        let gear = app.buttons["parent-settings"]
+        XCTAssertTrue(gear.waitForExistence(timeout: 5), "the Parent area bar must carry the settings gear")
+        gear.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5), "the gear must open the settings screen")
+    }
+
+    private func closeParentSettings(in app: XCUIApplication) {
+        app.navigationBars["Settings"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Parent area"].waitForExistence(timeout: 5))
     }
 
     private func openParentAction(_ title: String, in app: XCUIApplication) {
@@ -329,21 +346,20 @@ final class EddysWalletUITests: XCTestCase {
             "Parent balance card must keep the nonredeemable / no-real-money notice"
         )
 
-        // Parent review copy stays firm when recording money.
+        // The one-step money sheet keeps the notice beside its confirm control.
         let deposit = app.buttons["Add deposit"]
-        for _ in 0..<4 where !deposit.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(deposit.waitForExistence(timeout: 5))
+        XCTAssertTrue(deposit.isHittable, "the money actions sit on the first screen")
         deposit.tap()
         let amountField = app.textFields["Amount in virtual dollars"]
         XCTAssertTrue(amountField.waitForExistence(timeout: 5))
         amountField.tap()
         amountField.typeText("1.00")
-        app.buttons["Review"].tap()
+        XCTAssertEqual(app.buttons["money-flow-primary"].label, "Add US$1.00", "the confirm control names what it records")
+        let notices = app.staticTexts.matching(NSPredicate(format: "label == %@", parentNotice))
         XCTAssertTrue(
-            app.staticTexts[parentNotice].waitForExistence(timeout: 5),
-            "Parent money flow review must keep the virtual-money notice"
+            notices.allElementsBoundByIndex.contains { $0.isHittable },
+            "Parent money sheet must keep the virtual-money notice on the sheet itself"
         )
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
@@ -375,20 +391,20 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
 
         openParentArea(in: app)
-        for title in parentActionTitles {
+        for title in parentActionTitles + ["Pay toward loan"] {
             let button = app.buttons[title]
             XCTAssertTrue(button.exists, "\(title) must exist inside the Parent area")
             XCTAssertGreaterThanOrEqual(button.frame.height, 44, "\(title) hit target must be at least 44pt tall")
             XCTAssertGreaterThan(button.frame.width, 44, "\(title) hit target must stay wide enough to tap")
+            XCTAssertTrue(button.isHittable, "\(title) must be on the first screen, not below the fold")
         }
+        XCTAssertFalse(app.buttons["Create loan"].exists, "with a loan open, the loan action is the payment")
         let depositButton = app.buttons["Add deposit"]
-        for _ in 0..<4 where !depositButton.isHittable {
-            app.swipeUp()
-        }
-        XCTAssertTrue(depositButton.isHittable)
         try assertActionButtonCornersAreFilled(depositButton)
+        openParentSettings(in: app)
         XCTAssertTrue(app.buttons["Sign out"].exists)
         XCTAssertTrue(app.buttons["Change PIN"].exists)
+        closeParentSettings(in: app)
 
         // Exercise one action path so the filled control is the real parent
         // chrome, not a disconnected preview.
@@ -449,10 +465,8 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 
+        openParentSettings(in: app)
         let card = app.otherElements["cloud-backup-sync-card"]
-        for _ in 0..<10 where !card.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(card.waitForExistence(timeout: 5))
 
         XCTAssertFalse(app.descendants(matching: .any)["cloud-storekit-diagnostics-link"].exists)
@@ -477,10 +491,8 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["kid-cloud-replica-unavailable"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 
+        openParentSettings(in: app)
         let card = app.otherElements["cloud-backup-sync-card"]
-        for _ in 0..<10 where !card.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         XCTAssertTrue(
             app.descendants(matching: .any)
@@ -556,10 +568,11 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(element.isHittable, "\(description) must be tappable without hunting for it", file: file, line: line)
     }
 
-    // The review step's decision controls stay fully on screen: a confirm
-    // affordance clipped at the fold is how a parent records nothing, or the
-    // wrong thing.
-    func testAddDepositReviewKeepsConfirmAndBackFullyOnScreen() throws {
+    // A deposit is one sheet: the confirm control names the amount, shows
+    // the balance the wallet will have, stays fully on screen, and the same
+    // sheet confirms Recorded. A confirm affordance clipped at the fold is
+    // how a parent records nothing, or the wrong thing.
+    func testAddDepositRecordsInOneSheetWithItsConfirmControlFullyOnScreen() throws {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
@@ -567,19 +580,26 @@ final class EddysWalletUITests: XCTestCase {
         openDeposit(in: app)
         let amount = app.textFields["Amount in virtual dollars"]
         XCTAssertTrue(amount.waitForExistence(timeout: 5))
-        // Tapped explicitly: this test is about the review step's layout, so it
-        // must not depend on the amount step already holding focus.
+        let confirm = app.buttons["money-flow-primary"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        XCTAssertEqual(confirm.label, "Add deposit", "with no amount the control only names the action")
+        XCTAssertFalse(confirm.isEnabled)
+        // Tapped explicitly: this test is about the sheet's layout, so it must
+        // not depend on the amount step already holding focus.
         amount.tap()
         amount.typeText("5.00")
-        app.buttons["Review"].tap()
+        XCTAssertEqual(confirm.label, "Add US$5.00")
+        XCTAssertTrue(app.staticTexts["US$29.00"].waitForExistence(timeout: 3), "the sheet shows the resulting accepted balance")
+        assertActionIsReachable(confirm, "the confirm control with the keyboard up", in: app)
+        XCTAssertFalse(app.buttons["Review"].exists, "a deposit has no separate review step")
 
-        let confirm = app.buttons["Confirm add deposit"]
-        assertActionIsReachable(confirm, "the confirm control", in: app)
-        assertActionIsReachable(app.buttons["Back"], "the way back", in: app)
-
-        // The pinned controls are the real ones, so the flow still completes.
         confirm.tap()
         XCTAssertTrue(app.otherElements["money-flow-result"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Recorded"].exists)
+        XCTAssertTrue(app.staticTexts["Added US$5.00 to Eddie's wallet. New balance US$29.00."].exists)
+        assertActionIsReachable(app.buttons["Done"], "the result's Done control", in: app)
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.staticTexts["US$29.00"].waitForExistence(timeout: 5), "the Parent area shows the new balance")
     }
 
     // The reported iPad failure, generalised: the amount step opens with the
@@ -595,28 +615,32 @@ final class EddysWalletUITests: XCTestCase {
         openDeposit(in: app)
         let amount = app.textFields["Amount in virtual dollars"]
         XCTAssertTrue(amount.waitForExistence(timeout: 5))
-        assertActionIsReachable(app.buttons["Review"], "the deposit review control", in: app)
+        assertActionIsReachable(app.buttons["money-flow-primary"], "the deposit confirm control", in: app)
         amount.tap()
         amount.typeText("5.00")
-        assertActionIsReachable(app.buttons["Review"], "the deposit review control with the keyboard up", in: app)
+        assertActionIsReachable(app.buttons["money-flow-primary"], "the deposit confirm control with the keyboard up", in: app)
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
 
-        let loan = app.buttons["Create loan"]
-        for _ in 0..<6 where !loan.isHittable { app.swipeUp() }
+        // Creating a loan is offered while none is open.
+        let empty = launch("configured-empty")
+        XCTAssertTrue(empty.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: empty)
+        let loan = empty.buttons["Create loan"]
+        XCTAssertTrue(loan.waitForExistence(timeout: 5))
         loan.tap()
-        XCTAssertTrue(app.textFields["Amount in virtual dollars"].waitForExistence(timeout: 5))
-        assertActionIsReachable(app.buttons["Review"], "the loan review control", in: app)
+        XCTAssertTrue(empty.textFields["Amount in virtual dollars"].waitForExistence(timeout: 5))
+        assertActionIsReachable(empty.buttons["Review"], "the loan review control", in: empty)
         // The due-date row is content, so it may need a scroll on a short
         // screen - but it must genuinely be scrollable to, never trapped.
-        let duePicker = app.datePickers.firstMatch
-        let sheetScroll = app.scrollViews.matching(
+        let duePicker = empty.datePickers.firstMatch
+        let sheetScroll = empty.scrollViews.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "sheet-form-scroll-fade-")
         ).firstMatch
         XCTAssertTrue(sheetScroll.waitForExistence(timeout: 5))
         for _ in 0..<4 where !duePicker.isHittable { sheetScroll.swipeUp() }
         XCTAssertTrue(duePicker.isHittable, "the loan due date must be reachable by scrolling the sheet")
-        assertActionIsReachable(app.buttons["Review"], "the loan review control after scrolling", in: app)
+        assertActionIsReachable(empty.buttons["Review"], "the loan review control after scrolling", in: empty)
     }
 
     // Creating a weekly allowance must finish: the set-allowance sheet dismisses
@@ -632,24 +656,24 @@ final class EddysWalletUITests: XCTestCase {
         setAllowance.tap()
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
 
-        app.buttons["Review allowance"].tap()
-        let confirm = app.buttons["Confirm allowance"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        confirm.tap()
+        let save = app.buttons["allowance-save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        XCTAssertEqual(save.label, "Save US$10.00 every Friday", "the save control is the review sentence")
+        save.tap()
 
         XCTAssertTrue(
             app.staticTexts["Set allowance"].waitForNonExistence(timeout: 8),
             "the allowance sheet must dismiss after a successful create"
         )
-        XCTAssertFalse(
-            app.buttons["Confirm allowance"].exists,
-            "the leftover review dialog must not stay on screen after a successful create"
-        )
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Next allowance"].waitForExistence(timeout: 5))
         XCTAssertTrue(
-            app.staticTexts["US$10.00 every week"].waitForExistence(timeout: 5),
+            app.staticTexts["US$10.00 every Friday"].waitForExistence(timeout: 5),
             "the Parent area must show the schedule that was just created"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Allowance is now US$10.00 every Friday."].exists,
+            "the Parent area confirms the saved plan in its own words"
         )
     }
 
@@ -663,16 +687,17 @@ final class EddysWalletUITests: XCTestCase {
         setAllowance.tap()
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
 
-        app.buttons["Review allowance"].tap()
-        let confirm = app.buttons["Confirm allowance"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        confirm.doubleTap()
+        let save = app.buttons["allowance-save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        save.doubleTap()
 
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForNonExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Next allowance"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["US$10.00 every week"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Starting Jan 14"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["US$10.00 every Friday"].waitForExistence(timeout: 5))
+        // The scenario's seeded start is Wednesday Jan 7, 2099, so the first
+        // Friday is Jan 9 and the service's advanced schedule lands on Jan 16.
+        XCTAssertTrue(app.staticTexts["Fri, Jan 16"].waitForExistence(timeout: 5))
     }
 
     func testConfirmedAllowanceRefreshDismissesAndShowsReturnedSchedule() throws {
@@ -685,37 +710,36 @@ final class EddysWalletUITests: XCTestCase {
         setAllowance.tap()
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
 
-        app.buttons["Review allowance"].tap()
-        let confirm = app.buttons["Confirm allowance"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        confirm.tap()
+        let save = app.buttons["allowance-save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        save.tap()
 
         let refresh = app.buttons["Refresh allowance schedule"]
         XCTAssertTrue(refresh.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Set allowance"].exists)
 
-        app.buttons["Close"].tap()
+        app.buttons["Cancel"].tap()
         XCTAssertTrue(app.staticTexts["Set allowance"].waitForNonExistence(timeout: 5))
         let allowanceCard = app.buttons["parent-allowance-card"]
         for _ in 0..<8 where !allowanceCard.isHittable { app.swipeDown() }
         XCTAssertTrue(allowanceCard.isHittable)
         allowanceCard.tap()
-        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+        // Cloud accepted the plan, so the sheet reopens as the editor.
+        XCTAssertTrue(app.navigationBars["Allowance"].waitForExistence(timeout: 5))
         let reopenedRefresh = app.buttons["Refresh allowance schedule"]
         XCTAssertTrue(reopenedRefresh.waitForExistence(timeout: 5))
         reopenedRefresh.tap()
 
-        XCTAssertTrue(app.staticTexts["Set allowance"].waitForNonExistence(timeout: 8))
+        XCTAssertTrue(reopenedRefresh.waitForNonExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Next allowance"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["US$10.00 every week"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["US$10.00 every Friday"].waitForExistence(timeout: 5))
 
         XCTAssertTrue(allowanceCard.isHittable)
         allowanceCard.tap()
-        let review = app.buttons["Review allowance"]
-        XCTAssertTrue(review.waitForExistence(timeout: 5))
-        XCTAssertTrue(review.isEnabled, "the resolved allowance editor must not remain blocked")
-        app.buttons["Close"].tap()
+        XCTAssertTrue(app.buttons["allowance-save"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Refresh allowance schedule"].exists, "the resolved allowance editor must not remain blocked")
+        app.buttons["Cancel"].tap()
     }
 
     func testPendingAllowanceCreateKeepsTheSheetOpenWithRecoveryStatus() throws {
@@ -727,22 +751,27 @@ final class EddysWalletUITests: XCTestCase {
         for _ in 0..<8 where !allowanceCard.isHittable { app.swipeDown() }
         XCTAssertTrue(allowanceCard.waitForExistence(timeout: 5))
         allowanceCard.tap()
-        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Allowance"].waitForExistence(timeout: 5))
 
-        app.buttons["Review allowance"].tap()
-        let confirm = app.buttons["Confirm allowance"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        confirm.tap()
+        let save = app.buttons["allowance-save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        XCTAssertFalse(save.isEnabled, "nothing has changed yet, so there is nothing to save")
+        let amount = app.textFields["allowance-weekly-amount"]
+        amount.tap()
+        amount.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
+        amount.typeText("12.50")
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
 
         XCTAssertTrue(
-            app.staticTexts["Set allowance"].waitForExistence(timeout: 5),
-            "an unconfirmed allowance create must keep its sheet open"
+            app.navigationBars["Allowance"].waitForExistence(timeout: 5),
+            "an unconfirmed allowance change must keep its sheet open"
         )
         XCTAssertTrue(
             app.staticTexts["Cloud has not confirmed this change yet. This device will retry the same protected request. Do not save it again."].waitForExistence(timeout: 5),
             "the open allowance sheet must show its recovery status"
         )
-        XCTAssertTrue(app.buttons["Close"].exists)
+        XCTAssertTrue(app.buttons["Cancel"].exists)
     }
 
     // Every money-amount field in the app - deposit, withdrawal, loan,
@@ -763,42 +792,52 @@ final class EddysWalletUITests: XCTestCase {
         for _ in 0..<8 where !allowanceCard.isHittable { app.swipeDown() }
         XCTAssertTrue(allowanceCard.waitForExistence(timeout: 5))
         allowanceCard.tap()
-        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Allowance"].waitForExistence(timeout: 5))
 
         XCUIDevice.shared.orientation = .landscapeLeft
         waitForLandscape(in: app)
         assertFocusedAmountFieldIsFullyAboveKeyboard(
             app.textFields["allowance-weekly-amount"],
             in: app,
-            primaryAction: app.buttons["Review allowance"],
-            compactPeerAction: app.buttons["allowance-save-draft"],
+            primaryAction: app.buttons["allowance-save"],
             focusAfterPreScrolling: true
         )
-        app.buttons["Close"].tap()
+        app.buttons["Cancel"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
 
         let moneyFlows = [
             "Add deposit",
             "Record withdrawal",
-            "Create loan",
             "Pay toward loan",
-            "Pay out allowance",
         ]
         for title in moneyFlows {
             openParentAction(title, in: app)
             assertFocusedAmountFieldIsFullyAboveKeyboard(
                 app.textFields["Amount in virtual dollars"],
                 in: app,
-                primaryAction: app.buttons["Review"]
+                primaryAction: app.buttons["money-flow-primary"]
             )
             app.buttons["Cancel"].tap()
             XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         }
+        XCUIDevice.shared.orientation = .portrait
 
-        openParentAction("Create loan", in: app)
-        let paymentPlan = app.segmentedControls["loan-payment-plan"]
+        // Creating a loan is offered while none is open, so it gets a wallet
+        // of its own; its payment plan field is the deepest money field there is.
+        let empty = launch("configured-empty")
+        XCTAssertTrue(empty.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        openParentArea(in: empty)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        waitForLandscape(in: empty)
+        openParentAction("Create loan", in: empty)
+        assertFocusedAmountFieldIsFullyAboveKeyboard(
+            empty.textFields["Amount in virtual dollars"],
+            in: empty,
+            primaryAction: empty.buttons["Review"]
+        )
+        let paymentPlan = empty.segmentedControls["loan-payment-plan"]
         XCTAssertTrue(paymentPlan.waitForExistence(timeout: 5))
-        let loanScroll = app.scrollViews.matching(
+        let loanScroll = empty.scrollViews.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "sheet-form-scroll-fade-")
         ).firstMatch
         for _ in 0..<6 where !paymentPlan.isHittable {
@@ -807,17 +846,17 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(paymentPlan.isHittable)
         paymentPlan.buttons["Weekly"].tap()
         assertFocusedAmountFieldIsFullyAboveKeyboard(
-            app.textFields["loan-payment-amount"],
-            in: app,
-            primaryAction: app.buttons["Review"],
+            empty.textFields["loan-payment-amount"],
+            in: empty,
+            primaryAction: empty.buttons["Review"],
             focusAfterPreScrolling: true
         )
-        app.buttons["Cancel"].tap()
-        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        empty.buttons["Cancel"].tap()
+        XCTAssertTrue(empty.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }
 
     func testLoanCreationDefaultsToNoPlanAndRevealsOptionalPaymentFields() throws {
-        let app = launch("configured")
+        let app = launch("configured-empty")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 
@@ -843,7 +882,7 @@ final class EddysWalletUITests: XCTestCase {
         let phoneOverflowArguments = UIDevice.current.userInterfaceIdiom == .pad
             ? []
             : ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
-        let app = launch("configured", arguments: phoneOverflowArguments)
+        let app = launch("configured-empty", arguments: phoneOverflowArguments)
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 
@@ -898,23 +937,15 @@ final class EddysWalletUITests: XCTestCase {
         let allowanceCard = app.buttons["parent-allowance-card"]
         for _ in 0..<8 where !allowanceCard.isHittable { app.swipeDown() }
         allowanceCard.tap()
-        XCTAssertTrue(app.staticTexts["Set allowance"].waitForExistence(timeout: 5))
-        assertActionIsReachable(app.buttons["Review allowance"], "the allowance review control", in: app)
-        // Addressed by identifier: its label names the device it is running on.
-        assertActionIsReachable(app.buttons["allowance-save-draft"], "the allowance draft control", in: app)
-        XCTAssertEqual(
-            app.buttons["allowance-save-draft"].label,
-            "Save as draft on this \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone")",
-            "the draft control must name the device it is actually running on"
-        )
-        app.buttons["Review allowance"].tap()
-        assertActionIsReachable(app.buttons["Confirm allowance"], "the allowance confirmation control", in: app)
-        app.buttons["Back"].tap()
-        app.buttons["Close"].tap()
+        XCTAssertTrue(app.navigationBars["Allowance"].waitForExistence(timeout: 5))
+        assertActionIsReachable(app.buttons["allowance-save"], "the allowance save control", in: app)
+        XCTAssertFalse(app.buttons["allowance-save-draft"].exists, "the draft control that saved nothing is gone")
+        app.buttons["Cancel"].tap()
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
 
+        openParentSettings(in: app)
         let changePIN = app.buttons["Change PIN"]
-        for _ in 0..<8 where !changePIN.isHittable { app.swipeUp() }
+        XCTAssertTrue(changePIN.waitForExistence(timeout: 5))
         changePIN.tap()
         XCTAssertTrue(app.staticTexts["Change PIN"].waitForExistence(timeout: 5))
         assertActionIsReachable(app.buttons["Save new PIN"], "the change-PIN save control", in: app)
@@ -923,10 +954,10 @@ final class EddysWalletUITests: XCTestCase {
         currentPIN.typeText("1234")
         assertActionIsReachable(app.buttons["Save new PIN"], "the change-PIN save control with the keyboard up", in: app)
         app.buttons["Cancel"].tap()
-        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
 
         let editProfile = app.buttons["edit-child-profile-settings"]
-        for _ in 0..<8 where !editProfile.isHittable { app.swipeUp() }
+        XCTAssertTrue(editProfile.waitForExistence(timeout: 5))
         editProfile.tap()
         XCTAssertTrue(app.staticTexts["Child profile"].waitForExistence(timeout: 5))
         assertActionIsReachable(app.buttons["Save child profile"], "the child-profile save control", in: app)
@@ -948,7 +979,7 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
 
         openParentArea(in: app)
-        let loanCard = app.staticTexts["Secondary wallet card"].firstMatch
+        let loanCard = app.staticTexts["Details and payments"].firstMatch
         for _ in 0..<6 where !loanCard.isHittable { app.swipeUp() }
         loanCard.tap()
         XCTAssertTrue(app.staticTexts["Loan details"].waitForExistence(timeout: 5))
@@ -965,10 +996,8 @@ final class EddysWalletUITests: XCTestCase {
             "The redundant top child-profile entry must be removed; Settings is the single edit path"
         )
 
+        openParentSettings(in: app)
         let settingsRow = app.descendants(matching: .any)["edit-child-profile-settings"]
-        for _ in 0..<4 where !settingsRow.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(settingsRow.waitForExistence(timeout: 5), "Settings must expose Edit child profile")
         settingsRow.tap()
 
@@ -989,12 +1018,11 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Child profile saved."].waitForExistence(timeout: 5))
         app.navigationBars.buttons["Done"].tap()
 
-        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Maya's virtual balance"].waitForExistence(timeout: 5), "Parent summary must show the saved nickname")
-
-        // Settings still exposes the same editor.
-        app.swipeUp()
+        // Settings still exposes the same editor, and the Parent area shows
+        // the saved nickname once the settings screen is closed.
         XCTAssertTrue(app.descendants(matching: .any)["edit-child-profile-settings"].waitForExistence(timeout: 5))
+        closeParentSettings(in: app)
+        XCTAssertTrue(app.staticTexts["Maya's virtual balance"].waitForExistence(timeout: 5), "Parent summary must show the saved nickname")
 
         app.buttons["Done. Back to Maya's wallet"].tap()
         XCTAssertTrue(app.staticTexts["Hi, Maya"].waitForExistence(timeout: 5), "Kid home must use the saved nickname")
@@ -1077,6 +1105,7 @@ final class EddysWalletUITests: XCTestCase {
         let app = launch("configured", environment: ["EW_UITEST_DIAGNOSTICS": "1"])
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
+        openParentSettings(in: app)
 
         let link = app.descendants(matching: .any)["cloud-storekit-diagnostics-link"]
         for _ in 0..<10 where !link.isHittable {
@@ -1109,10 +1138,8 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 
+        openParentSettings(in: app)
         let card = app.otherElements["cloud-backup-sync-card"]
-        for _ in 0..<8 where !card.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["cloud-plans-unavailable-note"].exists, "an unavailable backend says so plainly")
         XCTAssertFalse(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"].exists)
@@ -1130,10 +1157,8 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 
+        openParentSettings(in: app)
         let card = app.otherElements["cloud-backup-sync-card"]
-        for _ in 0..<8 where !card.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         let note = app.staticTexts["cloud-plans-unavailable-note"]
         XCTAssertTrue(note.exists)
@@ -1150,10 +1175,8 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 
+        openParentSettings(in: app)
         let card = app.otherElements["cloud-backup-sync-card"]
-        for _ in 0..<8 where !card.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         let note = app.staticTexts["cloud-plans-unavailable-note"]
         XCTAssertTrue(note.exists)
@@ -1176,10 +1199,8 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
 
+        openParentSettings(in: app)
         let card = app.otherElements["cloud-backup-sync-card"]
-        for _ in 0..<8 where !card.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"].exists)
         XCTAssertTrue(app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"].exists)
@@ -1271,14 +1292,14 @@ final class EddysWalletUITests: XCTestCase {
             notice.exists,
             "a parent pull-to-refresh must not raise the reconnect/review block"
         )
-        for title in parentActionTitles {
+        for title in parentActionTitles + ["Create loan"] {
             let action = app.buttons[title]
             XCTAssertTrue(action.exists, "\(title) must stay in the parent area")
             XCTAssertTrue(action.isEnabled, "\(title) must stay usable after a plain refresh")
         }
+        openParentSettings(in: app)
         let syncingNote = app.descendants(matching: .any)["cloud-syncing-note"]
-        for _ in 0..<8 where !syncingNote.exists { app.swipeUp() }
-        XCTAssertTrue(syncingNote.exists, "the wallet is still in sync, so the green line stays")
+        XCTAssertTrue(syncingNote.waitForExistence(timeout: 5), "the wallet is still in sync, so the green line stays")
     }
 
     /// The kid home's own pull, on the same real Cloud repository: a read that
@@ -1426,6 +1447,7 @@ final class EddysWalletUITests: XCTestCase {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
+        openParentSettings(in: app)
 
         app.buttons["Sign out"].tap()
         let deviceNoun = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
@@ -1450,11 +1472,9 @@ final class EddysWalletUITests: XCTestCase {
         let app = launch("delete-account-subscribed")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         openParentArea(in: app)
+        openParentSettings(in: app)
 
         let entry = app.descendants(matching: .any)["delete-account-settings"]
-        for _ in 0..<10 where !entry.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(entry.waitForExistence(timeout: 5), "Delete account must be inside the PIN-gated Parent area")
         entry.tap()
 
@@ -1587,8 +1607,8 @@ final class EddysWalletUITests: XCTestCase {
         )
 
         _ = openParentArea(in: app)
+        openParentSettings(in: app)
         let details = app.buttons["connection-details-settings"]
-        for _ in 0..<8 where !details.isHittable { app.swipeUp() }
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         details.tap()
 

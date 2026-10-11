@@ -339,12 +339,17 @@ enum DebugLaunchScenario {
             // reads after bootstrap, so a parent area with a valid replica can
             // be driven into a genuine block and back out of it without making
             // the scenario depend on simulator launch or automation timing.
+            // `EW_UITEST_CLOUD_ALLOWANCE=1` gives the household a live weekly
+            // allowance rule and serves `/v1/allowance-rule` the way the
+            // service does - a fixed start date, an editable amount and day -
+            // so the allowance editor can be driven against the real rule.
             guard let replica = try? LocalWalletRepository(inMemory: true) else { return nil }
             let lineage = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
             let transport = SyntheticCloudTransport(
                 lineageID: lineage,
                 readDelay: seconds(environment["EW_UITEST_CLOUD_READ_DELAY_SECONDS"], default: 0.6),
-                failedReads: count(environment["EW_UITEST_CLOUD_FAILED_READS"])
+                failedReads: count(environment["EW_UITEST_CLOUD_FAILED_READS"]),
+                allowance: environment["EW_UITEST_CLOUD_ALLOWANCE"] == "1" ? .sample() : nil
             )
             let cloud = CloudWalletRepository(
                 client: CloudAPIClient(
@@ -374,12 +379,41 @@ enum DebugLaunchScenario {
     /// Optional `EW_UITEST_NICKNAME` override for brand-placement and copy
     /// proofs. Absent => keep the synthetic fixture nickname ("Eddie").
     /// Present but blank => nil nickname so neutral fallbacks can be reviewed.
+    /// Optional `EW_UITEST_ACTIVITY_ROWS=N` appends N older synthetic activity
+    /// rows after the fixture's own, one per day, so a long history can be
+    /// reviewed and tested without a long-lived wallet.
     private static func snapshot(_ base: WalletSnapshot, environment: [String: String]) -> WalletSnapshot {
-        guard let raw = environment["EW_UITEST_NICKNAME"] else { return base }
         var copy = base
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        copy.childNickname = trimmed.isEmpty ? nil : trimmed
+        if let raw = environment["EW_UITEST_NICKNAME"] {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            copy.childNickname = trimmed.isEmpty ? nil : trimmed
+        }
+        copy.activities += paddedActivities(
+            count: count(environment["EW_UITEST_ACTIVITY_ROWS"]),
+            after: copy.activities.last?.date ?? .now
+        )
         return copy
+    }
+
+    private static func paddedActivities(count: Int, after date: Date) -> [WalletEvent] {
+        guard count > 0 else { return [] }
+        let calendar = Calendar.current
+        let reasons = ["Chores", "Snack", "Weekly", "Birthday card", "Book fair", "Lemonade stand", "Movie night", "Saved up"]
+        return (0..<count).map { index in
+            let type: ActivityType = [.withdrawal, .deposit, .allowance][index % 3]
+            let amountCents = switch type {
+            case .withdrawal: 300 + (index % 4) * 125
+            case .deposit: 500
+            default: 1_000
+            }
+            return WalletEvent(
+                type: type,
+                amountCents: amountCents,
+                reason: reasons[index % reasons.count],
+                date: calendar.date(byAdding: .day, value: -(index + 1), to: date) ?? date,
+                explanation: "Synthetic history row for review and tests."
+            )
+        }
     }
 
     /// A plausible renewal date for synthetic Cloud states. `.distantFuture`
@@ -560,11 +594,19 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var readCount = 0
     private var failedReadsRemaining: Int
+    private var allowance: SyntheticAllowanceRule?
+    private var revision: Int64 = 2
 
-    init(lineageID: UUID, readDelay: TimeInterval, failedReads: Int = 0) {
+    init(
+        lineageID: UUID,
+        readDelay: TimeInterval,
+        failedReads: Int = 0,
+        allowance: SyntheticAllowanceRule? = nil
+    ) {
         self.lineageID = lineageID
         self.readDelay = readDelay
         self.failedReadsRemaining = failedReads
+        self.allowance = allowance
     }
 
     /// How many `/v1/cloud/changes` reads this transport has been asked for.
@@ -576,7 +618,12 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
         let path = request.url?.path ?? ""
         switch path {
         case "/v1/cloud/bootstrap":
-            return try respond(Self.replica(lineageID: lineageID), to: request)
+            return try respond(replica(), to: request)
+        case "/v1/allowance-rule" where request.httpMethod == "GET":
+            let rule = lock.withLock { allowance?.json ?? "null" }
+            return try respond(Data("{\"allowanceRule\":\(rule)}".utf8), to: request)
+        case "/v1/allowance-rule" where request.httpMethod == "PUT":
+            return try setAllowance(request)
         case "/v1/cloud/changes":
             let shouldFail = lock.withLock {
                 readCount += 1
@@ -598,10 +645,45 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
                     throw URLError(.cancelled)
                 }
             }
-            return try respond(Self.replica(lineageID: lineageID), to: request)
+            return try respond(replica(), to: request)
         default:
             return try respond(Data("{}".utf8), to: request, status: 501)
         }
+    }
+
+    /// Mirrors the service's `PUT /v1/allowance-rule` on an existing rule: a
+    /// new amount, weekday and end date are accepted and advance the
+    /// household revision, and the scheduled head moves to the next payout
+    /// day on or after today; a changed start date is refused with the
+    /// service's own 400, word for word.
+    private func setAllowance(_ request: URLRequest) throws -> (Data, URLResponse) {
+        guard let body = request.httpBody,
+              let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let amountCents = object["amountCents"] as? Int,
+              let weekday = object["weekday"] as? Int,
+              let startDate = object["startDate"] as? String else {
+            return try respond(
+                Data(#"{"error":{"code":"VALIDATION_ERROR","message":"amountCents, weekday and startDate are required."}}"#.utf8),
+                to: request,
+                status: 400
+            )
+        }
+        let endDate = object["endDate"] as? String
+        let (responseBody, status): (String, Int) = lock.withLock {
+            if let existing = allowance, existing.startDate != startDate {
+                return (#"{"error":{"code":"VALIDATION_ERROR","message":"startDate cannot change after an allowance rule is created."}}"#, 400)
+            }
+            allowance = SyntheticAllowanceRule(
+                amountCents: amountCents,
+                weekday: weekday,
+                startDate: startDate,
+                endDate: endDate,
+                calendar: .current
+            )
+            revision += 1
+            return ("{\"revision\":\(revision)}", 200)
+        }
+        return try respond(Data(responseBody.utf8), to: request, status: status)
     }
 
     private func respond(_ body: Data, to request: URLRequest, status: Int = 200) throws -> (Data, URLResponse) {
@@ -612,21 +694,73 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
         return (body, response)
     }
 
-    /// One settled household at revision 2: two accepted entries, balance
-    /// US$7.50, no loans and no allowance rule. A `changes` read answers the
-    /// same accepted revision, which is what a healthy wallet with nothing new
-    /// actually returns.
-    private static func replica(lineageID: UUID) -> Data {
-        Data("""
-        {"household":{"lineageId":"\(lineageID.uuidString.lowercased())","authority":"cloud","revision":2},
+    /// One settled household: two accepted entries, balance US$7.50, no loans,
+    /// and the allowance rule this transport was given, if any, at the
+    /// current revision (2 until a write advances it). A `changes` read
+    /// answers the same accepted revision, which is what a healthy wallet with
+    /// nothing new actually returns.
+    private func replica() -> Data {
+        let (rule, revision) = lock.withLock { (allowance?.json ?? "null", self.revision) }
+        return Data("""
+        {"household":{"lineageId":"\(lineageID.uuidString.lowercased())","authority":"cloud","revision":\(revision)},
          "family":{"id":"f-1","name":"Eddie's family"},
          "child":{"id":"c-1","nickname":"Eddie","avatarUrl":null},
          "wallet":{"id":"w-1","balanceCents":750},
          "entries":[
            {"id":"c1111111-1111-4111-8111-111111111111","type":"deposit","direction":"credit","amountCents":1000,"balanceBeforeCents":0,"balanceAfterCents":1000,"reason":"chores","loanId":null,"recordedAt":"2026-07-24T10:00:00.000Z","acceptedRevision":1},
            {"id":"c2222222-2222-4222-8222-222222222222","type":"withdrawal","direction":"debit","amountCents":250,"balanceBeforeCents":1000,"balanceAfterCents":750,"reason":"sticker book","loanId":null,"recordedAt":"2026-07-25T10:00:00.000Z","acceptedRevision":2}],
-         "loans":[],"allowanceRule":null,"nextCursor":null}
+         "loans":[],"allowanceRule":\(rule),"nextCursor":null}
         """.utf8)
+    }
+}
+
+/// The one weekly allowance rule a synthetic Cloud household may carry, kept
+/// the way the service keeps it: `startDate` is a creation-time fact, the
+/// amount, weekday and end date may change, and the scheduled head is the
+/// next payout day on or after today.
+struct SyntheticAllowanceRule {
+    let amountCents: Int
+    let weekday: Int
+    let startDate: String
+    let endDate: String?
+    let nextDueDate: String
+
+    init(amountCents: Int, weekday: Int, startDate: String, endDate: String?, calendar: Calendar) {
+        self.amountCents = amountCents
+        self.weekday = weekday
+        self.startDate = startDate
+        self.endDate = endDate
+        let today = calendar.startOfDay(for: .now)
+        let start = CloudDayFormat.date(from: startDate, calendar: calendar) ?? today
+        let next = Self.nextWeeklyDate(onOrAfter: max(start, today), weekday: weekday, calendar: calendar)
+        self.nextDueDate = CloudDayFormat.string(from: next, calendar: calendar)
+    }
+
+    /// US$10.00 every Friday, started six Fridays before the coming one, so
+    /// the editor opens on a live plan whose start date is already behind it.
+    static func sample(calendar: Calendar = .current) -> SyntheticAllowanceRule {
+        let today = calendar.startOfDay(for: .now)
+        let next = nextWeeklyDate(onOrAfter: today, weekday: 5, calendar: calendar)
+        let start = calendar.date(byAdding: .day, value: -42, to: next) ?? next
+        return SyntheticAllowanceRule(
+            amountCents: 1_000,
+            weekday: 5,
+            startDate: CloudDayFormat.string(from: start, calendar: calendar),
+            endDate: nil,
+            calendar: calendar
+        )
+    }
+
+    /// Weekday 0 is Sunday, as the service counts it; `Calendar` counts from 1.
+    static func nextWeeklyDate(onOrAfter date: Date, weekday: Int, calendar: Calendar) -> Date {
+        let current = calendar.component(.weekday, from: date) - 1
+        let delta = (weekday - current + 7) % 7
+        return calendar.date(byAdding: .day, value: delta, to: date) ?? date
+    }
+
+    var json: String {
+        let end = endDate.map { "\"\($0)\"" } ?? "null"
+        return "{\"id\":\"synthetic-allowance\",\"amountCents\":\(amountCents),\"cadence\":\"weekly\",\"weekday\":\(weekday),\"startDate\":\"\(startDate)\",\"endDate\":\(end),\"active\":true,\"nextOccurrenceId\":\"synthetic-allowance-head\",\"nextDueDate\":\"\(nextDueDate)\"}"
     }
 }
 
