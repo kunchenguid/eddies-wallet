@@ -5,6 +5,7 @@ The native iOS app is then archived with Xcode on GitHub Actions and uploaded to
 This file is the release-please and TestFlight pipeline only. Merging a release PR cuts the tag and uploads a build to TestFlight. It does not submit for App Review, release a reviewed version, or change price or availability. App Review is a separate captain gate in `docs/app-review.md`. The review-status monitor in `docs/app-store-review-monitor.md` is GET-only.
 
 Repository variable `MAC_RUNNER` is `mini-mac`. The TestFlight archive job uses that label. Unset the variable to fall back to hosted `macos-26`. Do not change it as part of an ordinary release.
+That self-hosted runner has no passwordless `sudo`, so the job selects Xcode 26 by exporting `DEVELOPER_DIR` rather than with `sudo xcode-select`; `test/release-checks.sh` runs that step with a `sudo` that always refuses.
 
 ## The captain approval boundary
 
@@ -135,5 +136,6 @@ The safe recovery is to let Xcode automatic signing regenerate a development cer
 
 - Every failing step fails the workflow visibly; the archive and export logs (and any IPA) are uploaded as run artifacts even on failure.
 - Rerun a failed upload from the workflow run page, or dispatch `release.yml` with the release tag. Source identity is preserved by the tag; build identity advances per attempt (see above).
+- A rerun from the run page reuses the workflow as it was at the tag. When the failure was in the workflow itself and its fix is now on `main`, dispatch from `main` instead: `gh workflow run release.yml --ref main -f tag_name=<tag>` runs main's workflow and still checks out and builds exactly the tagged source.
 - If an upload succeeded but processing stalls, query `asc-build-status.yml` rather than rerunning the upload.
 - Nothing in a rerun can publish to the App Store; the pipeline ends at TestFlight.
