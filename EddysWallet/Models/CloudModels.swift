@@ -109,7 +109,7 @@ public enum ParentMutationBlock: Equatable, Sendable, CaseIterable {
         /// published Cloud revision have reached the refusal's floor.
         case readLatest
         /// The one block no read can lift. The way out is the Cloud plan
-        /// surface further down the same screen, so the control goes there.
+        /// surface on the parent settings screen, so the control goes there.
         case cloudPlan
     }
 

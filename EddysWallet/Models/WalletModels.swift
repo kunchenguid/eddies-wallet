@@ -805,6 +805,12 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     public let cadence: String
     public let weekday: Int
     public let nextDate: Date
+    /// The day the rule began, as its authority keeps it. The service fixes it
+    /// at creation and refuses a save that moves it, so the editor shows it as
+    /// fixed and sends it back unchanged; the local store keeps it the same
+    /// way. `nil` only for a plan saved before this field existed, which the
+    /// editor treats as starting at its next payout.
+    public let startDate: Date?
     public let endDate: Date?
     public let nextOccurrenceID: String?
     public let syncState: SyncState
@@ -828,6 +834,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         cadence: String,
         weekday: Int = 5,
         nextDate: Date,
+        startDate: Date? = nil,
         endDate: Date? = nil,
         nextOccurrenceID: String? = nil,
         syncState: SyncState = .recorded,
@@ -838,6 +845,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         self.amountCents = amountCents
         self.cadence = cadence
         self.weekday = weekday
+        self.startDate = startDate
         self.endDate = endDate
         self.syncState = syncState
         self.isExhausted = isExhausted
@@ -893,7 +901,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case remoteID, amountCents, cadence, weekday, nextDate, endDate, nextOccurrenceID, syncState, isExhausted, occurrences
+        case remoteID, amountCents, cadence, weekday, nextDate, startDate, endDate, nextOccurrenceID, syncState, isExhausted, occurrences
     }
 
     public init(from decoder: Decoder) throws {
@@ -905,6 +913,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
             cadence: container.decode(String.self, forKey: .cadence),
             weekday: container.decode(Int.self, forKey: .weekday),
             nextDate: container.decode(Date.self, forKey: .nextDate),
+            startDate: container.decodeIfPresent(Date.self, forKey: .startDate),
             endDate: container.decodeIfPresent(Date.self, forKey: .endDate),
             nextOccurrenceID: container.decodeIfPresent(String.self, forKey: .nextOccurrenceID),
             syncState: container.decode(SyncState.self, forKey: .syncState),
@@ -1005,6 +1014,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
             cadence: cadence,
             weekday: weekday,
             nextDate: followingDate,
+            startDate: startDate,
             endDate: endDate,
             nextOccurrenceID: exhausted ? nil : nextOccurrenceID,
             syncState: syncState,
@@ -1013,14 +1023,73 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
         )
     }
 
+    /// Whether `command` is a change to this plan rather than a new rule: it
+    /// names the plan's own start date, or the plan predates kept start dates
+    /// and the command names the next payout the editor stands in with.
+    public func keepsStartDate(of command: AllowanceRuleCommand, calendar: Calendar = .current) -> Bool {
+        calendar.isDate(startDate ?? nextDate, inSameDayAs: command.startDate)
+    }
+
+    /// The next payout day for `weekday` on or after `date`, the way the
+    /// service places a rule's scheduled head: weekday 0 is Sunday.
+    public static func nextPayoutDay(onOrAfter date: Date, weekday: Int, calendar: Calendar = .current) -> Date {
+        let day = calendar.startOfDay(for: date)
+        let current = calendar.component(.weekday, from: day) - 1
+        let delta = ((weekday - current) % 7 + 7) % 7
+        return calendar.date(byAdding: .day, value: delta, to: day) ?? day
+    }
+
+    /// This plan with a new amount, payout day, or end date, edited the way
+    /// the service edits an existing rule: the start date and every recorded
+    /// week stay exactly as they were, and the one scheduled head moves to the
+    /// next payout day on or after today - skipping any day already recorded -
+    /// or retires when the optional end date is now behind it. Editing never
+    /// re-derives weeks from the start date, so a plan whose first weeks were
+    /// already paid cannot make them look missed again.
+    public func editing(
+        amountCents: Int,
+        weekday: Int,
+        endDate: Date?,
+        asOf now: Date = .now,
+        calendar: Calendar = .current
+    ) throws -> AllowancePlan {
+        let recorded = occurrences.filter { $0.status != .scheduled }
+        let recordedDays = Set(recorded.map { calendar.startOfDay(for: $0.dueDate) })
+        let today = calendar.startOfDay(for: now)
+        let floor = startDate.map { max(calendar.startOfDay(for: $0), today) } ?? today
+        var head = Self.nextPayoutDay(onOrAfter: floor, weekday: weekday, calendar: calendar)
+        while recordedDays.contains(head) {
+            guard let following = calendar.date(byAdding: .day, value: 7, to: head) else { break }
+            head = following
+        }
+        let inclusiveEndDate = endDate.map { calendar.startOfDay(for: $0) }
+        let exhausted = inclusiveEndDate.map { head > $0 } ?? false
+        let headID = nextOccurrence?.id ?? UUID().uuidString
+        return try AllowancePlan(
+            remoteID: remoteID,
+            amountCents: amountCents,
+            cadence: cadence,
+            weekday: weekday,
+            nextDate: head,
+            startDate: startDate,
+            endDate: endDate,
+            nextOccurrenceID: exhausted ? nil : headID,
+            syncState: syncState,
+            isExhausted: exhausted,
+            occurrences: exhausted ? recorded : recorded + [Occurrence(id: headID, dueDate: head, status: .scheduled)]
+        )
+    }
+
     /// Replaces the scheduled chain head with the service-owned next occurrence
     /// without dropping recorded weeks the replica already carried.
     public func applyingServiceHead(
         nextDate: Date?,
         nextOccurrenceID: String?,
-        isExhausted: Bool
+        isExhausted: Bool,
+        startDate: Date? = nil
     ) throws -> AllowancePlan {
         let recorded = occurrences.filter { $0.status != .scheduled }
+        let startDate = startDate ?? self.startDate
         if isExhausted {
             return try AllowancePlan(
                 remoteID: remoteID,
@@ -1028,6 +1097,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
                 cadence: cadence,
                 weekday: weekday,
                 nextDate: nextDate ?? self.nextDate,
+                startDate: startDate,
                 endDate: endDate,
                 nextOccurrenceID: nil,
                 syncState: syncState,
@@ -1044,6 +1114,7 @@ public struct AllowancePlan: Hashable, Codable, Sendable {
             cadence: cadence,
             weekday: weekday,
             nextDate: nextDate,
+            startDate: startDate,
             endDate: endDate,
             nextOccurrenceID: nextOccurrenceID,
             syncState: syncState,
@@ -1185,6 +1256,25 @@ public struct AllowanceRuleCommand: Sendable, Codable {
         self.startDate = startDate
         self.endDate = endDate
         self.idempotencyKey = idempotencyKey
+    }
+
+    /// A change to an existing plan. The start date goes back exactly as the
+    /// plan carries it, because the service refuses any other value for a rule
+    /// that already exists; a plan saved before start dates were kept starts,
+    /// for this purpose, at its next payout. The end date is kept as well.
+    public init(
+        editing plan: AllowancePlan,
+        amountCents: Int,
+        weekday: Int,
+        idempotencyKey: String = UUID().uuidString
+    ) {
+        self.init(
+            amountCents: amountCents,
+            weekday: weekday,
+            startDate: plan.startDate ?? plan.nextDate,
+            endDate: plan.endDate,
+            idempotencyKey: idempotencyKey
+        )
     }
 }
 
@@ -1431,16 +1521,25 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
 
     public func setAllowance(_ command: AllowanceRuleCommand) async throws -> WalletSnapshot {
         guard command.amountCents > 0 else { return current }
-        current.allowance = try AllowancePlan(
-            remoteID: "local-allowance",
-            amountCents: command.amountCents,
-            cadence: "every week",
-            weekday: command.weekday,
-            nextDate: command.startDate,
-            endDate: command.endDate,
-            nextOccurrenceID: command.idempotencyKey,
-            syncState: .recorded
-        )
+        if let plan = current.allowance, !plan.isExhausted, plan.keepsStartDate(of: command) {
+            current.allowance = try plan.editing(
+                amountCents: command.amountCents,
+                weekday: command.weekday,
+                endDate: command.endDate
+            )
+        } else {
+            current.allowance = try AllowancePlan(
+                remoteID: "local-allowance",
+                amountCents: command.amountCents,
+                cadence: "every week",
+                weekday: command.weekday,
+                nextDate: command.startDate,
+                startDate: command.startDate,
+                endDate: command.endDate,
+                nextOccurrenceID: command.idempotencyKey,
+                syncState: .recorded
+            )
+        }
         current.lastUpdated = .now
         current.isStale = false
         return current

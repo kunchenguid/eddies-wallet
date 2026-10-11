@@ -261,6 +261,7 @@ enum CloudReplicaMapper {
             cadence: rule.cadence == "weekly" ? "every week" : (rule.cadence ?? "every week"),
             weekday: rule.weekday ?? 5,
             nextDate: nextDate,
+            startDate: startDate,
             endDate: rule.endDate.flatMap(CloudDayFormat.date(from:)),
             nextOccurrenceID: chainHead?.id,
             isExhausted: isExhausted,

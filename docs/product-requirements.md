@@ -30,7 +30,7 @@ These decisions are the current product direction and should not be reopened dur
 - **Apple Sign In is required** for the parent MVP. Google Sign In is future scope only.
 - Do not include child-initiated money requests in the smallest MVP.
 - Show loans as a secondary card on the wallet with a detail flow. Do not make Loans a prominent top-level navigation area.
-- Show Recent Activity directly on the wallet. Do not add a duplicate Recent Activity entry point when the activity list is already visible there.
+- Show Recent Activity directly on the wallet. Do not add a duplicate Recent Activity entry point when the activity list is already visible there; the Parent area's **See all** link continues the same visible list on its own screen and is not a second entry point.
 - The external service must remain vendor-neutral from the app's perspective. Its implementation and hosting are outside this public frontend repository.
 - The initial recovery expectation for the external service is daily backups plus a nightly encrypted export. This is intentionally a minimal recovery plan, not an enterprise audit specification.
 
@@ -179,7 +179,7 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 
 1. The parent opens the child's wallet and chooses a parent action.
 2. The parent enters the amount and, where relevant, a reason, date, or loan due date.
-3. A review step shows the event type, resulting wallet balance, and loan impact before confirmation.
+3. Before confirmation the parent sees the resulting wallet balance and loan impact: on the same sheet for a deposit, withdrawal, or loan payment, whose confirm control names what it records, and on a review step for a new loan.
 4. The app shows the event as **Recorded** or **Not recorded** for free local authority. Service-authoritative wallets may also show **Waiting to sync**, with distinct copy when the service accepted the action but this device has not observed it in the wallet. It never presents an unresolved event as recorded.
 5. Once accepted and observed by the current wallet authority, the event appears in the wallet activity list. It is immediately available to the child on the free one-device wallet and becomes available after synchronization for a service-authoritative wallet.
 6. The child can open the event explanation but cannot edit, reverse, hide, or create a related event.
@@ -229,16 +229,15 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 
 The child's wallet is the app's home screen. The Parent area presents the parent view of the same wallet as a temporary, full-screen administrative space behind the PIN gate.
 
-**Parent area** includes:
+**Parent area** is one scroll in this order, with settings on a second screen:
 
-1. A parent-only editor for the configured child nickname.
+1. An unmistakable Parent area header with a persistent, explicit exit back to the child's wallet and a gear that opens the parent settings screen.
 2. The configured child profile's virtual balance and last update or authority state.
-3. Next allowance information showing the earliest current or future occurrence, plus every missed weekly occurrence, its count, and its owed total when past weeks remain unpaid.
-4. A secondary open-loan card, if a loan exists. Tapping it opens loan details. A scheduled open loan also has a separate **Loan payments** card with its next-payment reminder and any missed payments.
-5. Recent Activity visible directly on the wallet, with rows opening activity details.
-6. Parent actions for allowance, deposit, withdrawal, loan, and repayment.
-7. A minimal settings surface for changing the parent PIN (with the current PIN) and signing out (with confirmation).
-8. An unmistakable Parent area header and a persistent, explicit exit back to the child's wallet.
+3. The four parent actions directly under the balance: deposit, withdrawal, one loan action that follows the wallet (create a loan while none is open, pay toward the open one otherwise), and the allowance plan. All four disable together while a protected write is blocked, and the block states its reason and carries its own recovery control right below them.
+4. Anything that needs attention: every missed weekly allowance occurrence with its count and owed total when past weeks remain unpaid, a scheduled open loan's separate **Loan payments** card with its next-payment reminder and any missed payments, and any unresolved Cloud change.
+5. Plans: next allowance information showing the earliest current or future occurrence, and a secondary open-loan card, if a loan exists, whose tap opens loan details.
+6. Recent Activity visible directly on the wallet: the five most recent rows, each opening activity details, and a **See all** link that continues the same list on its own screen when there are more.
+7. The parent settings screen, behind the gear: the optional Cloud plan, a parent-only editor for the configured child nickname, changing the parent PIN (with the current PIN), the connection details readout once a request has failed, signing out (with confirmation), and account deletion.
 
 **Kid home** includes:
 
@@ -252,7 +251,7 @@ The kid home must not include a child request button, money action button, edit 
 
 ### 8.5 Activity list and details
 
-- The wallet contains the visible recent activity list. A parent can scroll it to review prior events; a separate Recent Activity entry point is not needed.
+- The wallet contains the visible recent activity list. The kid home shows it whole; the Parent area keeps the five most recent rows and continues the same list behind **See all** on its own screen, so the parent actions above it never sink below the fold. A separate Recent Activity entry point is not needed.
 - Each accepted row opens details with type, amount, date, reason, and a plain-language explanation.
 - Parent details may show before and after balances and keep the virtual/nonredeemable notice. Child details use simple wording without a heavy disclaimer footer. A parent-attributed allowance may say “Your parent added US$10.00 as your allowance.”; a service-settled Cloud allowance carrying `recordedBy: "schedule"` says “Your allowance of US$10.00 was added.” and attributes the change to **Your plan**, never **Your parent**. Parent details attribute the latter to **Schedule**.
 - Unresolved parent events in a service-authoritative wallet show **Waiting to sync**, not a recorded state. Copy distinguishes an unconfirmed request from a service-accepted change that the device has not observed. Free-local actions are recorded immediately or fail without entering a pending state.
@@ -263,41 +262,39 @@ Across parent money forms, the software keyboard must never cover any part of th
 
 ### 8.6 Allowance
 
-The parent can create one simple active allowance rule for the child profile in the MVP.
+The parent can create one simple active allowance rule for the child profile in the MVP, and change its amount or payout day afterwards.
 
 Flow:
 
-1. Choose **Set allowance**.
-2. Enter an amount, a simple cadence initially centered on weekly allowance, a start date, and an optional end date.
-3. Review a sentence such as “Add US$10.00 virtual dollars every Friday starting August 1.”
-4. Save the rule behind the parent PIN.
+1. Choose the **Allowance** action or the next allowance card. With no live plan this is **Set allowance**; with one it is the editor, opened on the plan's current amount and payout day.
+2. Enter an amount and choose the payout day of a simple cadence initially centered on weekly allowance. A new plan also takes a start date and an optional end date. An existing plan shows its start date as fixed: it is a creation-time fact of the rule, the current authority refuses a save that moves it, and moving it would re-derive weeks already settled.
+3. The save control is the review sentence, such as **Save US$10.00 every Friday**, and the sheet names the first or next payout day before it is pressed.
+4. Save the rule behind the parent PIN. A change to an existing plan sends the stored start date back unchanged with the new amount, payout day, and end date.
 5. Once the current authority confirms the submitted rule and the current wallet shows that same rule, dismiss the complete allowance flow and return to the Parent area with the new schedule visible. If the request remains unresolved, or the authority accepted it but the latest schedule is unavailable, keep the flow open with its recovery status instead of claiming completion.
 6. Show the earliest current or future expected date and distinguish the rule from an actual allowance entry. A past missed date must not be repeated as the next allowance summary.
-7. **Pay out allowance** settles the next occurrence one at a time after it is due; it must never pay a future occurrence. It must not claim that an allowance was paid out until the event is accepted.
+7. Due occurrences are settled by the wallet's current authority on its own, one at a time and never ahead of time: free-local apply-on-read on the device, the service when Cloud is on. The Parent area offers no manual single payout, and nothing is shown as paid out until the event is accepted.
 8. An unrecorded weekly occurrence due strictly before today is missed. Show every currently missed occurrence, **N missed weeks**, and **Owed total** in both free-local and Cloud modes. An occurrence due today remains the ordinary single payout and is not part of the missed set.
 9. **Pay out missed allowance** asks the parent to confirm the initially visible missed set, including its entry count and total, then **Pay out all** settles that fixed set sequentially as separate allowance entries. It never expands the batch to include a newly due occurrence. Accepted weeks remain durable after interruption, while the untouched weeks remain visible and payable later without duplicates.
 
 Free-local authority records a valid rule immediately in protected local storage. A successful local read also settles due chain-head occurrences of that parent-created weekly rule, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass. A larger derived backlog stays on **Pay out missed allowance**. This weekly cadence limit belongs only to allowance rules; loan installment auto-settlement supports both weekly and monthly plans as specified in 8.9. When Cloud is on, the service records due occurrences; this device displays them from `/v1/cloud/changes` and never auto-writes. A parent-confirmed Cloud payout still uses the existing occurrence endpoint with the normal revision, `If-Match`, and idempotency protections, and a required Cloud review blocks the next payout rather than being bypassed by the batch. A service-authoritative wallet must confirm its current replica revision online before submitting a rule change or payout and must not queue an offline rule edit. Toggling Cloud off resumes local apply-on-read from the persisted occurrence chain, never from the rule start date, so already-recorded weeks cannot be paid again.
 
-Editing or pausing a rule affects future occurrences only. It must not rewrite past activity. Creating or editing the rule stays parent-gated. The client has no settlement timer or background job. Local due-day reminders are garnish and never required for settlement, and the kid home never shows waiting, skip, or behind copy. Additional cadences remain a future decision.
+Editing or pausing a rule affects future occurrences only. It must not rewrite past activity: an edit keeps the start date and every recorded week, and moves only the one scheduled occurrence to the next payout day on or after today, so a backlog of missed weeks is paid out first when it is owed. Creating or editing the rule stays parent-gated. The client has no settlement timer or background job. Local due-day reminders are garnish and never required for settlement, and the kid home never shows waiting, skip, or behind copy. Additional cadences remain a future decision.
 
 ### 8.7 Deposit flow
 
 1. Parent chooses **Add deposit** from the wallet.
-2. Parent enters a positive virtual dollar amount and an optional reason.
-3. Review shows the resulting accepted balance and the persistent virtual-money notice.
-4. With free-local authority, confirmation records the deposit immediately in protected local storage or reports **Not recorded** without changing the balance.
-5. With service authority, confirmation requires a current online replica. If connectivity becomes ambiguous after submission, the exact protected command remains **Waiting to sync** and the child sees it only after service acceptance and synchronization are observed.
+2. Parent enters a positive virtual dollar amount and an optional reason on one sheet, which shows the resulting accepted balance and the persistent virtual-money notice beside a confirm control that names what it records, such as **Add US$5.00**.
+3. With free-local authority, confirmation records the deposit immediately in protected local storage and the same sheet shows **Recorded** with the new balance, or reports **Not recorded** without changing the balance.
+4. With service authority, confirmation requires a current online replica. If connectivity becomes ambiguous after submission, the exact protected command remains **Waiting to sync** and the child sees it only after service acceptance and synchronization are observed.
 
 A deposit is bookkeeping inside Eddie's Wallet. It never charges, moves, or reserves real money.
 
 ### 8.8 Withdrawal flow
 
 1. Parent chooses **Record withdrawal** or **Record dollars used**.
-2. Parent enters an amount no greater than the accepted wallet balance and an optional reason.
-3. Review shows the resulting balance. The app prevents accidental overdraft.
-4. With free-local authority, confirmation records the withdrawal immediately in protected local storage or reports **Not recorded** without changing the balance.
-5. With service authority, confirmation requires a current online replica and remains **Waiting to sync** if the submitted command's outcome becomes ambiguous. If another accepted event changes the balance first, the withdrawal is rejected rather than silently reduced.
+2. Parent enters an amount no greater than the accepted wallet balance and an optional reason on one sheet, which shows the resulting balance and the virtual-money notice beside a confirm control that names what it records, such as **Record US$5.00 used**. The app prevents accidental overdraft.
+3. With free-local authority, confirmation records the withdrawal immediately in protected local storage and the same sheet shows **Recorded**, or reports **Not recorded** without changing the balance.
+4. With service authority, confirmation requires a current online replica and remains **Waiting to sync** if the submitted command's outcome becomes ambiguous. If another accepted event changes the balance first, the withdrawal is rejected rather than silently reduced.
 
 The child has no spending or withdrawal control. A withdrawal means the parent recorded a virtual use of dollars; it is not a cash withdrawal.
 
@@ -307,7 +304,7 @@ The MVP loan model is parent-to-child, virtual, interest-free, and simple. It su
 
 **Create loan:**
 
-1. Parent opens the wallet and chooses **Create loan**.
+1. Parent opens the wallet and chooses **Create loan**, which the Parent area offers while no loan is open.
 2. Parent enters principal, optional purpose, optional due date, and an optional payment plan: a cadence of weekly or monthly plus the amount for each payment.
 3. Review explains that the loan adds virtual dollars to the child's wallet and creates an amount to repay, and restates the payment plan.
 4. Free-local authority records a valid loan immediately. Service authority records it only after service acceptance.
@@ -326,9 +323,9 @@ Required parent copy uses **Loan payments**, **Next payment**, **Missed payments
 
 **Repay:**
 
-1. Parent opens the loan card and chooses **Pay toward loan**, or, on a scheduled loan whose payment is due, **Pay this payment**.
-2. Parent enters a partial or full repayment amount. A scheduled payment names no amount: the plan and the remaining balance decide it.
-3. The app shows the remaining principal after repayment and refuses an amount above the outstanding principal or available accepted wallet balance.
+1. Parent chooses the **Pay toward loan** action the Parent area offers while a loan is open, opens the loan card and chooses **Pay toward loan**, or, on a scheduled loan whose payment is due, **Pay this payment**.
+2. Parent enters a partial or full repayment amount on one sheet. A scheduled payment names no amount: the plan and the remaining balance decide it.
+3. The sheet shows the remaining principal and the wallet balance after repayment beside a confirm control that names the payment, such as **Pay US$2.00 toward loan**, and refuses an amount above the outstanding principal or available accepted wallet balance.
 4. Free-local authority records a valid repayment immediately. Service authority requires a current online replica and records it after acceptance is observed; an ambiguous submitted request remains **Waiting to sync**.
 5. A paid loan remains in history as **Paid** rather than disappearing.
 
@@ -426,7 +423,7 @@ The free one-device MVP is product-complete when all of the following are true:
 1. A parent can sign in with Apple, create one free wallet and a parent-managed child profile, and set a parent PIN without creating a child login.
 2. On a shared iPad, the app rests on the child's read-only wallet, and entering the Parent area requires the parent-set PIN. The kid home never exposes parent money controls or sign-out.
 3. Parent and safety surfaces label the US-dollar ledger as virtual, pretend, and nonredeemable. The kid home primary balance label is **Your allowance balance** without that heavy disclaimer; kid detail glances stay plain and relational while parent detail/review surfaces keep the boundary.
-4. A parent can create a simple allowance rule, pay out one current allowance or an explicitly confirmed set of missed weeks, record a deposit or withdrawal, create an interest-free loan with an optional payment plan, pay one current loan payment, pay an explicitly confirmed set of missed payments, and pay any free amount toward the loan.
+4. A parent can create a simple allowance rule and later change its amount or payout day, pay out an explicitly confirmed set of missed weeks, record a deposit or withdrawal, create an interest-free loan with an optional payment plan, pay one current loan payment, pay an explicitly confirmed set of missed payments, and pay any free amount toward the loan.
 5. Each accepted money event changes the accepted balance exactly once and appears in the wallet activity list with an understandable explanation.
 6. Withdrawals and loan payments cannot overdraw the wallet or exceed the outstanding loan. Every planned payment and missed-payment total caps at what remains. A loan adds virtual balance and creates a separate amount to repay.
 7. The open-loan card is visible on the wallet and opens a detail flow. A scheduled loan also shows its next payment and any missed payments only in the Parent area. There is no prominent top-level Loans area, and the wallet does not duplicate a Recent Activity entry point.

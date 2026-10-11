@@ -5,7 +5,6 @@ public enum MoneyFlowKind: String, Identifiable, CaseIterable {
     case withdrawal
     case loan
     case repayment
-    case allowance
 
     public var id: String { rawValue }
 
@@ -15,7 +14,6 @@ public enum MoneyFlowKind: String, Identifiable, CaseIterable {
         case .withdrawal: "Record withdrawal"
         case .loan: "Create loan"
         case .repayment: "Pay toward loan"
-        case .allowance: "Pay out allowance"
         }
     }
 
@@ -25,18 +23,22 @@ public enum MoneyFlowKind: String, Identifiable, CaseIterable {
         case .withdrawal: .withdrawal
         case .loan: .loan
         case .repayment: .repayment
-        case .allowance: .allowance
         }
     }
 }
 
-/// The parent's one money-recording flow: amount, review, result.
+/// The parent's one money-recording sheet.
 ///
-/// Every step is a `SheetForm`, so the control that carries the step forward -
-/// Review, Confirm, Done - lives in the pinned bottom bar and never scrolls
-/// away, whatever the sheet height, text size, or keyboard state. Losing the
-/// confirm control under the fold is how a parent records nothing, or the
-/// wrong thing.
+/// A deposit, a withdrawal and a loan payment are one step: the amount and an
+/// optional reason, the balance the wallet will show, the virtual-money
+/// notice, and a button that names the result ("Add US$5.00"), followed by a
+/// short Recorded confirmation in the same sheet. Creating a loan sets a plan,
+/// so it keeps a review step between amount and result.
+///
+/// Every step is a `SheetForm`, so the control that carries the step forward
+/// lives in the pinned bottom bar and never scrolls away, whatever the sheet
+/// height, text size, or keyboard state. Losing that control under the fold
+/// is how a parent records nothing, or the wrong thing.
 struct MoneyFlowView: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.dismiss) private var dismiss
@@ -98,7 +100,7 @@ struct MoneyFlowView: View {
                 return "Enter a payment amount greater than US$0.00."
             }
             return nil
-        case .deposit, .allowance:
+        case .deposit:
             return nil
         }
     }
@@ -107,7 +109,27 @@ struct MoneyFlowView: View {
         guard let cents = parsedCents else { return store.snapshot.acceptedBalanceCents }
         switch kind {
         case .withdrawal, .repayment: return store.snapshot.acceptedBalanceCents - cents
-        case .deposit, .loan, .allowance: return store.snapshot.acceptedBalanceCents + cents
+        case .deposit, .loan: return store.snapshot.acceptedBalanceCents + cents
+        }
+    }
+
+    /// Creating a loan sets a plan, so it alone keeps a review step.
+    private var usesReview: Bool { kind == .loan }
+
+    private var canConfirm: Bool {
+        parsedCents != nil && validationMessage == nil && !isSubmitting
+    }
+
+    /// The one-step button is the review sentence: it names what the tap
+    /// records, with the amount, or just the action until there is one.
+    private var primaryTitle: String {
+        guard let cents = parsedCents else { return kind.title }
+        let money = Money(cents: cents).display
+        return switch kind {
+        case .deposit: "Add \(money)"
+        case .withdrawal: "Record \(money) used"
+        case .repayment: "Pay \(money) toward loan"
+        case .loan: "Review"
         }
     }
 
@@ -191,17 +213,49 @@ struct MoneyFlowView: View {
                         .tint(EW.Color.primaryActive)
                     installmentPlanFields
                 }
-            }
-        } actions: {
-            Button("Review") {
-                if validationMessage == nil {
-                    focusedAmount = nil
-                    step = .review
+
+                if !usesReview {
+                    VStack(alignment: .leading, spacing: EW.Space.three) {
+                        reviewRow(label: "Balance after", value: Money(cents: resultingBalance).display)
+                        if kind == .repayment, let loan = store.snapshot.loan {
+                            reviewRow(
+                                label: "Left to repay after",
+                                value: Money(cents: max(loan.remainingCents - (parsedCents ?? 0), 0)).display
+                            )
+                        }
+                    }
+                    .ewCard()
+                    virtualMoneyNotice
                 }
             }
-            .buttonStyle(PrimaryButtonStyle())
-            .disabled(parsedCents == nil || validationMessage != nil)
-            .opacity(parsedCents == nil || validationMessage != nil ? 0.45 : 1)
+        } actions: {
+            if usesReview {
+                Button("Review") {
+                    if validationMessage == nil {
+                        focusedAmount = nil
+                        step = .review
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(parsedCents == nil || validationMessage != nil)
+                .opacity(parsedCents == nil || validationMessage != nil ? 0.45 : 1)
+            } else {
+                Button {
+                    Task { await confirm() }
+                } label: {
+                    if isSubmitting {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    } else {
+                        Text(primaryTitle)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(!canConfirm)
+                .opacity(canConfirm ? 1 : 0.45)
+                .accessibilityIdentifier("money-flow-primary")
+            }
         }
         // The amount is the only thing this step is for, so it opens ready to
         // type: focused, keyboard already up, no extra tap.
@@ -293,13 +347,7 @@ struct MoneyFlowView: View {
                 }
                 .ewCard()
 
-                Text("Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.")
-                    .font(EW.Font.body)
-                    .foregroundStyle(EW.Color.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(EW.Space.four)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                virtualMoneyNotice
             }
         } actions: {
             Button(confirmActionTitle) {
@@ -311,6 +359,16 @@ struct MoneyFlowView: View {
             Button("Back") { step = .amount }
                 .buttonStyle(SecondaryButtonStyle(compact: true))
         }
+    }
+
+    private var virtualMoneyNotice: some View {
+        Text("Virtual practice only. These dollars are pretend, cannot be redeemed, and never move real money.")
+            .font(EW.Font.body)
+            .foregroundStyle(EW.Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(EW.Space.four)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(EW.Color.cardAlt, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
     }
 
     private var result: some View {
@@ -365,16 +423,13 @@ struct MoneyFlowView: View {
         case .withdrawal: "Record virtual dollars as used from \(walletReference)."
         case .loan: "Give \(childReference) virtual dollars to use now and give back over time."
         case .repayment: "Pay virtual dollars back toward the open loan."
-        case .allowance: "Pay out this virtual allowance in \(walletReference)."
         }
     }
 
-    /// The two settlement flows own their own verbs - allowance is paid out,
-    /// a loan is paid back - so neither borrows the generic "record" wording
-    /// that every other money event uses.
+    /// A loan is paid back, so its review names paying; everything else that
+    /// reaches a review is recorded.
     private var reviewHeading: String {
         switch kind {
-        case .allowance: "Review before paying out"
         case .repayment: "Review before paying"
         case .deposit, .withdrawal, .loan: "Review before recording"
         }
@@ -382,7 +437,6 @@ struct MoneyFlowView: View {
 
     private var confirmActionTitle: String {
         switch kind {
-        case .allowance: "Pay out allowance"
         case .repayment: "Pay toward loan"
         case .deposit, .withdrawal, .loan: "Confirm \(kind.title.lowercased())"
         }
@@ -402,8 +456,9 @@ struct MoneyFlowView: View {
     }
 
     private func confirm() async {
-        guard let cents = parsedCents, !isSubmitting else { return }
+        guard let cents = parsedCents, validationMessage == nil, !isSubmitting else { return }
         isSubmitting = true
+        focusedAmount = nil
         let command = WalletCommand(
             kind: kind.commandKind,
             amountCents: cents,
@@ -416,14 +471,18 @@ struct MoneyFlowView: View {
         case .accepted:
             resultState = .recorded
             let walletReference = ChildProfileCopy.walletReference(nickname: store.snapshot.configuredChildNickname)
+            let childReference = ChildProfileCopy.childReference(nickname: store.snapshot.configuredChildNickname)
+            let money = Money(cents: cents).display
+            let balance = Money(cents: store.snapshot.acceptedBalanceCents).display
             resultMessage = switch kind {
-            case .allowance: "This virtual allowance was paid out and added to \(walletReference)."
-            case .repayment: "This virtual payment was accepted toward the open loan."
-            case .deposit, .withdrawal, .loan: "This virtual money event was accepted and added to \(walletReference)."
+            case .deposit: "Added \(money) to \(walletReference). New balance \(balance)."
+            case .withdrawal: "Recorded \(money) used from \(walletReference). New balance \(balance)."
+            case .repayment: "Paid \(money) toward the loan. \(Money(cents: store.snapshot.loan?.remainingCents ?? 0).display) left to repay."
+            case .loan: "Lent \(money) to \(childReference) and added it to \(walletReference). \(money) to repay over time."
             }
         case .acceptedScheduleUnavailable:
             resultState = .recorded
-            resultMessage = "This virtual allowance was paid out, but Cloud could not load the latest allowance schedule. Refresh before paying out another week."
+            resultMessage = "This was recorded, but Cloud could not load the latest allowance schedule. Refresh before paying out allowance."
         case .pending(let event, _):
             resultState = .pending
             resultMessage = event.explanation
@@ -433,7 +492,6 @@ struct MoneyFlowView: View {
         case .rejected(let event):
             resultState = .rejected
             let refusal = switch kind {
-            case MoneyFlowKind.allowance: "This allowance was not paid out and did not change the accepted balance."
             case .repayment: "This payment was not made and did not change the accepted balance."
             case .deposit, .withdrawal, .loan: "This action was not recorded and did not change the accepted balance."
             }
@@ -444,140 +502,332 @@ struct MoneyFlowView: View {
     }
 }
 
+/// Shared parent-facing words for a weekly plan, so the editor, the Parent
+/// area and the action tile all describe the same plan the same way.
+enum AllowanceCopy {
+    static func dayName(_ weekday: Int, calendar: Calendar = .current) -> String {
+        calendar.weekdaySymbols[((weekday % 7) + 7) % 7]
+    }
+
+    static func veryShortDayName(_ weekday: Int, calendar: Calendar = .current) -> String {
+        calendar.veryShortWeekdaySymbols[((weekday % 7) + 7) % 7]
+    }
+
+    /// "US$10.00 every Friday".
+    static func summary(amountCents: Int, weekday: Int) -> String {
+        "\(Money(cents: amountCents).display) every \(dayName(weekday))"
+    }
+
+    /// The amount the way the editor's field shows it: "10.00".
+    static func fieldText(cents: Int) -> String {
+        String(format: "%d.%02d", cents / 100, cents % 100)
+    }
+}
+
+/// The weekly allowance editor.
+///
+/// It opens on the plan the wallet has - the current amount and payout day -
+/// and keeps the day the plan started fixed, because the service refuses a
+/// save that moves it and moving it would rewrite weeks already settled. A
+/// changed amount or day saves in one step; the button itself is the review
+/// sentence. With no live plan it is the create form: amount, payout day and
+/// a start date. The sheet closes by itself once the wallet shows the saved
+/// plan, and stays open with its status when Cloud has not confirmed it yet.
 struct AllowanceView: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.dismiss) private var dismiss
-    @State private var amount = "10.00"
+    /// Called with the saved plan's summary just before the sheet closes, so
+    /// the Parent area can confirm the change in its own words.
+    var onSaved: ((String) -> Void)?
+    @State private var amount = ""
+    @State private var weekday = 5
     @State private var startDate: Date
-    @State private var showDraft = false
-    @State private var showReview = false
+    @State private var didSeed = false
+    /// The plan this sheet opened on, fixed for as long as it is up: a save
+    /// that Cloud accepted without a readable schedule puts the plan into the
+    /// wallet while the sheet is still open, and the sheet must not turn from
+    /// the create form into the editor under the parent's thumb.
+    @State private var editedPlan: AllowancePlan?
     @State private var resultState: SyncState?
     @State private var resultMessage = ""
     @State private var isSubmitting = false
     @FocusState private var isAmountFocused: Bool
 
-    init() {
+    init(onSaved: ((String) -> Void)? = nil) {
+        self.onSaved = onSaved
         #if DEBUG
-        let initialStartDate = DebugLaunchScenario.allowanceStartDate()
-            ?? Date().addingTimeInterval(60 * 60 * 24 * 5)
+        let initialStartDate = DebugLaunchScenario.allowanceStartDate() ?? .now
         #else
-        let initialStartDate = Date().addingTimeInterval(60 * 60 * 24 * 5)
+        let initialStartDate = Date.now
         #endif
         _startDate = State(initialValue: initialStartDate)
+    }
+
+    /// The plan being edited, or `nil` when the wallet had none (or the last
+    /// one ended) when the sheet opened, which makes this the create form.
+    private var existingPlan: AllowancePlan? { editedPlan }
+
+    private var livePlan: AllowancePlan? {
+        store.snapshot.allowance.flatMap { $0.isExhausted ? nil : $0 }
+    }
+
+    private var isEditing: Bool { existingPlan != nil }
+
+    private var parsedCents: Int? { Money.parse(amount)?.cents }
+
+    private var hasChanges: Bool {
+        guard let plan = existingPlan else { return parsedCents != nil }
+        guard let cents = parsedCents else { return false }
+        return cents != plan.amountCents || weekday != plan.weekday
+    }
+
+    private var awaitsScheduleRefresh: Bool {
+        store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded
+    }
+
+    private var canSave: Bool {
+        parsedCents != nil && hasChanges && !isSubmitting && !awaitsScheduleRefresh
+    }
+
+    /// The first payout day the saved plan would wait for: the next chosen
+    /// day on or after the start date, past any week already recorded.
+    private var nextPayoutDate: Date {
+        if let plan = existingPlan {
+            let edited = try? plan.editing(amountCents: parsedCents ?? plan.amountCents, weekday: weekday, endDate: plan.endDate)
+            return edited?.nextDate ?? plan.nextDate
+        }
+        return AllowancePlan.nextPayoutDay(onOrAfter: startDate, weekday: weekday)
+    }
+
+    private var saveTitle: String {
+        guard let cents = parsedCents else { return "Save allowance" }
+        if isEditing, !hasChanges { return "No changes yet" }
+        return "Save \(AllowanceCopy.summary(amountCents: cents, weekday: weekday))"
+    }
+
+    private var intro: String {
+        let child = ChildProfileCopy.childReference(nickname: store.snapshot.configuredChildNickname)
+        return isEditing
+            ? "Change how much \(child) gets each week, or the day it arrives. Weeks already added stay as they are."
+            : "Set one simple weekly plan for \(child). Each week's allowance is added on its own once it is due."
     }
 
     var body: some View {
         NavigationStack {
             SheetForm {
                 VStack(alignment: .leading, spacing: EW.Space.five) {
-                    Text("Set one simple weekly plan for \(ChildProfileCopy.childReference(nickname: store.snapshot.configuredChildNickname)). A plan is separate from an allowance event until it is paid out.")
+                    Text(intro)
                         .font(EW.Font.body)
                         .foregroundStyle(EW.Color.textSecondary)
-                    VStack(alignment: .leading, spacing: EW.Space.three) {
-                        Text("Weekly amount")
-                            .font(EW.Font.captionUpper)
-                            .foregroundStyle(EW.Color.textTertiary)
-                        HStack {
-                            Text("US$").foregroundStyle(EW.Color.textTertiary).font(EW.Font.bodyBold)
-                            TextField("0.00", text: $amount)
-                                .font(EW.Font.heading)
-                                .keyboardType(.decimalPad)
-                                .textFieldStyle(.plain)
-                                .focused($isAmountFocused)
-                                .accessibilityIdentifier("allowance-weekly-amount")
+                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: EW.Space.four) {
+                        VStack(alignment: .leading, spacing: EW.Space.two) {
+                            Text("Amount each week")
+                                .font(EW.Font.captionUpper)
+                                .foregroundStyle(EW.Color.textTertiary)
+                            HStack {
+                                Text("US$").foregroundStyle(EW.Color.textTertiary).font(EW.Font.bodyBold)
+                                TextField("0.00", text: $amount)
+                                    .font(EW.Font.heading)
+                                    .keyboardType(.decimalPad)
+                                    .textFieldStyle(.plain)
+                                    .focused($isAmountFocused)
+                                    .accessibilityLabel("Amount each week in virtual dollars")
+                                    .accessibilityIdentifier("allowance-weekly-amount")
+                            }
+                            .padding(EW.Space.four)
+                            .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous)
+                                    .stroke(isAmountFocused ? EW.Color.primary : EW.Color.border, lineWidth: isAmountFocused ? 2 : 1)
+                            }
+                            .ewAmountKeyboardAnchor("allowance-weekly-amount", isFocused: isAmountFocused)
                         }
-                        .padding(EW.Space.four)
-                        .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
-                        .ewAmountKeyboardAnchor("allowance-weekly-amount", isFocused: isAmountFocused)
-                        DatePicker("Starts", selection: $startDate, displayedComponents: .date)
-                            .tint(EW.Color.primaryActive)
+                        VStack(alignment: .leading, spacing: EW.Space.two) {
+                            Text("Payout day")
+                                .font(EW.Font.captionUpper)
+                                .foregroundStyle(EW.Color.textTertiary)
+                            dayRow
+                        }
+                        if let plan = existingPlan {
+                            fixedStartRow(plan)
+                        } else {
+                            DatePicker("Starts", selection: $startDate, displayedComponents: .date)
+                                .font(EW.Font.body)
+                                .tint(EW.Color.primaryActive)
+                        }
                     }
-                    .ewCard()
+                    .ewCard(variant: .alt)
 
-                    if showDraft {
-                        HStack {
-                            StatusPill(state: .draft)
-                            Text("This plan is local only until it is recorded.")
-                                .font(EW.Font.caption)
-                                .foregroundStyle(EW.Color.textSecondary)
-                        }
-                    }
+                    Text(nextPayoutCopy)
+                        .font(EW.Font.caption)
+                        .foregroundStyle(EW.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("allowance-next-payout")
+
                     if let resultState {
-                        StatusPill(state: resultState)
-                        if !resultMessage.isEmpty {
-                            Text(resultMessage)
-                                .font(EW.Font.caption)
-                                .foregroundStyle(EW.Color.textSecondary)
+                        VStack(alignment: .leading, spacing: EW.Space.two) {
+                            StatusPill(state: resultState)
+                            if !resultMessage.isEmpty {
+                                Text(resultMessage)
+                                    .font(EW.Font.caption)
+                                    .foregroundStyle(resultState == .rejected ? EW.Color.red600 : EW.Color.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("allowance-result")
                     }
                 }
             } actions: {
-                if store.latestParentMutationOutcome == .acceptedScheduleUnavailable, resultState != .recorded {
+                if awaitsScheduleRefresh {
                     Button("Refresh allowance schedule") {
                         Task { await refreshAllowanceSchedule() }
                     }
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(store.isLoading)
                 }
-                Button("Review allowance") {
-                    guard !isSubmitting else { return }
-                    showReview = true
+                Button {
+                    Task { await save() }
+                } label: {
+                    if isSubmitting {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    } else {
+                        Text(saveTitle)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    }
                 }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(isSubmitting || Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded))
-                    .opacity(isSubmitting || Money.parse(amount) == nil || (store.latestParentMutationOutcome == .acceptedScheduleUnavailable && resultState != .recorded) ? 0.45 : 1)
-                Button("Save as draft on this \(DeviceCopy.deviceNoun)") { showDraft = true }
-                    .buttonStyle(SecondaryButtonStyle(compact: true))
-                    .accessibilityIdentifier("allowance-save-draft")
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(!canSave)
+                .opacity(canSave ? 1 : 0.45)
+                .accessibilityIdentifier("allowance-save")
             }
-            .navigationTitle("Set allowance")
+            .navigationTitle(isEditing ? "Allowance" : "Set allowance")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button("Cancel") { dismiss() }
                         .disabled(isSubmitting)
                 }
             }
-            .sheet(isPresented: $showReview) {
-                AllowanceReviewView(
-                    amountCents: Money.parse(amount)?.cents ?? 0,
-                    startDate: startDate,
-                    isSubmitting: $isSubmitting
-                ) {
-                    let calendar = Calendar(identifier: .gregorian)
-                    let weekday = calendar.component(.weekday, from: startDate) - 1
-                    let command = AllowanceRuleCommand(
-                        amountCents: Money.parse(amount)?.cents ?? 0,
-                        weekday: weekday,
-                        startDate: startDate
-                    )
-                    let recorded = await store.setAllowance(command)
-                    let submittedRuleID = store.latestSubmittedAllowanceRuleID
-                    let outcome = store.latestParentMutationOutcome ?? .notRecorded
-                    let refreshedPlan = store.snapshot.allowance
-                    resultState = outcome.syncState
-                    switch outcome {
-                    case .recorded:
-                        resultMessage = "The weekly allowance plan was recorded. Its next occurrence is separate from an allowance event until your parent pays it out."
-                    case .waitingForCloud, .acceptedAwaitingReplica, .acceptedScheduleUnavailable:
-                        resultMessage = outcome.message
-                    case .notRecorded:
-                        resultMessage = store.errorMessage ?? outcome.message
-                    }
-                    showReview = false
-                    showDraft = false
-                    if recorded,
-                       outcome == .recorded,
-                       let submittedRuleID,
-                       let refreshedPlan,
-                       refreshedPlan.remoteID == submittedRuleID {
-                        dismiss()
-                    }
-                }
-                .ewDetailSheetPresentation()
-            }
+            .onAppear(perform: seed)
         }
         .interactiveDismissDisabled(isSubmitting)
+    }
+
+    private var dayRow: some View {
+        HStack(spacing: EW.Space.two) {
+            ForEach(0..<7, id: \.self) { day in
+                let isSelected = day == weekday
+                Button {
+                    weekday = day
+                } label: {
+                    Text(AllowanceCopy.veryShortDayName(day))
+                        .font(EW.Font.bodyBold)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .foregroundStyle(isSelected ? EW.Color.white : EW.Color.textSecondary)
+                        .background(isSelected ? EW.Color.gold600 : EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.small, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: EW.Radius.small, style: .continuous)
+                                .stroke(EW.Color.border, lineWidth: isSelected ? 0 : 1)
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: EW.Radius.small, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(AllowanceCopy.dayName(day))
+                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+                .accessibilityIdentifier("allowance-weekday-\(day)")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("allowance-weekday")
+    }
+
+    /// The start date is a creation-time fact of the plan, shown but never
+    /// edited: the service refuses a save that moves it, and moving it would
+    /// rewrite weeks already settled.
+    private func fixedStartRow(_ plan: AllowancePlan) -> some View {
+        HStack(alignment: .top, spacing: EW.Space.three) {
+            Image(systemName: "lock.fill")
+                .foregroundStyle(EW.Color.textTertiary)
+                .accessibilityHidden(true)
+            Text(Self.fixedStartCopy(startDate: plan.startDate))
+                .font(EW.Font.caption)
+                .foregroundStyle(EW.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(EW.Space.three)
+        .background(EW.Color.card, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("allowance-fixed-start")
+    }
+
+    static func fixedStartCopy(startDate: Date?) -> String {
+        let started = startDate.map { "Started \($0.formatted(.dateTime.month(.abbreviated).day().year())). " } ?? ""
+        return "\(started)The start date stays with the plan. Changing it would rewrite weeks already settled."
+    }
+
+    private var nextPayoutCopy: String {
+        let day = nextPayoutDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+        let lead = isEditing ? "Next payout \(day)\(hasChanges ? " at the new amount or day" : "")." : "First payout \(day)."
+        if isEditing, !store.missedAllowancePayouts.isEmpty {
+            return "\(lead) Saving a change moves the plan past the \(store.missedAllowancePayouts.count) missed weeks, so pay those out first if they are owed."
+        }
+        return "\(lead) Each week's allowance is added on its own once it is due; weeks that were missed show under Missed allowance."
+    }
+
+    private func seed() {
+        guard !didSeed else { return }
+        didSeed = true
+        editedPlan = livePlan
+        if let plan = editedPlan {
+            amount = AllowanceCopy.fieldText(cents: plan.amountCents)
+            weekday = plan.weekday
+        } else {
+            amount = "10.00"
+            // The amount is what a new plan is about, so the create form opens
+            // ready to type; the editor opens on the plan instead.
+            isAmountFocused = true
+        }
+    }
+
+    private func save() async {
+        guard let cents = parsedCents, canSave else { return }
+        isSubmitting = true
+        isAmountFocused = false
+        let command = if let plan = existingPlan {
+            AllowanceRuleCommand(editing: plan, amountCents: cents, weekday: weekday)
+        } else {
+            AllowanceRuleCommand(
+                amountCents: cents,
+                weekday: weekday,
+                startDate: AllowancePlan.nextPayoutDay(onOrAfter: startDate, weekday: weekday)
+            )
+        }
+        let recorded = await store.setAllowance(command)
+        let submittedRuleID = store.latestSubmittedAllowanceRuleID
+        let outcome = store.latestParentMutationOutcome ?? .notRecorded
+        let refreshedPlan = store.snapshot.allowance
+        resultState = outcome.syncState
+        switch outcome {
+        case .recorded:
+            resultMessage = "The weekly plan was saved."
+        case .waitingForCloud, .acceptedAwaitingReplica, .acceptedScheduleUnavailable:
+            resultMessage = outcome.message
+        case .notRecorded:
+            resultMessage = store.errorMessage ?? outcome.message
+        }
+        isSubmitting = false
+        if recorded,
+           outcome == .recorded,
+           let submittedRuleID,
+           let refreshedPlan,
+           refreshedPlan.remoteID == submittedRuleID {
+            onSaved?(AllowanceCopy.summary(amountCents: refreshedPlan.amountCents, weekday: refreshedPlan.weekday))
+            dismiss()
+        }
     }
 
     private func refreshAllowanceSchedule() async {
@@ -587,55 +837,15 @@ struct AllowanceView: View {
             return
         }
         guard let submittedAllowanceRuleID = store.latestSubmittedAllowanceRuleID,
-              store.snapshot.allowance?.remoteID == submittedAllowanceRuleID else {
+              let plan = store.snapshot.allowance,
+              plan.remoteID == submittedAllowanceRuleID else {
             resultMessage = ParentMutationOutcome.acceptedScheduleUnavailable.message
             return
         }
         resultState = .recorded
-        resultMessage = "The weekly allowance plan was recorded. The latest allowance schedule is ready."
+        resultMessage = "The weekly plan was saved. The latest allowance schedule is ready."
+        onSaved?(AllowanceCopy.summary(amountCents: plan.amountCents, weekday: plan.weekday))
         dismiss()
-    }
-}
-
-private struct AllowanceReviewView: View {
-    @Environment(\.dismiss) private var dismiss
-    let amountCents: Int
-    let startDate: Date
-    @Binding var isSubmitting: Bool
-    let confirm: () async -> Void
-
-    var body: some View {
-        SheetForm {
-            VStack(alignment: .leading, spacing: EW.Space.five) {
-                Text("Review allowance")
-                    .font(EW.Font.heading)
-                    .foregroundStyle(EW.Color.textPrimary)
-                Text("Add \(Money(cents: amountCents).display) virtual dollars each week starting \(startDate.formatted(.dateTime.month(.abbreviated).day())).")
-                    .font(EW.Font.body)
-                    .foregroundStyle(EW.Color.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("This creates a plan for future occurrences. The plan is not an allowance event until it is accepted.")
-                    .font(EW.Font.caption)
-                    .foregroundStyle(EW.Color.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } actions: {
-            Button("Confirm allowance") {
-                guard !isSubmitting else { return }
-                isSubmitting = true
-                Task {
-                    await confirm()
-                    isSubmitting = false
-                    dismiss()
-                }
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .disabled(isSubmitting)
-            .opacity(isSubmitting ? 0.45 : 1)
-            Button("Back") { dismiss() }
-                .buttonStyle(SecondaryButtonStyle(compact: true))
-        }
     }
 }
 

@@ -1324,6 +1324,7 @@ public final class APIWalletRepository: WalletRepository, ParentAuthenticator, A
             cadence: "every week",
             weekday: allowance.weekday,
             nextDate: nextDate,
+            startDate: parseDate(allowance.startDate),
             endDate: parseDate(allowance.endDate),
             nextOccurrenceID: allowance.nextOccurrenceId,
             syncState: allowance.active ? .recorded : .rejected

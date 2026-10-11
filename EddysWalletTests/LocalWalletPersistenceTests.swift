@@ -1153,6 +1153,91 @@ final class LocalWalletPersistenceTests: XCTestCase {
         XCTAssertTrue(store.snapshot.activities.isEmpty)
     }
 
+    /// Editing a live local plan behaves like the service editing a rule:
+    /// the start date and every recorded week stay exactly as they were, and
+    /// only the one scheduled head moves to the next payout day on or after
+    /// today, so weeks already added can never look missed again.
+    func testEditingALocalAllowanceKeepsRecordedWeeksAndTheStartDate() async throws {
+        let repository = try LocalWalletRepository(inMemory: true)
+        _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let start = try XCTUnwrap(calendar.date(byAdding: .day, value: -14, to: today))
+        let weekday = calendar.component(.weekday, from: start) - 1
+        _ = try await repository.setAllowance(AllowanceRuleCommand(amountCents: 500, weekday: weekday, startDate: start))
+        let store = WalletStore(
+            repository: repository,
+            initiallySignedIn: true,
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner")
+        )
+        // A read settles the three due weeks: two past and today's.
+        await store.refresh()
+        let settled = try XCTUnwrap(repository.snapshot().allowance)
+        let recordedBefore = settled.occurrences.filter { $0.status == .recorded }
+        XCTAssertEqual(recordedBefore.count, 3)
+        XCTAssertEqual(settled.startDate, start)
+        XCTAssertEqual(repository.snapshot().acceptedBalanceCents, 1_500)
+
+        store.openParentGate()
+        for digit in ["1", "2", "3", "4"] { store.appendPINDigit(digit) }
+        let newDay = (weekday + 2) % 7
+        let saved = await store.setAllowance(AllowanceRuleCommand(editing: settled, amountCents: 750, weekday: newDay))
+        XCTAssertTrue(saved)
+
+        let plan = try XCTUnwrap(store.snapshot.allowance)
+        XCTAssertEqual(plan.amountCents, 750)
+        XCTAssertEqual(plan.weekday, newDay)
+        XCTAssertEqual(plan.startDate, start, "the start date is a creation-time fact")
+        XCTAssertEqual(plan.occurrences.filter { $0.status == .recorded }, recordedBefore, "recorded weeks are untouched")
+        XCTAssertEqual(plan.occurrences.filter { $0.status == .scheduled }.count, 1)
+        XCTAssertGreaterThan(plan.nextDate, today, "the head moves past today to the new day")
+        XCTAssertEqual(calendar.component(.weekday, from: plan.nextDate) - 1, newDay)
+        XCTAssertTrue(plan.missedPayouts().isEmpty)
+        XCTAssertEqual(store.snapshot.acceptedBalanceCents, 1_500, "editing records nothing by itself")
+    }
+
+    func testEditCommandSendsThePlanStartDateAndEndDateBack() throws {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let start = try XCTUnwrap(calendar.date(byAdding: .day, value: -42, to: today))
+        let end = try XCTUnwrap(calendar.date(byAdding: .day, value: 60, to: today))
+        let next = AllowancePlan.nextPayoutDay(onOrAfter: today, weekday: 5, calendar: calendar)
+        let plan = try AllowancePlan(remoteID: "a-1", amountCents: 500, cadence: "every week", weekday: 5, nextDate: next, startDate: start, endDate: end)
+
+        let command = AllowanceRuleCommand(editing: plan, amountCents: 1_250, weekday: 3)
+
+        XCTAssertEqual(command.startDate, start, "an edit never moves the start date")
+        XCTAssertEqual(command.endDate, end)
+        XCTAssertEqual(command.amountCents, 1_250)
+        XCTAssertEqual(command.weekday, 3)
+
+        let legacy = try AllowancePlan(amountCents: 500, cadence: "every week", nextDate: next)
+        XCTAssertNil(legacy.startDate)
+        XCTAssertEqual(
+            AllowanceRuleCommand(editing: legacy, amountCents: 600, weekday: 5).startDate,
+            next,
+            "a plan saved before start dates were kept starts at its next payout"
+        )
+    }
+
+    func testAllowancePlanKeepsItsStartDateThroughEncodingAndDecodesWithoutIt() throws {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        let start = try XCTUnwrap(calendar.date(byAdding: .day, value: -21, to: today))
+        let plan = try AllowancePlan(amountCents: 500, cadence: "every week", weekday: 5, nextDate: today, startDate: start, nextOccurrenceID: "head")
+
+        let decoded = try JSONDecoder().decode(AllowancePlan.self, from: JSONEncoder().encode(plan))
+        XCTAssertEqual(decoded.startDate, start)
+        XCTAssertEqual(decoded, plan)
+
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(plan)) as? [String: Any])
+        object.removeValue(forKey: "startDate")
+        let older = try JSONDecoder().decode(AllowancePlan.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(older.startDate, "a snapshot saved before the field existed still decodes")
+        XCTAssertEqual(older.occurrences.map(\.id), ["head"])
+    }
+
     func testLocalRejectedDebitNeverChangesAcceptedBalance() async throws {
         let repository = try LocalWalletRepository(inMemory: true)
         _ = try await repository.setup(ParentSetup(nickname: "Test Kid"))

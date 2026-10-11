@@ -605,18 +605,23 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         let nextDate = rule.nextDueDate.flatMap(CloudDayFormat.date(from:))
         let hasCompleteHead = rule.nextOccurrenceID?.isEmpty == false && nextDate != nil
         let isExhausted = rule.nextOccurrenceID == nil && rule.nextDueDate == nil
+        // The schedule route always names the rule's fixed start date, so the
+        // overlay carries it even onto a replica saved before it was kept.
+        let startDate = CloudDayFormat.date(from: rule.startDate)
         if isExhausted {
             return try plan.applyingServiceHead(
                 nextDate: plan.nextDate,
                 nextOccurrenceID: nil,
-                isExhausted: true
+                isExhausted: true,
+                startDate: startDate
             )
         }
         guard hasCompleteHead else { return nil }
         return try plan.applyingServiceHead(
             nextDate: nextDate,
             nextOccurrenceID: rule.nextOccurrenceID,
-            isExhausted: false
+            isExhausted: false,
+            startDate: startDate
         )
     }
 

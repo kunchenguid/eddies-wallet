@@ -173,6 +173,20 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }
 
+    /// Cloud, child profile, PIN, connection details, sign-out and deletion
+    /// live on their own screen behind the gear in the Parent area bar.
+    private func openParentSettings(_ app: XCUIApplication) {
+        let gear = app.buttons["parent-settings"]
+        XCTAssertTrue(gear.waitForExistence(timeout: 5), "the Parent area bar must carry the settings gear")
+        gear.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5), "the gear must open the settings screen")
+    }
+
+    private func closeParentSettings(_ app: XCUIApplication) {
+        app.navigationBars["Settings"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Parent area"].waitForExistence(timeout: 5))
+    }
+
     func testConnectionFailurePrivacyAndParentReadout() throws {
         let app = launch("cannot-reach")
 
@@ -188,10 +202,8 @@ final class EvidenceCaptureUITests: XCTestCase {
         capture("connection-failure-kid-home")
 
         unlockParentArea(app)
+        openParentSettings(app)
         let details = app.buttons["connection-details-settings"]
-        for _ in 0..<8 where !details.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         details.tap()
 
@@ -208,6 +220,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         let app = launch("cloud-plans-available")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        openParentSettings(app)
 
         let monthly = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"]
         let annual = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"]
@@ -240,6 +253,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         let app = launch("cloud-plans-no-price")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        openParentSettings(app)
 
         let monthly = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"]
         let annual = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"]
@@ -275,11 +289,11 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5))
         dismissKeyboardForCapture(in: app)
 
-        let review = app.buttons["Review"]
-        XCTAssertTrue(review.waitForExistence(timeout: 5))
+        let confirm = app.buttons["money-flow-primary"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         XCTAssertTrue(
-            app.windows.firstMatch.frame.contains(review.frame),
-            "Review must be fully on screen once capture has settled the keyboard"
+            app.windows.firstMatch.frame.contains(confirm.frame),
+            "the confirm control must be fully on screen once capture has settled the keyboard"
         )
         if isPad {
             XCTAssertFalse(app.keyboards.element.exists)
@@ -327,10 +341,8 @@ final class EvidenceCaptureUITests: XCTestCase {
         app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        openParentSettings(app)
         let cloudCard = app.descendants(matching: .any)["cloud-backup-sync-card"]
-        for _ in 0..<4 where !cloudCard.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(cloudCard.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Cloud isn't available yet. Everything in the wallet keeps working on this iPhone."].exists)
         XCTAssertTrue(app.staticTexts["Cloud is optional. Your wallet keeps working on this device without it."].exists)
@@ -340,10 +352,8 @@ final class EvidenceCaptureUITests: XCTestCase {
         app = launch("cloud-expired")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        openParentSettings(app)
         let expiredCloudCard = app.descendants(matching: .any)["cloud-backup-sync-card"]
-        for _ in 0..<4 where !expiredCloudCard.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(expiredCloudCard.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Cloud ended. You can keep using the wallet on this device. Nothing was deleted."].exists)
         capture("cloud-expired-local-fallback")
@@ -353,6 +363,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         var app = launch("cloud-purchase-store-error")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        openParentSettings(app)
         let storeError = app.staticTexts["cloud-purchase-store-error"]
         for _ in 0..<4 where !storeError.isHittable {
             app.swipeUp()
@@ -365,6 +376,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         app = launch("cloud-purchase-server-rejected")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        openParentSettings(app)
         let serverRejected = app.staticTexts["cloud-purchase-rejected"]
         for _ in 0..<4 where !serverRejected.isHittable {
             app.swipeUp()
@@ -381,6 +393,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         let app = launch("configured", environment: ["EW_UITEST_DIAGNOSTICS": "1"])
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        openParentSettings(app)
 
         let link = app.descendants(matching: .any)["cloud-recovery-details-link"]
         for _ in 0..<10 where !link.isHittable {
@@ -403,6 +416,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         let app = launch("configured", environment: ["EW_UITEST_DIAGNOSTICS": "1"])
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        openParentSettings(app)
 
         let link = app.descendants(matching: .any)["cloud-storekit-diagnostics-link"]
         for _ in 0..<10 where !link.isHittable {
@@ -657,33 +671,37 @@ final class EvidenceCaptureUITests: XCTestCase {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        // The four actions sit directly under the balance, with no scrolling.
+        for title in ["Add deposit", "Record withdrawal", "Pay toward loan", "Allowance"] {
+            XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons[title].isHittable, "\(title) must be on the first screen")
+        }
         capture("parent-area")
 
         app.swipeUp()
-        XCTAssertTrue(app.buttons["Change PIN"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Recent activity"].waitForExistence(timeout: 5))
         capture("parent-area-scrolled")
+        app.swipeDown()
 
-        // Deposit flow: amount -> review -> Recorded, exact minor units.
+        // Deposit: one sheet, the control names the amount, Recorded in place.
         app.buttons["Add deposit"].tap()
         let amountField = app.textFields["Amount in virtual dollars"]
         XCTAssertTrue(amountField.waitForExistence(timeout: 5))
         amountField.tap()
         amountField.typeText("5.25")
         dismissKeyboardForCapture(in: app)
-        XCTAssertTrue(app.windows.firstMatch.frame.contains(app.buttons["Review"].frame))
+        let confirm = app.buttons["money-flow-primary"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        XCTAssertEqual(confirm.label, "Add US$5.25")
+        XCTAssertTrue(app.staticTexts["US$29.25"].exists, "The sheet must show the exact resulting accepted balance")
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(confirm.frame))
         capture("parent-deposit-amount")
-        app.buttons["Review"].tap()
-        if !app.staticTexts["Review before recording"].waitForExistence(timeout: 3) {
-            // The first tap can land during the keyboard animation on iPad.
-            app.buttons["Review"].tap()
-        }
-        XCTAssertTrue(app.staticTexts["Review before recording"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["US$29.25"].exists, "Review must show the exact resulting accepted balance")
-        capture("parent-deposit-review")
-        app.buttons["Confirm add deposit"].tap()
+        confirm.tap()
         XCTAssertTrue(app.staticTexts["Recorded"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Added US$5.25 to Eddie's wallet. New balance US$29.25."].exists)
         capture("parent-deposit-result")
         app.buttons["Done"].tap()
+        XCTAssertTrue(app.staticTexts["US$29.25"].waitForExistence(timeout: 5))
 
         // Overdraft honesty: a too-large withdrawal is blocked with the
         // fixed vocabulary before it can be submitted.
@@ -693,25 +711,32 @@ final class EvidenceCaptureUITests: XCTestCase {
         withdrawalField.tap()
         withdrawalField.typeText("500")
         XCTAssertTrue(app.staticTexts["The amount is greater than the accepted balance."].waitForExistence(timeout: 3))
-        XCTAssertFalse(app.buttons["Review"].isEnabled)
+        XCTAssertFalse(app.buttons["money-flow-primary"].isEnabled)
         dismissKeyboardForCapture(in: app)
         capture("parent-withdrawal-blocked")
         app.buttons["Cancel"].tap()
 
-        // Allowance sheet with review sentence.
-        XCTAssertTrue(app.staticTexts["Next allowance"].waitForExistence(timeout: 5))
-        app.staticTexts["Next allowance"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["Review allowance"].waitForExistence(timeout: 5))
+        // The allowance editor opens on the plan: amount, payout day, and the
+        // start date shown as fixed.
+        XCTAssertTrue(app.buttons["Allowance"].waitForExistence(timeout: 5))
+        app.buttons["Allowance"].tap()
+        XCTAssertTrue(app.buttons["allowance-save"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.textFields["allowance-weekly-amount"].value as? String, "10.00")
+        XCTAssertTrue(app.descendants(matching: .any)["allowance-fixed-start"].exists)
         capture("parent-allowance")
-        app.buttons["Close"].tap()
+        app.buttons["Cancel"].tap()
 
-        // Change PIN sheet.
-        app.swipeUp()
+        // Settings live behind the gear, off the money screen.
+        openParentSettings(app)
         XCTAssertTrue(app.buttons["Change PIN"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Sign out"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["delete-account-settings"].exists)
+        capture("parent-settings")
         app.buttons["Change PIN"].tap()
         XCTAssertTrue(app.secureTextFields["Current PIN"].waitForExistence(timeout: 5))
         capture("parent-change-pin")
         app.buttons["Cancel"].tap()
+        closeParentSettings(app)
 
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         app.buttons["Done. Back to Eddie's wallet"].tap()
@@ -728,11 +753,9 @@ final class EvidenceCaptureUITests: XCTestCase {
             let app = launch(scenario)
             XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
             unlockParentArea(app)
+            openParentSettings(app)
 
             let card = app.descendants(matching: .any)["cloud-backup-sync-card"]
-            for _ in 0..<8 where !card.isHittable {
-                app.swipeUp()
-            }
             XCTAssertTrue(card.waitForExistence(timeout: 5))
             let note = app.staticTexts["cloud-plans-unavailable-note"]
             XCTAssertTrue(note.exists)
@@ -775,10 +798,8 @@ final class EvidenceCaptureUITests: XCTestCase {
         enterPIN("1234", in: app)
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
 
+        openParentSettings(app)
         let cloudCard = app.descendants(matching: .any)["cloud-backup-sync-card"]
-        for _ in 0..<6 where !cloudCard.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(cloudCard.waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["cloud-benefits"].exists)
         XCTAssertTrue(app.staticTexts["cloud-plans-unavailable-note"].exists)
@@ -788,11 +809,9 @@ final class EvidenceCaptureUITests: XCTestCase {
         // XCUI element screenshots pad the offscreen portion with black, which
         // is misleading reviewer evidence even though the parent area scrolls.
         capture("captain-cloud-consumer-feature")
+        closeParentSettings(app)
 
         let deposit = app.buttons["Add deposit"]
-        for _ in 0..<6 where !deposit.isHittable {
-            app.swipeDown()
-        }
         XCTAssertTrue(deposit.waitForExistence(timeout: 5))
         deposit.tap()
 
@@ -804,20 +823,14 @@ final class EvidenceCaptureUITests: XCTestCase {
         capture("captain-deposit-autofocused")
 
         app.typeText("5.00")
-        app.buttons["Review"].tap()
-        XCTAssertTrue(app.staticTexts["Review before recording"].waitForExistence(timeout: 5))
-
-        let confirm = app.buttons["Confirm add deposit"]
-        let back = app.buttons["Back"]
+        let confirm = app.buttons["money-flow-primary"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        XCTAssertEqual(confirm.label, "Add US$5.00")
         let window = app.windows.firstMatch.frame
         XCTAssertTrue(window.contains(confirm.frame))
         XCTAssertLessThanOrEqual(confirm.frame.maxY, window.maxY - 8)
         XCTAssertTrue(confirm.isHittable)
-        XCTAssertTrue(window.contains(back.frame))
-        XCTAssertLessThanOrEqual(back.frame.maxY, window.maxY - 8)
-        XCTAssertTrue(back.isHittable)
-        capture("captain-deposit-review-fully-visible")
+        capture("captain-deposit-confirm-fully-visible")
     }
 
     /// Labeled evidence for the parent write block: what a genuinely blocked
@@ -841,19 +854,21 @@ final class EvidenceCaptureUITests: XCTestCase {
         for _ in 0..<6 where !app.buttons["cloud-mutation-block-recovery"].isHittable { app.swipeUp() }
         capture("parent-block-names-its-reason-and-its-way-out")
 
+        openParentSettings(app)
         let notSyncing = app.descendants(matching: .any)["cloud-not-syncing-note"]
         for _ in 0..<8 where !notSyncing.exists { app.swipeUp() }
         XCTAssertTrue(notSyncing.exists, "the Cloud card states the same fact the block does")
         XCTAssertFalse(app.descendants(matching: .any)["cloud-syncing-note"].exists)
         capture("parent-cloud-card-agrees-with-the-block")
+        closeParentSettings(app)
 
         let recovery = app.buttons["cloud-mutation-block-recovery"]
         for _ in 0..<8 where !recovery.isHittable { app.swipeDown() }
         XCTAssertTrue(recovery.isHittable)
         recovery.tap()
 
-        XCTAssertTrue(app.staticTexts["Parent actions"].waitForExistence(timeout: 15))
         let deposit = app.buttons["Add deposit"]
+        XCTAssertTrue(deposit.waitForExistence(timeout: 15))
         var recovered = false
         for _ in 0..<40 where !recovered {
             recovered = deposit.exists && deposit.isEnabled && !notice.exists
@@ -882,12 +897,10 @@ final class EvidenceCaptureUITests: XCTestCase {
             amount.tap()
             amount.typeText("1.25")
             dismissKeyboardForCapture(in: app)
-            app.buttons["Review"].tap()
-            if !app.staticTexts["Review before recording"].waitForExistence(timeout: 3) {
-                app.buttons["Review"].tap()
-            }
-            XCTAssertTrue(app.staticTexts["Review before recording"].waitForExistence(timeout: 5))
-            app.buttons["Confirm add deposit"].tap()
+            let confirm = app.buttons["money-flow-primary"]
+            XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+            XCTAssertEqual(confirm.label, "Add US$1.25")
+            confirm.tap()
             XCTAssertTrue(app.staticTexts[expectedMessage].waitForExistence(timeout: 5))
             XCTAssertTrue(app.descendants(matching: .any)["money-flow-result"].exists)
             Thread.sleep(forTimeInterval: 0.4)
@@ -906,7 +919,7 @@ final class EvidenceCaptureUITests: XCTestCase {
 
         openDepositResult(
             "cloud-write-recorded",
-            expectedMessage: "This virtual money event was accepted and added to Eddie's wallet.",
+            expectedMessage: "Added US$1.25 to Eddie's wallet. New balance US$25.25.",
             captureName: "cloud-write-recorded",
             acceptedAmountVisibleToKid: true
         )
@@ -954,8 +967,8 @@ final class EvidenceCaptureUITests: XCTestCase {
         let profile = launch("cloud-profile-accepted-waiting")
         XCTAssertTrue(profile.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(profile)
+        openParentSettings(profile)
         let editProfile = profile.descendants(matching: .any)["edit-child-profile-settings"]
-        for _ in 0..<6 where !editProfile.isHittable { profile.swipeUp() }
         XCTAssertTrue(editProfile.waitForExistence(timeout: 5))
         editProfile.tap()
         let field = profile.descendants(matching: .any)["child-nickname-field"]
@@ -985,11 +998,9 @@ final class EvidenceCaptureUITests: XCTestCase {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        openParentSettings(app)
 
         let settingsRow = app.descendants(matching: .any)["edit-child-profile-settings"]
-        for _ in 0..<4 where !settingsRow.isHittable {
-            app.swipeUp()
-        }
         XCTAssertTrue(settingsRow.waitForExistence(timeout: 5))
         settingsRow.tap()
 
@@ -1012,6 +1023,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Child profile saved."].waitForExistence(timeout: 5))
         capture("parent-child-profile-saved")
         app.navigationBars.buttons["Done"].tap()
+        closeParentSettings(app)
 
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Maya's virtual balance"].waitForExistence(timeout: 5))
@@ -1094,11 +1106,8 @@ final class EvidenceCaptureUITests: XCTestCase {
         amountField.tap()
         amountField.typeText("5.25")
         dismissKeyboardForCapture(in: app)
-        app.buttons["Review"].tap()
-        if !app.staticTexts["Review before recording"].waitForExistence(timeout: 3) {
-            app.buttons["Review"].tap()
-        }
-        XCTAssertTrue(app.staticTexts["Review before recording"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["money-flow-primary"].label, "Add US$5.25")
+        XCTAssertTrue(app.staticTexts["US$29.25"].exists)
         capture("listing-money-flow-review")
         app.terminate()
 
@@ -1115,6 +1124,7 @@ final class EvidenceCaptureUITests: XCTestCase {
         app = launch("cloud-plans-no-price")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
         unlockParentArea(app)
+        openParentSettings(app)
         let monthly = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.monthly"]
         let annual = app.buttons["cloud-plan-com.kunchenguid.eddieswallet.cloud.annual"]
         scrollIntoCaptureFrame(monthly, in: app)
@@ -1122,6 +1132,82 @@ final class EvidenceCaptureUITests: XCTestCase {
         capture("listing-cloud-plans")
 
         assertListingCaptureUniqueness()
+    }
+
+    /// The reach fix, measured: with a long history the money actions sit on
+    /// the first screen of the Parent area, and the full history is one tap
+    /// away instead of in the way.
+    func testParentAreaReachTour() throws {
+        let app = launch("configured", environment: ["EW_UITEST_ACTIVITY_ROWS": "18"])
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
+        unlockParentArea(app)
+        let deposit = app.buttons["Add deposit"]
+        XCTAssertTrue(deposit.waitForExistence(timeout: 5))
+        capture("parent-reach-top")
+
+        var swipes = 0
+        while !deposit.isHittable, swipes < 8 {
+            app.swipeUp()
+            swipes += 1
+        }
+        capture("parent-reach-actions")
+        if let evidenceDirectory {
+            try? "swipes-to-add-deposit=\(swipes)\n".write(
+                to: evidenceDirectory.appendingPathComponent("parent-reach-swipes.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        XCTAssertEqual(swipes, 0, "with 21 activity rows the money actions must be on the first screen")
+
+        let seeAll = app.buttons["parent-activity-see-all"]
+        for _ in 0..<6 where !seeAll.isHittable { app.swipeUp() }
+        XCTAssertTrue(seeAll.isHittable, "a long history is capped with a See all link")
+        capture("parent-reach-activity")
+        seeAll.tap()
+        XCTAssertTrue(app.staticTexts["All activity"].waitForExistence(timeout: 5))
+        capture("parent-all-activity")
+    }
+
+    /// The allowance change on a Cloud wallet, driven through the real
+    /// `CloudWalletRepository` against a synthetic service that refuses a
+    /// changed start date exactly as the live one does: the editor opens on
+    /// the current plan, a new amount is saved, and the Parent area shows it.
+    func testCloudAllowanceChangeTour() throws {
+        let app = launch(
+            "cloud-live-parent",
+            environment: ["EW_UITEST_CLOUD_ALLOWANCE": "1", "EW_UITEST_CLOUD_READ_DELAY_SECONDS": "0"]
+        )
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 20))
+        unlockParentArea(app)
+        let allowanceCard = app.buttons["parent-allowance-card"]
+        XCTAssertTrue(allowanceCard.waitForExistence(timeout: 15))
+        XCTAssertTrue(
+            app.staticTexts["US$10.00 every Friday"].waitForExistence(timeout: 15),
+            "the Cloud plan is on screen before editing"
+        )
+        capture("cloud-allowance-before")
+
+        allowanceCard.tap()
+        let amount = app.textFields["allowance-weekly-amount"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 5))
+        capture("cloud-allowance-editor")
+        XCTAssertEqual(amount.value as? String, "10.00", "the editor opens with the current amount")
+        amount.tap()
+        amount.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
+        amount.typeText("12.50")
+        let save = app.buttons["allowance-save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        XCTAssertTrue(save.isEnabled, "a changed amount can be saved")
+        capture("cloud-allowance-changed")
+
+        save.tap()
+        XCTAssertTrue(
+            app.staticTexts["US$12.50 every Friday"].waitForExistence(timeout: 15),
+            "the Cloud wallet shows the new amount"
+        )
+        XCTAssertFalse(app.staticTexts["Not recorded"].exists, "the service accepted the change")
+        capture("cloud-allowance-after")
     }
 
     private func assertListingCaptureUniqueness() {
