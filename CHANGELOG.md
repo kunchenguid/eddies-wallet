@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.19...eddies-wallet-v0.1.20) (2026-10-11)
+
+
+### Features
+
+* **parent:** put the actions up top and fix the Cloud allowance change ([0a1d868](https://github.com/kunchenguid/eddies-wallet/commit/0a1d8689084c3cfdb630f1156cf1616d7a37112f))
+
 ## [0.1.19](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.18...eddies-wallet-v0.1.19) (2026-09-02)
 
 
