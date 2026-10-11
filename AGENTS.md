@@ -1,6 +1,6 @@
 # Project agent memory
 
-This public repository is the frontend and product home for Eddie's Wallet. Keep client behavior aligned with the product requirements in `docs/product-requirements.md`, especially split-audience money language, parent/child permissions, and offline states. The root `README.md` is the public landing page; keep its status, setup, and limitation claims truthful for an unfinished, unreleased MVP.
+This public repository is the frontend and product home for Eddie's Wallet. Keep client behavior aligned with the product requirements in `docs/product-requirements.md`, especially split-audience money language, parent/child permissions, and offline states. The root `README.md` is the public landing page. Keep its status, setup, and limitation claims truthful: 0.1.17 and 0.1.19 are App Store releases of a virtual-money app, TestFlight and App Review are separate captain gates (`docs/release.md`, `docs/app-review.md`), and unfinished product limits stay spelled out as limits rather than as "this app is unreleased."
 
 The app's service implementation and operations are maintained separately. Keep this repository frontend-only: do not add backend source, migrations, credentials, deployment assets, or infrastructure configuration here.
 

@@ -2,9 +2,9 @@
 
 Eddie's Wallet uses release-please for version PRs, changelog generation, tags, and GitHub Releases.
 The native iOS app is then archived with Xcode on GitHub Actions and uploaded to TestFlight.
-The pipeline mirrors a proven sibling-project release lifecycle: deliberate human control over the release trigger, unattended automation for everything after it.
+This file is the release-please and TestFlight pipeline only. Merging a release PR cuts the tag and uploads a build to TestFlight. It does not submit for App Review, release a reviewed version, or change price or availability. App Review is a separate captain gate in `docs/app-review.md`. The review-status monitor in `docs/app-store-review-monitor.md` is GET-only.
 
-Scope is TestFlight only. Nothing in this repository submits for App Store review, publishes publicly, or changes pricing, availability, or production state. The separate read-only App Review observer is documented in [App Store review-status monitor](app-store-review-monitor.md); it cannot submit, release, or alter Apple state.
+Repository variable `MAC_RUNNER` is `mini-mac`. The TestFlight archive job uses that label. Unset the variable to fall back to hosted `macos-26`. Do not change it as part of an ordinary release.
 
 ## The captain approval boundary
 

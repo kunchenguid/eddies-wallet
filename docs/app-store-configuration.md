@@ -2,7 +2,7 @@
 
 This file records the App Store Connect state that exists today for `com.kunchenguid.eddieswallet`, so a future change does not re-request setup that is already done or drift the app's product identifiers away from the store.
 
-It is a record of configuration and the live evidence boundary, not a claim of product readiness. One Sandbox purchase through TestFlight reached Apple and the backend notification path, but complete client transaction delivery and Cloud activation remain unproven. See "Live Sandbox evidence and remaining boundaries" below.
+It is a record of configuration and the live evidence boundary, not a claim that every Cloud lifecycle event is proven. Renewal, grace, expiry, refund, and revocation remain unproven. See "Live Sandbox evidence and remaining boundaries" below.
 
 ## Shared Apple account
 
@@ -28,9 +28,15 @@ In-App Purchase needs no entitlement key. `EddysWallet/EddysWallet.entitlements`
 
 ### App Store version and build lineage
 
-App Store Connect holds **one** iOS App Store version record: marketing version `0.1.17`, build `18.1`, state `PREPARE_FOR_SUBMISSION`, `releaseType` `AFTER_APPROVAL`. The `en-US` listing is filled: app name "Eddie's Wallet", subtitle "Virtual allowance practice", privacy policy URL https://eddies-wallet.kunchenguid.com/privacy/ , support URL https://eddies-wallet.kunchenguid.com/ . Listing screenshots are `COMPLETE` (5x iPhone 6.9" and 5x iPad 13"). `demoAccountRequired` is false: the reviewer uses their own Apple ID; no sandbox tester is supplied. Nothing is submitted; App Review is HELD.
+As of the 0.1.19 approval on 2026-09-16, App Store Connect is not the single unsubmitted 0.1.17 draft this section used to describe.
 
-All uploaded builds declare `usesNonExemptEncryption = false`, so export compliance is already answered at the build level and App Review does not ask again.
+- 0.1.17 first release, manifest build 19.1, `firstRelease: true`, `releaseType` `AFTER_APPROVAL`. Approved 2026-08-25 (GitHub issue #129) and released. The older "build 18.1, PREPARE_FOR_SUBMISSION, review held" sentence is historical and wrong.
+- 0.1.18 was cut and uploaded to TestFlight. It was not submitted for review.
+- 0.1.19 update, manifest build 21.1, `baselineVersion` 0.1.17, `releaseType` `AFTER_APPROVAL`, source commit `feb802e6edde9fc3231769275dc34efbd92f00f7`. Submitted 2026-09-15 Pacific (submit job `35049056958` finished at 2026-09-16T02:43:25Z) and approved 2026-09-16 (GitHub issue #148). AFTER_APPROVAL releases on approval. The scheduled monitor still reports `outcome: approved` for armed version 0.1.19.
+
+`demoAccountRequired` is false. The reviewer uses their own Apple ID. Export compliance is answered on the build (`usesNonExemptEncryption = false`).
+
+Re-check before the next submission with `asc-build-status.yml` and `app-review-monitor.yml`. Do not treat this paragraph as a live Apple query.
 
 ### Review preparation
 
@@ -92,12 +98,8 @@ The client recovery and error-attribution contract is owned by [`EddysWallet/REA
 
 The following remain deliberately unproven or undone:
 
-- No successful client transaction-delivery request or Cloud activation has been exercised live.
 - No renewal, grace, expiry, refund, or revocation has been exercised in Sandbox or production.
 - The backend's In-App Purchase credential is installed and has verified the observed Sandbox notification. It remains distinct from the App Store Connect API key used for uploads; no new key is needed and none should be requested.
-- This App Store Connect configuration work did not cut a TestFlight build or merge release pull request 26. That pull request remains open and captain-owned; this task-scoped boundary does not negate the TestFlight uploads App Store Connect has already accepted for this app.
-- No submission for App Review, and no request for Apple's test notification.
-- Version `0.1.17` has build `18.1` attached and listing screenshots `COMPLETE`. An interrupted submit attempt left one empty `READY_FOR_REVIEW` submission object with no version item attached; the version itself has not been submitted and App Review remains HELD.
 
 ### An account-policy state is not a product-discovery failure
 
