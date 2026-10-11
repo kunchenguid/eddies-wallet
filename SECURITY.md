@@ -1,10 +1,10 @@
 # Security policy
 
-Eddie's Wallet is an unfinished, unreleased frontend MVP. Even so, it is a family product concept that involves a child's profile, so security and privacy reports are taken seriously and handled privately.
+Eddie's Wallet involves a child's profile, so security and privacy reports are taken seriously and handled privately. The [README](README.md) owns the product introduction and release status.
 
 ## Supported versions
 
-There are no released, tagged, or distributed builds of Eddie's Wallet, so there are no supported release versions. Security fixes land only on the `main` branch of this repository. If you build the app yourself, rebuild from the latest `main` to pick up fixes.
+Security fixes land only on the `main` branch of this repository. If you build the app yourself, rebuild from the latest `main` to pick up fixes.
 
 ## Reporting a vulnerability
 

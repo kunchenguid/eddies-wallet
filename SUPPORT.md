@@ -1,6 +1,6 @@
 # Support
 
-Eddie's Wallet is an unfinished development project, not a shipped consumer product. There is no App Store listing, no downloadable release, and no customer support channel. Support here means help with the source code and documentation in this repository.
+Support here means help with the source code and documentation in this repository. The [README](README.md) owns the app's release status and product limitations.
 
 ## Build, source, and documentation questions
 

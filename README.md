@@ -6,7 +6,7 @@ Every dollar the app displays is virtual, pretend, and nonredeemable. No real mo
 
 What is still limited: renewal, grace, expiry, refund, and revocation have not all been exercised as a full live proof, and the README must not outrun `docs/app-store-configuration.md` on those boundaries. Parent-controlled export remains a product-requirements item.
 
-**Every dollar the app displays is virtual, pretend, and nonredeemable. No real money ever moves through Eddie's Wallet.** There are no banks, cards, payment rails, or cash-out paths. One signed-in parent creates allowance and loan schedules and records deposits, withdrawals, loans, and manual repayments; a free local wallet settles a small due set from those schedules when it is read. The managed child profile is a read-only view: the child has no independent account, login, or way to change the wallet.
+One signed-in parent creates allowance and loan schedules and records deposits, withdrawals, loans, and manual repayments; a free local wallet settles a small due set from those schedules when it is read. The managed child profile is a read-only view: the child has no independent account, login, or way to change the wallet.
 
 **Who this is for:** developers and reviewers who want to explore a small, dependency-free SwiftUI client, and anyone following the product concept in the [product requirements document](docs/product-requirements.md).
 
@@ -54,7 +54,7 @@ xcodebuild -project EddysWallet.xcodeproj -scheme EddysWallet \
 
 ## Architecture boundary
 
-This repository contains only the client. A complete free wallet is stored locally on one device in protected Core Data, where it is the accepted authority. The optional Cloud design uses a separately maintained, privately operated service through a small versioned HTTP API; its source, operations, and credentials are not part of this repository. `LocalWalletRepository` owns free-local data, while the Cloud client keeps server authority for Cloud households. StoreKit and live Cloud activation are under development and are not proven end to end. The authoritative live StoreKit and backend evidence boundary is in [`docs/app-store-configuration.md`](docs/app-store-configuration.md); client behavior is detailed in [`EddysWallet/README.md`](EddysWallet/README.md).
+This repository contains only the client. A complete free wallet is stored locally on one device in protected Core Data, where it is the accepted authority. The optional Cloud design uses a separately maintained, privately operated service through a small versioned HTTP API; its source, operations, and credentials are not part of this repository. `LocalWalletRepository` owns free-local data, while the Cloud client keeps server authority for Cloud households. The authoritative live StoreKit and backend evidence boundary is in [`docs/app-store-configuration.md`](docs/app-store-configuration.md); client behavior is detailed in [`EddysWallet/README.md`](EddysWallet/README.md).
 
 ## Project layout
 

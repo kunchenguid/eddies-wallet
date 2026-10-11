@@ -86,10 +86,9 @@ for `kunchenguid/app-review-submit`, not a console chore.
   the shared team. Never re-request them.
 - App Privacy / nutrition-label answers: Apple exposes no public App Store
   Connect API. Incomplete declarations surface as HTTP 409 on version-attach
-  (`E_APP_PRIVACY`). Confirmed blocker on 2026-08-14. Later assemble runs have
-  failed earlier at listing screenshots, so completeness after that date is
-  unproven until attach runs. This is the only remaining App Store Connect UI
-  step in the 0.1.17 flow.
+  (`E_APP_PRIVACY`). This blocked 0.1.17 on 2026-08-14, before its successful
+  submission. For a future version, the captain updates these answers only
+  if the declarations are incomplete or collection has changed.
 - Physical-device proof of Sign in with Apple, the Parent gate, and a sandbox
   Cloud purchase. Both steps are user-mediated; a runner cannot do them.
 - Pasting demo-preflight evidence into the GitHub dispatch `evidence` input.
@@ -178,7 +177,7 @@ Eddie-side flags for them, and do not ask the captain to do them in the UI.
 | Step | What runs | What it may change |
 | --- | --- | --- |
 | 1. Release the candidate | The existing captain-merged release PR uploads the build to TestFlight (`docs/release.md`). | TestFlight only. |
-| 2. Bind listing screenshots | Distinct listing screenshots for every live display type live under `tools/app-review/assets/screenshots/<version>/` as `{fileName}` (engine path `{screenshotDirectory}/{fileName}`). The captain-approved manifest binds `displayType`, `width`, `height`, and `{fileName,fileSize,sha256}` per slot. App Privacy is the only remaining App Store Connect UI irreducible. See Hands-off bar. | Repository screenshot bytes. |
+| 2. Bind listing screenshots | Distinct listing screenshots for every live display type live under `tools/app-review/assets/screenshots/<version>/` as `{fileName}` (engine path `{screenshotDirectory}/{fileName}`). The captain-approved manifest binds `displayType`, `width`, `height`, and `{fileName,fileSize,sha256}` per slot. App Privacy answers, if an update is needed, remain an App Store Connect UI irreducible. See Hands-off bar. | Repository screenshot bytes. |
 | 3. Attended functional proof | One physical-device proof of Sign in with Apple, the Parent gate, the Cloud plan offer, an Apple review or sandbox purchase, and Cloud activation, using a synthetic test account. A runner cannot do this: both steps are user-mediated. | Nothing in this repository. |
 | 4. Approve the manifest | Generate the manifest from the final candidate and merge it after captain review. | The repository only. |
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only, including the default exact live listing-screenshot match. | The recovery issue only. |
@@ -221,10 +220,6 @@ so a submission cannot quietly rely on a readiness check from last week.
 The prepare step opens one GitHub issue keyed by app, version, manifest binding
 hash, and manifest-approved commit, with a single mutable comment holding phase,
 reconciliation outcome, and timestamp. Nothing else is recorded there.
-
-Rerunning `mode=create-version` after an interruption is safe: the engine
-reconciles against authoritative Apple state and is idempotent from exact live
-ground truth.
 
 `mode=create-version` accepts a missing version or a `PREPARE_FOR_SUBMISSION`
 target. If the target is already `READY_FOR_REVIEW` and matches the manifest,

@@ -1,6 +1,6 @@
 # Video claims checklist
 
-Use this checklist while scripting and reviewing any video or public presentation of Eddie's Wallet. The video is a code walkthrough of an unfinished frontend MVP, not a launch announcement. Every claim made on camera must match what this repository can actually prove.
+Use this checklist while scripting and reviewing any video or public presentation of Eddie's Wallet. The video is a code walkthrough, not a launch announcement; the [README](../README.md) owns the product introduction. Every claim made on camera must match what this repository can actually prove.
 
 ## Six statements the video must make near the beginning
 
@@ -8,7 +8,7 @@ Use this checklist while scripting and reviewing any video or public presentatio
 2. Every displayed dollar is virtual, pretend, nonredeemable, and never moves real money.
 3. Only a parent, inside the PIN-gated Parent area, records changes; the managed child profile is read-only and has no independent account.
 4. The free one-device wallet does not depend on the separately operated service; optional Cloud and legacy service-wallet compatibility do. Live Apple sign-in still requires Apple signing setup that is not part of this repository.
-5. Verification so far covers local tests and builds, including synthetic UI scenarios, but not live Apple sign-in, real-parent free-wallet setup, production service-wallet activity, or optional Cloud.
+5. Local tests and builds include synthetic UI scenarios; they are not live-device proof. The live StoreKit, TestFlight, and backend evidence boundary is owned by [the App Store Connect configuration record](app-store-configuration.md#live-sandbox-evidence-and-remaining-boundaries).
 6. Marketing versions 0.1.17 and 0.1.19 are App Store releases. Say that only together with the virtual-money limit. Do not claim every Cloud lifecycle event (renewal, refund, revocation) has been proven live unless `docs/app-store-configuration.md` says so.
 
 ## Claims that are supported by local evidence
@@ -25,7 +25,7 @@ These may be stated, with the qualifier that they were verified locally on a dev
 
 - That a displayed balance is real money, a bank balance, or withdrawable.
 - That optional Cloud was proven for every renewal, grace, refund, and revocation path.
-- That Apple sign-in, real-parent free-wallet setup, or the production service-wallet flow was verified end to end.
+- That local or synthetic tests prove live Apple sign-in, real-parent free-wallet setup, or the production service-wallet flow end to end.
 - That retention, export, deletion, backups, or restore work is complete.
 - That CI validates every push to the default branch. Pull requests run credential-free CI; the macOS test jobs run on release tags.
 - That all supported iOS 17 devices were tested (recent verification used iOS 26 simulators only).

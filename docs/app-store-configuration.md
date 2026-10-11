@@ -42,7 +42,7 @@ Re-check before the next submission with `asc-build-status.yml` and `app-review-
 
 The `en-US` listing now has the privacy policy URL https://eddies-wallet.kunchenguid.com/privacy/ (policy published via GitHub Pages: `site/` and `.github/workflows/pages.yml`).
 
-**App Privacy (data collection) answers** have no public API surface. They are the remaining App Store Connect UI irreducible for 0.1.17. See `docs/app-review.md` Hands-off bar. Do not treat listing copy, review contact, categories, IAP review screenshots, or age rating as console work: those are API-able, already live-matching, or an engine gap.
+For the **App Privacy (data collection) answers** and their captain-only update boundary, see `docs/app-review.md` Hands-off bar. Do not treat listing copy, review contact, categories, IAP review screenshots, or age rating as console work: those are API-able, already live-matching, or an engine gap.
 
 App Review contact details (name, email, phone) are the captain's real contact information in `tools/app-review/app-review.config.json` `reviewDetails`. First-release assemble writes them. They must never be invented, and no synthetic value belongs in that field.
 
@@ -72,7 +72,7 @@ One auto-renewable subscription group, reference name `Cloud`, `en-US` display n
 | Territories priced | 175 (US base price, equalized elsewhere) | 175 (US base price, equalized elsewhere) |
 | Availability in new territories | yes | yes |
 | App Store review screenshot | present, delivery state `COMPLETE` | present, delivery state `COMPLETE` |
-| Product state | `READY_TO_SUBMIT` | `READY_TO_SUBMIT` |
+| Product state at initial configuration (historical, not a current query) | `READY_TO_SUBMIT` | `READY_TO_SUBMIT` |
 
 Both products are at the same group level because they are the same service billed at two frequencies, not two service tiers.
 
@@ -92,7 +92,7 @@ The accepted product is $2.99 charged each month on a monthly subscription and $
 
 ## Live Sandbox evidence and remaining boundaries
 
-A captain-supplied live report proves one narrow Sandbox/TestFlight path: Apple completed the purchase, Apple's server notification passed the live backend verifier and persisted, and the app made no transaction-delivery request. This does not prove client delivery, backend-projected entitlement recovery, Cloud activation, backup, sync, renewal, or production purchase behavior.
+The initial captain-supplied live report proves one narrow Sandbox/TestFlight path: Apple completed the purchase, Apple's server notification passed the live backend verifier and persisted, and the app made no transaction-delivery request. That report alone does not prove client delivery, backend-projected entitlement recovery, Cloud activation, backup, sync, renewal, or production purchase behavior.
 
 The client recovery and error-attribution contract is owned by [`EddysWallet/README.md`](../EddysWallet/README.md).
 
