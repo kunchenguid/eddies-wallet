@@ -28,11 +28,13 @@ In-App Purchase needs no entitlement key. `EddysWallet/EddysWallet.entitlements`
 
 ### App Store version and build lineage
 
-As of the 0.1.19 approval on 2026-09-16, App Store Connect is not the single unsubmitted 0.1.17 draft this section used to describe.
+As of the 0.1.21 submission on 2026-10-12, App Store Connect is not the single unsubmitted 0.1.17 draft this section used to describe.
 
 - 0.1.17 first release, manifest build 19.1, `firstRelease: true`, `releaseType` `AFTER_APPROVAL`. Approved 2026-08-25 (GitHub issue #129) and released. The older "build 18.1, PREPARE_FOR_SUBMISSION, review held" sentence is historical and wrong.
 - 0.1.18 was cut and uploaded to TestFlight. It was not submitted for review.
-- 0.1.19 update, manifest build 21.1, `baselineVersion` 0.1.17, `releaseType` `AFTER_APPROVAL`, source commit `feb802e6edde9fc3231769275dc34efbd92f00f7`. Submitted 2026-09-15 Pacific (submit job `35049056958` finished at 2026-09-16T02:43:25Z) and approved 2026-09-16 (GitHub issue #148). AFTER_APPROVAL releases on approval. The scheduled monitor still reports `outcome: approved` for armed version 0.1.19.
+- 0.1.19 update, manifest build 21.1, `baselineVersion` 0.1.17, `releaseType` `AFTER_APPROVAL`, source commit `feb802e6edde9fc3231769275dc34efbd92f00f7`. Submitted 2026-09-15 Pacific (submit job `35049056958` finished at 2026-09-16T02:43:25Z) and approved 2026-09-16 (GitHub issue #148). AFTER_APPROVAL releases on approval. The monitor stayed armed on 0.1.19 until the 0.1.21 submission.
+- 0.1.20 was cut and uploaded to TestFlight. It was not submitted for review.
+- 0.1.21 update, manifest build 24.1, `baselineVersion` 0.1.19, `releaseType` `AFTER_APPROVAL`, source commit `e524eb722d259e88679c878024a04b061dcd026a`. Submitted 2026-10-12 Pacific (submit job `38322894064` finished at 2026-10-12T23:36:08Z); Apple reported `WAITING_FOR_REVIEW`, and the submit job armed the monitor on 0.1.21. AFTER_APPROVAL releases on approval.
 
 `demoAccountRequired` is false. The reviewer uses their own Apple ID. Export compliance is answered on the build (`usesNonExemptEncryption = false`).
 
