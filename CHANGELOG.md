@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.21](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.20...eddies-wallet-v0.1.21) (2026-10-12)
+
+
+### Bug Fixes
+
+* **wallet:** exchange the Apple proof before clearing a parent sign-in ([9fd39cd](https://github.com/kunchenguid/eddies-wallet/commit/9fd39cd5b16ec179c60dfb5604d7bb5964ef8cfc))
+
 ## [0.1.20](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.19...eddies-wallet-v0.1.20) (2026-10-11)
 
 
