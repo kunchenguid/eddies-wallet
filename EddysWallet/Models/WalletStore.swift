@@ -721,6 +721,13 @@ public final class WalletStore: ObservableObject {
     /// Performs the gate's fresh Sign in with Apple. The attempt must present
     /// the stored owning-parent Apple user identifier; any other Apple
     /// account is refused before a token is exchanged.
+    ///
+    /// The shipped coordinator verifies that Apple user and returns the
+    /// identity proof with no session. A Cloud or legacy-service wallet cannot
+    /// read until that proof is exchanged on the same session store the
+    /// repository reads with, so the expired-session state is cleared and the
+    /// PIN is asked for only after a session is stored. A failed exchange
+    /// stays on this gate. A free local wallet has no service session to renew.
     public func reauthenticateOwningParent() async {
         guard elevation == .gate, case .reauth(let reason) = gateRoute else { return }
         guard let appleSignInProvider else {
@@ -735,11 +742,16 @@ public final class WalletStore: ObservableObject {
         gateErrorMessage = nil
         defer { isSigningIn = false }
         do {
-            _ = try await appleSignInProvider.signIn(requiredAppleUserID: owningParentID)
-            sessionExpired = false
+            let outcome = try await appleSignInProvider.signIn(requiredAppleUserID: owningParentID)
             // If the app was backgrounded mid-authentication, elevation has
             // already been dropped; never resume a parent flow from here.
             guard elevation == .gate else { return }
+            try await exchangeServiceSessionIfMissing(from: outcome)
+            guard elevation == .gate else { return }
+            if serviceWalletNeedsSession {
+                throw WalletAPIError.noSession
+            }
+            sessionExpired = false
             switch reason {
             case .forgotPIN, .missingPIN:
                 gateRoute = .setPIN
@@ -754,6 +766,34 @@ public final class WalletStore: ObservableObject {
                 gateErrorMessage = userMessage(for: error)
             }
         }
+    }
+
+    /// Cloud and legacy-service wallets read with a stored service session.
+    /// A free local wallet, and the scripted repositories used by tests, do not.
+    private var serviceWalletNeedsSession: Bool {
+        let serviceBacked = repository is CloudWalletRepository || repository is any ParentAuthenticator
+        return serviceBacked && !repository.isAuthenticated
+    }
+
+    /// Exchanges the fresh Apple proof for a service session when this wallet
+    /// cannot read without one. Production builds `AppleSignInCoordinator()`
+    /// with no authenticator, so `signIn` never sends `POST /v1/auth/apple`;
+    /// first-run discovery and `ensureCloudSession` already exchange through
+    /// the coordinator that shares the repository's session store.
+    private func exchangeServiceSessionIfMissing(from outcome: AppleSignInOutcome) async throws {
+        guard serviceWalletNeedsSession else { return }
+        guard let identity = outcome.identity else {
+            throw WalletAPIError.invalidResponse("Apple Sign In did not return the required identity proof.")
+        }
+        if repository is CloudWalletRepository {
+            guard let cloudCoordinator else {
+                throw WalletAPIError.invalidResponse("Cloud sign-in is unavailable in this build.")
+            }
+            try await cloudCoordinator.authenticateCloud(identity: identity)
+            return
+        }
+        guard let legacy = repository as? any ParentAuthenticator else { return }
+        _ = try await legacy.authenticateApple(identityToken: identity.identityToken, nonce: identity.signedNonce)
     }
 
     /// Saves the new parent PIN chosen after successful owning-parent

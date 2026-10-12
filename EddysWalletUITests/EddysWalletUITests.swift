@@ -1714,6 +1714,50 @@ final class EddysWalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 5))
     }
 
+    /// A Cloud session the service no longer accepts. Apple sign-in plus the
+    /// parent PIN must exchange that proof and leave the Parent area open,
+    /// instead of returning to the kid home still asking for a sign-in.
+    func testExpiredCloudSessionReauthClearsTheBanner() throws {
+        let app = launch("cloud-live-expired", environment: ["EW_UITEST_DISABLE_ANIMATIONS": "1"])
+        let banner = app.staticTexts["A parent needs to sign in again."]
+
+        XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 20))
+        if !banner.waitForExistence(timeout: 8) {
+            let scrollView = app.scrollViews.firstMatch
+            scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+                .press(
+                    forDuration: 0.05,
+                    thenDragTo: scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
+                    withVelocity: .slow,
+                    thenHoldForDuration: 0.6
+                )
+        }
+        XCTAssertTrue(banner.waitForExistence(timeout: 10))
+        captureExpiredReauth("after-1-kid-home-banner", from: app)
+
+        app.buttons[doorLabel].tap()
+        XCTAssertTrue(app.staticTexts["Sign in again"].waitForExistence(timeout: 5))
+        captureExpiredReauth("after-2-gate-sign-in", from: app)
+
+        app.buttons["Sign in with Apple"].tap()
+        XCTAssertTrue(app.staticTexts["Parent only"].waitForExistence(timeout: 8))
+        captureExpiredReauth("after-3-pin", from: app)
+        enterPIN("1234", in: app)
+
+        XCTAssertTrue(app.staticTexts["Parent area"].waitForExistence(timeout: 8), "after Apple sign-in and the parent PIN the Parent area must stay open")
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertTrue(app.staticTexts["Parent area"].exists, "the parent read with the renewed session must not close the Parent area")
+        XCTAssertFalse(banner.exists, "the kid home must stop saying a parent needs to sign in again")
+        captureExpiredReauth("after-4-parent-area", from: app)
+    }
+
+    private func captureExpiredReauth(_ name: String, from app: XCUIApplication) {
+        guard let path = ProcessInfo.processInfo.environment["EW_EVIDENCE_DIR"], !path.isEmpty else { return }
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? app.screenshot().pngRepresentation.write(to: directory.appendingPathComponent("\(name).png"))
+    }
+
     // Report criterion 9: first-run setup stays parent-led, lands in the
     // Parent area with the first-actions handoff, and hands off to the kid
     // home.
