@@ -369,6 +369,46 @@ enum DebugLaunchScenario {
                 authority: .cloud(lineageID: lineage, revision: 2),
                 entitlement: .active(accessUntil: syntheticCloudAccessUntil, autoRenewEnabled: true)
             )
+        case "cloud-live-expired":
+            // The production composition from `EddysWalletApp.init`: one
+            // `CloudAPIClient`, `CloudWalletRepository`, and `CloudCoordinator`
+            // share a session store, and Sign in with Apple verifies the
+            // owning parent without exchanging a session. The stored bearer
+            // is one the synthetic service no longer accepts, the same way a
+            // session past `SESSION_TTL_DAYS` is refused. Bootstrap still
+            // lands so the kid home can show the last wallet; every later
+            // read with that bearer is 401 until `POST /v1/auth/apple`.
+            guard let replica = try? LocalWalletRepository(inMemory: true) else { return nil }
+            let lineage = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
+            let transport = SyntheticCloudTransport(
+                lineageID: lineage,
+                readDelay: seconds(environment["EW_UITEST_CLOUD_READ_DELAY_SECONDS"], default: 0),
+                staleToken: "stale-session"
+            )
+            let client = CloudAPIClient(
+                baseURL: SyntheticCloudTransport.baseURL,
+                sessionStore: InMemorySessionStore(
+                    session: AuthSession(token: "stale-session", expiresAt: .distantFuture)
+                ),
+                transport: transport
+            )
+            return WalletStore(
+                repository: CloudWalletRepository(
+                    client: client,
+                    replica: replica,
+                    lineageID: lineage,
+                    revision: 0,
+                    requiresBootstrap: true
+                ),
+                appleSignInProvider: IdentityOnlyAppleSignInProvider(appleUserID: signInUserID),
+                pinStore: InMemoryParentPINStore(pin: "1234"),
+                identityStore: InMemoryParentIdentityStore(appleUserID: owningParentAppleUserID),
+                gatePolicy: gatePolicy,
+                cloudCoordinator: CloudCoordinator(
+                    client: client,
+                    subscriptions: CloudSubscriptionStore(client: client, observeTransactions: false)
+                )
+            )
         case "legacy":
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)), authority: .legacyService)
         default:
@@ -508,6 +548,31 @@ final class ScriptedAppleSignInProvider: AppleSignInProviding {
     }
 }
 
+/// Matches the shipped `AppleSignInCoordinator()`, which is built with no
+/// authenticator. It verifies the Apple user and returns the short-lived
+/// identity proof, and its `signIn` never exchanges that proof for a session.
+@MainActor
+final class IdentityOnlyAppleSignInProvider: AppleSignInProviding {
+    private let appleUserID: String
+
+    init(appleUserID: String) {
+        self.appleUserID = appleUserID
+    }
+
+    func signIn(requiredAppleUserID: String?) async throws -> AppleSignInOutcome {
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        if let requiredAppleUserID, requiredAppleUserID != appleUserID {
+            throw WalletAPIError.identityMismatch
+        }
+        let identity = AppleIdentity(
+            appleUserID: appleUserID,
+            identityToken: "synthetic-identity-token",
+            signedNonce: "synthetic-nonce"
+        )
+        return AppleSignInOutcome(session: nil, appleUserID: identity.appleUserID, identity: identity)
+    }
+}
+
 /// A wallet whose authority is briefly unreachable, used to review and test the
 /// child home's refresh honestly. Every read is the ordinary read - only their
 /// timing differs, which is exactly what the reported defect turned on: the
@@ -596,17 +661,23 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
     private var failedReadsRemaining: Int
     private var allowance: SyntheticAllowanceRule?
     private var revision: Int64 = 2
+    /// A bearer the service no longer accepts. Every request but launch
+    /// bootstrap that presents it is answered 401 UNAUTHENTICATED. `POST
+    /// /v1/auth/apple` mints a fresh session instead.
+    private let staleToken: String?
 
     init(
         lineageID: UUID,
         readDelay: TimeInterval,
         failedReads: Int = 0,
-        allowance: SyntheticAllowanceRule? = nil
+        allowance: SyntheticAllowanceRule? = nil,
+        staleToken: String? = nil
     ) {
         self.lineageID = lineageID
         self.readDelay = readDelay
         self.failedReadsRemaining = failedReads
         self.allowance = allowance
+        self.staleToken = staleToken
     }
 
     /// How many `/v1/cloud/changes` reads this transport has been asked for.
@@ -616,6 +687,21 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let path = request.url?.path ?? ""
+        let method = request.httpMethod ?? "GET"
+        if method == "POST", path == "/v1/auth/apple" {
+            return try respond(
+                Data(#"{"token":"renewed-session","expiresAt":"2099-01-01T00:00:00.000Z"}"#.utf8),
+                to: request
+            )
+        }
+        let bearer = request.value(forHTTPHeaderField: "Authorization")?.replacingOccurrences(of: "Bearer ", with: "")
+        if let staleToken, bearer == staleToken, path != "/v1/cloud/bootstrap" {
+            return try respond(
+                Data(#"{"error":{"code":"UNAUTHENTICATED","message":"A valid parent session is required."}}"#.utf8),
+                to: request,
+                status: 401
+            )
+        }
         switch path {
         case "/v1/cloud/bootstrap":
             return try respond(replica(), to: request)

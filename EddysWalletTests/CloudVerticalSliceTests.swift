@@ -4031,6 +4031,176 @@ final class CloudVerticalSliceTests: XCTestCase {
         XCTAssertEqual(provider.signInRequiredAppleUserIDs, [nil, "synthetic-parent"])
     }
 
+    /// The shipped coordinator verifies the Apple user and returns the proof
+    /// with no session. After that proof is exchanged, the PIN must leave the
+    /// parent in the Parent area and the kid home must stop asking for a
+    /// sign-in.
+    func testGateReauthExchangesExpiredCloudSessionBeforeThePIN() async throws {
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.enqueue(
+            "GET",
+            "/v1/cloud/changes",
+            Data(#"{"error":{"code":"UNAUTHENTICATED","message":"A valid parent session is required."}}"#.utf8),
+            status: 401
+        )
+        transport.enqueue("GET", "/v1/cloud/changes", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.stub(
+            "POST",
+            "/v1/auth/apple",
+            Data(#"{"token":"renewed-session","expiresAt":"2099-01-01T00:00:00.000Z"}"#.utf8)
+        )
+        let sessions = InMemorySessionStore(session: AuthSession(token: "stale-session", expiresAt: .distantFuture))
+        let client = CloudAPIClient(baseURL: Self.baseURL, sessionStore: sessions, transport: transport)
+        let cloud = CloudWalletRepository(
+            client: client,
+            replica: try LocalWalletRepository(directory: directory),
+            lineageID: lineage,
+            revision: 0,
+            requiresBootstrap: true
+        )
+        let store = WalletStore(
+            repository: cloud,
+            appleSignInProvider: IdentityProofSignInProvider(),
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
+            cloudCoordinator: CloudCoordinator(
+                client: client,
+                subscriptions: CloudSubscriptionStore(
+                    client: client,
+                    storeKit: StubCloudStoreKitOperations(),
+                    observeTransactions: false
+                )
+            )
+        )
+
+        await waitUntil("launch bootstrap") {
+            transport.requests.contains { $0.url?.path == "/v1/cloud/bootstrap" } && !store.isLoading
+        }
+        await store.refresh()
+        XCTAssertTrue(store.sessionExpired)
+        XCTAssertFalse(cloud.isAuthenticated, "the 401 cleared the stored session")
+        XCTAssertEqual(kidStatusMessage(store), KidCopy.sessionBanner)
+
+        store.openParentGate()
+        XCTAssertEqual(store.gateRoute, .reauth(.sessionExpired))
+        await store.reauthenticateOwningParent()
+
+        let authPosts = transport.requests.filter { $0.httpMethod == "POST" && $0.url?.path == "/v1/auth/apple" }
+        XCTAssertEqual(
+            authPosts.count,
+            1,
+            "gate re-authentication must exchange the Apple proof for a new service session (POST /v1/auth/apple)"
+        )
+        XCTAssertEqual(store.gateRoute, .pinEntry, "Apple sign-in succeeded and the gate asks for the PIN")
+        XCTAssertFalse(store.sessionExpired)
+        XCTAssertEqual(sessions.session?.token, "renewed-session")
+
+        for digit in "1234" { store.appendPINDigit(String(digit)) }
+        await waitUntil("parent read with the renewed session") {
+            transport.requests.contains {
+                $0.url?.path == "/v1/cloud/changes"
+                    && $0.value(forHTTPHeaderField: "Authorization") == "Bearer renewed-session"
+            } && !store.isLoading
+        }
+
+        XCTAssertEqual(store.elevation, .active, "after Apple sign-in and the PIN the parent must stay in the Parent area")
+        XCTAssertFalse(store.sessionExpired, "the kid home must stop saying a parent needs to sign in again")
+        XCTAssertNil(kidStatusMessage(store))
+    }
+
+    func testFailedCloudReauthKeepsTheExpiredSessionGateUp() async throws {
+        let lineage = UUID()
+        let transport = RoutingTransport()
+        transport.stub("GET", "/v1/cloud/bootstrap", CloudSliceFixtures.bootstrap(lineage: lineage))
+        transport.stub(
+            "GET",
+            "/v1/cloud/changes",
+            Data(#"{"error":{"code":"UNAUTHENTICATED","message":"A valid parent session is required."}}"#.utf8),
+            status: 401
+        )
+        transport.stub(
+            "POST",
+            "/v1/auth/apple",
+            Data(#"{"error":{"code":"UNAUTHENTICATED","message":"A valid parent session is required."}}"#.utf8),
+            status: 401
+        )
+        let client = CloudAPIClient(
+            baseURL: Self.baseURL,
+            sessionStore: InMemorySessionStore(session: AuthSession(token: "stale-session", expiresAt: .distantFuture)),
+            transport: transport
+        )
+        let store = WalletStore(
+            repository: CloudWalletRepository(
+                client: client,
+                replica: try LocalWalletRepository(directory: directory),
+                lineageID: lineage,
+                revision: 0,
+                requiresBootstrap: true
+            ),
+            appleSignInProvider: IdentityProofSignInProvider(),
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "synthetic-parent"),
+            cloudCoordinator: CloudCoordinator(
+                client: client,
+                subscriptions: CloudSubscriptionStore(
+                    client: client,
+                    storeKit: StubCloudStoreKitOperations(),
+                    observeTransactions: false
+                )
+            )
+        )
+
+        await waitUntil("launch bootstrap") {
+            transport.requests.contains { $0.url?.path == "/v1/cloud/bootstrap" } && !store.isLoading
+        }
+        await store.refresh()
+        store.openParentGate()
+        await store.reauthenticateOwningParent()
+
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" && $0.url?.path == "/v1/auth/apple" }.count, 1)
+        XCTAssertEqual(store.elevation, .gate)
+        XCTAssertEqual(store.gateRoute, .reauth(.sessionExpired), "a failed exchange must not ask for the PIN")
+        XCTAssertTrue(store.sessionExpired, "a failed exchange must keep saying a parent needs to sign in again")
+        XCTAssertNotNil(store.gateErrorMessage)
+    }
+
+    func testGateReauthExchangesAnExpiredLegacySession() async throws {
+        let transport = RoutingTransport()
+        transport.stub(
+            "POST",
+            "/v1/auth/apple",
+            Data(#"{"token":"opaque-session","expiresAt":"2099-01-01T00:00:00Z","parent":{"provider":"apple","subject":"apple-subject","email":null}}"#.utf8)
+        )
+        let sessions = InMemorySessionStore()
+        let repository = APIWalletRepository(
+            baseURL: Self.baseURL,
+            sessionStore: sessions,
+            transport: transport,
+            cache: InMemoryWalletSnapshotCache(),
+            configuredKidStore: InMemoryConfiguredKidStore(isConfigured: true)
+        )
+        let store = WalletStore(
+            repository: repository,
+            appleSignInProvider: IdentityProofSignInProvider(appleUserID: "owner-1"),
+            pinStore: InMemoryParentPINStore(pin: "1234"),
+            identityStore: InMemoryParentIdentityStore(appleUserID: "owner-1")
+        )
+
+        await waitUntil("the missing legacy session to be published") {
+            store.sessionExpired && !store.isLoading && store.errorMessage != nil
+        }
+        store.openParentGate()
+        XCTAssertEqual(store.gateRoute, .reauth(.sessionExpired))
+        await store.reauthenticateOwningParent()
+
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" && $0.url?.path == "/v1/auth/apple" }.count, 1)
+        XCTAssertEqual(sessions.session?.token, "opaque-session")
+        XCTAssertEqual(store.gateRoute, .pinEntry)
+        XCTAssertFalse(store.sessionExpired)
+    }
+
     func testUnknownOrMalformedHouseholdNeverBecomesCloudAuthority() async throws {
         let local = try await localWalletWithHistory()
         let transport = RoutingTransport()
@@ -5840,6 +6010,29 @@ final class RoutingTransport: HTTPTransport, @unchecked Sendable {
         guard (200..<300).contains(statusCode),
               let key = request.value(forHTTPHeaderField: "Idempotency-Key") else { return }
         state.committedMutationKeys.insert(key)
+    }
+}
+
+/// The shipped no-authenticator coordinator: the Apple proof comes back,
+/// and no service session does.
+@MainActor
+final class IdentityProofSignInProvider: AppleSignInProviding {
+    private let appleUserID: String
+
+    init(appleUserID: String = "synthetic-parent") {
+        self.appleUserID = appleUserID
+    }
+
+    func signIn(requiredAppleUserID: String?) async throws -> AppleSignInOutcome {
+        if let requiredAppleUserID, requiredAppleUserID != appleUserID {
+            throw WalletAPIError.identityMismatch
+        }
+        let identity = AppleIdentity(
+            appleUserID: appleUserID,
+            identityToken: "synthetic-identity-token",
+            signedNonce: "synthetic-nonce"
+        )
+        return AppleSignInOutcome(session: nil, appleUserID: identity.appleUserID, identity: identity)
     }
 }
 
