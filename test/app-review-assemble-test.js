@@ -93,9 +93,10 @@ async function main() {
   assert.equal(config.reviewDetails.contactEmail, "kun@kunchenguid.com");
 });
 
-  await test("0.1.19 upload bytes come from the config screenshotDirectory and match the bound hashes", () => {
+  for (const [version, baselineVersion] of [["0.1.19", "0.1.17"], ["0.1.21", "0.1.19"]]) {
+  await test(`${version} upload bytes come from the config screenshotDirectory and match the bound hashes`, () => {
   const manifest = JSON.parse(fs.readFileSync(
-    path.join(ROOT, "tools", "app-review", "manifests", "0.1.19.json"),
+    path.join(ROOT, "tools", "app-review", "manifests", `${version}.json`),
     "utf8",
   ));
   const config = JSON.parse(fs.readFileSync(
@@ -108,7 +109,9 @@ async function main() {
     path.join(ROOT, "tools", "app-review", "assets", "screenshots", "0.1.17"),
   );
   const source = adapter.buildEngineSource(ROOT, manifest, config);
-  assert.equal(manifest.candidate.version, "0.1.19");
+  assert.equal(manifest.candidate.version, version);
+  assert.equal(manifest.candidate.baselineVersion, baselineVersion);
+  assert.equal(manifest.candidate.firstRelease, undefined);
   assert.equal(source.screenshots.length, manifest.content.screenshots.length);
   for (const [setIndex, bound] of manifest.content.screenshots.entries()) {
     const mapped = source.screenshots[setIndex];
@@ -130,6 +133,7 @@ async function main() {
     }
   }
 });
+  }
 
   await test("engine source refuses screenshot order not approved by the manifest", () => {
   const manifest = JSON.parse(fs.readFileSync(

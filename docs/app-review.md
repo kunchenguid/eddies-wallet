@@ -15,7 +15,12 @@ and released). `tools/app-review/manifests/0.1.19.json` is the update manifest
 (baseline 0.1.17, build 21.1, release type AFTER_APPROVAL). 0.1.19 was submitted
 on 2026-09-15 Pacific (the submit job finished at 2026-09-16T02:43:25Z) and
 approved on 2026-09-16; the monitor variable `APP_REVIEW_MONITOR_VERSION` is
-`0.1.19`. 0.1.18 was tagged for TestFlight and was not submitted. Read the live
+`0.1.19`. 0.1.18 and 0.1.20 were tagged for TestFlight and were not submitted.
+`tools/app-review/manifests/0.1.21.json` is the next update manifest (baseline
+0.1.19, build 24.1, release type AFTER_APPROVAL). Only its What's New is new:
+an update copies its App Review notes from the baseline, and create-version
+under `listingPolicy: observe` refuses inherited listing screenshots that do
+not match the manifest, so both stay the approved 0.1.19 content. Read the live
 monitor issue before claiming a newer review state. This file's step list is
 the procedure for the next version; it is not a claim that review is still held.
 
