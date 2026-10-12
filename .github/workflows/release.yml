@@ -217,6 +217,18 @@ jobs:
           rm -f "$HOME/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           rmdir "$HOME/private_keys" 2>/dev/null || true
 
+      # The self-hosted MAC_RUNNER has no node on its PATH (hosted macos-26
+      # does), so install one for the cleanup below. It shares the cleanup's
+      # always() and continue-on-error: it runs whenever the cleanup runs and
+      # never decides the release result.
+      - name: Set up Node.js for certificate cleanup
+        if: always()
+        continue-on-error: true
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
       - name: Prune surplus Apple Development certificates
         if: always()
         continue-on-error: true

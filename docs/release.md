@@ -6,6 +6,7 @@ This file is the release-please and TestFlight pipeline only. Merging a release 
 
 Repository variable `MAC_RUNNER` is `mini-mac`. The TestFlight archive job uses that label. Unset the variable to fall back to hosted `macos-26`. Do not change it as part of an ordinary release.
 That self-hosted runner has no passwordless `sudo`, so the job selects Xcode 26 by exporting `DEVELOPER_DIR` rather than with `sudo xcode-select`; `test/release-checks.sh` runs that step with a `sudo` that always refuses.
+It also has no `node` on its `PATH`, so a pinned `actions/setup-node` step installs Node.js just before the development-certificate cleanup, under the same `always()` and `continue-on-error` as the cleanup.
 
 ## The captain approval boundary
 

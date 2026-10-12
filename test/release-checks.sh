@@ -312,6 +312,33 @@ else
   fail "release.yml selects the newest Xcode 26 through DEVELOPER_DIR without sudo: $select_xcode_script"
 fi
 
+# The self-hosted MAC_RUNNER has no node on its PATH, so the certificate
+# cleanup needs a pinned setup-node step ahead of it that runs under the same
+# condition (otherwise a failed archive skips it and the cleanup hits
+# "node: command not found") and, like the cleanup, never fails the release.
+# shellcheck disable=SC2016 # Ruby program intentionally uses single-quoted strings.
+if cleanup_node_out="$(ruby -ryaml -e '
+  steps = YAML.load_file(".github/workflows/release.yml").dig("jobs", "testflight", "steps") || []
+  prune_index = steps.index { |s| s["run"].to_s.include?("prune_asc_development_certs.js") }
+  abort "testflight job has no certificate cleanup step" unless prune_index
+  prune = steps[prune_index]
+  abort "cleanup step must be if: always(), got #{prune["if"].inspect}" unless prune["if"] == "always()"
+  abort "cleanup step must be continue-on-error" unless prune["continue-on-error"] == true
+  setup_index = steps.rindex { |s| s["uses"].to_s.start_with?("actions/setup-node@") }
+  abort "testflight job has no actions/setup-node step" unless setup_index
+  abort "setup-node step #{setup_index} must come before the cleanup step #{prune_index}" unless setup_index < prune_index
+  setup = steps[setup_index]
+  abort "setup-node must run under the cleanup condition #{prune["if"].inspect}, got #{setup["if"].inspect}" unless setup["if"] == prune["if"]
+  abort "setup-node must be continue-on-error" unless setup["continue-on-error"] == true
+  major = setup.dig("with", "node-version").to_s[/\A\d+/].to_i
+  abort "setup-node must request Node.js 18 or later for fetch, got #{setup.dig("with", "node-version").inspect}" unless major >= 18
+  puts "#{setup["uses"]} node #{setup.dig("with", "node-version")} before step #{prune_index}"
+' 2>&1)"; then
+  pass "release.yml puts node on PATH for the certificate cleanup under the same condition ($cleanup_node_out)"
+else
+  fail "release.yml puts node on PATH for the certificate cleanup under the same condition: $cleanup_node_out"
+fi
+
 require_grep '"release-type": "simple"' release-please-config.json \
   "release-please still uses the simple strategy (output set: CHANGELOG.md, version.txt, manifest)"
 
