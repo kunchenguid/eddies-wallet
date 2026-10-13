@@ -16,6 +16,8 @@ sys.dont_write_bytecode = True
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools" / "app-review"
 PREFLIGHT = TOOLS / "screenshot_preflight.py"
+CONFIG = TOOLS / "app-review.config.json"
+HISTORICAL_DIRECTORY = ("tools", "app-review", "assets", "screenshots", "0.1.17")
 
 sys.path.insert(0, str(TOOLS))
 import core  # noqa: E402
@@ -130,17 +132,83 @@ class ScreenshotPreflightTests(unittest.TestCase):
         return manifest, config
 
     def test_the_committed_0_1_17_upload_sets_pass_the_public_cli(self):
-        completed = subprocess.run(
-            [sys.executable, str(PREFLIGHT)],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        # 0.1.17 through 0.1.21 were approved while the config bound the
+        # 0.1.17 set; the committed config now binds the Parent-redesign set.
+        config = json.loads(CONFIG.read_text())
+        config["listing"]["screenshotDirectory"] = list(HISTORICAL_DIRECTORY)
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = pathlib.Path(directory) / "app-review.config.json"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(PREFLIGHT), "--config", str(config_path)],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("APP_IPHONE_67", completed.stdout)
         self.assertIn("APP_IPAD_PRO_3GEN_129", completed.stdout)
         self.assertIn("files=10", completed.stdout)
+
+    def test_a_manifest_built_from_the_committed_config_binds_the_redesign_set(self):
+        config = json.loads(CONFIG.read_text())
+        directory = config["listing"]["screenshotDirectory"]
+        self.assertEqual(
+            directory, ["tools", "app-review", "assets", "screenshots", "parent-redesign"]
+        )
+        previous = json.loads((TOOLS / "manifests" / "0.1.21.json").read_text())
+        content = core.materialize_source_content(
+            ROOT,
+            previous["content"]["listing"],
+            [
+                {
+                    "displayType": spec["displayType"],
+                    "width": spec["width"],
+                    "height": spec["height"],
+                    "files": spec["files"],
+                }
+                for spec in config["listing"]["screenshotSpecs"]
+            ],
+            [
+                {
+                    "productId": item["productId"],
+                    "reviewNotes": item["reviewNotes"],
+                    "screenshotPath": item["reviewScreenshot"]["path"],
+                }
+                for item in previous["content"]["inAppPurchases"]
+            ],
+            config["reviewDetails"]["notes"],
+            screenshot_directory=directory,
+        )
+        manifest = core.build_manifest(
+            {
+                "version": "9.9.9",
+                "build": "99.1",
+                "baselineVersion": "0.1.21",
+                "sourceCommit": "a" * 40,
+                "releaseType": "AFTER_APPROVAL",
+            },
+            content,
+            approved_utc="2026-10-13T00:00:00Z",
+            approval_statement="Fixture for the Parent-redesign listing set.",
+            listing={"screenshotWrites": True},
+        )
+        report = screenshot_preflight.preflight_listing_screenshots(ROOT, manifest, config)
+        files = [item for group in report["displayTypes"] for item in group["files"]]
+        self.assertEqual(len(files), 10)
+        self.assertTrue(
+            all(item["path"].startswith("tools/app-review/assets/screenshots/parent-redesign/") for item in files)
+        )
+        previous_hashes = {
+            descriptor["sha256"]
+            for group in previous["content"]["screenshots"]
+            for descriptor in group["files"]
+        }
+        self.assertFalse(previous_hashes & {item["sha256"] for item in files})
+        notes = manifest["content"]["appReview"]["notes"]
+        self.assertIn("tap the gear (Settings)", notes)
+        self.assertNotIn("open Cloud backup & sync in the Parent area", notes)
 
     def test_distinct_rgb8_slots_are_accepted(self):
         with tempfile.TemporaryDirectory() as directory:

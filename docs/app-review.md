@@ -27,6 +27,18 @@ is `0.1.21`. Read the live monitor issue before claiming a newer review state.
 This file's step list is the procedure for the next version; it is not a claim
 that review is still held.
 
+The next update after 0.1.21 carries the redesigned Parent area. Its manifest
+is generated from `app-review.config.json` as it stands now: `reviewDetails.notes`
+sends the reviewer through the Settings gear to Cloud, and
+`listing.screenshotDirectory` names `tools/app-review/assets/screenshots/parent-redesign/`.
+The engine pin `4e0d2562` writes those notes over the inherited ones and
+replaces the inherited screenshot sets during `mode=create-version`. Every
+adapter lane refuses when `config.reviewDetails.notes` differs from the
+manifest's App Review notes, because create-version, assemble, upload, and
+submit restore the config from the dispatch commit, not the manifest commit.
+So the 0.1.17, 0.1.19, and 0.1.21 manifests can no longer drive those lanes
+from `main`: a resubmission of 0.1.21 needs its own new manifest.
+
 ## The gate
 
 Submission is gated by two independent things, and both are the captain's.
@@ -46,8 +58,10 @@ Submission is gated by two independent things, and both are the captain's.
    `CREATE_VERSION_ENGINE_ARGV` pinned to
    `["node","app_review_pipeline.js","create-version"]`). It populates the
    new version's full empty auto-created en-US localization from the approved
-   manifest after the live-baseline check, and listing screenshot sets the
-   version cannot inherit, under `listingPolicy: observe`. It never
+   manifest after the live-baseline check, writes `config.reviewDetails.notes`
+   over the App Review notes the version inherited, and makes every listing
+   screenshot set exact, replacing inherited sets, under
+   `listingPolicy: observe`. It never
    submits. `mode=assemble` stages the review submission and stops
    before Submit. `mode=upload` writes listing screenshots while the version is
    editable if a slot still needs it after create-version, and does not submit
@@ -58,11 +72,14 @@ Submission is gated by two independent things, and both are the captain's.
    already on an unsubmitted review submission, upload deletes only that version
    `reviewSubmissionItem` (Cloud items survive), then reserve/upload/commit and
    verify-before-live. Create-version, assemble, upload, and submit all check
-   out `74591d05`, the merge of
-   [`kunchenguid/app-review-submit#23`](https://github.com/kunchenguid/app-review-submit/pull/23)
-   (skip already-approved Cloud subscriptions on update assemble; includes
+   out `4e0d2562`, the merge of
+   [`kunchenguid/app-review-submit#25`](https://github.com/kunchenguid/app-review-submit/pull/25)
+   (approved update review notes and inherited-screenshot replacement in
+   create-version; includes
+   [`#23`](https://github.com/kunchenguid/app-review-submit/pull/23) skipping
+   already-approved Cloud subscriptions on update assemble,
    [`#22`](https://github.com/kunchenguid/app-review-submit/pull/22) full
-   localization and [`#19`](https://github.com/kunchenguid/app-review-submit/pull/19)).
+   localization, and [`#19`](https://github.com/kunchenguid/app-review-submit/pull/19)).
    `mode=submit` is a separate captain-gated dispatch that asks
    the engine to submit for review. Default remains `verify`.
 
@@ -114,10 +131,14 @@ for `kunchenguid/app-review-submit`, not a console chore.
   comes from `config.reviewDetails.copyright`. 0.1.17 already carries it;
   0.1.19 receives it on create. The same lane populates the full empty
   auto-created en-US localization from the approved manifest after the
-  live-baseline check, and listing screenshot sets the new version cannot
-  inherit.
+  live-baseline check, and makes every listing screenshot set exact,
+  replacing sets the new version inherited (`listing.screenshotWrites`).
 - First-release review contact, notes, and `demoAccountRequired: false` from
   `config.reviewDetails`.
+- Update App Review notes from `config.reviewDetails.notes`, because
+  `alignmentWrites` includes `reviewNotes`: create-version PATCHes only the
+  notes the new version inherited, and assemble accepts them. Contact and
+  demo-account fields stay inherited from the baseline and protected.
 - Create or reuse the review submission; attach the app version and only
   Cloud subscription / group versions that still need review. Already-approved
   Cloud items on an update are skipped so Apple does not 409. Every attached
@@ -134,7 +155,8 @@ for `kunchenguid/app-review-submit`, not a console chore.
 ### Screenshot upload
 
 For a missing update, listing screenshot reserve, upload, and commit happens
-inside `mode=create-version` while the new version is still editable.
+inside `mode=create-version` while the new version is still editable,
+including replacing the sets Apple copies from the previous version.
 `mode=upload` is the recovery lane if a slot still needs a write after that
 (screenshots are locked once the version is `READY_FOR_REVIEW`). Eddie maps
 upload onto `runSubmission({ uploadScreenshots: true })` via
@@ -185,11 +207,11 @@ Eddie-side flags for them, and do not ask the captain to do them in the UI.
 | Step | What runs | What it may change |
 | --- | --- | --- |
 | 1. Release the candidate | The existing captain-merged release PR uploads the build to TestFlight (`docs/release.md`). | TestFlight only. |
-| 2. Bind listing screenshots | Distinct listing screenshots for every live display type live under `tools/app-review/assets/screenshots/<version>/` as `{fileName}` (engine path `{screenshotDirectory}/{fileName}`). The captain-approved manifest binds `displayType`, `width`, `height`, and `{fileName,fileSize,sha256}` per slot. App Privacy answers, if an update is needed, remain an App Store Connect UI irreducible. See Hands-off bar. | Repository screenshot bytes. |
+| 2. Bind listing screenshots | Distinct listing screenshots for every live display type live in the set `app-review.config.json` `listing.screenshotDirectory` names under `tools/app-review/assets/screenshots/` (`0.1.17/` through 0.1.21, `parent-redesign/` after it) as `{fileName}` (engine path `{screenshotDirectory}/{fileName}`). `EvidenceCaptureUITests.testAppStoreListingScreenshots` produces them; a new set gets its own directory, so a manifest already approved keeps its bytes. The captain-approved manifest binds `displayType`, `width`, `height`, and `{fileName,fileSize,sha256}` per slot. App Privacy answers, if an update is needed, remain an App Store Connect UI irreducible. See Hands-off bar. | Repository screenshot bytes. |
 | 3. Attended functional proof | One physical-device proof of Sign in with Apple, the Parent gate, the Cloud plan offer, an Apple review or sandbox purchase, and Cloud activation, using a synthetic test account. A runner cannot do this: both steps are user-mediated. | Nothing in this repository. |
 | 4. Approve the manifest | Generate the manifest from the final candidate and merge it after captain review. | The repository only. |
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only, including the default exact live listing-screenshot match. | The recovery issue only. |
-| 6. `app-review-submit.yml` with `mode=create-version` | For a missing update only. No reviewer-path evidence. Checks out the pinned shared engine and runs `create_version.js --create-version` onto `runSubmission({ createVersion: true })` with `CREATE_VERSION_ENGINE_ARGV` set to `["node","app_review_pipeline.js","create-version"]`. Creates the App Store version, populates the full empty auto-created en-US localization from the approved manifest after the live-baseline check, and listing screenshot sets the new version cannot inherit. `listingPolicy` stays `observe`. A first-release manifest is refused. It never submits (`status: version_created`, `submitted: false`). Skip this step when the version already exists. | New version, localization, and listing screenshot sets. |
+| 6. `app-review-submit.yml` with `mode=create-version` | For a missing update only. No reviewer-path evidence. Checks out the pinned shared engine and runs `create_version.js --create-version` onto `runSubmission({ createVersion: true })` with `CREATE_VERSION_ENGINE_ARGV` set to `["node","app_review_pipeline.js","create-version"]`. Creates the App Store version, populates the full empty auto-created en-US localization from the approved manifest after the live-baseline check, writes `config.reviewDetails.notes` over the inherited App Review notes, and makes every listing screenshot set exact, replacing inherited sets. `listingPolicy` stays `observe`. A first-release manifest is refused. It never submits (`status: version_created`, `submitted: false`). Skip this step when the version already exists. | New version, localization, App Review notes, and listing screenshot sets. |
 | 7. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered matching review assets, and the production service publishing Cloud activation with exactly those two products. When `listing.screenshotWrites` is true, it defers only the live listing-screenshot match because create-version (or a later `mode=upload`) owns that live write. Emits base64 readiness evidence. Requires the App Store version to exist, so it runs after create-version for a missing update. Assemble stays evidence-gated, so this cannot move after assemble. | Nothing. |
 | 8. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the listing-screenshot preflight, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
 | 9. `app-review-submit.yml` with `mode=assemble` | Checks out the pinned shared engine and runs assemble-only (`--assemble-only`, plus `--first-release` only for a first-release manifest). Requires fresh demo-preflight evidence. The engine accepts a `REJECTED` first-release target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version, and attaches only Cloud subscription / group versions that still need review (already-approved ones on an update are skipped), proves every attached item by authoritative readback, then hard-returns before Submit (`status: assembled`, `submitted: false`). After create-version (and after upload if a slot still needed it), this attaches the version; Cloud items already on the draft stay. | App Store Connect assembly only. |

@@ -46,7 +46,7 @@ The `en-US` listing now has the privacy policy URL https://eddies-wallet.kunchen
 
 For the **App Privacy (data collection) answers** and their captain-only update boundary, see `docs/app-review.md` Hands-off bar. Do not treat listing copy, review contact, categories, IAP review screenshots, or age rating as console work: those are API-able, already live-matching, or an engine gap.
 
-App Review contact details (name, email, phone) are the captain's real contact information in `tools/app-review/app-review.config.json` `reviewDetails`. First-release assemble writes them. They must never be invented, and no synthetic value belongs in that field.
+App Review contact details (name, email, phone) are the captain's real contact information in `tools/app-review/app-review.config.json` `reviewDetails`. First-release assemble writes them; an update keeps the contact details it inherits from the live version. They must never be invented, and no synthetic value belongs in that field. `reviewDetails.notes` is the reviewer's route through the app; since the Parent redesign it goes through the Settings gear to Cloud, and create-version writes it onto each new update (`docs/app-review.md`).
 
 Guideline 3.1.2 also requires the in-app purchase surface itself to show subscription title, length, and price alongside links to the privacy policy and the terms of use, plus the auto-renewal disclosure. `CloudStatusView`'s plans card shows all of it: title, price, and period per plan; an auto-renewal disclosure; and functional links to the privacy policy (https://eddies-wallet.kunchenguid.com/) and the terms of use, which is Apple's Standard EULA (https://www.apple.com/legal/internet-services/itunes/dev/stdeula/) since the app ships no custom EULA.
 

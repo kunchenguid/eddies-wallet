@@ -121,25 +121,33 @@ final class EvidenceCaptureUITests: XCTestCase {
     @discardableResult
     private func resignKeyboard(in app: XCUIApplication) -> Bool {
         // Tapping non-editable copy in the sheet resigns the amount field
-        // without focusing another field or dragging the sheet closed.
-        let introPrefixes = [
-            "Add pretend dollars",
-            "Record virtual dollars",
-            "Give ",
-            "Pay virtual dollars",
-            "Pay out this virtual allowance"
+        // without focusing another field or dragging the sheet closed. Each
+        // pattern names its sheet's intro only: the Parent area's action
+        // tiles behind the sheet read "Add pretend dollars" and "Give now,
+        // repay later", and tapping those would reach past an iPad sheet.
+        // With the keyboard up, the one-step sheet scrolls the intro's first
+        // line under the header, so a covered intro is tapped on its last line.
+        let introPatterns = [
+            "Add pretend dollars to *",
+            "Record virtual dollars as *",
+            "Give * virtual dollars to use now*",
+            "Pay virtual dollars back *"
         ]
-        for prefix in introPrefixes {
+        for pattern in introPatterns {
             let intro = app.staticTexts.matching(
-                NSPredicate(format: "label BEGINSWITH %@", prefix)
+                NSPredicate(format: "label LIKE %@", pattern)
             ).firstMatch
             if intro.exists {
-                intro.tap()
+                if intro.isHittable {
+                    intro.tap()
+                } else {
+                    intro.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.85)).tap()
+                }
                 if app.keyboards.element.waitForNonExistence(timeout: 2) { return true }
             }
         }
         let amountLabel = app.staticTexts["Amount"]
-        if amountLabel.exists {
+        if amountLabel.exists, amountLabel.isHittable {
             amountLabel.tap()
             if app.keyboards.element.waitForNonExistence(timeout: 2) { return true }
         }
@@ -1105,7 +1113,14 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(amountField.waitForExistence(timeout: 5))
         amountField.tap()
         amountField.typeText("5.25")
-        dismissKeyboardForCapture(in: app)
+        // The listing slot shows the whole one-step sheet on both sizes: the
+        // amount, the balance after, and the button that records it.
+        if app.keyboards.element.exists {
+            XCTAssertTrue(
+                resignKeyboard(in: app),
+                "listing money-flow captures must not include the software keyboard"
+            )
+        }
         XCTAssertEqual(app.buttons["money-flow-primary"].label, "Add US$5.25")
         XCTAssertTrue(app.staticTexts["US$29.25"].exists)
         capture("listing-money-flow-review")

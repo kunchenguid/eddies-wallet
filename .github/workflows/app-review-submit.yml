@@ -26,18 +26,20 @@ name: App Review submission
 #              not run for mode=create-version, which is evidence-free.
 #   create-version - mutation-capable App Store Connect credentials, same as
 #              assemble, never the monitor variable token, never evidence.
-#              Checks out kunchenguid/app-review-submit@74591d05 and runs
+#              Checks out kunchenguid/app-review-submit@4e0d2562 and runs
 #              create_version.js --create-version onto
 #              runSubmission({ createVersion: true }). CREATE_VERSION_ENGINE_ARGV
 #              is ["node","app_review_pipeline.js","create-version"]. For a
 #              missing update it creates the App Store version, populates the
 #              full empty auto-created en-US localization from the approved
-#              manifest after the live-baseline check, and listing screenshot
-#              sets the new version cannot inherit, under listingPolicy observe.
+#              manifest after the live-baseline check, writes
+#              config.reviewDetails.notes over the inherited App Review notes,
+#              and makes every listing screenshot set exact, replacing
+#              inherited sets, under listingPolicy observe.
 #              `--first-release` is refused: this lane is update-only.
 #              It never asks the engine to submit.
 #   assemble - mutation-capable App Store Connect credentials. It checks out
-#              kunchenguid/app-review-submit@74591d05 and runs assemble-only
+#              kunchenguid/app-review-submit@4e0d2562 and runs assemble-only
 #              (`args.assembleOnly: true`). `--first-release` is passed only
 #              when the pinned captain-approved manifest has firstRelease:true;
 #              an update manifest (baselineVersion) omits it. The engine aligns
@@ -188,7 +190,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 74591d0575c8b46196b28b9302162a4d87c2140a
+          ref: 4e0d25623360a987dc181b663324e433a8aff0fc
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -255,10 +257,12 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: kunchenguid/app-review-submit
-          # Pin: kunchenguid/app-review-submit#23 (skip already-approved Cloud
-          # subscriptions on update assemble; includes #22 full localization,
-          # #21 leftover adopt, #19 create-version, and #18 editable recovery).
-          ref: 74591d0575c8b46196b28b9302162a4d87c2140a
+          # Pin: kunchenguid/app-review-submit#25 (approved update review notes
+          # and inherited-screenshot replacement in create-version; includes #23
+          # skip already-approved Cloud subscriptions on update assemble, #22
+          # full localization, #21 leftover adopt, #19 create-version, and #18
+          # editable recovery).
+          ref: 4e0d25623360a987dc181b663324e433a8aff0fc
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -323,7 +327,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 74591d0575c8b46196b28b9302162a4d87c2140a
+          ref: 4e0d25623360a987dc181b663324e433a8aff0fc
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
@@ -395,7 +399,7 @@ jobs:
         with:
           repository: kunchenguid/app-review-submit
           # Same shared-engine pin as assemble.
-          ref: 74591d0575c8b46196b28b9302162a4d87c2140a
+          ref: 4e0d25623360a987dc181b663324e433a8aff0fc
           path: .app-review-submit
           token: ${{ secrets.APP_REVIEW_SUBMIT_READ_TOKEN }}
           persist-credentials: false
