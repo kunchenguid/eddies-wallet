@@ -9,6 +9,7 @@ const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
 const adapter = require(path.join(ROOT, "tools", "app-review", "full_submit.js"));
+const approved = require("./app-review-approved-config");
 
 async function test(name, fn) {
   await fn();
@@ -29,7 +30,7 @@ function baseEnv() {
     APP_STORE_CONNECT_ISSUER_ID: "test-issuer",
     APP_STORE_CONNECT_KEY_ID: "test-key-id",
     APP_REVIEW_MONITOR_VARIABLE_TOKEN: "test-monitor-token",
-    APP_REVIEW_CONFIG: path.join(ROOT, "tools", "app-review", "app-review.config.json"),
+    APP_REVIEW_CONFIG: approved.writeConfigAsApproved("0.1.17"),
   };
 }
 

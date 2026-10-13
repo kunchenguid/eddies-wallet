@@ -9,6 +9,7 @@ const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
 const adapter = require(path.join(ROOT, "tools", "app-review", "assemble_only.js"));
+const approved = require("./app-review-approved-config");
 
 async function test(name, fn) {
   await fn();
@@ -44,14 +45,8 @@ async function main() {
 });
 
   await test("engine source maps the captain-approved 0.1.17 listing and both screenshot slots", () => {
-  const manifest = JSON.parse(fs.readFileSync(
-    path.join(ROOT, "tools", "app-review", "manifests", "0.1.17.json"),
-    "utf8",
-  ));
-  const config = JSON.parse(fs.readFileSync(
-    path.join(ROOT, "tools", "app-review", "app-review.config.json"),
-    "utf8",
-  ));
+  const manifest = approved.readManifest("0.1.17");
+  const config = approved.configAsApproved("0.1.17");
   const source = adapter.buildEngineSource(ROOT, manifest, config);
   assert.equal(source.metadata.appName, "Eddie's Wallet");
   assert.equal(source.metadata.subtitle, "Virtual allowance practice");
@@ -95,14 +90,8 @@ async function main() {
 
   for (const [version, baselineVersion] of [["0.1.19", "0.1.17"], ["0.1.21", "0.1.19"]]) {
   await test(`${version} upload bytes come from the config screenshotDirectory and match the bound hashes`, () => {
-  const manifest = JSON.parse(fs.readFileSync(
-    path.join(ROOT, "tools", "app-review", "manifests", `${version}.json`),
-    "utf8",
-  ));
-  const config = JSON.parse(fs.readFileSync(
-    path.join(ROOT, "tools", "app-review", "app-review.config.json"),
-    "utf8",
-  ));
+  const manifest = approved.readManifest(version);
+  const config = approved.configAsApproved(version);
   const directory = path.join(ROOT, ...config.listing.screenshotDirectory);
   assert.equal(
     directory,
@@ -136,14 +125,8 @@ async function main() {
   }
 
   await test("engine source refuses screenshot order not approved by the manifest", () => {
-  const manifest = JSON.parse(fs.readFileSync(
-    path.join(ROOT, "tools", "app-review", "manifests", "0.1.17.json"),
-    "utf8",
-  ));
-  const config = JSON.parse(fs.readFileSync(
-    path.join(ROOT, "tools", "app-review", "app-review.config.json"),
-    "utf8",
-  ));
+  const manifest = approved.readManifest("0.1.17");
+  const config = approved.configAsApproved("0.1.17");
   config.listing.screenshotSpecs[0].files.reverse();
   assert.throws(
     () => adapter.buildEngineSource(ROOT, manifest, config),
@@ -169,7 +152,7 @@ async function main() {
     APP_STORE_CONNECT_API_KEY: "test-key",
     APP_STORE_CONNECT_ISSUER_ID: "test-issuer",
     APP_STORE_CONNECT_KEY_ID: "test-key-id",
-    APP_REVIEW_CONFIG: path.join(ROOT, "tools", "app-review", "app-review.config.json"),
+    APP_REVIEW_CONFIG: approved.writeConfigAsApproved("0.1.17"),
   };
 
   try {
@@ -280,7 +263,11 @@ async function main() {
   });
 
   await test("listing screenshot preflight accepts every approved display type", () => {
-  const result = spawnSync("python3", ["tools/app-review/screenshot_preflight.py"], {
+  const result = spawnSync("python3", [
+    "tools/app-review/screenshot_preflight.py",
+    "--config",
+    approved.writeConfigAsApproved("0.1.17"),
+  ], {
     cwd: ROOT,
     encoding: "utf8",
   });

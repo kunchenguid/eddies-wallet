@@ -217,7 +217,23 @@ function stableHash(value) {
   return crypto.createHash("sha256").update(JSON.stringify(stable(value))).digest("hex");
 }
 
+// The engine writes App Review notes from config.reviewDetails.notes, while
+// demo-preflight holds the live version to the manifest's appReview.notes.
+// Refusing a mismatch here keeps every lane from writing notes the captain
+// did not approve.
+function approvedReviewNotes(manifest, config) {
+  const approved = manifest.content.appReview && manifest.content.appReview.notes;
+  if (typeof approved !== "string" || approved.length < 1) {
+    fail("the captain-approved manifest has no App Review notes");
+  }
+  if (config.reviewDetails.notes !== approved) {
+    fail("config.reviewDetails.notes must match the captain-approved manifest App Review notes");
+  }
+  return approved;
+}
+
 function buildEngineSource(sourceRoot, manifest, config) {
+  approvedReviewNotes(manifest, config);
   const listing = manifest.content.listing;
   const metadata = Object.freeze({
     appName: listing.appName,
@@ -576,6 +592,7 @@ module.exports = {
   assertUploaded,
   assertSubmitted,
   assertVersionCreated,
+  approvedReviewNotes,
   buildEngineSource,
   confirmedVersion,
   descriptionWithAppliedEula,
