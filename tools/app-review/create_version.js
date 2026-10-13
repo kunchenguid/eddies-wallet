@@ -8,8 +8,9 @@
 // runSubmission({ createVersion: true }) and never submits. It is the
 // no-evidence mutate lane that creates a missing App Store update version,
 // populates its full empty auto-created en-US localization from the approved
-// manifest after the live-baseline check, and listing screenshot sets
-// a new version cannot inherit. The shared pipeline equivalent, pinned by
+// manifest after the live-baseline check, writes config.reviewDetails.notes
+// over the inherited App Review notes, and makes every listing screenshot set
+// exact, replacing inherited sets. The shared pipeline equivalent, pinned by
 // CREATE_VERSION_ENGINE_ARGV, is `node app_review_pipeline.js create-version`.
 // Assemble, upload, and submit stay evidence-gated.
 
