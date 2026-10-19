@@ -219,25 +219,26 @@ jobs:
 
       # The self-hosted MAC_RUNNER has no node on its PATH (hosted macos-26
       # does), so install one for the cleanup below. It shares the cleanup's
-      # always() and continue-on-error: it runs whenever the cleanup runs and
+      # success/mini-mac condition and continue-on-error: it runs when cleanup runs and
       # never decides the release result.
       - name: Set up Node.js for certificate cleanup
-        if: always()
+        if: success() && startsWith(runner.name, 'mini-mac')
         continue-on-error: true
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           package-manager-cache: false
 
-      - name: Prune surplus Apple Development certificates
-        if: always()
+      - name: List safe Apple Development certificate cleanup candidates
+        if: success() && startsWith(runner.name, 'mini-mac')
         continue-on-error: true
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
         run: |
-          node .github/scripts/prune_asc_development_certs.js
+          ASC_CERTIFICATE_CLEANUP_ARCHIVE_LOG="$RUNNER_TEMP/xcodebuild-archive.log" \
+            node .github/scripts/prune_asc_development_certs.js
 
       - name: Upload release artifacts
         if: always()

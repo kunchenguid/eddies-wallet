@@ -6,7 +6,7 @@ This file is the release-please and TestFlight pipeline only. Merging a release 
 
 Repository variable `MAC_RUNNER` is `mini-mac`. The TestFlight archive job uses that label. Unset the variable to fall back to hosted `macos-26`. Do not change it as part of an ordinary release.
 That self-hosted runner has no passwordless `sudo`, so the job selects Xcode 26 by exporting `DEVELOPER_DIR` rather than with `sudo xcode-select`; `test/release-checks.sh` runs that step with a `sudo` that always refuses.
-It also has no `node` on its `PATH`, so a pinned `actions/setup-node` step installs Node.js just before the development-certificate cleanup, under the same `always()` and `continue-on-error` as the cleanup.
+It also has no `node` on its `PATH`, so a pinned `actions/setup-node` step installs Node.js just before the development-certificate cleanup, under the same successful-Mac-mini-only condition and `continue-on-error` as the list step.
 
 ## The captain approval boundary
 
@@ -21,7 +21,7 @@ Ordinary infrastructure and feature PRs carry no release side effects and follow
 3. Merging the release PR creates a GitHub Release and a tag like `eddies-wallet-v0.1.0`.
 4. The Release Please workflow dispatches `.github/workflows/release.yml` first for that tag, then best-effort dispatches `.github/workflows/ci.yml` for the same tag.
    A CI dispatch failure logs `gate-dispatch-failed-nonfatal` and does not prevent the TestFlight dispatch.
-5. The TestFlight workflow checks out exactly the release tag, archives the Release build with automatic App Store Connect cloud signing, exports an IPA with `ExportOptions.plist`, uploads it with `xcrun altool --upload-app`, and runs best-effort App Store Connect development-certificate cleanup (`.github/scripts/prune_asc_development_certs.js` keeps the newest two `DEVELOPMENT` certificates and never touches distribution certificates; its failures are warnings). The archive job selects its runner with repository variable `MAC_RUNNER`, falling back to hosted `macos-26` when that variable is unset.
+5. The TestFlight workflow checks out exactly the release tag, archives the Release build with automatic App Store Connect cloud signing, exports an IPA with `ExportOptions.plist`, uploads it with `xcrun altool --upload-app`, and runs a best-effort, list-only development-certificate check after a successful upload on the Mac mini (`.github/scripts/prune_asc_development_certs.js`; no certificate is revoked, and failures are warnings). The archive job selects its runner with repository variable `MAC_RUNNER`, falling back to hosted `macos-26` when that variable is unset.
 6. Release-time CI independently builds and tests the same tag.
 
 Set `MAC_RUNNER=mini-mac` only after a runner with that label is registered for this repository. Deleting the variable immediately restores hosted `macos-26` selection for subsequent TestFlight jobs; it does not move the other release-time macOS CI jobs off hosted runners.
@@ -124,9 +124,22 @@ In-App Purchase is already enabled on this App ID, so the optional Cloud subscri
 
 ## Development-certificate cleanup revokes team-wide, so local device signing can break
 
-`.github/scripts/prune_asc_development_certs.js` keeps only the newest few `DEVELOPMENT` certificates and revokes the rest.
-Apple scopes certificates to the **team**, not to an app, and this Apple team is shared with other apps that run the same cleanup.
-So a release of this app can revoke a development certificate another machine or project was using, and a release of another app on the team can revoke this Mac's.
+`.github/scripts/prune_asc_development_certs.js` replaces the old keep-newest-two cleanup with the INF-259 safe rule, **list-only**. There is no DELETE implementation or environment switch to enable revocation. The captain must read the first live list before a separately approved change can add revocation. Do not trigger a release just to obtain that list; inspect the next captain-approved release's cleanup step output.
+
+The list runs only after a successful upload on a runner whose name starts `mini-mac`; hosted runners skip it. Both the workflow and script check the runner. A failed/missing archive, missing log, or unrecognised signing identity skips selection before contacting Apple. The archive log must contain `** ARCHIVE SUCCEEDED **` and a 40-hex signing fingerprint in every signing command. Every fingerprint is protected, including nested targets, rather than just the last signing command.
+
+The script follows Apple's certificate-list pagination and lists a certificate as **Would revoke** only when all these checks pass:
+
+1. Its API type is `DEVELOPMENT` and its decoded X.509 subject common name is `Apple Development: Created via API` (optionally followed by the parenthesized identifier).
+2. Its SHA-1 certificate fingerprint differs from every identity used to sign this archive.
+3. Its X.509 validity start (`notBefore`) is strictly more than 24 hours ago. Apple's certificate record has no `createdDate`; expiration is not creation time.
+4. This job ran on the Mac mini, where release jobs share the runner's serialized heavy slot.
+
+Personal, distribution, recent, future-dated, malformed, and unidentifiable certificates are kept. Output gives fingerprints and decision reasons, not names, key IDs, certificate content, or credentials. `ASC_CERTIFICATE_CLEANUP_ARCHIVE_LOG` points to this run's archive log. Legacy `ASC_CERTIFICATE_CLEANUP_KEEP`, `ASC_CERTIFICATE_CLEANUP_DRY_RUN`, and fixture environment variables no longer control the script.
+
+The subject prefix is INF-259's observed marker for API-created certificates, **not cryptographic proof of which API key created them**; Apple supplies no creator-key field. `notBefore` is a conservative age proxy, not an API creation timestamp. Review the first live list with those limits in mind. No assumption that each job creates a new certificate is needed.
+
+Apple scopes certificates to the **team**, not to an app, and this Apple team is shared with other apps. This repository now only lists candidates, but older tagged workflows and other apps may still revoke certificates using the old rule. A later revocation implementation would still affect device builds signed with a selected certificate; keeping this job's signer cannot prove an old certificate is unused on every other machine.
 
 After a cleanup runs, `security find-identity -v -p codesigning` can report `CSSMERR_TP_CERT_REVOKED` for `Apple Development`, this app's development provisioning profile can show as `INVALID`, and `xcrun devicectl` can fail with "No provider was found" - so running on a physical device fails.
 

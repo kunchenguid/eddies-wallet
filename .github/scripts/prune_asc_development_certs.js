@@ -4,11 +4,12 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 
 const API_BASE_URL = "https://api.appstoreconnect.apple.com";
-const CERTIFICATES_PATH = "/v1/certificates?limit=200";
+const CERTIFICATES_PATH = "/v1/certificates?filter[certificateType]=DEVELOPMENT&limit=200";
 const JWT_AUDIENCE = "appstoreconnect-v1";
 const JWT_TTL_SECONDS = 10 * 60;
 const TARGET_CERTIFICATE_TYPE = "DEVELOPMENT";
-const DEFAULT_KEEP_COUNT = 2;
+const MINIMUM_AGE_MS = 24 * 60 * 60 * 1000;
+const API_SUBJECT_PREFIX = "Apple Development: Created via API";
 
 function log(message) {
   console.log(`[asc-cert-cleanup] ${message}`);
@@ -28,16 +29,16 @@ function base64url(input) {
     .replace(/\//g, "_");
 }
 
-function requiredEnv(name) {
-  const value = (process.env[name] || "").trim();
+function requiredEnv(name, env) {
+  const value = (env[name] || "").trim();
   if (!value) {
     throw new Error(`${name} is not set`);
   }
   return value;
 }
 
-function decodeBase64Secret(name) {
-  const encoded = requiredEnv(name).replace(/\s+/g, "");
+function decodeBase64Secret(name, env) {
+  const encoded = requiredEnv(name, env).replace(/\s+/g, "");
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 === 1) {
     throw new Error(`${name} is not valid base64`);
   }
@@ -48,10 +49,10 @@ function decodeBase64Secret(name) {
   return decoded;
 }
 
-function buildJwt() {
-  const keyId = requiredEnv("APP_STORE_CONNECT_KEY_ID");
-  const issuerId = requiredEnv("APP_STORE_CONNECT_ISSUER_ID");
-  const privateKey = crypto.createPrivateKey(decodeBase64Secret("APP_STORE_CONNECT_API_KEY"));
+function buildJwt(env) {
+  const keyId = requiredEnv("APP_STORE_CONNECT_KEY_ID", env);
+  const issuerId = requiredEnv("APP_STORE_CONNECT_ISSUER_ID", env);
+  const privateKey = crypto.createPrivateKey(decodeBase64Secret("APP_STORE_CONNECT_API_KEY", env));
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: "ES256", kid: keyId, typ: "JWT" };
   const payload = {
@@ -76,7 +77,10 @@ async function apiRequest(method, path, jwt) {
     throw new Error("Node.js fetch is required for App Store Connect API calls");
   }
 
-  const url = path.startsWith("https://") ? path : `${API_BASE_URL}${path}`;
+  const url = new URL(path, API_BASE_URL);
+  if (url.origin !== API_BASE_URL || url.pathname !== "/v1/certificates" || method !== "GET") {
+    throw new Error("List-only cleanup permits only certificate GET requests to Apple");
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   let response;
@@ -104,142 +108,97 @@ async function apiRequest(method, path, jwt) {
   return body ? JSON.parse(body) : null;
 }
 
-async function loadCertificates(jwt) {
-  const fixturePath = (process.env.ASC_CERTIFICATE_CLEANUP_FIXTURE || "").trim();
-  if (fixturePath) {
-    log(`Using certificate fixture ${fixturePath}`);
-    return JSON.parse(fs.readFileSync(fixturePath, "utf8"));
+// Read signing commands, not provisioning-profile membership or display names.
+// Preserve ALL fingerprints in this archive, including nested targets. A missing
+// or unrecognised signing identity makes the entire list unsafe to select from.
+function archiveSigners(text) {
+  if (!text.includes("** ARCHIVE SUCCEEDED **")) return null;
+  const commands = text.split(/\r?\n/).filter(line => /(?:^|\s)(?:\S*\/)?codesign\s/.test(line));
+  if (!commands.length) return null;
+  const signers = new Set();
+  for (const command of commands) {
+    const match = command.match(/(?:^|\s)--sign\s+["']?([a-fA-F0-9]{40})["']?(?=\s|$)/);
+    if (!match) return null;
+    signers.add(match[1].toUpperCase());
   }
-  return apiRequest("GET", CERTIFICATES_PATH, jwt);
+  return signers;
 }
 
-function attributes(certificate) {
-  return certificate && typeof certificate.attributes === "object" && certificate.attributes
-    ? certificate.attributes
-    : {};
-}
-
-function certificateType(certificate) {
-  const value = attributes(certificate).certificateType;
-  return typeof value === "string" ? value : "";
-}
-
-function certificateSortKey(certificate) {
-  const certAttributes = attributes(certificate);
-  const dateValue = certAttributes.createdDate || certAttributes.expirationDate || "";
-  return [String(dateValue), String(certificate.id || "")];
-}
-
-function compareCertificatesNewestFirst(left, right) {
-  const leftKey = certificateSortKey(left);
-  const rightKey = certificateSortKey(right);
-  return rightKey[0].localeCompare(leftKey[0]) || rightKey[1].localeCompare(leftKey[1]);
-}
-
-function describeCertificate(certificate) {
-  const certAttributes = attributes(certificate);
-  return [
-    ["id", certificate.id],
-    ["type", certAttributes.certificateType],
-    ["displayName", certAttributes.displayName],
-    ["name", certAttributes.name],
-    ["serialNumber", certAttributes.serialNumber],
-    ["createdDate", certAttributes.createdDate],
-    ["expirationDate", certAttributes.expirationDate],
-  ]
-    .filter(([, value]) => value !== undefined && value !== null && value !== "")
-    .map(([key, value]) => `${key}=${value}`)
-    .join(", ");
-}
-
-function readKeepCount() {
-  const rawValue = process.env.ASC_CERTIFICATE_CLEANUP_KEEP || String(DEFAULT_KEEP_COUNT);
-  if (!/^[0-9]+$/.test(rawValue)) {
-    throw new Error(`ASC_CERTIFICATE_CLEANUP_KEEP must be an integer, got ${rawValue}`);
-  }
-  const value = Number.parseInt(rawValue, 10);
-  if (value < 1) {
-    throw new Error("ASC_CERTIFICATE_CLEANUP_KEEP must be at least 1");
-  }
-  return value;
-}
-
-function certificateTypeCounts(certificates) {
-  const counts = new Map();
-  for (const certificate of certificates) {
-    const type = certificateType(certificate) || "UNKNOWN";
-    counts.set(type, (counts.get(type) || 0) + 1);
-  }
-  return [...counts.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([type, count]) => `${type}=${count}`)
-    .join(", ");
-}
-
-async function deleteCertificate(certificate, jwt) {
-  if (certificateType(certificate) !== TARGET_CERTIFICATE_TYPE) {
-    throw new Error(`Refusing to delete non-DEVELOPMENT certificate: ${describeCertificate(certificate)}`);
-  }
-  if (typeof certificate.id !== "string" || !certificate.id) {
-    throw new Error(`Refusing to delete certificate without an id: ${describeCertificate(certificate)}`);
-  }
-  if (process.env.ASC_CERTIFICATE_CLEANUP_DRY_RUN === "1") {
-    log(`Dry run: would revoke ${describeCertificate(certificate)}`);
-    return;
-  }
-  await apiRequest("DELETE", `/v1/certificates/${encodeURIComponent(certificate.id)}`, jwt);
-  log(`Revoked ${describeCertificate(certificate)}`);
-}
-
-async function pruneDevelopmentCertificates(jwt) {
-  const payload = await loadCertificates(jwt);
-  const certificates = Array.isArray(payload && payload.data) ? payload.data : null;
-  if (!certificates) {
-    throw new Error("Certificate list response did not contain a data array");
-  }
-
-  log(`Fetched ${certificates.length} certificates (${certificateTypeCounts(certificates)})`);
-  const developmentCertificates = certificates
-    .filter((certificate) => certificateType(certificate) === TARGET_CERTIFICATE_TYPE)
-    .sort(compareCertificatesNewestFirst);
-  const keep = readKeepCount();
-  if (developmentCertificates.length <= keep) {
-    log(`Found ${developmentCertificates.length} DEVELOPMENT certificates, keeping all of them`);
-    return;
-  }
-
-  const retained = developmentCertificates.slice(0, keep);
-  const surplus = developmentCertificates.slice(keep);
-  log(`Keeping newest ${retained.length} DEVELOPMENT certificates:`);
-  for (const certificate of retained) {
-    log(`Keeping ${describeCertificate(certificate)}`);
-  }
-
-  log(`Revoking ${surplus.length} surplus DEVELOPMENT certificates`);
-  let failures = 0;
-  for (const certificate of surplus) {
-    try {
-      await deleteCertificate(certificate, jwt);
-    } catch (error) {
-      failures += 1;
-      warning(`Could not revoke ${describeCertificate(certificate)}: ${error.message}`);
-    }
-  }
-
-  if (failures > 0) {
-    warning(`Certificate cleanup finished with ${failures} deletion failure(s); release result is unaffected`);
-  } else {
-    log("Certificate cleanup finished successfully");
-  }
-}
-
-async function main() {
+function decision(record, signers, now) {
+  if (record?.attributes?.certificateType !== TARGET_CERTIFICATE_TYPE) return { reason: "not-development" };
+  if (typeof record.id !== "string" || !record.id) return { reason: "missing-id" };
   try {
-    const jwt = buildJwt();
-    await pruneDevelopmentCertificates(jwt);
-  } catch (error) {
-    warning(`Skipping App Store Connect certificate cleanup: ${error.message}`);
+    const content = record.attributes.certificateContent;
+    if (typeof content !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(content)) throw new Error();
+    const der = Buffer.from(content, "base64");
+    const cert = new crypto.X509Certificate(der);
+    // Reject trailing bytes and PEM in an API field documented as base64 DER.
+    if (!cert.raw.equals(der)) throw new Error();
+    const fingerprint = cert.fingerprint.replace(/:/g, "").toUpperCase();
+    if (signers.has(fingerprint)) return { reason: "archive-signer", fingerprint };
+    const cn = cert.subject.split("\n").filter(part => part.startsWith("CN="));
+    if (cn.length !== 1 || !(cn[0].slice(3) === API_SUBJECT_PREFIX ||
+        cn[0].slice(3).startsWith(`${API_SUBJECT_PREFIX} (`))) return { reason: "not-api-created", fingerprint };
+    const start = Date.parse(cert.validFrom);
+    if (!Number.isFinite(start) || !Number.isFinite(now) || now - start <= MINIMUM_AGE_MS) {
+      return { reason: "not-over-24-hours", fingerprint };
+    }
+    return { reason: "would-revoke", fingerprint };
+  } catch {
+    return { reason: "unreadable-certificate" };
   }
 }
 
-main();
+async function loadCertificates(jwt, request) {
+  const certificates = [];
+  const visited = new Set();
+  let path = CERTIFICATES_PATH;
+  while (path) {
+    const url = new URL(path, API_BASE_URL);
+    if (url.origin !== API_BASE_URL || url.pathname !== "/v1/certificates" || visited.has(url.href) || visited.size >= 100) {
+      throw new Error("Unsafe or repeated certificate pagination link");
+    }
+    visited.add(url.href);
+    const payload = await request("GET", url.href, jwt);
+    if (!Array.isArray(payload?.data)) throw new Error("Certificate list response did not contain a data array");
+    certificates.push(...payload.data);
+    path = payload.links?.next;
+    if (path != null && typeof path !== "string") throw new Error("Invalid certificate pagination link");
+  }
+  return certificates;
+}
+
+async function run({ env = process.env, request = apiRequest, now = Date.now(), write = log } = {}) {
+  // Intentionally NO DELETE implementation, opt-in flag or automatic promotion.
+  // Captain review of the first live list is required before a separate change.
+  write("List-only mode: revocation is disabled");
+  if (!(env.RUNNER_NAME || "").startsWith("mini-mac")) {
+    write("Skipping: this is not the Mac mini runner");
+    return;
+  }
+  let signers;
+  try {
+    signers = archiveSigners(fs.readFileSync(requiredEnv("ASC_CERTIFICATE_CLEANUP_ARCHIVE_LOG", env), "utf8"));
+  } catch {
+    write("Skipping: archive signing evidence is unavailable");
+    return;
+  }
+  if (!signers) {
+    write("Skipping: successful archive and every signing fingerprint are required");
+    return;
+  }
+  const certificates = await loadCertificates(buildJwt(env), request);
+  let candidates = 0;
+  for (const record of certificates) {
+    const result = decision(record, signers, now);
+    if (result.reason === "would-revoke") candidates++;
+    // Do not print CN, key/team IDs, serials, certificate content or raw errors.
+    write(`${result.reason === "would-revoke" ? "Would revoke" : "Keep"}: fingerprint=${result.fingerprint || "unavailable"}; reason=${result.reason}`);
+  }
+  write(`List complete: ${candidates} would revoke; ${certificates.length - candidates} kept; 0 revoked`);
+}
+
+if (require.main === module) {
+  run().catch(() => warning("Skipping certificate list: request, credentials or response could not be validated; nothing was revoked"));
+}
+module.exports = { run, decision, archiveSigners };

@@ -314,15 +314,18 @@ fi
 
 # The self-hosted MAC_RUNNER has no node on its PATH, so the certificate
 # cleanup needs a pinned setup-node step ahead of it that runs under the same
-# condition (otherwise a failed archive skips it and the cleanup hits
-# "node: command not found") and, like the cleanup, never fails the release.
+# success/mini-mac condition and, like the list step, never fails the release.
 # shellcheck disable=SC2016 # Ruby program intentionally uses single-quoted strings.
 if cleanup_node_out="$(ruby -ryaml -e '
   steps = YAML.load_file(".github/workflows/release.yml").dig("jobs", "testflight", "steps") || []
   prune_index = steps.index { |s| s["run"].to_s.include?("prune_asc_development_certs.js") }
   abort "testflight job has no certificate cleanup step" unless prune_index
   prune = steps[prune_index]
-  abort "cleanup step must be if: always(), got #{prune["if"].inspect}" unless prune["if"] == "always()"
+  expected = "success() && startsWith(runner.name, \x27mini-mac\x27)"
+  abort "cleanup requires successful mini-mac job" unless prune["if"] == expected
+  upload_index = steps.index { |s| s["name"] == "Upload IPA to TestFlight" }
+  abort "cleanup must follow upload" unless upload_index && upload_index < prune_index
+  abort "cleanup requires archive log" unless prune["run"].include?(%q{ASC_CERTIFICATE_CLEANUP_ARCHIVE_LOG="$RUNNER_TEMP/xcodebuild-archive.log"})
   abort "cleanup step must be continue-on-error" unless prune["continue-on-error"] == true
   setup_index = steps.rindex { |s| s["uses"].to_s.start_with?("actions/setup-node@") }
   abort "testflight job has no actions/setup-node step" unless setup_index
@@ -337,6 +340,13 @@ if cleanup_node_out="$(ruby -ryaml -e '
   pass "release.yml puts node on PATH for the certificate cleanup under the same condition ($cleanup_node_out)"
 else
   fail "release.yml puts node on PATH for the certificate cleanup under the same condition: $cleanup_node_out"
+fi
+
+# INF-259 owns the selection and list-only behavior at the real CLI/API boundary.
+if node test/certificate-cleanup-test.js; then
+  pass "INF-259 safe certificate list-only behavior"
+else
+  fail "INF-259 safe certificate list-only behavior"
 fi
 
 require_grep '"release-type": "simple"' release-please-config.json \
