@@ -10,8 +10,12 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const { run, decision, archiveSigners } = require('../.github/scripts/prune_asc_development_certs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ew-cert-rule-'));
 const key = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ type: 'pkcs8', format: 'pem' });
+// OpenSSL on Linux cannot reopen Node's stdin socket through /dev/stdin.
+// This key exists only for fixtures, inside a private temporary directory.
+const keyPath = path.join(root, 'disposable-fixture-key.pem');
+fs.writeFileSync(keyPath, key, { mode: 0o600 });
 function certificate(cn, type = 'DEVELOPMENT') {
-  const pem = execFileSync('openssl', ['req', '-new', '-x509', '-key', '/dev/stdin', '-subj', `/CN=${cn}`, '-days', '365'], { input: key, stdio: ['pipe', 'pipe', 'pipe'] });
+  const pem = execFileSync('openssl', ['req', '-new', '-x509', '-key', keyPath, '-subj', `/CN=${cn}`, '-days', '365'], { stdio: ['ignore', 'pipe', 'pipe'] });
   const cert = new crypto.X509Certificate(pem);
   return { id: cert.serialNumber, attributes: { certificateType: type, certificateContent: cert.raw.toString('base64') } };
 }
