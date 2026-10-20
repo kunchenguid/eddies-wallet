@@ -263,15 +263,15 @@ if release_runner_out="$(ruby -ryaml -e '
   testflight = jobs["testflight"]
   abort "release.yml missing testflight job" unless testflight.is_a?(Hash)
   runs_on = testflight["runs-on"].to_s
-  expected = "${{ vars.MAC_RUNNER || '\''macos-26'\'' }}"
+  expected = "${{ vars.REAL_MAC_RUNNER || vars.MAC_RUNNER || '\''macos-26'\'' }}"
   unless runs_on == expected
     abort "release.yml testflight runs-on drifted: expected #{expected.inspect}, got #{runs_on.inspect}"
   end
   puts "testflight=#{runs_on}"
 ')"; then
-  pass "release.yml TestFlight runner uses MAC_RUNNER with macos-26 fallback ($release_runner_out)"
+  pass "release.yml TestFlight runner prefers REAL_MAC_RUNNER, then MAC_RUNNER, then macos-26 ($release_runner_out)"
 else
-  fail "release.yml TestFlight runner uses MAC_RUNNER with macos-26 fallback: $release_runner_out"
+  fail "release.yml TestFlight runner prefers REAL_MAC_RUNNER, then MAC_RUNNER, then macos-26: $release_runner_out"
 fi
 
 # The self-hosted MAC_RUNNER has no passwordless sudo. Run the workflow's own

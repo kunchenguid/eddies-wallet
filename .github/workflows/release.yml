@@ -24,7 +24,7 @@ concurrency:
 jobs:
   testflight:
     name: Archive and upload to TestFlight
-    runs-on: ${{ vars.MAC_RUNNER || 'macos-26' }}
+    runs-on: ${{ vars.REAL_MAC_RUNNER || vars.MAC_RUNNER || 'macos-26' }}
     timeout-minutes: 60
 
     env:
