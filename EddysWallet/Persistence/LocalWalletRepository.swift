@@ -89,6 +89,16 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     public var hasLegacyInputs: Bool { aggregate == nil && (legacySnapshot != nil || legacyMarkerPresent) }
     public var lineageID: UUID? { aggregate?.metadata.lineageID }
     public var isReadOnly: Bool { readOnlyReason != nil }
+    /// A free wallet takes a kid's loan payment whenever it could take a
+    /// parent's: it holds a writable local history and no Cloud move is
+    /// under way. A Cloud replica never writes from here.
+    public var supportsChildRepayment: Bool {
+        aggregate != nil
+            && readOnlyReason == nil
+            && !isCloudAuthority
+            && cloudImportTransitionHolders == 0
+            && aggregate?.metadata.cloudImportMayBeUnresolved != true
+    }
 
     public func snapshot() -> WalletSnapshot { aggregate?.snapshot ?? legacySnapshot ?? .empty() }
     public func childSnapshot() -> WalletSnapshot { snapshot() }
@@ -175,6 +185,10 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
         // zero. Every other command still needs a positive amount.
         guard command.amountCents > 0 || command.kind == .loanInstallment else {
             return .rejected(rejected(command, "Enter an amount greater than US$0.00."))
+        }
+        // The kid label belongs on a repayment only, as the service enforces.
+        guard command.hasValidRecorder else {
+            return .rejected(rejected(command, "Only a loan payment can be recorded by the child."))
         }
         var wallet = candidate.snapshot
         var settledAmountCents = command.amountCents
@@ -290,6 +304,7 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
             reason: settledReason,
             date: settledDate,
             syncState: .recorded,
+            recordedBy: command.recordedBy,
             explanation: explanation(command, amountCents: settledAmountCents)
         )
         wallet.activities.insert(event, at: 0)
@@ -728,6 +743,20 @@ public final class LocalWalletRepository: WalletRepository, WalletRecoveryProvid
     /// A recorded installment carries the amount the plan actually settled,
     /// which is not the amount the command named.
     private func explanation(_ command: WalletCommand, amountCents: Int) -> String {
-        AcceptedEventCopy.explanation(for: activityType(command.kind), amountCents: amountCents)
+        AcceptedEventCopy.explanation(for: activityType(command.kind), amountCents: amountCents, recordedBy: command.recordedBy)
     }
 }
+
+#if DEBUG
+extension LocalWalletRepository {
+    /// An in-memory free wallet that already holds `snapshot`, validated and
+    /// saved exactly as a parent's own actions would have saved it. Debug
+    /// launch scenarios and tests use it to start from a real local
+    /// authority with history, never from a mock posing as one.
+    static func debugSeeded(_ snapshot: WalletSnapshot) throws -> LocalWalletRepository {
+        let repository = try LocalWalletRepository(inMemory: true)
+        try repository.persist(LocalWalletAggregate(metadata: LocalWalletMetadata(lineageID: UUID()), snapshot: snapshot))
+        return repository
+    }
+}
+#endif

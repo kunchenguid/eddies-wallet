@@ -1,24 +1,42 @@
 import SwiftUI
 
 enum ActivityDetailCopy {
+    /// Who a payment the kid made names as its payer: the kid reads "You",
+    /// a parent reads the nickname, or "Your child" before one is set.
+    static func childRecorderName(audience: ActivityDetailView.Audience, nickname: String?) -> String {
+        audience == .kid ? "You" : ChildProfileCopy.childSubject(nickname: nickname)
+    }
+
     static func attribution(
         for event: WalletEvent,
-        audience: ActivityDetailView.Audience
+        audience: ActivityDetailView.Audience,
+        childNickname: String? = nil
     ) -> (label: String, value: String) {
         let scheduleSettled = AcceptedEventCopy.isScheduleSettled(event.recordedBy)
+        let childRecorded = AcceptedEventCopy.isChildRecorded(event.recordedBy)
         switch audience {
         case .kid:
+            if childRecorded { return ("Changed by", childRecorderName(audience: .kid, nickname: childNickname)) }
             return ("Changed by", scheduleSettled ? "Your plan" : "Your parent")
         case .parent:
+            if childRecorded { return ("Recorded by", childRecorderName(audience: .parent, nickname: childNickname)) }
             return ("Recorded by", scheduleSettled ? "Schedule" : "Parent")
         }
     }
 
     static func explanation(
         for event: WalletEvent,
-        audience: ActivityDetailView.Audience
+        audience: ActivityDetailView.Audience,
+        childNickname: String? = nil
     ) -> String {
-        guard audience == .kid else { return event.explanation }
+        guard audience == .kid else {
+            // A kid's payment is stored with the kid's own words; the Parent
+            // area says who paid instead.
+            if AcceptedEventCopy.isChildRecorded(event.recordedBy), event.type == .repayment, event.syncState == .recorded {
+                return AcceptedEventCopy.parentExplanationOfChildRepayment(amountCents: event.amountCents, nickname: childNickname)
+            }
+            return event.explanation
+        }
 
         return AcceptedEventCopy.explanation(
             for: event.type,
@@ -32,6 +50,8 @@ struct ActivityDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let event: WalletEvent
     var audience: Audience = .parent
+    /// Names the kid on a payment the kid made.
+    var childNickname: String? = nil
 
     enum Audience {
         case kid
@@ -69,7 +89,7 @@ struct ActivityDetailView: View {
                     if let reason = event.reason, !reason.isEmpty {
                         detailRow(label: event.type == .loan ? "Purpose" : "Reason", value: reason)
                     }
-                    let attribution = ActivityDetailCopy.attribution(for: event, audience: audience)
+                    let attribution = ActivityDetailCopy.attribution(for: event, audience: audience, childNickname: childNickname)
                     detailRow(label: attribution.label, value: attribution.value)
                     if let before = event.balanceBeforeCents, let after = event.balanceAfterCents {
                         detailRow(
@@ -82,7 +102,7 @@ struct ActivityDetailView: View {
                             .foregroundStyle(EW.Color.red600)
                     }
 
-                    Text(ActivityDetailCopy.explanation(for: event, audience: audience))
+                    Text(ActivityDetailCopy.explanation(for: event, audience: audience, childNickname: childNickname))
                         .font(EW.Font.body)
                         .foregroundStyle(EW.Color.textSecondary)
                         .padding(EW.Space.four)
@@ -126,9 +146,10 @@ struct LoanDetailView: View {
     let onRepay: () -> Void
     @EnvironmentObject private var store: WalletStore
 
-    /// The parent's repayment control is the reason this sheet has a bottom
-    /// bar: it is an action, not a detail, so it never scrolls away with the
-    /// loan copy. The kid's read-only view has no bar at all.
+    /// The repayment control is the reason this sheet has a bottom bar: it is
+    /// an action, not a detail, so it never scrolls away with the loan copy.
+    /// The parent's is Pay toward loan; the kid's is Pay back, shown exactly
+    /// when the kid home's loan card shows it.
     private var showsRepayAction: Bool {
         isParent && store.canModifyWallet && (store.snapshot.loan.map { !$0.isPaid } ?? false)
     }
@@ -138,6 +159,8 @@ struct LoanDetailView: View {
             Group {
                 if showsRepayAction {
                     SheetForm { detail } actions: { repayButton }
+                } else if !isParent && store.canKidPayBackLoan {
+                    SheetForm { detail } actions: { kidPayBackButton }
                 } else {
                     SheetForm { detail }
                 }
@@ -156,6 +179,12 @@ struct LoanDetailView: View {
             .disabled(!store.canStartParentMutation)
             .opacity(store.canStartParentMutation ? 1 : 0.5)
             .accessibilityIdentifier("loan-pay-toward")
+    }
+
+    private var kidPayBackButton: some View {
+        Button("Pay back", action: onRepay)
+            .buttonStyle(PrimaryButtonStyle())
+            .accessibilityIdentifier("kid-loan-detail-pay-back")
     }
 
     private var detail: some View {

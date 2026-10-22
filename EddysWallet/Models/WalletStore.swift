@@ -1554,6 +1554,83 @@ public final class WalletStore: ObservableObject {
         }
     }
 
+    // MARK: - Kid loan payment
+
+    /// The most the kid can pay back right now: what is left on the open
+    /// loan, and never more than what is in the wallet.
+    public var kidPayBackLimitCents: Int {
+        guard let loan = snapshot.loan, !loan.isPaid else { return 0 }
+        return max(0, min(loan.remainingCents, snapshot.acceptedBalanceCents))
+    }
+
+    /// Whether the kid home offers Pay back now. Only on the kid home (no
+    /// parent elevation, not even the PIN gate), only while a loan is open and
+    /// the wallet has dollars, and only where the authority can take a kid's
+    /// payment at once: a free wallet that is not moving to Cloud, or a Cloud
+    /// wallet this device is in sync with, signed in. Legacy service wallets
+    /// never offer it.
+    public var canKidPayBackLoan: Bool {
+        guard elevation == .none,
+              !sessionExpired,
+              repository.supportsChildRepayment,
+              !isRecordingMissedAllowance,
+              !isRecordingMissedLoanInstallments,
+              kidPayBackLimitCents > 0 else { return false }
+        if repository is CloudWalletRepository {
+            return repository.isAuthenticated && isSyncedWithCloud
+        }
+        return !authorityState.isCloudAuthority
+    }
+
+    /// The kid's own way to pay toward their loan, from the kid home without
+    /// the parent PIN. It sends exactly one kind of command - a repayment
+    /// labelled as the child's - and nothing else: `submit` still refuses
+    /// every command without parent elevation.
+    ///
+    /// A Cloud revision conflict reads the wallet again and hands the choice
+    /// back to the kid. It does not raise the parent's Cloud review: nothing
+    /// was recorded, and the kid sees the fresh balance before trying again.
+    @discardableResult
+    public func payBackLoan(amountCents: Int, idempotencyKey: String = UUID().uuidString) async -> KidPayBackOutcome {
+        guard canKidPayBackLoan, amountCents > 0, amountCents <= kidPayBackLimitCents else { return .notPaid }
+        let generation = refreshGeneration
+        do {
+            let result = try await repository.submit(.childRepayment(amountCents: amountCents, idempotencyKey: idempotencyKey))
+            if generation == refreshGeneration {
+                publishOperationDiagnostic(preferredDiagnostic: result.transportDiagnostic)
+                errorMessage = nil
+                snapshot = viewRole == .child ? repository.childSnapshot() : repository.snapshot()
+                await refreshDueReminders()
+            }
+            switch result {
+            case .accepted, .acceptedScheduleUnavailable:
+                return .paid(amountCents: amountCents, remainingCents: repository.snapshot().loan?.remainingCents ?? 0)
+            case .pending, .acceptedAwaitingReplica:
+                return .checking
+            case .rejected:
+                return .notPaid
+            }
+        } catch let error as WalletAPIError {
+            guard generation == refreshGeneration else { return .notPaid }
+            publishOperationDiagnostic(for: error)
+            switch error.operationError {
+            case .unauthorized, .noSession:
+                sessionExpired = repository.hasConfiguredKid
+                return .notPaid
+            case .revisionConflict, .revisionRequired:
+                await refresh()
+                return .walletChanged
+            case .cloudEntitlementRequired:
+                cloudEntitlement = cloudCoordinator?.entitlement ?? .expired
+                return .notPaid
+            default:
+                return .notPaid
+            }
+        } catch {
+            return .notPaid
+        }
+    }
+
     /// Removes the local session, parent PIN, owner identity evidence, and
     /// cached snapshot from this device. Reachable only from the Parent area
     /// or the pre-family setup escape.

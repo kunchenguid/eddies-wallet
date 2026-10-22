@@ -20,6 +20,9 @@ enum DeviceCopy {
 struct ActivityListCard: View {
     let events: [WalletEvent]
     var announcesVirtualMoney: Bool = true
+    /// How a payment the kid made names its payer in this list: "You" on the
+    /// kid home, the nickname in the Parent area.
+    var childRecorderName: String? = nil
     /// A trailing row that opens the rest of a capped list, named for what it
     /// opens ("See all 21 entries"). Absent when the card shows everything.
     var seeAllTitle: String? = nil
@@ -29,7 +32,7 @@ struct ActivityListCard: View {
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                ActivityRowView(event: event, announcesVirtualMoney: announcesVirtualMoney) {
+                ActivityRowView(event: event, announcesVirtualMoney: announcesVirtualMoney, childRecorderName: childRecorderName) {
                     onSelect(event)
                 }
                 if index < events.count - 1 || seeAllTitle != nil {
@@ -67,7 +70,18 @@ struct ActivityListCard: View {
 struct ActivityRowView: View {
     let event: WalletEvent
     var announcesVirtualMoney: Bool = true
+    var childRecorderName: String? = nil
     let action: () -> Void
+
+    /// "Repayment · Oct 22", with the kid named between them on a payment the
+    /// kid made, so a parent sees who paid without opening the row.
+    private var subtitle: String {
+        let date = event.date.formatted(.dateTime.month(.abbreviated).day())
+        if let childRecorderName, AcceptedEventCopy.isChildRecorded(event.recordedBy) {
+            return "\(event.type.title) · \(childRecorderName) · \(date)"
+        }
+        return "\(event.type.title) · \(date)"
+    }
 
     private var tint: Color {
         switch event.type {
@@ -96,7 +110,7 @@ struct ActivityRowView: View {
                         .font(EW.Font.bodyBold)
                         .foregroundStyle(EW.Color.textPrimary)
                         .lineLimit(1)
-                    Text("\(event.type.title) · \(event.date.formatted(.dateTime.month(.abbreviated).day()))")
+                    Text(subtitle)
                         .font(EW.Font.caption)
                         .foregroundStyle(EW.Color.textTertiary)
                 }
@@ -128,9 +142,31 @@ struct ActivityRowView: View {
 struct LoanCardView: View {
     let loan: Loan
     let isParent: Bool
+    /// The kid's Pay back, shown under the loan on the kid home only while
+    /// `WalletStore.canKidPayBackLoan`. It is its own button, not part of the
+    /// card's tap, so opening the details never pays anything.
+    var payBack: (() -> Void)? = nil
     let action: () -> Void
 
     var body: some View {
+        if let payBack, !isParent, !loan.isPaid {
+            VStack(alignment: .leading, spacing: EW.Space.four) {
+                summaryButton
+                Button(action: payBack) {
+                    Label("Pay back", systemImage: "arrow.uturn.backward")
+                }
+                .buttonStyle(PayBackButtonStyle())
+                .accessibilityHint("Pays dollars from your wallet toward your loan")
+                .accessibilityIdentifier("kid-loan-pay-back")
+            }
+            .ewCard(variant: .alt)
+        } else {
+            summaryButton
+                .ewCard(variant: .alt)
+        }
+    }
+
+    private var summaryButton: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: EW.Space.four) {
                 HStack(spacing: EW.Space.three) {
@@ -172,8 +208,28 @@ struct LoanCardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .buttonStyle(.plain)
-        .ewCard(variant: .alt)
-        .accessibilityHint(isParent ? "Opens loan details and repayment" : "Opens read-only loan details")
+        .accessibilityHint(isParent ? "Opens loan details and repayment" : "Opens loan details")
+    }
+}
+
+/// The kid's Pay back control: a white, peach-lettered button that reads as
+/// part of the peach loan card, where a secondary button's cream fill would
+/// vanish into the card. Same height and corner as the app's buttons.
+struct PayBackButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(EW.Font.bodyBold)
+            .foregroundStyle(EW.Color.peach700)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.horizontal, EW.Space.four)
+            .background(EW.Color.white, in: RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous)
+                    .stroke(EW.Color.peach700.opacity(0.35), lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: EW.Radius.medium, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

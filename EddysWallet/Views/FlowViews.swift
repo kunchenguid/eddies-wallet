@@ -852,3 +852,228 @@ struct AllowanceView: View {
 #Preview("Deposit flow") {
     MoneyFlowView(kind: .deposit).environmentObject(WalletStore.preview())
 }
+
+/// The kid's Pay back sheet, opened from the kid home's loan card or the
+/// kid's loan details. It never shows a keyboard: whole-dollar − and +, and
+/// All of it for the rest, always between US$0.01 and the smaller of what is
+/// left to repay and what is in the wallet. The confirm button names the
+/// amount because a payment cannot be undone. Only `WalletStore.payBackLoan`
+/// records it, and only while `canKidPayBackLoan` holds.
+struct KidPayBackView: View {
+    @EnvironmentObject private var store: WalletStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var amountCents = 0
+    @State private var isPaying = false
+    @State private var outcome: KidPayBackOutcome?
+
+    private var limitCents: Int { store.kidPayBackLimitCents }
+    private var loan: Loan? { store.snapshot.loan }
+
+    private func clamped(_ cents: Int) -> Int {
+        KidPayBackAmount.clamped(cents, limitCents: limitCents)
+    }
+
+    private var canPay: Bool {
+        !isPaying && store.canKidPayBackLoan && amountCents > 0 && amountCents <= limitCents
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let outcome, outcome != .walletChanged {
+                    result(outcome)
+                } else {
+                    chooser
+                }
+            }
+            .navigationTitle("Pay back")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    if outcome == nil || outcome == .walletChanged {
+                        Button("Cancel") { dismiss() }
+                            .disabled(isPaying)
+                    }
+                }
+            }
+        }
+        .onAppear { amountCents = KidPayBackAmount.starting(for: loan, limitCents: limitCents) }
+        .onChange(of: limitCents) { _, _ in amountCents = clamped(amountCents) }
+    }
+
+    private var chooser: some View {
+        SheetForm {
+            VStack(alignment: .leading, spacing: EW.Space.five) {
+                if let loan {
+                    HStack {
+                        Text("Left to repay")
+                            .font(EW.Font.body)
+                            .foregroundStyle(EW.Color.textSecondary)
+                        Spacer()
+                        MoneyAmount(
+                            cents: loan.remainingCents,
+                            font: EW.Font.display,
+                            color: EW.Color.peach700,
+                            announcesVirtualMoney: false
+                        )
+                    }
+                    .ewCard(variant: .alt)
+                }
+
+                HStack(spacing: EW.Space.four) {
+                    stepButton("minus", label: "One dollar less", identifier: "kid-pay-back-less") {
+                        amountCents = KidPayBackAmount.less(than: amountCents, limitCents: limitCents)
+                    }
+                    .disabled(isPaying || !KidPayBackAmount.canLower(amountCents, limitCents: limitCents))
+                    Text(Money(cents: amountCents).display)
+                        .font(EW.Font.displayLarge)
+                        .foregroundStyle(EW.Color.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("kid-pay-back-amount")
+                    stepButton("plus", label: "One dollar more", identifier: "kid-pay-back-more") {
+                        amountCents = KidPayBackAmount.more(than: amountCents, limitCents: limitCents)
+                    }
+                    .disabled(isPaying || amountCents >= limitCents)
+                }
+
+                Button {
+                    amountCents = limitCents
+                } label: {
+                    Text("All of it · \(Money(cents: limitCents).display)")
+                        .font(EW.Font.bodyBold)
+                        .foregroundStyle(EW.Color.green700)
+                        .padding(.horizontal, EW.Space.four)
+                        .frame(minHeight: 44)
+                        .background(EW.Color.green100, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isPaying || amountCents == limitCents)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("kid-pay-back-all")
+
+                VStack(alignment: .leading, spacing: EW.Space.three) {
+                    afterRow("Your wallet after", cents: store.snapshot.acceptedBalanceCents - amountCents)
+                    afterRow("Left to repay after", cents: (loan?.remainingCents ?? 0) - amountCents)
+                }
+                .ewCard()
+
+                if let planNote {
+                    Text(planNote)
+                        .font(EW.Font.body)
+                        .foregroundStyle(EW.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if outcome == .walletChanged {
+                    Text(KidCopy.payBackResult(.walletChanged))
+                        .font(EW.Font.bodyBold)
+                        .foregroundStyle(EW.Color.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("kid-pay-back-changed")
+                }
+            }
+        } actions: {
+            Button {
+                Task { await pay() }
+            } label: {
+                if isPaying {
+                    ProgressView().tint(EW.Color.white)
+                } else {
+                    Text("Pay back \(Money(cents: amountCents).display)")
+                }
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(!canPay)
+            .opacity(canPay || isPaying ? 1 : 0.5)
+            .accessibilityIdentifier("kid-pay-back-confirm")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("kid-pay-back-sheet")
+    }
+
+    /// Only on a loan with a plan, and only when this payment leaves
+    /// something to repay: a payment that clears the loan ends the plan too.
+    private var planNote: String? {
+        guard let loan, let schedule = loan.schedule, amountCents < loan.remainingCents,
+              let next = loan.nextCurrentOrFutureInstallment() else { return nil }
+        return KidCopy.payBackPlanNote(nextPaymentDate: next.dueDate, cadence: schedule.cadence)
+    }
+
+    private func pay() async {
+        isPaying = true
+        outcome = nil
+        let finished = await store.payBackLoan(amountCents: amountCents)
+        isPaying = false
+        outcome = finished
+        if finished == .walletChanged { amountCents = clamped(amountCents) }
+    }
+
+    private func result(_ outcome: KidPayBackOutcome) -> some View {
+        SheetForm {
+            VStack(spacing: EW.Space.five) {
+                Image(systemName: resultIcon(outcome))
+                    .font(.system(size: 58))
+                    .foregroundStyle(resultColor(outcome))
+                Text(KidCopy.payBackResult(outcome))
+                    .font(EW.Font.heading)
+                    .foregroundStyle(EW.Color.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 420)
+                    .accessibilityIdentifier("kid-pay-back-result-message")
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, EW.Space.six)
+        } actions: {
+            Button("Done") { dismiss() }
+                .buttonStyle(PrimaryButtonStyle())
+                .accessibilityIdentifier("kid-pay-back-done")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("kid-pay-back-result")
+    }
+
+    private func resultIcon(_ outcome: KidPayBackOutcome) -> String {
+        switch outcome {
+        case .paid: "checkmark.circle.fill"
+        case .checking: "clock.fill"
+        case .walletChanged, .notPaid: "exclamationmark.circle.fill"
+        }
+    }
+
+    private func resultColor(_ outcome: KidPayBackOutcome) -> Color {
+        switch outcome {
+        case .paid: EW.Color.green600
+        case .checking: EW.Color.gold700
+        case .walletChanged, .notPaid: EW.Color.red600
+        }
+    }
+
+    private func stepButton(_ symbol: String, label: String, identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(EW.Color.green700)
+                .frame(width: 56, height: 56)
+                .background(EW.Color.white, in: Circle())
+                .overlay { Circle().stroke(EW.Color.border, lineWidth: 1) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func afterRow(_ label: String, cents: Int) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(EW.Font.body)
+                .foregroundStyle(EW.Color.textSecondary)
+            Spacer()
+            Text(Money(cents: max(cents, 0)).display)
+                .font(EW.Font.bodyBold)
+                .foregroundStyle(EW.Color.textPrimary)
+        }
+    }
+}

@@ -182,7 +182,10 @@ struct ParentActivityListView: View {
                         .font(EW.Font.body)
                         .foregroundStyle(EW.Color.textSecondary)
                 } else {
-                    ActivityListCard(events: store.snapshot.activities) { event in
+                    ActivityListCard(
+                        events: store.snapshot.activities,
+                        childRecorderName: ActivityDetailCopy.childRecorderName(audience: .parent, nickname: store.snapshot.configuredChildNickname)
+                    ) { event in
                         selectedEvent = event
                     }
                 }
@@ -201,7 +204,7 @@ struct ParentActivityListView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .sheet(item: $selectedEvent) { event in
-            ActivityDetailView(event: event)
+            ActivityDetailView(event: event, childNickname: store.snapshot.configuredChildNickname)
                 .ewDetailSheetPresentation()
         }
     }

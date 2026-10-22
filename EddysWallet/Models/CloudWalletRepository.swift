@@ -71,6 +71,10 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
     public var isAuthenticated: Bool { client.hasSession }
     public var hasConfiguredKid: Bool { true }
     public var supportsRuntimeMutations: Bool { true }
+    /// The service stores the kid label on a repayment, so a kid's payment
+    /// reads as the kid's on every Cloud device. `WalletStore` still offers
+    /// it only while this device is in sync with Cloud.
+    public var supportsChildRepayment: Bool { true }
     public var localReplica: LocalWalletRepository { replica }
     public var hasValidReplica: Bool { replica.hasAcceptedCloudReplica(lineageID: lineageID) }
     public var hasUnsettledMutation: Bool { activeMutation != nil }
@@ -296,6 +300,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
         guard activeMutation == nil, !isPreparingMutation else {
             return .rejected(blockedEvent(for: command))
         }
+        guard command.hasValidRecorder else {
+            throw WalletAPIError.invalidResponse("Only a loan payment can be recorded by the child.")
+        }
         guard client.hasSession else { throw WalletAPIError.noSession }
         guard isReadyForRuntimeMutations else {
             throw WalletAPIError.revisionRequired.anchoredToRefusedRevision(revision)
@@ -503,6 +510,9 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             kind = .repayment
             path = "/v1/loans/\(pathComponent(loanID))/repayments"
             body = ["amountCents": command.amountCents]
+            // Omitted means the parent, so only the kid's payment names its
+            // recorder. The label is part of the request the key protects.
+            if let recordedBy = command.recordedBy { body["recordedBy"] = recordedBy }
         case .allowance:
             try await refreshAllowanceSchedule(reservingMutationSlot: false)
             guard let rule = allowanceSchedule, let occurrenceID = rule.nextOccurrenceID else {
@@ -539,7 +549,8 @@ public final class CloudWalletRepository: WalletRepository, CloudMutationStatusP
             idempotencyKey: command.idempotencyKey,
             expectedRevision: revision,
             amountCents: authoritativeAmountCents,
-            reason: command.reason
+            reason: command.reason,
+            recordedBy: command.recordedBy
         )
     }
 

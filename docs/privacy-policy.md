@@ -1,12 +1,12 @@
 # Eddie's Wallet privacy policy
 
-Last reviewed against the code: 2026-08-25.
+Last reviewed against the code: 2026-10-22.
 
 This policy is published at https://eddies-wallet.kunchenguid.com/. Future revisions will update the "Last reviewed against the code" date on this page.
 
 ## What this app is
 
-Eddie's Wallet is an iOS app for families. A parent pays out virtual allowance and records deposits, withdrawals, loans, and repayments for one child, and the child sees a read-only wallet. The money in the app is pretend: it cannot be redeemed and never moves real money.
+Eddie's Wallet is an iOS app for families. A parent pays out virtual allowance and records deposits, withdrawals, loans, and repayments for one child. The child sees the wallet, and its only action is paying back an open loan from the wallet's own virtual dollars. The money in the app is pretend: it cannot be redeemed and never moves real money.
 
 The child never signs in and never has an account. Only a parent signs in.
 
@@ -46,7 +46,7 @@ A parent signs in with Apple. Apple gives the app an opaque Apple user identifie
 
 ### 4. Wallet ledger
 
-The wallet ledger is the balance, the list of recorded entries (deposits, withdrawals, allowance, loans, repayments) with their amounts and timestamps, the allowance rule and its payout due dates and recording status, and each loan's status and optional payment plan, including its cadence, payment amount, due dates, and whether each scheduled payment was recorded. Each entry can carry a short free-text note that the parent types ("Reason" for money entries, "What is this for?" for loans), so it holds whatever the parent chooses to type there.
+The wallet ledger is the balance, the list of recorded entries (deposits, withdrawals, allowance, loans, repayments) with their amounts and timestamps, the allowance rule and its payout due dates and recording status, and each loan's status and optional payment plan, including its cadence, payment amount, due dates, and whether each scheduled payment was recorded. Each entry can carry a short free-text note that the parent types ("Reason" for money entries, "What is this for?" for loans), so it holds whatever the parent chooses to type there. A repayment the child made carries a label saying the child recorded it, so the Parent area can show the child's nickname beside it.
 
 Where it lives depends on how the app is used:
 
@@ -97,7 +97,7 @@ The optional Cloud subscription is an Apple auto-renewable subscription. Apple, 
 
 ## Children
 
-The app is designed so that the child's side needs no account, no sign-in, and no personal details beyond a nickname the parent chooses. First-run setup is gated by the parent's Sign in with Apple; after setup, money actions, the Parent area, and settings sit behind the parent PIN.
+The app is designed so that the child's side needs no account, no sign-in, and no personal details beyond a nickname the parent chooses. First-run setup is gated by the parent's Sign in with Apple; after setup, parent money actions, the Parent area, and settings sit behind the parent PIN. The child's loan payment is the one action outside it.
 
 ## Contact
 

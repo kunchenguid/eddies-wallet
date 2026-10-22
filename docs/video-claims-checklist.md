@@ -6,7 +6,7 @@ Use this checklist while scripting and reviewing any video or public presentatio
 
 1. Displayed dollars are virtual, pretend, and nonredeemable. This is not a bank and it does not move real money.
 2. Every displayed dollar is virtual, pretend, nonredeemable, and never moves real money.
-3. Only a parent, inside the PIN-gated Parent area, records changes; the managed child profile is read-only and has no independent account.
+3. Only a parent, inside the PIN-gated Parent area, records changes, except that the child can pay back an open loan from the wallet; the managed child profile has no independent account.
 4. The free one-device wallet does not depend on the separately operated service; optional Cloud and legacy service-wallet compatibility do. Live Apple sign-in still requires Apple signing setup that is not part of this repository.
 5. Local tests and builds include synthetic UI scenarios; they are not live-device proof. The live StoreKit, TestFlight, and backend evidence boundary is owned by [the App Store Connect configuration record](app-store-configuration.md#live-sandbox-evidence-and-remaining-boundaries).
 6. Marketing versions 0.1.17 and 0.1.19 are App Store releases. Say that only together with the virtual-money limit. Do not claim every Cloud lifecycle event (renewal, refund, revocation) has been proven live unless `docs/app-store-configuration.md` says so.

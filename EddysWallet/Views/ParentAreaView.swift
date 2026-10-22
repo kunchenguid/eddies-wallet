@@ -190,7 +190,7 @@ struct ParentAreaView: View {
             }
         }
         .sheet(item: $selectedEvent) { event in
-            ActivityDetailView(event: event)
+            ActivityDetailView(event: event, childNickname: store.snapshot.configuredChildNickname)
                 .ewDetailSheetPresentation()
         }
         .sheet(isPresented: $isShowingLoan) {
@@ -537,6 +537,7 @@ struct ParentAreaView: View {
             let shown = Array(activities.prefix(Self.recentActivityLimit))
             ActivityListCard(
                 events: shown,
+                childRecorderName: ActivityDetailCopy.childRecorderName(audience: .parent, nickname: store.snapshot.configuredChildNickname),
                 seeAllTitle: activities.count > shown.count ? "See all \(activities.count) entries" : nil,
                 onSeeAll: { path.append(ParentRoute.allActivity) }
             ) { event in
