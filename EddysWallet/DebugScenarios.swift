@@ -81,6 +81,15 @@ enum DebugLaunchScenario {
         switch scenario {
         case "configured":
             return store(repository: MockWalletRepository(snapshot: snapshot(.fixture(), environment: environment)))
+        case "local-loan":
+            // A real free wallet - `LocalWalletRepository`, not a mock - with
+            // history, so the kid's Pay back runs on the genuine free
+            // authority: US$26.00 in the wallet and a US$10.00 bike-helmet
+            // loan paid US$2.00 every week, first payment three days out.
+            // `EW_UITEST_LOCAL_LOAN_PLAN=0` leaves the loan without a plan.
+            let snapshot = localLoanSnapshot(withPlan: environment["EW_UITEST_LOCAL_LOAN_PLAN"] != "0")
+            guard let repository = try? LocalWalletRepository.debugSeeded(snapshot) else { return nil }
+            return store(repository: repository)
         case "configured-empty":
             return store(repository: MockWalletRepository(snapshot: emptySnapshot(environment: environment)))
         case "allowance-missed":
@@ -343,13 +352,21 @@ enum DebugLaunchScenario {
             // allowance rule and serves `/v1/allowance-rule` the way the
             // service does - a fixed start date, an editable amount and day -
             // so the allowance editor can be driven against the real rule.
+            // `EW_UITEST_CLOUD_LOAN=1` gives it an open US$5.00 loan and serves
+            // `POST /v1/loans/:id/repayments` the way the service does, kid
+            // label included, so the kid's Pay back runs the real Cloud write.
+            // `EW_UITEST_CLOUD_REPAYMENT_CONFLICTS` refuses that many
+            // repayments with the service's revision conflict, each after
+            // another device deposited US$1.00 first.
             guard let replica = try? LocalWalletRepository(inMemory: true) else { return nil }
             let lineage = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
             let transport = SyntheticCloudTransport(
                 lineageID: lineage,
                 readDelay: seconds(environment["EW_UITEST_CLOUD_READ_DELAY_SECONDS"], default: 0.6),
                 failedReads: count(environment["EW_UITEST_CLOUD_FAILED_READS"]),
-                allowance: environment["EW_UITEST_CLOUD_ALLOWANCE"] == "1" ? .sample() : nil
+                allowance: environment["EW_UITEST_CLOUD_ALLOWANCE"] == "1" ? .sample() : nil,
+                loan: environment["EW_UITEST_CLOUD_LOAN"] == "1" ? .sample : nil,
+                repaymentConflicts: count(environment["EW_UITEST_CLOUD_REPAYMENT_CONFLICTS"])
             )
             let cloud = CloudWalletRepository(
                 client: CloudAPIClient(
@@ -492,6 +509,38 @@ enum DebugLaunchScenario {
         guard let raw else { return fallback }
         guard let value = TimeInterval(raw), value >= 0 else { return fallback }
         return value
+    }
+
+    /// The `local-loan` free wallet's history, oldest first: a US$20.00
+    /// deposit, the US$10.00 loan, then US$4.00 used. Every entry carries the
+    /// balances a local save writes, so the history validates and balances.
+    static func localLoanSnapshot(withPlan: Bool, now: Date = .now, calendar: Calendar = .current) -> WalletSnapshot {
+        let today = calendar.startOfDay(for: now)
+        func daysAgo(_ days: Int) -> Date {
+            calendar.date(byAdding: .day, value: -days, to: now) ?? now
+        }
+        let firstPayment = calendar.date(byAdding: .day, value: 3, to: today) ?? today
+        let deposit = WalletEvent(type: .deposit, amountCents: 2_000, balanceBeforeCents: 0, balanceAfterCents: 2_000, reason: "Birthday", date: daysAgo(12), explanation: AcceptedEventCopy.explanation(for: .deposit, amountCents: 2_000))
+        let loan = WalletEvent(type: .loan, amountCents: 1_000, balanceBeforeCents: 2_000, balanceAfterCents: 3_000, reason: "Bike helmet", date: daysAgo(8), explanation: AcceptedEventCopy.explanation(for: .loan, amountCents: 1_000))
+        let used = WalletEvent(type: .withdrawal, amountCents: 400, balanceBeforeCents: 3_000, balanceAfterCents: 2_600, reason: "Comic book", date: daysAgo(5), explanation: AcceptedEventCopy.explanation(for: .withdrawal, amountCents: 400))
+        return WalletSnapshot(
+            acceptedBalanceCents: 2_600,
+            activities: [used, loan, deposit],
+            loan: Loan(
+                remoteID: "local-loan",
+                originalCents: 1_000,
+                remainingCents: 1_000,
+                purpose: "Bike helmet",
+                schedule: withPlan
+                    ? LoanSchedule.opening(LoanInstallmentPlan(cadence: .weekly, amountCents: 200, firstDueDate: firstPayment), asOf: now, calendar: calendar)
+                    : nil
+            ),
+            allowance: nil,
+            pendingEvents: [],
+            lastUpdated: now,
+            isStale: false,
+            childNickname: "Eddie" // Synthetic fixture nickname only.
+        )
     }
 
     private static func emptySnapshot(environment: [String: String] = [:]) -> WalletSnapshot {
@@ -661,6 +710,14 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
     private var failedReadsRemaining: Int
     private var allowance: SyntheticAllowanceRule?
     private var revision: Int64 = 2
+    private var balanceCents = 750
+    private var loan: SyntheticLoan?
+    /// Entries accepted after the fixed history, oldest first, as JSON.
+    private var acceptedEntries: [String] = []
+    /// One answer per idempotency key, replayed exactly, as the service does.
+    private var repaymentAnswers: [String: (body: String, status: Int)] = [:]
+    private var repaymentConflictsRemaining: Int
+    private var repaymentBodies: [[String: Any]] = []
     /// A bearer the service no longer accepts. Every request but launch
     /// bootstrap that presents it is answered 401 UNAUTHENTICATED. `POST
     /// /v1/auth/apple` mints a fresh session instead.
@@ -671,18 +728,33 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
         readDelay: TimeInterval,
         failedReads: Int = 0,
         allowance: SyntheticAllowanceRule? = nil,
+        loan: SyntheticLoan? = nil,
+        repaymentConflicts: Int = 0,
         staleToken: String? = nil
     ) {
         self.lineageID = lineageID
         self.readDelay = readDelay
         self.failedReadsRemaining = failedReads
         self.allowance = allowance
+        self.loan = loan
+        self.repaymentConflictsRemaining = repaymentConflicts
         self.staleToken = staleToken
+        if let loan {
+            // The loan was handed over after the fixed history, at revision 3.
+            revision = 3
+            balanceCents += loan.principalCents
+        }
     }
 
     /// How many `/v1/cloud/changes` reads this transport has been asked for.
     var reads: Int {
         lock.withLock { readCount }
+    }
+
+    /// Every repayment body this service accepted or refused, in order, as
+    /// JSON objects - what a test reads to see the label actually sent.
+    var receivedRepayments: [[String: Any]] {
+        lock.withLock { repaymentBodies }
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -710,6 +782,9 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
             return try respond(Data("{\"allowanceRule\":\(rule)}".utf8), to: request)
         case "/v1/allowance-rule" where request.httpMethod == "PUT":
             return try setAllowance(request)
+        case let repayments where method == "POST" && repayments.hasPrefix("/v1/loans/") && repayments.hasSuffix("/repayments"):
+            let loanID = String(repayments.dropFirst("/v1/loans/".count).dropLast("/repayments".count))
+            return try repay(request, loanID: loanID)
         case "/v1/cloud/changes":
             let shouldFail = lock.withLock {
                 readCount += 1
@@ -772,6 +847,76 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
         return try respond(Data(responseBody.utf8), to: request, status: status)
     }
 
+    /// Mirrors the service's `POST /v1/loans/:loanId/repayments`: the
+    /// `If-Match` revision, one answer per idempotency key, at most what is
+    /// left and what is in the wallet, and an optional `recordedBy` of
+    /// `parent` or `child` that the accepted entry keeps. A payment that
+    /// clears the loan marks it paid.
+    private func repay(_ request: URLRequest, loanID: String) throws -> (Data, URLResponse) {
+        let object = request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        let key = request.value(forHTTPHeaderField: "Idempotency-Key") ?? ""
+        let ifMatch = request.value(forHTTPHeaderField: "If-Match")
+        let answer: (body: String, status: Int) = lock.withLock {
+            repaymentBodies.append(object)
+            if let replay = repaymentAnswers[key] { return replay }
+            let answer = acceptRepayment(object, loanID: loanID, ifMatch: ifMatch)
+            if answer.status == 200 { repaymentAnswers[key] = answer }
+            return answer
+        }
+        return try respond(Data(answer.body.utf8), to: request, status: answer.status)
+    }
+
+    /// Called with `lock` held.
+    private func acceptRepayment(_ object: [String: Any], loanID: String, ifMatch: String?) -> (body: String, status: Int) {
+        func refusal(_ status: Int, _ code: String, _ message: String) -> (body: String, status: Int) {
+            ("{\"error\":{\"code\":\"\(code)\",\"message\":\"\(message)\"}}", status)
+        }
+        guard let amountCents = object["amountCents"] as? Int, amountCents > 0 else {
+            return refusal(400, "VALIDATION_ERROR", "amountCents must be a positive integer.")
+        }
+        let recordedBy = object["recordedBy"] as? String ?? "parent"
+        guard recordedBy == "parent" || recordedBy == "child" else {
+            return refusal(400, "VALIDATION_ERROR", "recordedBy must be parent or child.")
+        }
+        guard var current = loan, current.id == loanID, current.outstandingCents > 0 else {
+            return refusal(404, "LOAN_NOT_FOUND", "The loan was not found.")
+        }
+        if repaymentConflictsRemaining > 0 {
+            // Another device moved first: it deposited US$1.00, so this
+            // device's revision is behind and nothing is recorded here.
+            repaymentConflictsRemaining -= 1
+            append(type: "deposit", direction: "credit", amountCents: 100, reason: "Another device", loanID: nil, recordedBy: "parent")
+            return ("{\"error\":{\"code\":\"REVISION_CONFLICT\",\"message\":\"The wallet changed.\",\"details\":{\"currentRevision\":\(revision)}}}", 409)
+        }
+        guard ifMatch == "\"rev-\(revision)\"" else {
+            return ("{\"error\":{\"code\":\"REVISION_CONFLICT\",\"message\":\"The wallet changed.\",\"details\":{\"currentRevision\":\(revision)}}}", 409)
+        }
+        guard amountCents <= current.outstandingCents else {
+            return refusal(409, "REPAYMENT_EXCEEDS_OUTSTANDING", "The repayment is greater than the amount left to repay.")
+        }
+        guard amountCents <= balanceCents else {
+            return refusal(409, "INSUFFICIENT_BALANCE", "The repayment is greater than the wallet balance.")
+        }
+        current.outstandingCents -= amountCents
+        if current.outstandingCents == 0 { current.paidAt = Date() }
+        loan = current
+        let entry = append(type: "repayment", direction: "debit", amountCents: amountCents, reason: nil, loanID: loanID, recordedBy: recordedBy)
+        return ("{\"entry\":\(entry),\"revision\":\(revision)}", 200)
+    }
+
+    /// Records one accepted entry at the next revision. Called with `lock` held.
+    @discardableResult
+    private func append(type: String, direction: String, amountCents: Int, reason: String?, loanID: String?, recordedBy: String) -> String {
+        let before = balanceCents
+        balanceCents += direction == "credit" ? amountCents : -amountCents
+        revision += 1
+        let reasonJSON = reason.map { "\"\($0)\"" } ?? "null"
+        let loanJSON = loanID.map { "\"\($0)\"" } ?? "null"
+        let entry = "{\"id\":\"\(UUID().uuidString.lowercased())\",\"type\":\"\(type)\",\"direction\":\"\(direction)\",\"amountCents\":\(amountCents),\"balanceBeforeCents\":\(before),\"balanceAfterCents\":\(balanceCents),\"reason\":\(reasonJSON),\"loanId\":\(loanJSON),\"recordedAt\":\"\(CloudImportManifest.timestamp(Date()))\",\"acceptedRevision\":\(revision),\"recordedBy\":\"\(recordedBy)\"}"
+        acceptedEntries.append(entry)
+        return entry
+    }
+
     private func respond(_ body: Data, to request: URLRequest, status: Int = 200) throws -> (Data, URLResponse) {
         guard let url = request.url,
               let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil) else {
@@ -782,21 +927,54 @@ final class SyntheticCloudTransport: HTTPTransport, @unchecked Sendable {
 
     /// One settled household: two accepted entries, balance US$7.50, no loans,
     /// and the allowance rule this transport was given, if any, at the
-    /// current revision (2 until a write advances it). A `changes` read
-    /// answers the same accepted revision, which is what a healthy wallet with
-    /// nothing new actually returns.
+    /// current revision (2 until a write advances it). With a loan, the loan
+    /// entry follows at revision 3, and every entry accepted since follows
+    /// that. A `changes` read answers the same accepted revision, which is
+    /// what a healthy wallet with nothing new actually returns.
     private func replica() -> Data {
-        let (rule, revision) = lock.withLock { (allowance?.json ?? "null", self.revision) }
+        let (rule, revision, balance, loan, accepted) = lock.withLock {
+            (allowance?.json ?? "null", self.revision, balanceCents, self.loan, acceptedEntries)
+        }
+        let loanEntries = loan.map { [$0.entryJSON] } ?? []
+        let laterEntries = (loanEntries + accepted).map { ",\n           " + $0 }.joined()
         return Data("""
         {"household":{"lineageId":"\(lineageID.uuidString.lowercased())","authority":"cloud","revision":\(revision)},
          "family":{"id":"f-1","name":"Eddie's family"},
          "child":{"id":"c-1","nickname":"Eddie","avatarUrl":null},
-         "wallet":{"id":"w-1","balanceCents":750},
+         "wallet":{"id":"w-1","balanceCents":\(balance)},
          "entries":[
            {"id":"c1111111-1111-4111-8111-111111111111","type":"deposit","direction":"credit","amountCents":1000,"balanceBeforeCents":0,"balanceAfterCents":1000,"reason":"chores","loanId":null,"recordedAt":"2026-07-24T10:00:00.000Z","acceptedRevision":1},
-           {"id":"c2222222-2222-4222-8222-222222222222","type":"withdrawal","direction":"debit","amountCents":250,"balanceBeforeCents":1000,"balanceAfterCents":750,"reason":"sticker book","loanId":null,"recordedAt":"2026-07-25T10:00:00.000Z","acceptedRevision":2}],
-         "loans":[],"allowanceRule":\(rule),"nextCursor":null}
+           {"id":"c2222222-2222-4222-8222-222222222222","type":"withdrawal","direction":"debit","amountCents":250,"balanceBeforeCents":1000,"balanceAfterCents":750,"reason":"sticker book","loanId":null,"recordedAt":"2026-07-25T10:00:00.000Z","acceptedRevision":2}\(laterEntries)],
+         "loans":[\(loan?.json ?? "")],"allowanceRule":\(rule),"nextCursor":null}
         """.utf8)
+    }
+}
+
+/// The one open loan a synthetic Cloud household may carry: US$5.00 for a
+/// bike helmet, handed over after the fixed history, with no payment plan.
+struct SyntheticLoan {
+    let id: String
+    let principalCents: Int
+    var outstandingCents: Int
+    var paidAt: Date?
+
+    static let sample = SyntheticLoan(
+        id: "d1111111-1111-4111-8111-111111111111",
+        principalCents: 500,
+        outstandingCents: 500,
+        paidAt: nil
+    )
+
+    var json: String {
+        let status = outstandingCents == 0 ? "paid" : "open"
+        let paid = paidAt.map { "\"\(CloudImportManifest.timestamp($0))\"" } ?? "null"
+        return "{\"id\":\"\(id)\",\"principalCents\":\(principalCents),\"outstandingCents\":\(outstandingCents),\"purpose\":\"Bike helmet\",\"dueDate\":null,\"status\":\"\(status)\",\"createdAt\":\"2026-07-26T10:00:00.000Z\",\"paidAt\":\(paid),\"schedule\":null}"
+    }
+
+    /// The parent's loan entry, accepted at revision 3 on top of the US$7.50
+    /// the fixed history leaves.
+    var entryJSON: String {
+        "{\"id\":\"c3333333-3333-4333-8333-333333333333\",\"type\":\"loan\",\"direction\":\"credit\",\"amountCents\":\(principalCents),\"balanceBeforeCents\":750,\"balanceAfterCents\":\(750 + principalCents),\"reason\":\"Bike helmet\",\"loanId\":\"\(id)\",\"recordedAt\":\"2026-07-26T10:00:00.000Z\",\"acceptedRevision\":3,\"recordedBy\":\"parent\"}"
     }
 }
 

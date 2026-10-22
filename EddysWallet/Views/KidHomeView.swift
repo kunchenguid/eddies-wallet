@@ -1,8 +1,10 @@
 import SwiftUI
 
 /// The app's home and only persistent surface: the configured child's
-/// read-only wallet. Parent access is a quiet, gated door - never a peer
-/// mode. All copy on this screen stays kid-readable (PRD 11).
+/// wallet. Its one money action is Pay back on an open loan, which pays the
+/// kid's own dollars toward the kid's own loan; everything else is read-only.
+/// Parent access is a quiet, gated door - never a peer mode. All copy on this
+/// screen stays kid-readable (PRD 11).
 struct KidHomeView: View {
     @EnvironmentObject private var store: WalletStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -12,6 +14,7 @@ struct KidHomeView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var regularHeroBalanceSize: CGFloat = 46
     @State private var selectedEvent: WalletEvent?
     @State private var isShowingLoan = false
+    @State private var isShowingPayBack = false
 
     var body: some View {
         ScrollView {
@@ -23,7 +26,11 @@ struct KidHomeView: View {
                 if store.canShowWalletData {
                     heroBalanceCard
                     if let loan = store.snapshot.loan {
-                        LoanCardView(loan: loan, isParent: false) {
+                        LoanCardView(
+                            loan: loan,
+                            isParent: false,
+                            payBack: store.canKidPayBackLoan ? { isShowingPayBack = true } : nil
+                        ) {
                             isShowingLoan = true
                         }
                     }
@@ -31,7 +38,11 @@ struct KidHomeView: View {
                         emptyWalletCard
                     } else {
                         SectionHeader("What's been happening")
-                        ActivityListCard(events: store.snapshot.activities, announcesVirtualMoney: false) { event in
+                        ActivityListCard(
+                            events: store.snapshot.activities,
+                            announcesVirtualMoney: false,
+                            childRecorderName: ActivityDetailCopy.childRecorderName(audience: .kid, nickname: store.snapshot.configuredChildNickname)
+                        ) { event in
                             selectedEvent = event
                         }
                     }
@@ -55,12 +66,19 @@ struct KidHomeView: View {
             await store.refresh()
         }
         .sheet(item: $selectedEvent) { event in
-            ActivityDetailView(event: event, audience: .kid)
+            ActivityDetailView(event: event, audience: .kid, childNickname: store.snapshot.configuredChildNickname)
                 .ewDetailSheetPresentation()
         }
         .sheet(isPresented: $isShowingLoan) {
-            LoanDetailView(isParent: false, onRepay: {})
-                .ewDetailSheetPresentation()
+            LoanDetailView(isParent: false, onRepay: {
+                isShowingLoan = false
+                isShowingPayBack = true
+            })
+            .ewDetailSheetPresentation()
+        }
+        .sheet(isPresented: $isShowingPayBack) {
+            KidPayBackView()
+                .ewFormSheetPresentation()
         }
     }
 

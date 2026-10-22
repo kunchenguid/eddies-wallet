@@ -164,6 +164,84 @@ public enum KidCopy {
     public static func parentDoorAccessibilityLabel() -> String {
         "Parent area. Asks for the parent PIN."
     }
+
+    /// What the kid reads after confirming Pay back. Like the status line, it
+    /// never names a connection, a sync or a review: only what happened to
+    /// the kid's own dollars.
+    public static func payBackResult(_ outcome: KidPayBackOutcome) -> String {
+        switch outcome {
+        case .paid(let amountCents, let remainingCents):
+            remainingCents == 0
+                ? "You paid back your whole loan."
+                : "You paid back \(Money(cents: amountCents).display). \(Money(cents: remainingCents).display) left."
+        case .checking:
+            "Still checking on your payment."
+        case .walletChanged:
+            "Your wallet just changed. Check the amount and try again."
+        case .notPaid:
+            "That payment did not go through. Your wallet did not change."
+        }
+    }
+
+    /// Said under the amount on a loan with a payment plan, while the payment
+    /// leaves something to repay: an extra payment never replaces a planned
+    /// one, it only finishes the loan sooner.
+    public static func payBackPlanNote(nextPaymentDate: Date, cadence: LoanInstallmentCadence) -> String {
+        let day = cadence == .weekly
+            ? nextPaymentDate.formatted(.dateTime.weekday(.wide))
+            : nextPaymentDate.formatted(.dateTime.month(.abbreviated).day())
+        return "Your \(day) payment still happens. Paying extra means you finish sooner."
+    }
+}
+
+/// The amount rules of the kid's Pay back sheet. Whole dollars at a time,
+/// never above `limitCents` (what is left, capped at the wallet) and never
+/// below one cent; All of it is simply the limit, so leftover cents are
+/// never stuck.
+public enum KidPayBackAmount {
+    public static let stepCents = 100
+
+    /// The next planned payment, capped, or US$1.00 on a loan without a plan.
+    public static func starting(for loan: Loan?, limitCents: Int) -> Int {
+        clamped(loan?.nextInstallmentPaymentCents ?? stepCents, limitCents: limitCents)
+    }
+
+    public static func clamped(_ cents: Int, limitCents: Int) -> Int {
+        guard limitCents > 0 else { return 0 }
+        return min(max(cents, 1), limitCents)
+    }
+
+    /// One dollar less, stopping at US$1.00 (or the limit, when less).
+    public static func less(than cents: Int, limitCents: Int) -> Int {
+        clamped(max(cents - stepCents, lowestStep(limitCents: limitCents)), limitCents: limitCents)
+    }
+
+    public static func more(than cents: Int, limitCents: Int) -> Int {
+        clamped(cents + stepCents, limitCents: limitCents)
+    }
+
+    public static func canLower(_ cents: Int, limitCents: Int) -> Bool {
+        cents > lowestStep(limitCents: limitCents)
+    }
+
+    private static func lowestStep(limitCents: Int) -> Int {
+        min(stepCents, max(limitCents, 0))
+    }
+}
+
+/// How a kid's Pay back ended, in the only terms the kid home shows.
+public enum KidPayBackOutcome: Equatable, Sendable {
+    /// The wallet holding the money recorded it. `remainingCents` is what is
+    /// left on the loan afterwards.
+    case paid(amountCents: Int, remainingCents: Int)
+    /// Cloud has not answered yet. The one unresolved change is retried, and
+    /// the parent sees it as Waiting to sync.
+    case checking
+    /// Another device changed the wallet first. Nothing was recorded; the
+    /// wallet was read again and the kid can choose again.
+    case walletChanged
+    /// Nothing was recorded.
+    case notPaid
 }
 
 public enum ActivityType: String, CaseIterable, Codable, Sendable {
@@ -1219,6 +1297,11 @@ public struct WalletCommand: Sendable, Codable, Equatable {
     /// Set only on a `loan` command whose parent chose an installment plan.
     public let installmentPlan: LoanInstallmentPlan?
     public let idempotencyKey: String
+    /// Who the accepted entry names as its recorder. `nil` is the parent, as
+    /// every command was before kids could pay back; the only other value a
+    /// command may carry is `AcceptedEventCopy.childActor`, and only on a
+    /// repayment (`childRepayment`).
+    public let recordedBy: String?
 
     public init(
         kind: WalletCommandKind,
@@ -1226,7 +1309,8 @@ public struct WalletCommand: Sendable, Codable, Equatable {
         reason: String? = nil,
         dueDate: Date? = nil,
         installmentPlan: LoanInstallmentPlan? = nil,
-        idempotencyKey: String = UUID().uuidString
+        idempotencyKey: String = UUID().uuidString,
+        recordedBy: String? = nil
     ) {
         self.kind = kind
         self.amountCents = amountCents
@@ -1234,6 +1318,24 @@ public struct WalletCommand: Sendable, Codable, Equatable {
         self.dueDate = dueDate
         self.installmentPlan = installmentPlan
         self.idempotencyKey = idempotencyKey
+        self.recordedBy = recordedBy
+    }
+
+    /// The one money command a kid can make: paying their own dollars toward
+    /// their own open loan. `WalletStore.payBackLoan` is its only sender.
+    public static func childRepayment(amountCents: Int, idempotencyKey: String = UUID().uuidString) -> WalletCommand {
+        WalletCommand(
+            kind: .repayment,
+            amountCents: amountCents,
+            idempotencyKey: idempotencyKey,
+            recordedBy: AcceptedEventCopy.childActor
+        )
+    }
+
+    /// A recorder label is valid only where the service accepts it: none, or
+    /// the child on a repayment.
+    var hasValidRecorder: Bool {
+        recordedBy == nil || (recordedBy == AcceptedEventCopy.childActor && kind == .repayment)
     }
 }
 
@@ -1391,6 +1493,11 @@ public protocol WalletRepository: AnyObject {
     var isAuthenticated: Bool { get }
     var hasConfiguredKid: Bool { get }
     var supportsRuntimeMutations: Bool { get }
+    /// Whether this authority can record a kid's own loan payment
+    /// (`WalletCommand.childRepayment`). Legacy service wallets cannot: their
+    /// service has no child label, so it would record the payment as the
+    /// parent's.
+    var supportsChildRepayment: Bool { get }
     func snapshot() -> WalletSnapshot
     func childSnapshot() -> WalletSnapshot
     func refresh(for role: UserRole) async throws -> WalletSnapshot
@@ -1408,6 +1515,7 @@ public protocol WalletRepository: AnyObject {
 
 public extension WalletRepository {
     var supportsRuntimeMutations: Bool { true }
+    var supportsChildRepayment: Bool { false }
     func clearAuthenticationForAccountDeletion() throws { clearAuthentication() }
 }
 
@@ -1465,6 +1573,7 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
 
     public var isAuthenticated: Bool { true }
     public var hasConfiguredKid: Bool { configuredKid }
+    public var supportsChildRepayment: Bool { true }
     public func snapshot() -> WalletSnapshot { current }
     public func childSnapshot() -> WalletSnapshot { currentChild }
     public func refresh(for role: UserRole) async throws -> WalletSnapshot {
@@ -1551,6 +1660,9 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
         guard command.amountCents > 0 || command.kind == .loanInstallment else {
             return .rejected(makeEvent(for: command, state: .rejected, explanation: "This amount was not recorded.", rejectionReason: "Enter an amount greater than US$0.00."))
         }
+        guard command.hasValidRecorder else {
+            return .rejected(makeEvent(for: command, state: .rejected, explanation: "This action was not recorded.", rejectionReason: "Only a loan payment can be recorded by the child."))
+        }
 
         let acceptedEventID = UUID()
         switch command.kind {
@@ -1622,6 +1734,9 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
         current.activities.insert(event, at: 0)
         current.lastUpdated = .now
         current.isStale = false
+        // The kid recorded this from the kid home, which reads the child
+        // view: it shows the payment at once, as every real authority does.
+        if command.recordedBy != nil { currentChild = current }
         return .accepted(event)
     }
 
@@ -1663,13 +1778,14 @@ public final class MockWalletRepository: WalletRepository, AccountDeletionLocalR
             reason: command.reason,
             date: command.kind == .allowance ? (command.dueDate ?? .now) : .now,
             syncState: state,
+            recordedBy: state == .recorded ? command.recordedBy : nil,
             explanation: explanation,
             rejectionReason: rejectionReason
         )
     }
 
     private func explanation(for command: WalletCommand) -> String {
-        AcceptedEventCopy.explanation(for: activityType(for: command.kind), amountCents: command.amountCents)
+        AcceptedEventCopy.explanation(for: activityType(for: command.kind), amountCents: command.amountCents, recordedBy: command.recordedBy)
     }
 
     private func activityType(for kind: WalletCommandKind) -> ActivityType {

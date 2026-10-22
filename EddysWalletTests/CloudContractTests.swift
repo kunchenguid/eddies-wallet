@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 @testable import EddysWallet
@@ -450,30 +451,7 @@ final class CloudContractTests: XCTestCase {
     // MARK: - Import manifest
 
     func testImportManifestMatchesTheServerAggregateDigestByteForByte() {
-        let manifest = CloudImportManifest(
-            lineageID: UUID(uuidString: "55555555-5555-4555-8555-555555555555")!,
-            operationID: UUID(uuidString: "66666666-6666-4666-8666-666666666666")!,
-            familyName: "Test Kid\u{2019}s family",
-            nickname: "Test Kid",
-            avatarURL: nil,
-            loans: [
-                .init(
-                    id: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
-                    principalCents: 300,
-                    outstandingCents: 200,
-                    purpose: "scooter \"fast\"",
-                    dueDate: "2026-09-01",
-                    status: "open",
-                    createdAt: Date(timeIntervalSince1970: 1_784_973_600),
-                    paidAt: nil
-                )
-            ],
-            entries: [
-                .init(operationID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!, type: "deposit", direction: "credit", amountCents: 500, balanceBeforeCents: 0, balanceAfterCents: 500, reason: "chores\nweek 1", loanID: nil, recordedAt: Date(timeIntervalSince1970: 1_784_887_200)),
-                .init(operationID: UUID(uuidString: "33333333-3333-4333-8333-333333333333")!, type: "loan", direction: "credit", amountCents: 300, balanceBeforeCents: 500, balanceAfterCents: 800, reason: "scooter \"fast\"", loanID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!, recordedAt: Date(timeIntervalSince1970: 1_784_973_600)),
-                .init(operationID: UUID(uuidString: "44444444-4444-4444-8444-444444444444")!, type: "repayment", direction: "debit", amountCents: 100, balanceBeforeCents: 800, balanceAfterCents: 700, reason: nil, loanID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!, recordedAt: Date(timeIntervalSince1970: 1_785_060_000)),
-            ]
-        )
+        let manifest = CloudContractFixtures.importManifest()
         // Expected values come from the server's own aggregate hashing
         // (JSON.stringify of the accepted aggregate, then sha256).
         XCTAssertEqual(manifest.canonicalAggregate.encoded, CloudContractFixtures.expectedAggregateJSON)
@@ -483,6 +461,28 @@ final class CloudContractTests: XCTestCase {
         XCTAssertEqual(body["aggregateSha256"] as? String, CloudContractFixtures.expectedAggregateDigest)
         XCTAssertEqual(body["operationId"] as? String, "66666666-6666-4666-8666-666666666666")
         XCTAssertEqual((body["entries"] as? [[String: Any]])?.count, 3)
+    }
+
+    /// EDW-22: a kid's own loan payment moves to Cloud still labelled as the
+    /// kid's. The service hashes `recordedBy` after `recordedAt`, and only on
+    /// an entry that carries it, so the golden aggregate above with the label
+    /// added to its repayment is exactly what the service now expects.
+    func testImportManifestHashesTheKidLabelLastAndOnlyWhereItIsPresent() {
+        let manifest = CloudContractFixtures.importManifest(repaymentRecordedBy: "child")
+        let repaymentEnd = "\"recordedAt\":\"2026-07-26T10:00:00.000Z\"}"
+        XCTAssertEqual(CloudContractFixtures.expectedAggregateJSON.components(separatedBy: repaymentEnd).count, 2, "only the repayment ends this way")
+        let expected = CloudContractFixtures.expectedAggregateJSON.replacingOccurrences(
+            of: repaymentEnd,
+            with: "\"recordedAt\":\"2026-07-26T10:00:00.000Z\",\"recordedBy\":\"child\"}"
+        )
+        XCTAssertEqual(manifest.canonicalAggregate.encoded, expected)
+
+        // The service's own digest: SHA-256 of that JSON text.
+        let digest = SHA256.hash(data: Data(expected.utf8)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(manifest.aggregateSHA256, digest)
+        XCTAssertNotEqual(digest, CloudContractFixtures.expectedAggregateDigest)
+        let entries = manifest.requestBody.jsonObject()["entries"] as? [[String: Any]]
+        XCTAssertEqual(entries?.map { $0["recordedBy"] as? String }, [nil, nil, "child"])
     }
 
     func testCanonicalJSONEscapingMatchesTheServerEncoder() {
@@ -1540,6 +1540,36 @@ enum CloudContractFixtures {
 
     static func error(_ code: String) -> Data {
         json("{\"error\":{\"code\":\"\(code)\",\"message\":\"The Cloud service refused this request.\"}}")
+    }
+
+    /// The import the server's golden aggregate below was hashed from: a
+    /// deposit, a loan, and one repayment. `repaymentRecordedBy` labels that
+    /// repayment the way a kid's own payment is labelled.
+    static func importManifest(repaymentRecordedBy: String? = nil) -> CloudImportManifest {
+        CloudImportManifest(
+            lineageID: UUID(uuidString: "55555555-5555-4555-8555-555555555555")!,
+            operationID: UUID(uuidString: "66666666-6666-4666-8666-666666666666")!,
+            familyName: "Test Kid\u{2019}s family",
+            nickname: "Test Kid",
+            avatarURL: nil,
+            loans: [
+                .init(
+                    id: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!,
+                    principalCents: 300,
+                    outstandingCents: 200,
+                    purpose: "scooter \"fast\"",
+                    dueDate: "2026-09-01",
+                    status: "open",
+                    createdAt: Date(timeIntervalSince1970: 1_784_973_600),
+                    paidAt: nil
+                )
+            ],
+            entries: [
+                .init(operationID: UUID(uuidString: "22222222-2222-4222-8222-222222222222")!, type: "deposit", direction: "credit", amountCents: 500, balanceBeforeCents: 0, balanceAfterCents: 500, reason: "chores\nweek 1", loanID: nil, recordedAt: Date(timeIntervalSince1970: 1_784_887_200)),
+                .init(operationID: UUID(uuidString: "33333333-3333-4333-8333-333333333333")!, type: "loan", direction: "credit", amountCents: 300, balanceBeforeCents: 500, balanceAfterCents: 800, reason: "scooter \"fast\"", loanID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!, recordedAt: Date(timeIntervalSince1970: 1_784_973_600)),
+                .init(operationID: UUID(uuidString: "44444444-4444-4444-8444-444444444444")!, type: "repayment", direction: "debit", amountCents: 100, balanceBeforeCents: 800, balanceAfterCents: 700, reason: nil, loanID: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!, recordedAt: Date(timeIntervalSince1970: 1_785_060_000), recordedBy: repaymentRecordedBy),
+            ]
+        )
     }
 
     static let expectedAggregateJSON = "{\"lineageId\":\"55555555-5555-4555-8555-555555555555\",\"familyName\":\"Test Kid\u{2019}s family\",\"nickname\":\"Test Kid\",\"avatarUrl\":null,\"loans\":[{\"id\":\"11111111-1111-4111-8111-111111111111\",\"principalCents\":300,\"outstandingCents\":200,\"purpose\":\"scooter \\\"fast\\\"\",\"dueDate\":\"2026-09-01\",\"status\":\"open\",\"createdAt\":\"2026-07-25T10:00:00.000Z\",\"paidAt\":null}],\"entries\":[{\"operationId\":\"22222222-2222-4222-8222-222222222222\",\"type\":\"deposit\",\"direction\":\"credit\",\"amountCents\":500,\"balanceBeforeCents\":0,\"balanceAfterCents\":500,\"reason\":\"chores\\nweek 1\",\"loanId\":null,\"recordedAt\":\"2026-07-24T10:00:00.000Z\"},{\"operationId\":\"33333333-3333-4333-8333-333333333333\",\"type\":\"loan\",\"direction\":\"credit\",\"amountCents\":300,\"balanceBeforeCents\":500,\"balanceAfterCents\":800,\"reason\":\"scooter \\\"fast\\\"\",\"loanId\":\"11111111-1111-4111-8111-111111111111\",\"recordedAt\":\"2026-07-25T10:00:00.000Z\"},{\"operationId\":\"44444444-4444-4444-8444-444444444444\",\"type\":\"repayment\",\"direction\":\"debit\",\"amountCents\":100,\"balanceBeforeCents\":800,\"balanceAfterCents\":700,\"reason\":null,\"loanId\":\"11111111-1111-4111-8111-111111111111\",\"recordedAt\":\"2026-07-26T10:00:00.000Z\"}]}"

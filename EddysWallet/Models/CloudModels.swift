@@ -554,6 +554,9 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
     let expectedRevision: Int64
     let amountCents: Int?
     let reason: String?
+    /// `child` on the kid's own loan payment. Absent on every other change,
+    /// and on any stored before kids could pay back.
+    let recordedBy: String?
     let createdAt: Date
     var phase: CloudMutationPhase
     var acceptedEntryID: String?
@@ -572,6 +575,7 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
         expectedRevision: Int64,
         amountCents: Int? = nil,
         reason: String? = nil,
+        recordedBy: String? = nil,
         operationID: UUID = UUID(),
         createdAt: Date = .now
     ) {
@@ -584,6 +588,7 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
         self.expectedRevision = expectedRevision
         self.amountCents = amountCents
         self.reason = reason
+        self.recordedBy = recordedBy
         self.createdAt = createdAt
         self.phase = .staged
         self.acceptedEntryID = nil
@@ -618,6 +623,7 @@ struct PendingCloudMutation: Codable, Equatable, Sendable {
             reason: reason,
             date: createdAt,
             syncState: .pending,
+            recordedBy: recordedBy,
             explanation: waitingMessage
         )
     }
@@ -887,6 +893,10 @@ public struct CloudImportManifest: Equatable, Sendable {
         public let reason: String?
         public let loanID: UUID?
         public let recordedAt: Date
+        /// `child` on a loan payment the kid made, otherwise absent. The
+        /// service hashes it only when present, so an unlabelled entry keeps
+        /// the digest it always had.
+        public var recordedBy: String? = nil
     }
 
     public let lineageID: UUID

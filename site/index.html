@@ -39,10 +39,10 @@
   <header class="masthead"><div class="masthead-inner"><span class="mark" aria-hidden="true">E</span>Eddie's Wallet</div></header>
   <main id="policy">
         <h1>Eddie&#x27;s Wallet privacy policy</h1>
-        <p>Last reviewed against the code: 2026-08-25.</p>
+        <p>Last reviewed against the code: 2026-10-22.</p>
         <p>This policy is published at <a href="https://eddies-wallet.kunchenguid.com/">https://eddies-wallet.kunchenguid.com/</a>. Future revisions will update the &quot;Last reviewed against the code&quot; date on this page.</p>
         <h2 id="what-this-app-is">What this app is</h2>
-        <p>Eddie&#x27;s Wallet is an iOS app for families. A parent pays out virtual allowance and records deposits, withdrawals, loans, and repayments for one child, and the child sees a read-only wallet. The money in the app is pretend: it cannot be redeemed and never moves real money.</p>
+        <p>Eddie&#x27;s Wallet is an iOS app for families. A parent pays out virtual allowance and records deposits, withdrawals, loans, and repayments for one child. The child sees the wallet, and its only action is paying back an open loan from the wallet&#x27;s own virtual dollars. The money in the app is pretend: it cannot be redeemed and never moves real money.</p>
         <p>The child never signs in and never has an account. Only a parent signs in.</p>
         <h2 id="what-we-do-not-do">What we do not do</h2>
         <ul>
@@ -77,7 +77,7 @@
         <li>The parent can change the nickname in the Parent area. The child&#x27;s screens never expose profile editing.</li>
         </ul>
         <h3 id="4-wallet-ledger">4. Wallet ledger</h3>
-        <p>The wallet ledger is the balance, the list of recorded entries (deposits, withdrawals, allowance, loans, repayments) with their amounts and timestamps, the allowance rule, and loan status. Each entry can carry a short free-text note that the parent types (&quot;Reason&quot; for money entries, &quot;What is this for?&quot; for loans), so it holds whatever the parent chooses to type there.</p>
+        <p>The wallet ledger is the balance, the list of recorded entries (deposits, withdrawals, allowance, loans, repayments) with their amounts and timestamps, the allowance rule, and loan status. Each entry can carry a short free-text note that the parent types (&quot;Reason&quot; for money entries, &quot;What is this for?&quot; for loans), so it holds whatever the parent chooses to type there. A repayment the child made carries a label saying the child recorded it, so the Parent area can show the child&#x27;s nickname beside it.</p>
         <p>Where it lives depends on how the app is used:</p>
         <ul>
         <li><strong>Free, on-device wallet (the default).</strong> The ledger is stored only on the device, in a Core Data database in the app&#x27;s Application Support directory. The file is marked protected (readable only after first device unlock) and excluded from iCloud/iTunes backups. In this mode, reading and recording wallet actions does not contact any server, and works fully offline.</li>
@@ -123,7 +123,7 @@
         <li><strong>Cloud wallet sign-out:</strong> signing out of Cloud asks the service to revoke that device&#x27;s session, always removes the local session token, and hands the mirrored wallet back to that device as an ordinary on-device wallet. If the request fails or the device is offline, the server-side session may remain usable until it expires. The service-held wallet still exists, so later erasing the ordinary on-device wallet removes only the device copy.</li>
         </ul>
         <h2 id="children">Children</h2>
-        <p>The app is designed so that the child&#x27;s side needs no account, no sign-in, and no personal details beyond a nickname the parent chooses. First-run setup is gated by the parent&#x27;s Sign in with Apple; after setup, money actions, the Parent area, and settings sit behind the parent PIN.</p>
+        <p>The app is designed so that the child&#x27;s side needs no account, no sign-in, and no personal details beyond a nickname the parent chooses. First-run setup is gated by the parent&#x27;s Sign in with Apple; after setup, parent money actions, the Parent area, and settings sit behind the parent PIN. The child&#x27;s loan payment is the one action outside it.</p>
         <h2 id="contact">Contact</h2>
         <p>For privacy questions, email eddies-wallet@kunchenguid.com.</p>
   </main>

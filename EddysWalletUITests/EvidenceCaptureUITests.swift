@@ -457,9 +457,51 @@ final class EvidenceCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 5))
         app.staticTexts["A little at a time is okay"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Loan details"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["Pay toward loan"].exists, "The kid loan detail is read-only")
+        XCTAssertFalse(app.buttons["Pay toward loan"].exists, "The kid loan detail never carries the parent's repayment")
+        XCTAssertTrue(app.buttons["kid-loan-detail-pay-back"].exists, "The kid loan detail offers the kid's own Pay back")
         capture("kid-loan-detail")
         app.buttons["Done"].tap()
+    }
+
+    /// The kid's own loan payment on a real free wallet (EDW-22): the kid
+    /// home's Pay back, the amount sheet, the result, the kid home after, and
+    /// how the Parent area names the kid as the payer.
+    func testKidPayBackTour() throws {
+        let app = launch("local-loan")
+        let payBack = app.buttons["kid-loan-pay-back"]
+        XCTAssertTrue(payBack.waitForExistence(timeout: 10))
+        capture("kid-pay-back-home")
+
+        payBack.tap()
+        XCTAssertTrue(app.staticTexts["kid-pay-back-amount"].waitForExistence(timeout: 5))
+        app.buttons["kid-pay-back-more"].tap()
+        XCTAssertEqual(app.buttons["kid-pay-back-confirm"].label, "Pay back US$3.00")
+        capture("kid-pay-back-sheet")
+
+        app.buttons["kid-pay-back-confirm"].tap()
+        XCTAssertTrue(app.staticTexts["kid-pay-back-result-message"].waitForExistence(timeout: 5))
+        capture("kid-pay-back-result")
+
+        app.buttons["kid-pay-back-done"].tap()
+        XCTAssertTrue(app.staticTexts["US$7.00 left to repay"].waitForExistence(timeout: 5))
+        capture("kid-pay-back-home-after")
+
+        let kidRow = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Repayment · You · ")).firstMatch
+        scrollIntoCaptureFrame(kidRow, in: app).tap()
+        XCTAssertTrue(app.staticTexts["Activity detail"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["You paid US$3.00 toward your loan."].exists)
+        capture("kid-pay-back-activity-detail")
+        app.buttons["Done"].tap()
+
+        XCTAssertTrue(app.buttons[doorLabel].waitForExistence(timeout: 5))
+        unlockParentArea(app)
+        let parentRow = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Repayment · Eddie · ")).firstMatch
+        scrollIntoCaptureFrame(parentRow, in: app)
+        capture("parent-kid-payment-row")
+
+        parentRow.tap()
+        XCTAssertTrue(app.staticTexts["Eddie paid US$3.00 toward the loan."].waitForExistence(timeout: 5))
+        capture("parent-kid-payment-detail")
     }
 
     func testKidStateVariantsTour() throws {

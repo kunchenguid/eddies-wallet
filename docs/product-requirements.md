@@ -29,6 +29,7 @@ These decisions are the current product direction and should not be reopened dur
 - The first child experience is a **parent-managed child profile**, not an independent child login or Apple identity.
 - **Apple Sign In is required** for the parent MVP. Google Sign In is future scope only.
 - Do not include child-initiated money requests in the smallest MVP.
+- The child may pay back their own open loan from the kid home without a parent step: any amount up to what is left on the loan and what is in the wallet, labelled as the child's payment, with no undo and no parent switch to turn it off. It is the child's only money action; everything else the child sees stays read-only.
 - Show loans as a secondary card on the wallet with a detail flow. Do not make Loans a prominent top-level navigation area.
 - Show Recent Activity directly on the wallet. Do not add a duplicate Recent Activity entry point when the activity list is already visible there; the Parent area's **See all** link continues the same visible list on its own screen and is not a second entry point.
 - The external service must remain vendor-neutral from the app's perspective. Its implementation and hosting are outside this public frontend repository.
@@ -44,7 +45,7 @@ Eddie's Wallet addresses the gap with a small, closed virtual economy:
 
 1. A parent creates and controls the configured child profile.
 2. The parent pays out allowance and records deposits, withdrawals, loans, and repayments. Creating a weekly allowance rule or a weekly or monthly loan payment plan is the parent act that authorizes later automatic settlement of due occurrences by the wallet's current authority.
-3. The child sees an understandable, read-only wallet and activity history.
+3. The child sees an understandable wallet and activity history, read-only except that the child may pay back their own loan.
 4. The app stays honest about sync state. Parents repeatedly see that the balance cannot be spent or redeemed; kids see a plain allowance relationship without that legal framing on every glance.
 
 ## 3. Target user and roles
@@ -55,12 +56,12 @@ A parent or guardian uses a shared iPad or iOS device to set up the family, mana
 
 ### Child profile
 
-The configured child profile uses a simple child view to check an allowance balance, understand activity, and inspect an open loan. The child does not need an email address, Apple identity, password, or independent account in the MVP.
+The configured child profile uses a simple child view to check an allowance balance, understand activity, inspect an open loan, and pay that loan back from the dollars in the wallet. The child does not need an email address, Apple identity, password, or independent account in the MVP.
 
 ### MVP authority model
 
 - The MVP has one signed-in parent owner and one parent-managed child profile.
-- The parent is the only role that can create or change the allowance rule, the child profile, or the parent PIN, and the only role that can record a manual money event. On a free local wallet, due occurrences of a parent-created weekly allowance rule or a weekly or monthly loan installment plan may settle on read without a new parent action; that pass cannot create schedules, edit them, or record any other kind of event. When Cloud is on, the service owns auto-settlement: this device never auto-writes, and accepted occurrences arrive through the existing `/v1/cloud/changes` feed.
+- The parent is the only role that can create or change the allowance rule, the child profile, or the parent PIN, and the only role that can record a manual money event other than the child's own loan payment (8.9). That payment cannot exceed what is left on the loan or what is in the wallet, and every authority keeps it labelled as the child's. On a free local wallet, due occurrences of a parent-created weekly allowance rule or a weekly or monthly loan installment plan may settle on read without a new parent action; that pass cannot create schedules, edit them, or record any other kind of event. When Cloud is on, the service owns auto-settlement: this device never auto-writes, and accepted occurrences arrive through the existing `/v1/cloud/changes` feed.
 - The kid home is a view of the configured child profile, not a second account with independent authority.
 - Future co-parent members and independent child-device identities must not be implied by MVP UI.
 
@@ -73,7 +74,7 @@ The configured child profile uses a simple child view to check an allowance bala
 - Parent-set local PIN for entering the temporary Parent area on a shared iPad.
 - A single virtual wallet for the child profile.
 - A familiar US-dollar display vocabulary with persistent virtual/nonredeemable labeling on parent and safety surfaces, and plain allowance language on kid everyday surfaces.
-- Parent-created weekly allowance schedules and weekly or monthly loan installment schedules, parent-recorded deposits, withdrawals, loans, and repayments, local apply-on-read settlement of a small due set, and service settlement while Cloud is on.
+- Parent-created weekly allowance schedules and weekly or monthly loan installment schedules, parent-recorded deposits, withdrawals, loans, and repayments, the child's own loan payments, local apply-on-read settlement of a small due set, and service settlement while Cloud is on.
 - A visible wallet activity list and activity details.
 - A secondary open-loan card and loan detail flow.
 - Honest offline, pending, rejected, and stale-data states.
@@ -96,7 +97,7 @@ The configured child profile uses a simple child view to check an allowance bala
 
 1. Make virtual money practice feel safe and unambiguous rather than like a bank account.
 2. Give the parent a small set of reliable, understandable money controls.
-3. Give the child a genuinely read-only view of accepted wallet activity.
+3. Give the child a read-only view of accepted wallet activity, with one money action of their own: paying back their loan.
 4. Make borrowing and repayment understandable without making debt prominent or punitive.
 5. Preserve trust when a device is offline or a command is rejected.
 6. Minimize child data and keep the initial operational model simple.
@@ -122,7 +123,7 @@ The amount is a simulated accounting value only. It is not a dollar claim, store
 
 Parent balance framing uses the configured nickname, such as **Maya's virtual balance**, or **Your child's virtual balance** when no nickname is set.
 
-**Kid everyday surfaces** (kid home hero, empty-wallet ready state, kid activity list/detail, kid loan card/detail, and kid status/accessibility text) stay plain and relational. The primary kid balance label is exactly **Your allowance balance**. Do not stack `pretend`, `virtual practice`, `not real money`, `nonredeemable`, or similar complexity on the kid home or routine kid detail glances. Kid activity lines stay human without a heavy disclaimer on every row: parent-attributed entries use “Your parent…” while service-settled Cloud entries carrying the reserved schedule attribution name the plan instead.
+**Kid everyday surfaces** (kid home hero, empty-wallet ready state, kid activity list/detail, kid loan card/detail, and kid status/accessibility text) stay plain and relational. The primary kid balance label is exactly **Your allowance balance**. Do not stack `pretend`, `virtual practice`, `not real money`, `nonredeemable`, or similar complexity on the kid home or routine kid detail glances. Kid activity lines stay human without a heavy disclaimer on every row: parent-attributed entries use “Your parent…”, service-settled Cloud entries carrying the reserved schedule attribution name the plan instead, and a loan payment the child made reads as the child's own (“You paid…”).
 
 Do not use a bank-card design or wording that implies spendable funds, banks, cards, cash-out, or real-world payment services on any surface. **Pay** and **payment** are reserved for virtual loan repayment; allowance is **paid out**, while a loan is **paid toward**.
 
@@ -134,7 +135,7 @@ Do not use a bank-card design or wording that implies spendable funds, banks, ca
 - The wallet cannot go below zero. A loan is the explicit way to give the child additional virtual dollars that must be repaid; it is not an accidental overdraft.
 - A balance is the result of accepted events. Pending events are not accepted money.
 - Accepted events are not edited or deleted. A parent correction, if needed, is a new clearly labeled compensating event.
-- Every accepted event has a type, amount, date, reason where applicable, and its attribution. Parent-attributed entries name the parent; a service-settled Cloud entry whose `recordedBy` value is the reserved `schedule` sentinel names the schedule or plan and never claims the parent performed that action.
+- Every accepted event has a type, amount, date, reason where applicable, and its attribution. Parent-attributed entries name the parent; a service-settled Cloud entry whose `recordedBy` value is the reserved `schedule` sentinel names the schedule or plan and never claims the parent performed that action; a repayment whose `recordedBy` is `child` names the child - **You** on the kid home, the nickname (or **Your child**) in the Parent area - and never claims the parent paid. Only a repayment may carry the `child` label.
 
 ### Vocabulary
 
@@ -165,7 +166,7 @@ Free setup commits directly to protected local authority and does not require th
 
 ### Journey B: shared-iPad access through the parent door
 
-1. A configured, signed-in device always opens to the child's read-only wallet. The kid home is the app's resting state on every cold launch and relaunch; there is no permanently visible role switch.
+1. A configured, signed-in device always opens to the child's wallet. The kid home is the app's resting state on every cold launch and relaunch; there is no permanently visible role switch.
 2. The kid home shows a small, clearly labeled **Parent** door with at least a 44-point touch target. Opening it always presents the full-screen PIN gate, which reveals no family or parent data.
 3. A correct parent-set PIN opens a visually distinct, temporary **Parent area** with an explicit, always-visible way back to the child's wallet.
 4. A wrong PIN stays on the gate without exposing parent content. Five consecutive misses pause the keypad for 30 seconds; the cooldown survives closing and reopening the gate but not process death. PIN changes require the existing PIN and happen only inside the Parent area.
@@ -182,14 +183,15 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 3. Before confirmation the parent sees the resulting wallet balance and loan impact: on the same sheet for a deposit, withdrawal, or loan payment, whose confirm control names what it records, and on a review step for a new loan.
 4. The app shows the event as **Recorded** or **Not recorded** for free local authority. Service-authoritative wallets may also show **Waiting to sync**, with distinct copy when the service accepted the action but this device has not observed it in the wallet. It never presents an unresolved event as recorded.
 5. Once accepted and observed by the current wallet authority, the event appears in the wallet activity list. It is immediately available to the child on the free one-device wallet and becomes available after synchronization for a service-authoritative wallet.
-6. The child can open the event explanation but cannot edit, reverse, hide, or create a related event.
+6. The child can open the event explanation but cannot edit, reverse, hide, or create a related event. The child's own loan payment (Journey D) is the only money event the child can create.
 
 ### Journey D: child reviews the wallet
 
 1. The child sees the plain **Your allowance balance** label, the current accepted balance, the wallet activity list, and any open-loan card - without a persistent pretend/nonredeemable disclaimer on the hero.
 2. The child taps an activity row or the loan card for details.
-3. The child sees what changed, why it changed (human parent attribution), and whether the data is current.
-4. The child cannot add, withdraw, loan, repay, request, edit, delete, or approve wallet dollars.
+3. The child sees what changed, why it changed (human attribution: the parent, the plan, or the child's own payment), and whether the data is current.
+4. While a loan is open and the wallet holds dollars, the child can choose **Pay back** on the loan card or in the loan details and pay any amount toward the loan, as 8.9 describes. No PIN and no parent approval is involved.
+5. Apart from paying back their loan, the child cannot add, withdraw, loan, request, edit, delete, or approve wallet dollars.
 
 ### Journey E: offline and session recovery
 
@@ -219,7 +221,7 @@ The PIN is a local gate. It does not grant a role, change service permissions, o
 
 ### 8.3 Kid home, Parent door, and Parent area
 
-- The child's read-only wallet, labeled with the configured nickname when available and neutral wording otherwise, is the home screen and the app's only persistent surface.
+- The child's wallet, labeled with the configured nickname when available and neutral wording otherwise, is the home screen and the app's only persistent surface. Its only money control is the child's own **Pay back** (8.9).
 - Parent access is a transient elevation entered through the labeled Parent door and the parent-set PIN. It is never persisted: cold launch, relaunch, and backgrounding always return to the kid home and close any parent flow in progress.
 - The full-screen PIN gate always shows a visible Cancel, cannot be casually swiped away, and never exposes parent content on failure. Five consecutive misses use the 30-second cooldown defined in Journey B.
 - A missing or forgotten PIN is reset only after a fresh Sign in with Apple by the owning parent (Journey B). PIN setup is never reachable from an un-elevated child session outside initial authenticated setup.
@@ -243,11 +245,11 @@ The child's wallet is the app's home screen. The Parent area presents the parent
 
 1. The child's accepted balance under the plain label **Your allowance balance** (no stacked pretend/virtual/nonredeemable hero disclaimer).
 2. Recent Activity directly on the wallet, or a friendly ready-state message while the wallet is still empty. There is no separate Recent Activity navigation item in the MVP.
-3. The open-loan card and read-only loan details when applicable, in plain relational language.
+3. The open-loan card and loan details when applicable, in plain relational language, each with the child's **Pay back** while the wallet holds dollars and the authority can take the payment (8.9).
 4. The calm child status and **Last updated** treatment for service-authoritative reads defined in Journey E.
 5. The Parent door, visually secondary to the child content.
 
-The kid home must not include a child request button, money action button, edit control, delete control, approval control, sign-out, or any other parent control.
+The kid home must not include a child request button, any money action other than **Pay back**, edit control, delete control, approval control, sign-out, or any other parent control.
 
 ### 8.5 Activity list and details
 
@@ -329,9 +331,18 @@ Required parent copy uses **Loan payments**, **Next payment**, **Missed payments
 4. Free-local authority records a valid repayment immediately. Service authority requires a current online replica and records it after acceptance is observed; an ambiguous submitted request remains **Waiting to sync**.
 5. A paid loan remains in history as **Paid** rather than disappearing.
 
-Every manual payment remains parent-triggered. On a free local wallet, a successful read also settles due chain-head installments of a parent-created weekly or monthly plan, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass, after all eligible allowance credits have settled oldest-first. An installment that would overdraft stays scheduled and is retried on a later pass. A larger derived backlog stays on **Pay missed payments**. Cloud wallets never auto-write from this device. When Cloud is on, the service records due installments; this device displays them from `/v1/cloud/changes`. The client has no settlement timer or background job. Local due-day reminders are garnish and never required for settlement, and the kid home never shows waiting, skip, or behind copy.
+Every manual payment is triggered by a person: the parent in the Parent area, or the child through **Pay back** below. On a free local wallet, a successful read also settles due chain-head installments of a parent-created weekly or monthly plan, including today, oldest-first, one accepted entry per save, at most four due occurrences per pass, after all eligible allowance credits have settled oldest-first. An installment that would overdraft stays scheduled and is retried on a later pass. A larger derived backlog stays on **Pay missed payments**. Cloud wallets never auto-write from this device. When Cloud is on, the service records due installments; this device displays them from `/v1/cloud/changes`. The client has no settlement timer or background job. Local due-day reminders are garnish and never required for settlement, and the kid home never shows waiting, skip, or behind copy.
 
-**Child loan view:** The child can see the original loan, accepted repayments, and amount left to repay in plain language. The child cannot create a loan, repay, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP. Parent loan details keep the virtual/nonredeemable notice.
+**Child pays back:**
+
+1. While a loan is open and the wallet holds dollars, the kid home's loan card and the child's loan details show **Pay back**. There is no parent switch to hide it. It does not show inside the Parent area or the PIN gate, while a session has expired, or while a scheduled payment catch-up is being recorded.
+2. **Pay back** opens one sheet with no keyboard: whole-dollar **−** and **+**, and **All of it** for the limit, which is the smaller of what is left to repay and what is in the wallet. The amount starts at the next planned payment, or US$1.00 on a loan without a plan, and never leaves the range from US$0.01 to the limit. The sheet shows what is left to repay, the wallet after, and what is left after.
+3. On a loan with a plan, while the payment leaves something to repay, the sheet says the next planned payment still happens and that paying extra finishes the loan sooner. A child's payment never replaces or skips a planned payment.
+4. The confirm control names the amount, such as **Pay back US$3.00**, because there is no undo. A parent who wants to reverse a payment adds the dollars back as a deposit.
+5. The result stays on the sheet: “You paid back US$3.00. US$7.00 left.” or “You paid back your whole loan.” Free-local authority records the payment at once. Cloud authority offers **Pay back** only while this device is signed in and in sync, and records the payment only after the service accepts it. An unanswered Cloud payment reads to the child as “Still checking on your payment.”, stays **Waiting to sync** for the parent, and blocks another payment until it resolves. If another device changed the wallet first, nothing is recorded, the wallet is read again, and the child is asked to check the amount and try again, with no parent review. Kid copy never names a connection, a sync, or a review.
+6. The payment is a repayment labelled `recordedBy: child`. The kid home reads it as **You**; the Parent area's activity row and detail name the child, such as “Eddie paid US$3.00 toward the loan.” A free wallet keeps the label when it moves to Cloud. Legacy service wallets, which cannot keep the label, never offer **Pay back**.
+
+**Child loan view:** The child can see the original loan, accepted repayments, and amount left to repay in plain language. The child can pay back as above, but cannot create a loan, change terms, forgive a loan, or request money. The loan card remains on the wallet; there is no Loans tab in the MVP. Parent loan details keep the virtual/nonredeemable notice.
 
 
 ## 9. Roles and permissions
@@ -343,8 +354,9 @@ Every manual payment remains parent-triggered. On a free local wallet, a success
 | View accepted wallet and activity | Yes | Yes, read-only |
 | Create/edit/pause allowance rule | Yes | No |
 | Record deposit or withdrawal | Yes | No |
-| Create loan or pay toward it | Yes | No |
-| View loan details | Yes | Yes, read-only |
+| Create loan | Yes | No |
+| Pay toward the open loan | Yes | Yes: **Pay back**, up to what is left and what is in the wallet |
+| View loan details | Yes | Yes |
 | Edit/delete accepted money events | No; use a compensating event if needed | No |
 | Create or edit child profile | Yes | No |
 | Change parent PIN | Yes, with current PIN | No |
@@ -361,7 +373,7 @@ Use the same status words everywhere:
 | State | Required meaning |
 | --- | --- |
 | **Recorded** | Accepted by the current wallet authority and included in the accepted balance. In free mode that authority is protected local storage on this device; in paid Cloud mode it is the service. |
-| **Waiting to sync** | A protected parent action is unresolved on this device. The service may not have confirmed it yet, or may have accepted it without the device observing the resulting entry or revision. It does not change the displayed accepted balance. |
+| **Waiting to sync** | A protected parent action, or the child's own loan payment, is unresolved on this device. The service may not have confirmed it yet, or may have accepted it without the device observing the resulting entry or revision. It does not change the displayed accepted balance. |
 | **Not recorded** | The current authority explicitly rejected the action, or free-local storage failed before acceptance. It does not change the accepted balance. |
 | **Last updated** | Child or parent is viewing a cached snapshot whose freshness is shown. |
 | **Draft on this iPad** | A setup or allowance form is local only and has not created a family rule. |
@@ -387,7 +399,7 @@ This is a product constraint and client integration boundary, not an implementat
 
 - Free mode is fully useful on one device. Its protected local repository is authoritative for the one-child aggregate, accepted ledger events, balances, allowance rules, and loans. Paid Cloud mode uses the service as the sole accepted authority; the client never grants Cloud entitlement.
 - The service must support idempotent parent commands so retries cannot duplicate allowance payouts, deposits, withdrawals, loans, or repayments.
-- Child reads must not have a path to mutate wallet, profile, allowance, loan, membership, or parent-PIN data.
+- Child reads must not have a path to mutate wallet, profile, allowance, loan, membership, or parent-PIN data. The child's loan payment is a separate, idempotent repayment command labelled `recordedBy: child`; the service accepts that label on repayments only and checks the same outstanding-loan and wallet limits as a parent's.
 - Before paid Cloud launch, the service must meet the recovery expectations in this document, including daily backups, a nightly encrypted export, and restore testing.
 - Keep the app's product boundary independent of the service implementation and hosting. Do not expose provider-specific behavior in parent or child copy.
 
@@ -421,17 +433,17 @@ These questions do not block the product boundary above. Questions that affect t
 The free one-device MVP is product-complete when all of the following are true:
 
 1. A parent can sign in with Apple, create one free wallet and a parent-managed child profile, and set a parent PIN without creating a child login.
-2. On a shared iPad, the app rests on the child's read-only wallet, and entering the Parent area requires the parent-set PIN. The kid home never exposes parent money controls or sign-out.
+2. On a shared iPad, the app rests on the child's wallet, and entering the Parent area requires the parent-set PIN. The kid home never exposes parent money controls or sign-out; its only money control is the child's own **Pay back**.
 3. Parent and safety surfaces label the US-dollar ledger as virtual, pretend, and nonredeemable. The kid home primary balance label is **Your allowance balance** without that heavy disclaimer; kid detail glances stay plain and relational while parent detail/review surfaces keep the boundary.
 4. A parent can create a simple allowance rule and later change its amount or payout day, pay out an explicitly confirmed set of missed weeks, record a deposit or withdrawal, create an interest-free loan with an optional payment plan, pay one current loan payment, pay an explicitly confirmed set of missed payments, and pay any free amount toward the loan.
 5. Each accepted money event changes the accepted balance exactly once and appears in the wallet activity list with an understandable explanation.
 6. Withdrawals and loan payments cannot overdraw the wallet or exceed the outstanding loan. Every planned payment and missed-payment total caps at what remains. A loan adds virtual balance and creates a separate amount to repay.
 7. The open-loan card is visible on the wallet and opens a detail flow. A scheduled loan also shows its next payment and any missed payments only in the Parent area. There is no prominent top-level Loans area, and the wallet does not duplicate a Recent Activity entry point.
-8. The child can read the accepted balance, activity, and loan details, but cannot create or change any wallet, profile, allowance, loan, repayment, or request.
+8. The child can read the accepted balance, activity, and loan details, and can pay back any amount toward an open loan up to what is left and what is in the wallet, recorded as the child's payment. The child cannot create or change anything else: no wallet, profile, allowance, loan, other money event, or request.
 9. The free one-device wallet remains fully usable offline and records valid parent actions through protected local authority. Service-authoritative offline views show the last update time and remain read-only; a request interrupted after submission stays visibly unresolved, and rejected actions never appear as accepted balance changes.
 10. The app collects no unnecessary child identity data and ships without real-money rails, ads, tracking, chat, or public sharing.
 11. Paid Cloud is not offered until the external service meets the daily backup and nightly encrypted export requirements and a restore check has been completed.
-12. A pilot parent can explain that the displayed US-dollar amounts are practice values that cannot be redeemed or spent. A pilot child can explain their allowance balance and recent parent-recorded changes in plain words without needing the legal framing.
+12. A pilot parent can explain that the displayed US-dollar amounts are practice values that cannot be redeemed or spent. A pilot child can explain their allowance balance and recent changes, including their own loan payments, in plain words without needing the legal framing.
 
 ## 16. Success criteria
 
@@ -439,7 +451,7 @@ Early MVP success is demonstrated by a small family pilot, not by transaction vo
 
 - A parent completes setup and pays out the first allowance or records the first deposit without needing banking knowledge.
 - A parent can tell the difference between a wallet balance, an allowance rule, and a loan outstanding, plus a pending command when using service authority.
-- The child can explain why a balance changed and how much of a loan remains without being able to change it.
+- The child can explain why a balance changed and how much of a loan remains, and can pay some of it back without a parent's help.
 - No pilot parent mistakes the balance for spendable or redeemable money; parent UI continues to state the boundary clearly. The child understands the balance as allowance tracked with their parent.
 - Offline and rejected states do not produce a false accepted balance in testing.
 - Privacy review confirms that the child profile contains only the intended minimal data.

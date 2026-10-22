@@ -334,6 +334,88 @@ final class EddysWalletUITests: XCTestCase {
         app.buttons["Done"].tap()
     }
 
+    /// EDW-22, the captain's words: "my son asked for the ability for the kid
+    /// to pay back loan without requiring parents." On a real free wallet the
+    /// kid pays part of the loan from the kid home with no PIN, and the
+    /// Parent area then names the kid as the one who paid.
+    func testKidPaysBackPartOfTheLoanAndTheParentSeesWhoPaid() throws {
+        let app = launch("local-loan")
+        let payBack = app.buttons["kid-loan-pay-back"]
+        XCTAssertTrue(payBack.waitForExistence(timeout: 10), "an open loan and dollars in the wallet show Pay back on the kid home")
+        XCTAssertTrue(app.staticTexts["US$10.00 left to repay"].exists)
+        payBack.tap()
+
+        let amount = app.staticTexts["kid-pay-back-amount"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 5))
+        XCTAssertEqual(amount.label, "US$2.00", "the amount starts at the next planned payment")
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "payment still happens. Paying extra means you finish sooner.")).firstMatch.exists,
+            "planned payments keep coming, and the sheet says so"
+        )
+        app.buttons["kid-pay-back-more"].tap()
+        let confirm = app.buttons["kid-pay-back-confirm"]
+        XCTAssertEqual(confirm.label, "Pay back US$3.00", "the confirm button names the amount, because there is no undo")
+        confirm.tap()
+
+        let message = app.staticTexts["kid-pay-back-result-message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        XCTAssertEqual(message.label, "You paid back US$3.00. US$7.00 left.")
+        XCTAssertFalse(app.staticTexts["Parent only"].exists, "paying back never asks for the parent PIN")
+        app.buttons["kid-pay-back-done"].tap()
+
+        XCTAssertTrue(app.staticTexts["US$7.00 left to repay"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Repayment · You · ")).firstMatch.waitForExistence(timeout: 5),
+            "the kid's own row says the kid paid"
+        )
+
+        openParentArea(in: app)
+        let parentRow = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Repayment · Eddie · ")).firstMatch
+        for _ in 0..<6 where !parentRow.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(parentRow.isHittable, "the Parent area's activity names the kid on the payment")
+        parentRow.tap()
+        XCTAssertTrue(app.staticTexts["Activity detail"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Recorded by"].exists)
+        XCTAssertTrue(app.staticTexts["Eddie"].exists)
+        XCTAssertTrue(app.staticTexts["Eddie paid US$3.00 toward the loan."].exists)
+    }
+
+    /// The same journey on a Cloud wallet, through the real
+    /// `CloudWalletRepository` and the synthetic service's repayment route:
+    /// the kid pays from the kid home, and the Parent area's accepted history
+    /// names the kid.
+    func testKidPaysBackOnCloudAndTheParentSeesWhoPaid() throws {
+        let app = launch("cloud-live-parent", environment: ["EW_UITEST_CLOUD_LOAN": "1", "EW_UITEST_CLOUD_READ_DELAY_SECONDS": "0"])
+        XCTAssertTrue(app.buttons["kid-loan-pay-back"].waitForExistence(timeout: 10), "a Cloud wallet in sync offers Pay back")
+
+        // The loan details offer the same Pay back, and it opens the same sheet.
+        app.staticTexts["A little at a time is okay"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Loan details"].waitForExistence(timeout: 5))
+        let detailPayBack = app.buttons["kid-loan-detail-pay-back"]
+        XCTAssertTrue(detailPayBack.waitForExistence(timeout: 5))
+        detailPayBack.tap()
+
+        let amount = app.staticTexts["kid-pay-back-amount"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 5), "Pay back in the loan details opens the Pay back sheet")
+        XCTAssertEqual(amount.label, "US$1.00", "a loan without a plan starts at one dollar")
+        app.buttons["kid-pay-back-confirm"].tap()
+
+        let message = app.staticTexts["kid-pay-back-result-message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertEqual(message.label, "You paid back US$1.00. US$4.00 left.")
+        app.buttons["kid-pay-back-done"].tap()
+        XCTAssertTrue(app.staticTexts["US$4.00 left to repay"].waitForExistence(timeout: 5))
+
+        openParentArea(in: app)
+        let parentRow = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Repayment · Eddie · ")).firstMatch
+        for _ in 0..<6 where !parentRow.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(parentRow.isHittable, "the accepted Cloud entry keeps the kid label")
+    }
+
     func testParentAreaKeepsVirtualMoneyBoundary() throws {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))
@@ -967,7 +1049,7 @@ final class EddysWalletUITests: XCTestCase {
 
     // The loan sheet's repayment control is an action, not detail copy, so it
     // belongs in the bottom bar even at the half-height detent this sheet opens
-    // at. The kid's read-only loan sheet must not grow one.
+    // at. The kid's loan sheet must never carry the parent's.
     func testLoanSheetPinsTheParentRepaymentActionAndTheKidSheetHasNone() throws {
         let app = launch("configured")
         XCTAssertTrue(app.staticTexts["Hi, Eddie"].waitForExistence(timeout: 10))

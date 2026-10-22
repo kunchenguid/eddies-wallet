@@ -123,7 +123,7 @@ extension CloudImportManifest {
                 ("reason", entry.reason.map { CloudCanonicalJSON.Value.string($0) } ?? .null),
                 ("loanId", entry.loanID.map { CloudCanonicalJSON.Value.string($0.uuidString.lowercased()) } ?? .null),
                 ("recordedAt", .string(Self.timestamp(entry.recordedAt))),
-            ])
+            ] + (entry.recordedBy.map { [("recordedBy", CloudCanonicalJSON.Value.string($0))] } ?? []))
         }
     }
 

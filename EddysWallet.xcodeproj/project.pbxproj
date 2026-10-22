@@ -61,6 +61,7 @@
 		30100000000000000000002F /* TransportDiagnosticTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E000000000000000000009 /* TransportDiagnosticTests.swift */; };
 		301000000000000000000030 /* DebugLaunchScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E00000000000000000000A /* DebugLaunchScenarioTests.swift */; };
 		301000000000000000000031 /* ScheduledReminderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E00000000000000000000B /* ScheduledReminderTests.swift */; };
+		301000000000000000000032 /* KidPayBackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E00000000000000000000C /* KidPayBackTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -123,6 +124,7 @@
 		20E000000000000000000009 /* TransportDiagnosticTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportDiagnosticTests.swift; sourceTree = "<group>"; };
 		20E00000000000000000000A /* DebugLaunchScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLaunchScenarioTests.swift; sourceTree = "<group>"; };
 		20E00000000000000000000B /* ScheduledReminderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledReminderTests.swift; sourceTree = "<group>"; };
+		20E00000000000000000000C /* KidPayBackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KidPayBackTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -252,6 +254,7 @@
 				20E000000000000000000009 /* TransportDiagnosticTests.swift */,
 				20E00000000000000000000A /* DebugLaunchScenarioTests.swift */,
 				20E00000000000000000000B /* ScheduledReminderTests.swift */,
+				20E00000000000000000000C /* KidPayBackTests.swift */,
 				20E0000000000000000000F1 /* Fixtures */,
 			);
 			path = EddysWalletTests;
@@ -443,6 +446,7 @@
 				30100000000000000000002F /* TransportDiagnosticTests.swift in Sources */,
 				301000000000000000000030 /* DebugLaunchScenarioTests.swift in Sources */,
 				301000000000000000000031 /* ScheduledReminderTests.swift in Sources */,
+				301000000000000000000032 /* KidPayBackTests.swift in Sources */,
 				30100000000000000000002E /* AccountDeletionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

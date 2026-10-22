@@ -9,8 +9,16 @@ enum AcceptedEventCopy {
     /// Parent-recorded entries carry the parent actor instead.
     static let scheduleActor = "schedule"
 
+    /// The `recordedBy` value of a loan payment the kid made from the kid
+    /// home. The service accepts it on repayments only.
+    static let childActor = "child"
+
     static func isScheduleSettled(_ recordedBy: String?) -> Bool {
         recordedBy == scheduleActor
+    }
+
+    static func isChildRecorded(_ recordedBy: String?) -> Bool {
+        recordedBy == childActor
     }
 
     static func explanation(
@@ -19,6 +27,9 @@ enum AcceptedEventCopy {
         recordedBy: String? = nil
     ) -> String {
         let amount = Money(cents: amountCents).display
+        if isChildRecorded(recordedBy), type == .repayment {
+            return "You paid \(amount) toward your loan."
+        }
         if isScheduleSettled(recordedBy) {
             return switch type {
             case .allowance: "Your allowance of \(amount) was added."
@@ -35,6 +46,12 @@ enum AcceptedEventCopy {
         case .loan: "Your parent gave you \(amount) to use now and give back over time."
         case .repayment: "Your parent paid \(amount) toward your loan."
         }
+    }
+
+    /// The Parent area's words for a loan payment the kid made, naming the
+    /// kid the way every other parent surface does.
+    static func parentExplanationOfChildRepayment(amountCents: Int, nickname: String?) -> String {
+        "\(ChildProfileCopy.childSubject(nickname: nickname)) paid \(Money(cents: amountCents).display) toward the loan."
     }
 }
 
@@ -376,7 +393,13 @@ enum CloudImportManifestBuilder {
                     balanceAfterCents: expected,
                     reason: event.reason,
                     loanID: loanID,
-                    recordedAt: event.date
+                    recordedAt: event.date,
+                    // Only the kid's own loan payments carry a label: every
+                    // other entry imports as the parent's, unhashed, exactly
+                    // as an older client's upload always did.
+                    recordedBy: event.type == .repayment && AcceptedEventCopy.isChildRecorded(event.recordedBy)
+                        ? AcceptedEventCopy.childActor
+                        : nil
                 )
             )
             balance = expected
