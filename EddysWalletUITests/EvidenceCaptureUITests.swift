@@ -125,8 +125,10 @@ final class EvidenceCaptureUITests: XCTestCase {
         // pattern names its sheet's intro only: the Parent area's action
         // tiles behind the sheet read "Add pretend dollars" and "Give now,
         // repay later", and tapping those would reach past an iPad sheet.
-        // With the keyboard up, the one-step sheet scrolls the intro's first
-        // line under the header, so a covered intro is tapped on its last line.
+        // Focusing the amount can scroll the entire intro under the header
+        // (EDW-28, iPhone 17 Pro on iOS 26.4). Scroll the sheet back until the
+        // intro is hittable; a coordinate tap on hidden copy hits the header,
+        // not the Debug-only gesture that resigns the amount field.
         let introPatterns = [
             "Add pretend dollars to *",
             "Record virtual dollars as *",
@@ -138,11 +140,14 @@ final class EvidenceCaptureUITests: XCTestCase {
                 NSPredicate(format: "label LIKE %@", pattern)
             ).firstMatch
             if intro.exists {
-                if intro.isHittable {
-                    intro.tap()
-                } else {
-                    intro.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.85)).tap()
+                let sheetScroll = app.scrollViews.matching(
+                    NSPredicate(format: "identifier BEGINSWITH %@", "sheet-form-scroll-")
+                ).firstMatch
+                for _ in 0..<4 where !intro.isHittable && sheetScroll.exists {
+                    sheetScroll.swipeDown()
                 }
+                guard intro.isHittable else { continue }
+                intro.tap()
                 if app.keyboards.element.waitForNonExistence(timeout: 2) { return true }
             }
         }
@@ -1163,7 +1168,13 @@ final class EvidenceCaptureUITests: XCTestCase {
                 "listing money-flow captures must not include the software keyboard"
             )
         }
-        XCTAssertEqual(app.buttons["money-flow-primary"].label, "Add US$5.25")
+        // Dismissing for the listing must preserve the draft, not submit it
+        // or close the sheet, and leave the whole confirm control visible.
+        XCTAssertEqual(amountField.value as? String, "5.25")
+        let confirm = app.buttons["money-flow-primary"]
+        XCTAssertEqual(confirm.label, "Add US$5.25")
+        XCTAssertTrue(confirm.isHittable)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(confirm.frame))
         XCTAssertTrue(app.staticTexts["US$29.25"].exists)
         capture("listing-money-flow-review")
         app.terminate()
