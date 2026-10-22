@@ -4,8 +4,7 @@ Eddie's Wallet uses release-please for version PRs, changelog generation, tags, 
 The native iOS app is then archived with Xcode on GitHub Actions and uploaded to TestFlight.
 This file is the release-please and TestFlight pipeline only. Merging a release PR cuts the tag and uploads a build to TestFlight. It does not submit for App Review, release a reviewed version, or change price or availability. App Review is a separate captain gate in `docs/app-review.md`. The review-status monitor in `docs/app-store-review-monitor.md` is GET-only.
 
-Repository variable `MAC_RUNNER` is `mini-mac`. The TestFlight archive job uses that label. Unset the variable to fall back to hosted `macos-26`. Do not change it as part of an ordinary release.
-Repository variable `REAL_MAC_RUNNER` is unset today. When set, it takes precedence over `MAC_RUNNER` for the TestFlight archive job. That job signs with the captain's login keychain, so it must run on the real Mac rather than a throwaway virtual Mac. The Mac mini placement switch sets it to the label the placement service gives the real Mac's place; until then the job runs exactly as above.
+Repository variables are `MAC_RUNNER=mini-mac-any` and `REAL_MAC_RUNNER=mini-mac-real`. Both labels are served by the Mac mini's placement service. The TestFlight archive job prefers `REAL_MAC_RUNNER`, so it runs in the real Mac's place. That job signs with the captain's login keychain and must not run on a throwaway virtual Mac. Do not change either variable as part of an ordinary release.
 That self-hosted runner has no passwordless `sudo`, so the job selects Xcode 26 by exporting `DEVELOPER_DIR` rather than with `sudo xcode-select`; `test/release-checks.sh` runs that step with a `sudo` that always refuses.
 It also has no `node` on its `PATH`, so a pinned `actions/setup-node` step installs Node.js just before the development-certificate cleanup, under the same successful-Mac-mini-only condition and `continue-on-error` as the list step.
 
@@ -25,7 +24,7 @@ Ordinary infrastructure and feature PRs carry no release side effects and follow
 5. The TestFlight workflow checks out exactly the release tag, archives the Release build with automatic App Store Connect cloud signing, exports an IPA with `ExportOptions.plist`, uploads it with `xcrun altool --upload-app`, and runs a best-effort, list-only development-certificate check after a successful upload on the Mac mini (`.github/scripts/prune_asc_development_certs.js`; no certificate is revoked, and failures are warnings). The archive job selects its runner with repository variable `REAL_MAC_RUNNER`, then `MAC_RUNNER`, falling back to hosted `macos-26` when both are unset.
 6. Release-time CI independently builds and tests the same tag.
 
-Set `MAC_RUNNER=mini-mac` only after a runner with that label is registered for this repository. Deleting the variable immediately restores hosted `macos-26` selection for subsequent TestFlight jobs; it does not move the other release-time macOS CI jobs off hosted runners.
+Deleting `MAC_RUNNER` alone does not change TestFlight placement while `REAL_MAC_RUNNER=mini-mac-real` remains set. Clearing only `REAL_MAC_RUNNER` selects `MAC_RUNNER=mini-mac-any`, which does not require the real Mac and is not a suitable substitute for this signing job. Hosted `macos-26` is selected only when both variables are unset; this is the workflow's fallback, not an ordinary-release setup step. The other release-time macOS CI jobs remain on hosted runners.
 
 ## Versions, build numbers, and traceability
 
