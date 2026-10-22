@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.22](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.21...eddies-wallet-v0.1.22) (2026-10-22)
+
+
+### Features
+
+* **wallet:** let the kid pay back their loan from the kid home ([cc8da3d](https://github.com/kunchenguid/eddies-wallet/commit/cc8da3db3f751776c09149ea5921c927a784ee25))
+
+
+### Bug Fixes
+
+* **release:** replace certificate pruning with safe list-only rule ([1850924](https://github.com/kunchenguid/eddies-wallet/commit/1850924e6a93f07de0709a39b983361c5e9b8eb1))
+
 ## [0.1.21](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.20...eddies-wallet-v0.1.21) (2026-10-12)
 
 
