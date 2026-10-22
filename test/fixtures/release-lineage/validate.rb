@@ -106,8 +106,8 @@ module ReleaseLineage
     errors << "#{label}: version.txt (#{version_file}) must match manifest seed (#{seed})" unless version_file == seed
     errors << "#{label}: initial-version must be #{REQUIRED_INITIAL} (got #{initial.inspect})" unless initial == REQUIRED_INITIAL
     errors << "#{label}: component must be #{COMPONENT} (got #{component})" unless component == COMPONENT
-    unless header.include?("Only the captain merges it") && header.include?("TestFlight")
-      errors << "#{label}: captain-only pull-request-header must remain set"
+    unless header.include?("An agent may merge or approve it only if the captain explicitly asked.") && header.include?("TestFlight")
+      errors << "#{label}: pull-request-header must remain set"
     end
 
     lineage = (changelog_versions(changelog_text) + tag_versions(tag_names)).uniq
@@ -152,7 +152,7 @@ module ReleaseLineage
 
     base_config = {
       "initial-version" => "0.1.0",
-      "pull-request-header" => "Merging this release PR cuts the release tag and uploads Eddie's Wallet to TestFlight. Only the captain merges it.",
+      "pull-request-header" => "Merging this release PR cuts the release tag and uploads Eddie's Wallet to TestFlight. An agent may merge or approve it only if the captain explicitly asked.",
       "packages" => { "." => { "component" => "eddies-wallet" } }
     }
 

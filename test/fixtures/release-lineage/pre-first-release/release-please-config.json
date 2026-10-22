@@ -1,6 +1,6 @@
 {
   "initial-version": "0.1.0",
-  "pull-request-header": "Merging this release PR cuts the release tag and uploads Eddie's Wallet to TestFlight. Only the captain merges it.",
+  "pull-request-header": "Merging this release PR cuts the release tag and uploads Eddie's Wallet to TestFlight. An agent may merge or approve it only if the captain explicitly asked.",
   "packages": {
     ".": {
       "release-type": "simple",
