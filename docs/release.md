@@ -12,7 +12,7 @@ It also has no `node` on its `PATH`, so a pinned `actions/setup-node` step insta
 ## The captain approval boundary
 
 Merging a release-please release PR is the release trigger: it cuts the tag and starts the TestFlight upload.
-Only the captain merges release PRs. No agent or automation may merge, auto-merge, or approve one.
+An agent may merge or approve a release PR only if the captain explicitly asked. No automation may merge, auto-merge, or approve one.
 Ordinary infrastructure and feature PRs carry no release side effects and follow the normal contribution flow.
 
 ## What happens on each release
@@ -33,7 +33,7 @@ Until the first release PR merges, `version.txt` and `.release-please-manifest.j
 release-please treats a `0.0.0` seed with no matching `eddies-wallet-v0.0.0` tag as "never released" and does not bump from that seed; the first proposal therefore comes from `initial-version` in `release-please-config.json`, which is set to `0.1.0` so the first tag is `eddies-wallet-v0.1.0` (not the library default `1.0.0`).
 After that first cut merges, release-please advances the manifest/version seed to the released version (for example `0.1.0`); subsequent proposals bump from that lineage rather than from `initial-version`.
 `test/release-checks.sh` is state-aware: it still enforces the pre-first-release `0.0.0` + `initial-version: 0.1.0` contract (including the missing-`initial-version` => `1.0.0` counterfactual), and once releases exist it requires the advanced seed to match the latest available lineage evidence (committed `CHANGELOG.md` headings plus any local `eddies-wallet-v*` tags present) instead of demanding a perpetual `0.0.0` seed.
-The release PR header in that same config file is the captain-only warning; only the captain merges it.
+The release PR header in that same config file warns that an agent may merge or approve it only if the captain explicitly asked.
 
 `.github/scripts/resolve_release_version.sh` owns the derivation and is regression-tested by `test/release-checks.sh`:
 
