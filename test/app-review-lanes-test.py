@@ -922,7 +922,7 @@ class SurfaceProofTests(WorkflowModelCase):
             if "GITHUB_TOKEN" in environment:
                 self.assertEqual(environment["GITHUB_TOKEN"], "${{ github.token }}")
 
-    def test_the_surface_proof_executes_delivery_stale_verification_and_cleanup(self):
+    def test_the_surface_proof_executes_delivery_self_close_verification_and_cleanup(self):
         steps = {
             step.get("id"): step
             for step in steps_of(self.jobs(MONITOR_E2E)["prove"])
@@ -930,13 +930,9 @@ class SurfaceProofTests(WorkflowModelCase):
         }
         self.assertEqual(set(steps), {"create", "surface", "verify"})
         surface = steps["surface"]
-        self.assertIs(surface["continue-on-error"], True)
+        # The consumer closes the throwaway itself, so its failure must fail the proof.
+        self.assertNotIn("continue-on-error", surface)
         self.assertIn(SURFACE_HARNESS, surface["run"])
-        self.assertEqual(surface["env"]["APP_REVIEW_SURFACE_STALE_AFTER_HOURS"], "1")
-        self.assertEqual(
-            surface["env"]["APP_REVIEW_SURFACE_NOW"],
-            "${{ steps.create.outputs.stale_now }}",
-        )
         self.assertEqual(
             surface["env"]["APP_REVIEW_CONFIG"],
             "${{ runner.temp }}/surface-e2e.config.json",
@@ -948,10 +944,6 @@ class SurfaceProofTests(WorkflowModelCase):
         self.assertEqual(
             verify["env"]["ISSUE_NUMBER"],
             "${{ steps.create.outputs.issue_number }}",
-        )
-        self.assertEqual(
-            verify["env"]["SURFACE_EXIT_CODE"],
-            "${{ steps.surface.outputs.exit_code }}",
         )
         cleanup = next(
             step

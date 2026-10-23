@@ -7,11 +7,12 @@
 // or sustained-unavailable observation. That issue is a durable record, but it
 // is unassigned and does not notify the captain by itself. This script is the
 // Eddie-owned surfacing path: it assigns the captain, posts one @mention, and
-// fails the scheduled run when an outcome issue stays open past the stale
-// window. GitHub assignment mail, the mention, and a failed Actions run are
-// all independent of any firstmate home being alive.
+// only then closes the issue itself. GitHub assignment mail and the mention
+// are independent of any firstmate home being alive.
 //
-// Closing the issue is the captain ack. This script never closes or acks.
+// The captain never closes an outcome issue by hand. The engine deduplicates
+// against open and closed issues alike, so a closed record is never reopened
+// or recreated, and a red run means only that the monitor itself failed.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -27,7 +28,6 @@ const COMMENTS_PER_PAGE = 100;
 const MAX_DISCOVERY_ATTEMPTS = 6;
 const DISCOVERY_RETRY_MS = 1_000;
 const DEFAULT_ASSIGNEE = "kunchenguid";
-const DEFAULT_STALE_AFTER_HOURS = 24;
 const SURFACE_MARKER = "<!-- eddies-app-review-surface:v1 -->";
 const TRUSTED_GITHUB_ACTOR = "github-actions[bot]";
 const MONITOR_OUTCOMES = new Set([
@@ -137,26 +137,6 @@ function parseAssignee(env) {
   return raw;
 }
 
-function parseStaleAfterMs(env) {
-  const raw = typeof env.APP_REVIEW_SURFACE_STALE_AFTER_HOURS === "string"
-    ? env.APP_REVIEW_SURFACE_STALE_AFTER_HOURS.trim()
-    : String(DEFAULT_STALE_AFTER_HOURS);
-  const hours = Number(raw);
-  ensure(Number.isInteger(hours) && hours >= 1 && hours <= 168, "APP_REVIEW_SURFACE_STALE_AFTER_HOURS is invalid");
-  return hours * 60 * 60 * 1000;
-}
-
-function parseNow(env, nowFn) {
-  if (typeof nowFn === "function") return nowFn();
-  const raw = typeof env.APP_REVIEW_SURFACE_NOW === "string" ? env.APP_REVIEW_SURFACE_NOW.trim() : "";
-  if (raw.length > 0) {
-    const parsed = Date.parse(raw);
-    ensure(Number.isFinite(parsed), "APP_REVIEW_SURFACE_NOW is invalid");
-    return parsed;
-  }
-  return Date.now();
-}
-
 function issueHasMonitorMarker(issue, markerNeedle) {
   return typeof issue.body === "string" && issue.body.includes(markerNeedle);
 }
@@ -180,8 +160,7 @@ function mentionBody(appName, kind, assignee) {
   return [
     `@${assignee} ${appName} App Review ${outcome}.`,
     "",
-    "This issue is the durable captain record. Close it once you have seen the outcome.",
-    "A later monitor run fails if it is still open after 24 hours, so a dead poller cannot swallow it.",
+    "The monitor closes this issue now that it has told you. It stays here as the record; nothing needs closing by hand.",
     "",
     SURFACE_MARKER,
   ].join("\n");
@@ -273,14 +252,12 @@ class GithubClient {
         if (!hasTrustedActor(issue)) continue;
         ensure(Number.isSafeInteger(issue.number) && issue.number >= 1, "GitHub returned a malformed issue");
         ensure(["open", "closed"].includes(issue.state), "GitHub returned a malformed issue");
-        ensure(typeof issue.created_at === "string" && Number.isFinite(Date.parse(issue.created_at)), "GitHub returned a malformed issue");
         const assignees = Array.isArray(issue.assignees) ? issue.assignees : [];
         matches.push(Object.freeze({
           number: issue.number,
           state: issue.state,
           title: typeof issue.title === "string" ? issue.title : "",
           body: issue.body,
-          createdAt: Date.parse(issue.created_at),
           assignees: Object.freeze(assignees.map((entry) => (isObject(entry) ? entry.login : "")).filter(Boolean)),
         }));
       }
@@ -336,6 +313,13 @@ class GithubClient {
       "GitHub did not record the captain mention",
     );
   }
+
+  async close(number) {
+    const updated = await this.request("PATCH", `/repos/${this.repository}/issues/${number}`, {
+      body: { state: "closed", state_reason: "completed" },
+    });
+    ensure(isObject(updated) && updated.number === number && updated.state === "closed", "GitHub did not close the monitor notification");
+  }
 }
 
 function printSurface(payload) {
@@ -352,34 +336,41 @@ function printSurface(payload) {
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 
-function writeAnnotations(stale, staleAfterHours) {
-  for (const issue of stale) {
-    const hours = Math.floor(issue.ageMs / (60 * 60 * 1000));
+function writeAnnotations(closed) {
+  for (const number of closed) {
     process.stdout.write(
-      `::error title=Unacked App Review outcome::issue #${issue.number} has been open for ${hours}h (limit ${staleAfterHours}h)\n`,
+      `::notice title=App Review outcome delivered::issue #${number} was assigned, mentioned, and closed by the monitor\n`,
     );
   }
 }
 
-async function surfaceReviewOutcome({ monitor, config, assignee, staleAfterMs, now, client, sleep }) {
+// The engine opens a fresh issue only when it reports notified: true, and that
+// issue starts open. Every earlier decision of the same kind is already closed
+// here, so only an open match proves the fresh issue is visible to this run.
+function matchesObservation(issue, monitor, prefix) {
+  return issueKind(issue, prefix) === monitor.outcome
+    && (monitor.notified !== true || issue.state === "open");
+}
+
+async function surfaceReviewOutcome({ monitor, config, assignee, client, sleep }) {
   const terminal = SURFACED_OUTCOMES.has(monitor.outcome);
   let issues;
   for (let attempt = 1; attempt <= MAX_DISCOVERY_ATTEMPTS; attempt += 1) {
     issues = await client.listMonitorIssues(config.markerNeedle);
-    const matching = terminal
-      ? issues.filter((issue) => issueKind(issue, config.prefix) === monitor.outcome)
-      : issues;
-    if (!terminal || matching.length > 0) break;
+    if (!terminal || issues.some((issue) => matchesObservation(issue, monitor, config.prefix))) break;
     if (attempt < MAX_DISCOVERY_ATTEMPTS) await sleep(DISCOVERY_RETRY_MS);
   }
   if (terminal) {
-    const matching = issues.filter((issue) => issueKind(issue, config.prefix) === monitor.outcome);
-    ensure(matching.length > 0, `no exact-cycle ${monitor.outcome} issue exists to surface`);
+    ensure(
+      issues.some((issue) => matchesObservation(issue, monitor, config.prefix)),
+      `no exact-cycle ${monitor.outcome} issue exists to surface`,
+    );
   }
   const open = issues.filter((issue) => issue.state === "open");
 
   const assigned = [];
   const mentioned = [];
+  const closed = [];
   for (const issue of open) {
     if (!issue.assignees.includes(assignee)) {
       await client.assign(issue.number, assignee);
@@ -393,14 +384,10 @@ async function surfaceReviewOutcome({ monitor, config, assignee, staleAfterMs, n
       );
       mentioned.push(issue.number);
     }
+    // Delivery is proven above for this issue; closing it is the monitor's own ack.
+    await client.close(issue.number);
+    closed.push(issue.number);
   }
-
-  const stale = open
-    .filter((issue) => now - issue.createdAt >= staleAfterMs)
-    .map((issue) => Object.freeze({
-      number: issue.number,
-      ageMs: now - issue.createdAt,
-    }));
 
   return Object.freeze({
     outcome: monitor.outcome,
@@ -408,8 +395,7 @@ async function surfaceReviewOutcome({ monitor, config, assignee, staleAfterMs, n
     open: open.map((issue) => issue.number),
     assigned,
     mentioned,
-    stale: stale.map((issue) => issue.number),
-    staleIssues: stale,
+    closed,
   });
 }
 
@@ -439,9 +425,6 @@ async function main(env = process.env, argv = process.argv.slice(2), deps = {}) 
   const repository = requiredEnv(env, "GITHUB_REPOSITORY", 128);
   ensure(repository === config.repository, "this action runs only in the trusted configured repository");
   const assignee = parseAssignee(env);
-  const staleAfterMs = parseStaleAfterMs(env);
-  const staleAfterHours = staleAfterMs / (60 * 60 * 1000);
-  const now = parseNow(env, deps.now);
   const client = deps.client || new GithubClient(
     requiredEnv(env, "GITHUB_TOKEN"),
     repository,
@@ -451,8 +434,6 @@ async function main(env = process.env, argv = process.argv.slice(2), deps = {}) 
     monitor,
     config,
     assignee,
-    staleAfterMs,
-    now,
     client,
     sleep: deps.sleep || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))),
   });
@@ -462,19 +443,15 @@ async function main(env = process.env, argv = process.argv.slice(2), deps = {}) 
     open: result.open,
     assigned: result.assigned,
     mentioned: result.mentioned,
-    stale: result.stale,
+    closed: result.closed,
   });
-  if (result.stale.length > 0) {
-    writeAnnotations(result.staleIssues, staleAfterHours);
-    fail(`open App Review outcome issue ${result.stale[0]} has been unacked past ${staleAfterHours}h`);
-  }
+  writeAnnotations(result.closed);
   if (!monitorSucceeded) fail("monitor poll failed after GitHub reconciliation");
   return 0;
 }
 
 module.exports = {
   DEFAULT_ASSIGNEE,
-  DEFAULT_STALE_AFTER_HOURS,
   GithubClient,
   SURFACE_MARKER,
   SURFACED_OUTCOMES,

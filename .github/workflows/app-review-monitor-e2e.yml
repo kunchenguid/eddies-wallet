@@ -4,7 +4,8 @@ name: Prove App Review monitor against live ASC
 # SHA classifies Eddie's real App Store review state. It checks out that SHA,
 # reconstructs the read-only ASC client, and calls observeReviewStatus. The
 # surface_proof mode instead exercises the GitHub consumer with one isolated
-# throwaway issue and no App Store Connect access.
+# throwaway issue and no App Store Connect access: the consumer must assign the
+# captain, mention once, and close the issue itself in a passing run.
 #
 # Default live fixture: marketing version 0.1.17 against engine SHA 216a655
 # (kunchenguid/app-review-submit#7), classified against current ASC as approved
@@ -38,7 +39,7 @@ on:
           - unavailable
         default: approved
       surface_proof:
-        description: Run the isolated GitHub delivery and stale-consumer proof
+        description: Run the isolated GitHub delivery and self-close proof
         required: false
         type: boolean
         default: false
@@ -113,7 +114,7 @@ jobs:
         run: node tools/app-review/observe_review_fixture.js
 
   prove:
-    name: Deliver and catch a stale throwaway outcome
+    name: Deliver and close a throwaway outcome
     if: github.repository == 'kunchenguid/eddies-wallet' && inputs.surface_proof == true
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -160,12 +161,10 @@ jobs:
               || issue.number < 1
               || issue.user?.login !== "github-actions[bot]"
               || issue.user?.type !== "Bot"
-              || typeof issue.created_at !== "string"
-              || !Number.isFinite(Date.parse(issue.created_at))) {
+              || issue.state !== "open") {
             throw new Error("GitHub returned an invalid throwaway issue");
           }
-          const future = new Date(Date.parse(issue.created_at) + (2 * 60 * 60 * 1000)).toISOString();
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `issue_number=${issue.number}\ncreated_at=${issue.created_at}\nstale_now=${future}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `issue_number=${issue.number}\n`);
           }
           main().catch((error) => { console.error(error.message); process.exitCode = 1; });
           NODE
@@ -192,31 +191,23 @@ jobs:
           ].join("\n"));
           NODE
 
-      - name: Surface the throwaway and catch its stale age
+      - name: Surface and close the throwaway
         id: surface
-        continue-on-error: true
         env:
           APP_REVIEW_CONFIG: ${{ runner.temp }}/surface-e2e.config.json
           APP_REVIEW_MONITOR_SUCCEEDED: "true"
-          APP_REVIEW_SURFACE_NOW: ${{ steps.create.outputs.stale_now }}
-          APP_REVIEW_SURFACE_STALE_AFTER_HOURS: "1"
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          set +e
+          set -o pipefail
           node tools/app-review/surface_review_outcome.js "${RUNNER_TEMP}/surface-e2e.monitor.toon" 2>&1 | tee "${RUNNER_TEMP}/surface-e2e.output"
-          status=${PIPESTATUS[0]}
-          echo "exit_code=${status}" >> "$GITHUB_OUTPUT"
-          exit "$status"
 
-      - name: Verify real assignment, mention, and stale failure
+      - name: Verify real assignment, mention, and self-close
         id: verify
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           ISSUE_NUMBER: ${{ steps.create.outputs.issue_number }}
-          SURFACE_EXIT_CODE: ${{ steps.surface.outputs.exit_code }}
-          SURFACE_OUTCOME: ${{ steps.surface.outcome }}
           SURFACE_OUTPUT: ${{ runner.temp }}/surface-e2e.output
         run: |
           node <<'NODE'
@@ -224,8 +215,8 @@ jobs:
           const fs = require("node:fs");
           async function main() {
           const number = Number(process.env.ISSUE_NUMBER);
-          if (!Number.isSafeInteger(number) || number < 1 || process.env.SURFACE_OUTCOME !== "failure" || process.env.SURFACE_EXIT_CODE !== "1") {
-            throw new Error("the stale consumer did not fail as expected");
+          if (!Number.isSafeInteger(number) || number < 1) {
+            throw new Error("the throwaway issue number is missing");
           }
           const headers = {
             Accept: "application/vnd.github+json",
@@ -239,6 +230,12 @@ jobs:
           if (!issue.assignees?.some((assignee) => assignee.login === "kunchenguid")) {
             throw new Error("the throwaway issue was not assigned to the captain");
           }
+          if (issue.state !== "closed"
+              || issue.state_reason !== "completed"
+              || issue.closed_by?.login !== "github-actions[bot]"
+              || issue.closed_by?.type !== "Bot") {
+            throw new Error("the consumer did not close the throwaway issue itself");
+          }
           const commentsResponse = await fetch(`${base}/comments`, { headers });
           if (commentsResponse.status !== 200) throw new Error("GitHub did not return the throwaway comments");
           const comments = await commentsResponse.json();
@@ -247,11 +244,13 @@ jobs:
             && comment.body?.includes("@kunchenguid ")
             && comment.body?.includes("<!-- eddies-app-review-surface:v1 -->"));
           if (!Number.isSafeInteger(mention?.id)) throw new Error("the bot-authored captain mention is missing");
+          if (Date.parse(issue.closed_at) < Date.parse(mention.created_at)) {
+            throw new Error("the throwaway issue was closed before the captain mention");
+          }
           const output = fs.readFileSync(process.env.SURFACE_OUTPUT, "utf8");
-          if (!output.includes(`  stale: [${number}]`)
-              || !output.includes("Unacked App Review outcome")
-              || !output.includes("unacked past 1h")) {
-            throw new Error("the stale failure did not identify the throwaway issue");
+          if (!output.includes(`  closed: [${number}]`)
+              || !output.includes(`issue #${number} was assigned, mentioned, and closed by the monitor`)) {
+            throw new Error("the consumer output did not report closing the throwaway issue");
           }
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
             "### App Review surface E2E",
@@ -259,8 +258,8 @@ jobs:
             `- Throwaway issue: #${number}`,
             "- Assignment: `kunchenguid`",
             `- Mention comment id: ${mention.id}`,
-            `- Stale consumer exit: ${process.env.SURFACE_EXIT_CODE}`,
-            "- Result: delivery and stale failure proven",
+            `- Closed by: \`${issue.closed_by.login}\` (${issue.state_reason}) at ${issue.closed_at}`,
+            "- Result: delivery and self-close proven in a passing consumer run",
             "",
           ].join("\n"));
           }
@@ -294,6 +293,7 @@ jobs:
               || !issue.body?.includes(`<!-- ${process.env.SURFACE_PREFIX}:v1:`)) {
             throw new Error("refusing to close an issue outside the isolated proof namespace");
           }
+          if (issue.state === "closed") return;
           const closed = await fetch(url, {
             method: "PATCH",
             headers,
