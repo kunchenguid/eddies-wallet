@@ -21,21 +21,17 @@ What's New is new: an update copies its App Review notes from the baseline, and
 create-version under `listingPolicy: observe` refuses inherited listing
 screenshots that do not match the manifest, so both stay the approved 0.1.19
 content. 0.1.21 was submitted on 2026-10-12 Pacific (the submit job finished at
-2026-10-12T23:36:08Z) with Apple reporting `WAITING_FOR_REVIEW`; that cycle
-needed no `mode=upload`, and the monitor variable `APP_REVIEW_MONITOR_VERSION`
-is `0.1.21`. Read the live monitor issue before claiming a newer review state.
-This file's step list is the procedure for the next version; it is not a claim
-that review is still held.
+2026-10-12T23:36:08Z), needed no `mode=upload`, and was approved on 2026-10-13
+(monitor issue #160).
 
-0.1.21 was approved on 2026-10-13 (monitor issue #160).
-`tools/app-review/manifests/0.1.22.json` is the next update manifest (baseline
-0.1.21, build 25.1, release type AFTER_APPROVAL) and the first to carry the
-redesigned Parent area. Its listing copy and Cloud review content are the live
-0.1.21 content, because `listingPolicy: observe` holds them to the baseline;
-What's New is new. It is generated from `app-review.config.json` as it stands
-now: `reviewDetails.notes` sends the reviewer through the Settings gear to
-Cloud and names the child's Pay back, and `listing.screenshotDirectory` names
-`tools/app-review/assets/screenshots/parent-redesign/`.
+`tools/app-review/manifests/0.1.22.json` is the update manifest after that
+(baseline 0.1.21, build 25.1, release type AFTER_APPROVAL) and the first to
+carry the redesigned Parent area. Its listing copy and Cloud review content
+are the live 0.1.21 content, because `listingPolicy: observe` holds them to the
+baseline; What's New is new. It is generated from `app-review.config.json` as
+it stands now: `reviewDetails.notes` sends the reviewer through the Settings
+gear to Cloud and names the child's Pay back, and `listing.screenshotDirectory`
+names `tools/app-review/assets/screenshots/parent-redesign/`.
 The engine pin `4e0d2562` writes those notes over the inherited ones and
 replaces the inherited screenshot sets during `mode=create-version`. Every
 adapter lane refuses when `config.reviewDetails.notes` differs from the
@@ -43,6 +39,14 @@ manifest's App Review notes, because create-version, assemble, upload, and
 submit restore the config from the dispatch commit, not the manifest commit.
 So the 0.1.17, 0.1.19, and 0.1.21 manifests can no longer drive those lanes
 from `main`: a resubmission of 0.1.21 needs its own new manifest.
+
+0.1.22 was submitted on 2026-10-22 Pacific (the submit job finished at
+2026-10-23T03:48:52Z) with Apple reporting `WAITING_FOR_REVIEW`. Its
+create-version run left only assemble to do, so that cycle needed no
+`mode=upload` either, and the monitor variable `APP_REVIEW_MONITOR_VERSION` is
+`0.1.22`. Read the live monitor issue before claiming a newer review state.
+This file's step list is the procedure for the next version; it is not a claim
+that review is still held.
 
 ## The gate
 
