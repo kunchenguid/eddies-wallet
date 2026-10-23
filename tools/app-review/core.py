@@ -38,6 +38,10 @@ LISTING_FIELDS = (
     "supportUrl",
     "whatsNew",
 )
+# Listing copy an update manifest may change from its baseline manifest by
+# naming the field in `listing.copyWrites`. Every other listing field except
+# What's New stays the baseline's, which observe already held to live.
+LISTING_COPY_WRITE_FIELDS = ("description", "keywords", "promotionalText")
 CLOUD_PRODUCT_IDS = (
     "com.kunchenguid.eddieswallet.cloud.monthly",
     "com.kunchenguid.eddieswallet.cloud.annual",
@@ -189,12 +193,27 @@ def listing_screenshot_relative_path(
 
 
 def _validate_listing_policy(value: object) -> Mapping[str, Any]:
-    policy = _exact_keys(value, ("screenshotWrites",), "listing", "E_MANIFEST")
+    require(_is_mapping(value), "E_MANIFEST", "listing must be an object")
+    keys = ["screenshotWrites"]
+    if "copyWrites" in value:
+        keys.append("copyWrites")
+    policy = _exact_keys(value, keys, "listing", "E_MANIFEST")
     require(
         policy["screenshotWrites"] is True or policy["screenshotWrites"] is False,
         "E_MANIFEST",
         "listing.screenshotWrites must be a boolean",
     )
+    if "copyWrites" in policy:
+        fields = policy["copyWrites"]
+        require(
+            isinstance(fields, list)
+            and len(fields) > 0
+            and all(field in LISTING_COPY_WRITE_FIELDS for field in fields)
+            and len(set(fields)) == len(fields),
+            "E_MANIFEST",
+            "listing.copyWrites must name distinct fields from "
+            + ", ".join(LISTING_COPY_WRITE_FIELDS),
+        )
     return policy
 
 
@@ -621,8 +640,13 @@ def validate_manifest(value: object) -> Mapping[str, Any]:
         "E_MANIFEST",
         "manifest app identity is not Eddie's Wallet iOS",
     )
-    _validate_candidate(manifest["candidate"])
-    _validate_listing_policy(manifest["listing"])
+    candidate = _validate_candidate(manifest["candidate"])
+    listing_policy = _validate_listing_policy(manifest["listing"])
+    require(
+        "copyWrites" not in listing_policy or "baselineVersion" in candidate,
+        "E_MANIFEST",
+        "listing.copyWrites needs an update manifest with a baseline version",
+    )
     validate_source_content(manifest["content"])
     require(
         isinstance(manifest["contentHash"], str)

@@ -232,6 +232,57 @@ function approvedReviewNotes(manifest, config) {
   return approved;
 }
 
+// Listing copy is written only when the captain-approved manifest itself
+// declares the change: `listing.copyWrites` names each field that differs from
+// the baseline manifest, and every other listing field except What's New must
+// still equal that baseline, which observe already held to the live version.
+// core.py owns which fields may be named; every lane validates the manifest
+// with it before this adapter runs.
+function approvedCopyWrites(sourceRoot, manifest) {
+  const declared = manifest.listing && manifest.listing.copyWrites;
+  if (declared === undefined) return Object.freeze([]);
+  if (
+    !Array.isArray(declared)
+    || declared.length === 0
+    || declared.some((name) => typeof name !== "string")
+    || new Set(declared).size !== declared.length
+  ) {
+    fail("manifest listing.copyWrites must name distinct listing fields");
+  }
+  const baselineVersion = manifest.candidate.baselineVersion;
+  if (typeof baselineVersion !== "string" || baselineVersion === "") {
+    fail("listing.copyWrites needs an update manifest with baselineVersion");
+  }
+  const baseline = loadManifest(sourceRoot, baselineVersion).content.listing;
+  const listing = manifest.content.listing;
+  for (const name of new Set([...Object.keys(baseline), ...Object.keys(listing)])) {
+    if (name === "whatsNew") continue;
+    const changed = listing[name] !== baseline[name];
+    if (declared.includes(name) && !changed) {
+      fail(`listing.copyWrites names ${name}, but it equals the ${baselineVersion} manifest`);
+    }
+    if (!declared.includes(name) && changed) {
+      fail(`listing ${name} differs from the ${baselineVersion} manifest, but listing.copyWrites does not name it`);
+    }
+  }
+  return Object.freeze([...declared]);
+}
+
+// The engine writes listing copy only while `listing` is an alignment write.
+// The committed config never carries it; a manifest that declares copy writes
+// adds it for that one run.
+function engineConfigFor(config, copyWrites) {
+  const alignmentWrites = config.listing.alignmentWrites;
+  if (Array.isArray(alignmentWrites) && alignmentWrites.includes("listing")) {
+    fail("config.listing.alignmentWrites must not include listing; the approved manifest declares copy writes");
+  }
+  if (copyWrites.length === 0) return config;
+  return {
+    ...config,
+    listing: { ...config.listing, alignmentWrites: [...alignmentWrites, "listing"] },
+  };
+}
+
 function buildEngineSource(sourceRoot, manifest, config) {
   approvedReviewNotes(manifest, config);
   const listing = manifest.content.listing;
@@ -361,9 +412,9 @@ function writeOwnerOnlyFile(filePath, contents) {
   return filePath;
 }
 
-function loadEngine(engineDir, configPath) {
+function loadEngine(engineDir, engineConfig) {
   const configModule = require(path.join(engineDir, "config.js"));
-  configModule.setActiveConfig(configPath);
+  configModule.setActiveConfig(engineConfig);
   return require(path.join(engineDir, "app_review_submit.js"));
 }
 
@@ -459,6 +510,8 @@ async function runEngine({
     (verifyEvidence || verifyEddieEvidence)(processEnv, toolsDir);
   }
   const source = buildEngineSource(sourceRoot, manifest, config);
+  const copyWrites = approvedCopyWrites(sourceRoot, manifest);
+  const engineConfig = engineConfigFor(config, copyWrites);
 
   const scratch = ownerOnlyDirectory(path.join(
     processEnv.RUNNER_TEMP || path.join(sourceRoot, ".build"),
@@ -516,8 +569,8 @@ async function runEngine({
   }
 
   const engine = loadEngineModules
-    ? loadEngineModules()
-    : loadEngine(engineDir, configPath);
+    ? loadEngineModules(engineConfig)
+    : loadEngine(engineDir, engineConfig);
   let handoff = monitorVariable;
   if (!assembleOnly && !uploadScreenshots && !createVersion && !handoff) {
     const tokenName = config.env && config.env.monitorVariableToken;
@@ -551,7 +604,7 @@ async function runEngine({
       version: result.version,
       build: result.build,
     }, null, 2) + "\n";
-  return Object.freeze({ args, result, output, source });
+  return Object.freeze({ args, result, output, source, copyWrites });
 }
 
 async function runAssemble({ argv, env, runSubmission, loadEngineModules, verifyEvidence, monitorVariable } = {}) {
@@ -592,8 +645,10 @@ module.exports = {
   assertUploaded,
   assertSubmitted,
   assertVersionCreated,
+  approvedCopyWrites,
   approvedReviewNotes,
   buildEngineSource,
+  engineConfigFor,
   confirmedVersion,
   descriptionWithAppliedEula,
   fail,
