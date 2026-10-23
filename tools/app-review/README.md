@@ -53,7 +53,7 @@ Store Connect. `test/release-checks.sh` runs these suites.
 | `append_standard_eula.py` | One-shot Guideline 3.1.2 remediation: GET the 0.1.17 en-US description, append Apple's standard EULA line if absent, PATCH only that field, GET to verify. It does not import a Python write boundary. |
 | `observe_review_status.js` | GET-only live classifier: loads the pinned engine and calls `observeReviewStatus`. Used by `app-review-monitor-e2e.yml`. |
 | `observe_review_fixture.js` | GET-only classifier for the recorded 8e9fbd18-shape double-submission rejection fixture. Never contacts Apple. |
-| `surface_review_outcome.js` | Mini-independent captain surfacing: assigns, mentions once, and fails open unacked monitor issues after 24 hours. |
+| `surface_review_outcome.js` | Mini-independent captain surfacing: assigns, mentions once, then closes each open monitor issue itself. |
 
 ## Mutation boundary
 

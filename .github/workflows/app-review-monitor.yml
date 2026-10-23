@@ -65,9 +65,9 @@ jobs:
           set -euo pipefail
           node .app-review-submit/app_review_pipeline.js monitor | tee "${RUNNER_TEMP}/monitor.toon"
 
-      # GitHub-native surfacing: assign the captain, mention once, and fail if an
-      # outcome issue stays open past 24h. This path does not depend on any
-      # firstmate home being alive. Closing the issue is the captain ack.
+      # GitHub-native surfacing: assign the captain, mention once, then close the
+      # outcome issue itself. This path does not depend on any firstmate home
+      # being alive, and the captain never closes an outcome issue by hand.
       - name: Surface the terminal outcome to the captain
         if: always()
         env:
