@@ -27,10 +27,15 @@ is `0.1.21`. Read the live monitor issue before claiming a newer review state.
 This file's step list is the procedure for the next version; it is not a claim
 that review is still held.
 
-The next update after 0.1.21 carries the redesigned Parent area. Its manifest
-is generated from `app-review.config.json` as it stands now: `reviewDetails.notes`
-sends the reviewer through the Settings gear to Cloud, and
-`listing.screenshotDirectory` names `tools/app-review/assets/screenshots/parent-redesign/`.
+0.1.21 was approved on 2026-10-13 (monitor issue #160).
+`tools/app-review/manifests/0.1.22.json` is the next update manifest (baseline
+0.1.21, build 25.1, release type AFTER_APPROVAL) and the first to carry the
+redesigned Parent area. Its listing copy and Cloud review content are the live
+0.1.21 content, because `listingPolicy: observe` holds them to the baseline;
+What's New is new. It is generated from `app-review.config.json` as it stands
+now: `reviewDetails.notes` sends the reviewer through the Settings gear to
+Cloud and names the child's Pay back, and `listing.screenshotDirectory` names
+`tools/app-review/assets/screenshots/parent-redesign/`.
 The engine pin `4e0d2562` writes those notes over the inherited ones and
 replaces the inherited screenshot sets during `mode=create-version`. Every
 adapter lane refuses when `config.reviewDetails.notes` differs from the

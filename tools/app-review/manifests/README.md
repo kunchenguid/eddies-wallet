@@ -13,6 +13,7 @@ invalidates the file rather than quietly changing what gets submitted.
 
 `0.1.17.json` is the first captain-approved manifest, now present on `main`.
 `0.1.19.json` is the generated update candidate for marketing version 0.1.19
-(baseline 0.1.17), and `0.1.21.json` the one for 0.1.21 (baseline 0.1.19).
+(baseline 0.1.17), `0.1.21.json` the one for 0.1.21 (baseline 0.1.19), and
+`0.1.22.json` the one for 0.1.22 (baseline 0.1.21).
 Later versions get their own generated `<version>.json` the same way: generate
 the file, never hand-write it, and merge it after captain review. See `docs/app-review.md` and `tools/app-review/README.md`.
