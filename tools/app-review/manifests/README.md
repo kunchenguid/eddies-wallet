@@ -17,3 +17,11 @@ invalidates the file rather than quietly changing what gets submitted.
 `0.1.22.json` the one for 0.1.22 (baseline 0.1.21).
 Later versions get their own generated `<version>.json` the same way: generate
 the file, never hand-write it, and merge it after captain review. See `docs/app-review.md` and `tools/app-review/README.md`.
+
+`content.listing.description` is the text of
+`tools/app-review/listing/description.txt` without its final newline; the other
+listing copy is the baseline manifest's. A listing field that differs from the
+baseline manifest, other than What's New, must be named in `listing.copyWrites`
+(`build_manifest(..., listing={"screenshotWrites": True, "copyWrites": [...]})`),
+or every mutation lane refuses the manifest. The next manifest after 0.1.22
+declares `["description"]`; see `docs/app-review.md` "Listing copy changes".

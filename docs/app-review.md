@@ -44,9 +44,34 @@ from `main`: a resubmission of 0.1.21 needs its own new manifest.
 2026-10-23T03:48:52Z) with Apple reporting `WAITING_FOR_REVIEW`. Its
 create-version run left only assemble to do, so that cycle needed no
 `mode=upload` either, and the monitor variable `APP_REVIEW_MONITOR_VERSION` is
-`0.1.22`. Read the live monitor issue before claiming a newer review state.
-This file's step list is the procedure for the next version; it is not a claim
-that review is still held.
+`0.1.22`. 0.1.22 was approved on 2026-10-23 (monitor issue #174) and is the
+live baseline for the next update. Read the live monitor issue before claiming
+a newer review state. This file's step list is the procedure for the next
+version; it is not a claim that review is still held.
+
+## Listing copy changes
+
+Live listing copy changes only through an update manifest that declares the
+change. The manifest's `listing.copyWrites` names each changed field
+(`description`, `keywords`, or `promotionalText`; `core.py` owns that set), and
+`content.listing` carries the new copy, so the captain approves both by merging
+the manifest. Every other listing field except What's New must equal the
+baseline manifest's, which create-version under observe already held to the
+live baseline. The adapters refuse any other difference before the engine runs.
+For that one run they add `listing` to the engine's alignment writes, so
+create-version writes the declared copy into the new version's localization
+instead of refusing copy that differs from the live baseline. The committed
+config never carries `listing` in `alignmentWrites`, and `listingPolicy` stays
+`observe`. Apple accepts a description write only on an editable version, so a
+copy change reaches the store with the next approved version, never on the
+live one.
+
+`tools/app-review/listing/description.txt` is the approved App Store
+description; a manifest's `content.listing.description` is that file's text
+without its final newline. Its current text no longer says the child cannot
+change the wallet: since 0.1.22 the child can pay back their own loan
+(`docs/product-requirements.md` 8.9). The live 0.1.22 description still says
+it, so the next update manifest declares `listing.copyWrites: ["description"]`.
 
 ## The gate
 
@@ -70,7 +95,9 @@ Submission is gated by two independent things, and both are the captain's.
    manifest after the live-baseline check, writes `config.reviewDetails.notes`
    over the App Review notes the version inherited, and makes every listing
    screenshot set exact, replacing inherited sets, under
-   `listingPolicy: observe`. It never
+   `listingPolicy: observe`. Listing copy the manifest declares in
+   `listing.copyWrites` is written instead of checked against the live
+   baseline (see [Listing copy changes](#listing-copy-changes)). It never
    submits. `mode=assemble` stages the review submission and stops
    before Submit. `mode=upload` writes listing screenshots while the version is
    editable if a slot still needs it after create-version, and does not submit
@@ -134,8 +161,9 @@ for `kunchenguid/app-review-submit`, not a console chore.
   observe`.
 - Bound-build attach and `releaseType` (`alignmentWrites`).
 - Create a missing App Store update version when `alignmentWrites` includes
-  `version` (`listingPolicy` stays `observe`, so live listing copy is never
-  written). `mode=create-version` is that lane: no reviewer-path evidence,
+  `version` (`listingPolicy` stays `observe`, so listing copy is written only
+  where the approved manifest declares `listing.copyWrites`).
+  `mode=create-version` is that lane: no reviewer-path evidence,
   update-only (a first-release manifest is refused). Copyright on create still
   comes from `config.reviewDetails.copyright`. 0.1.17 already carries it;
   0.1.19 receives it on create. The same lane populates the full empty
@@ -174,8 +202,10 @@ as `SCREENSHOT_UPLOAD_ENGINE_ARGV`, is `node app_review_pipeline.js
 upload-screenshots`. Create-version's CLI pin is `CREATE_VERSION_ENGINE_ARGV`:
 `node app_review_pipeline.js create-version`. Opt-in is
 `listing.screenshotWrites=true` on the captain-approved manifest and config.
-`listingPolicy` stays `observe` so listing copy is never written. Do not add
-`listing` or `screenshots` to `alignmentWrites`. Asset path
+`listingPolicy` stays `observe`. Do not add `listing` or `screenshots` to the
+config's `alignmentWrites`: listing copy is written only for a manifest that
+declares `listing.copyWrites`, and the adapters add `listing` for that run
+alone. Asset path
 is `{sourceRoot}/{listing.screenshotDirectory joined}/{fileName}`. Manifest
 `content.screenshots[]` is `{displayType,width,height,files[{fileName,fileSize,sha256}]}`.
 The engine computes MD5 of those bytes as Apple's `sourceFileChecksum`. These
@@ -193,7 +223,7 @@ ever drift, the fix is an engine write, not a console paste.
 
 | Surface | Current engine | 0.1.17 |
 | --- | --- | --- |
-| Listing copy (description, keywords, what's new, URLs, name, subtitle) | Writes only if `listingWritesAllowed("listing")`. This cycle stays `observe`. | Live matches, including the standard EULA line. |
+| Listing copy (description, keywords, what's new, URLs, name, subtitle) | Writes only if `listingWritesAllowed("listing")`, which the adapters turn on for a manifest that declares `listing.copyWrites`. Otherwise `observe`. | Live matches, including the standard EULA line. The description's read-only child sentence changes with the next update ([Listing copy changes](#listing-copy-changes)). |
 | Cloud IAP review screenshots | Asserts products reviewable and attaches them. Does not upload review screenshots. Demo-preflight requires delivered bytes. | Both products `COMPLETE` (historical API upload). |
 | Age rating | GET-validates present. Does not PATCH `ageRatingDeclarations`. | Already saved. |
 | Content rights / Made for Kids | GET-validates `config.protected`. Does not PATCH. | Live matches. |
@@ -220,7 +250,7 @@ Eddie-side flags for them, and do not ask the captain to do them in the UI.
 | 3. Attended functional proof | One physical-device proof of Sign in with Apple, the Parent gate, the Cloud plan offer, an Apple review or sandbox purchase, and Cloud activation, using a synthetic test account. A runner cannot do this: both steps are user-mediated. | Nothing in this repository. |
 | 4. Approve the manifest | Generate the manifest from the final candidate and merge it after captain review. | The repository only. |
 | 5. `app-review-prepare.yml` | Verifies the manifest, the double-confirm, and that every approved image still has its approved bytes; opens the durable recovery record. Then reconciles the manifest against authoritative Apple state, GET-only, including the default exact live listing-screenshot match. | The recovery issue only. |
-| 6. `app-review-submit.yml` with `mode=create-version` | For a missing update only. No reviewer-path evidence. Checks out the pinned shared engine and runs `create_version.js --create-version` onto `runSubmission({ createVersion: true })` with `CREATE_VERSION_ENGINE_ARGV` set to `["node","app_review_pipeline.js","create-version"]`. Creates the App Store version, populates the full empty auto-created en-US localization from the approved manifest after the live-baseline check, writes `config.reviewDetails.notes` over the inherited App Review notes, and makes every listing screenshot set exact, replacing inherited sets. `listingPolicy` stays `observe`. A first-release manifest is refused. It never submits (`status: version_created`, `submitted: false`). Skip this step when the version already exists. | New version, localization, App Review notes, and listing screenshot sets. |
+| 6. `app-review-submit.yml` with `mode=create-version` | For a missing update only. No reviewer-path evidence. Checks out the pinned shared engine and runs `create_version.js --create-version` onto `runSubmission({ createVersion: true })` with `CREATE_VERSION_ENGINE_ARGV` set to `["node","app_review_pipeline.js","create-version"]`. Creates the App Store version, populates the full empty auto-created en-US localization from the approved manifest after the live-baseline check, writes `config.reviewDetails.notes` over the inherited App Review notes, and makes every listing screenshot set exact, replacing inherited sets. `listingPolicy` stays `observe`; copy the manifest declares in `listing.copyWrites` is written too. A first-release manifest is refused. It never submits (`status: version_created`, `submitted: false`). Skip this step when the version already exists. | New version, localization, App Review notes, and listing screenshot sets. |
 | 7. `app-review-demo-preflight.yml` | Proves the public reviewer path: the exact candidate and bound build, both Cloud products reviewable with delivered matching review assets, and the production service publishing Cloud activation with exactly those two products. When `listing.screenshotWrites` is true, it defers only the live listing-screenshot match because create-version (or a later `mode=upload`) owns that live write. Emits base64 readiness evidence. Requires the App Store version to exist, so it runs after create-version for a missing update. Assemble stays evidence-gated, so this cannot move after assemble. | Nothing. |
 | 8. `app-review-submit.yml` with `mode=verify` | Re-checks the manifest, the bytes, the listing-screenshot preflight, the evidence freshness, and the recovery record, with no Apple credential. | Nothing. |
 | 9. `app-review-submit.yml` with `mode=assemble` | Checks out the pinned shared engine and runs assemble-only (`--assemble-only`, plus `--first-release` only for a first-release manifest). Requires fresh demo-preflight evidence. The engine accepts a `REJECTED` first-release target, writes App Info categories from config (`EDUCATION` + `FINANCE`), reuses the unresolved review submission by readback, attaches the app version, and attaches only Cloud subscription / group versions that still need review (already-approved ones on an update are skipped), proves every attached item by authoritative readback, then hard-returns before Submit (`status: assembled`, `submitted: false`). After create-version (and after upload if a slot still needed it), this attaches the version; Cloud items already on the draft stay. | App Store Connect assembly only. |
@@ -319,7 +349,8 @@ marketing version). Assemble-only does not write that variable; the gated
   captain gates.
 - Release. The manifest may only choose `MANUAL` or `AFTER_APPROVAL`.
 - Send the captain to App Store Connect for an API-able step. Listing copy
-  stays `observe` this cycle because live 0.1.17 already matches. First-release
+  stays `observe` unless an approved update manifest declares
+  `listing.copyWrites`; create-version then writes that copy. First-release
   assemble writes review contact, notes, and `demoAccountRequired: false`.
   Listing screenshot upload for a missing update is `mode=create-version`;
   `mode=upload` is only if a slot still needs a write. Neither submits.

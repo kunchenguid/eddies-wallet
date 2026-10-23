@@ -1,0 +1,28 @@
+Eddie's Wallet is a calm, parent-managed allowance ledger that helps one child practice everyday money ideas. Every balance is virtual, pretend, and nonredeemable. No real money moves through the app, and it never connects to banks, cards, cash-out, or payment services.
+
+KID-FIRST BY DESIGN
+
+The child's wallet is the home screen. A child can see an allowance balance, recent activity, and an open loan in clear everyday language. A child can also pay back an open loan from the virtual dollars in the wallet. Apart from that payment, the child cannot change the wallet, sign in, or make a purchase.
+
+PARENTS RECORD THE CHANGES
+
+A parent signs in with Apple to set up the wallet and chooses a four-digit PIN for the Parent area. From there, a parent can set an allowance and record virtual deposits, withdrawals, loans, and repayments. Every parent money flow makes clear that the dollars are practice only and cannot be redeemed.
+
+FREE ON ONE DEVICE
+
+The complete free wallet is stored on the device. After setup, it works without a network connection, so a family can keep recording and reviewing virtual allowance activity offline.
+
+OPTIONAL CLOUD BACKUP AND SYNC
+
+Cloud is an optional auto-renewable subscription for one household. It backs up the wallet and syncs it across devices signed in with the same parent Apple Account. The free wallet remains useful without Cloud, and ending Cloud does not delete the wallet already on the device.
+
+- Cloud monthly: US$2.99 per month
+- Cloud annual: US$24.99 per year
+
+Payment is charged to your Apple Account at confirmation of purchase. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Your account is charged for renewal within 24 hours before the end of the current period. You can manage or cancel subscriptions in your Apple Account settings after purchase.
+
+Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+
+VIRTUAL MONEY ONLY
+
+Allowances, deposits, withdrawals, and loans in Eddie's Wallet are a family practice ledger. They cannot be transferred, spent, exchanged, or redeemed for anything of value.

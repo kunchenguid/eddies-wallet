@@ -10,7 +10,9 @@
 // populates its full empty auto-created en-US localization from the approved
 // manifest after the live-baseline check, writes config.reviewDetails.notes
 // over the inherited App Review notes, and makes every listing screenshot set
-// exact, replacing inherited sets. The shared pipeline equivalent, pinned by
+// exact, replacing inherited sets. Listing copy the manifest declares in
+// listing.copyWrites is written instead of held to the live baseline; the
+// shared runEngine owns that mapping. The shared pipeline equivalent, pinned by
 // CREATE_VERSION_ENGINE_ARGV, is `node app_review_pipeline.js create-version`.
 // Assemble, upload, and submit stay evidence-gated.
 

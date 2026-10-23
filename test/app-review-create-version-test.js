@@ -34,6 +34,61 @@ function baseEnv() {
   };
 }
 
+// A next update after 0.1.22 in a scratch checkout: the 0.1.22 manifest as its
+// baseline, the Parent-redesign screenshot bytes, and a 9.9.9 manifest built
+// from the baseline by `change`.
+function nextUpdateCheckout(change) {
+  const config = approved.committedConfig();
+  const baseline = approved.readManifest("0.1.22");
+  const directory = config.listing.screenshotDirectory;
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "eddies-copy-write-")));
+  fs.mkdirSync(path.join(root, ...directory), { recursive: true });
+  for (const spec of config.listing.screenshotSpecs) {
+    for (const fileName of spec.files) {
+      fs.copyFileSync(path.join(ROOT, ...directory, fileName), path.join(root, ...directory, fileName));
+    }
+  }
+  const manifest = structuredClone(baseline);
+  manifest.candidate = { ...baseline.candidate, version: "9.9.9", build: "99.1", baselineVersion: "0.1.22" };
+  manifest.content.listing.whatsNew = "Next update notes.";
+  change(manifest);
+  const manifests = path.join(root, "tools", "app-review", "manifests");
+  fs.mkdirSync(manifests, { recursive: true });
+  fs.writeFileSync(path.join(manifests, "0.1.22.json"), `${JSON.stringify(baseline, null, 2)}\n`);
+  fs.writeFileSync(path.join(manifests, "9.9.9.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return root;
+}
+
+function approvedDescription() {
+  return fs.readFileSync(path.join(ROOT, "tools", "app-review", "listing", "description.txt"), "utf8").replace(/\n$/u, "");
+}
+
+async function createNextUpdate(root, configPath = approved.CONFIG_PATH) {
+  const env = baseEnv();
+  env.GITHUB_WORKSPACE = root;
+  env.EDDIES_APP_REVIEW_VERSION = "9.9.9";
+  env.EDDIES_APP_REVIEW_CONFIRM = "9.9.9";
+  env.APP_REVIEW_CONFIG = configPath;
+  const calls = [];
+  try {
+    const created = await adapter.runCreateVersion({
+      argv: ["--create-version"],
+      env,
+      loadEngineModules: (engineConfig) => {
+        calls.push({ engineConfig });
+        return { formatSuccess: () => "" };
+      },
+      runSubmission: async (args, credentials, dependencies) => {
+        calls[calls.length - 1].dependencies = dependencies;
+        return { result: { status: "version_created", submitted: false, remaining: "assemble" } };
+      },
+    });
+    return { created, calls };
+  } finally {
+    fs.rmSync(env.RUNNER_TEMP, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   await test("create-version requires --create-version and refuses submit", () => {
     assert.throws(() => adapter.parseCreateVersionArgv([]), /create-version is required/);
@@ -349,6 +404,95 @@ async function main() {
       mapped.map((file) => [file.filePath, file.sha256]),
       bound.map((file) => [path.join(directory, file.fileName), file.sha256]),
     );
+  });
+
+  // EDW-34: the store description still says the child "cannot change" the
+  // wallet after 0.1.22 gave the child Pay back. The next update's approved
+  // manifest declares the new description, and create-version must hand the
+  // engine a listing write for that run so the copy reaches the new version.
+  await test("create-version writes the description a next update manifest declares", async () => {
+    const description = approvedDescription();
+    assert.notEqual(description, approved.readManifest("0.1.22").content.listing.description);
+    const root = nextUpdateCheckout((manifest) => {
+      manifest.listing = { ...manifest.listing, copyWrites: ["description"] };
+      manifest.content.listing.description = description;
+    });
+    let outcome;
+    try {
+      outcome = await createNextUpdate(root);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+    const committed = approved.committedConfig();
+    assert.equal(outcome.calls.length, 1);
+    const { engineConfig, dependencies } = outcome.calls[0];
+    assert.deepEqual(engineConfig.listing.alignmentWrites, [...committed.listing.alignmentWrites, "listing"]);
+    assert.equal(engineConfig.listingPolicy, "observe");
+    assert.equal(dependencies.source.metadata.description, description);
+    assert.deepEqual(outcome.created.copyWrites, ["description"]);
+  });
+
+  await test("create-version keeps listing copy observe-only when the manifest declares no copy writes", async () => {
+    const root = nextUpdateCheckout(() => {});
+    let outcome;
+    try {
+      outcome = await createNextUpdate(root);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+    const committed = approved.committedConfig();
+    assert.deepEqual(outcome.calls[0].engineConfig.listing.alignmentWrites, committed.listing.alignmentWrites);
+    assert.deepEqual(outcome.created.copyWrites, []);
+  });
+
+  await test("create-version refuses listing copy changes the manifest does not declare exactly", async () => {
+    const cases = [
+      [
+        (manifest) => {
+          manifest.listing = { ...manifest.listing, copyWrites: ["description"] };
+          manifest.content.listing.description = approvedDescription();
+          manifest.content.listing.keywords = `${manifest.content.listing.keywords},chores`;
+        },
+        /listing keywords differs from the 0\.1\.22 manifest, but listing\.copyWrites does not name it/,
+      ],
+      [
+        (manifest) => {
+          manifest.listing = { ...manifest.listing, copyWrites: ["description"] };
+        },
+        /listing\.copyWrites names description, but it equals the 0\.1\.22 manifest/,
+      ],
+    ];
+    for (const [change, refusal] of cases) {
+      const root = nextUpdateCheckout(change);
+      try {
+        await assert.rejects(
+          () => createNextUpdate(root).then(({ calls }) => {
+            if (calls.length > 0) throw new Error("must not reach the engine");
+          }),
+          refusal,
+        );
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  await test("create-version refuses a config that turns listing copy writes on for every manifest", async () => {
+    const config = approved.committedConfig();
+    config.listing.alignmentWrites = [...config.listing.alignmentWrites, "listing"];
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "eddies-listing-config-"));
+    const configPath = path.join(directory, "app-review.config.json");
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    const root = nextUpdateCheckout(() => {});
+    try {
+      await assert.rejects(
+        () => createNextUpdate(root, configPath),
+        /config\.listing\.alignmentWrites must not include listing/,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   process.stdout.write("all create-version adapter tests passed\n");

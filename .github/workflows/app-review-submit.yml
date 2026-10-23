@@ -35,7 +35,8 @@ name: App Review submission
 #              manifest after the live-baseline check, writes
 #              config.reviewDetails.notes over the inherited App Review notes,
 #              and makes every listing screenshot set exact, replacing
-#              inherited sets, under listingPolicy observe.
+#              inherited sets, under listingPolicy observe. Listing copy the
+#              manifest declares in listing.copyWrites is written for that run.
 #              `--first-release` is refused: this lane is update-only.
 #              It never asks the engine to submit.
 #   assemble - mutation-capable App Store Connect credentials. It checks out

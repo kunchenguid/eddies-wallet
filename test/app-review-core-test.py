@@ -272,6 +272,55 @@ class AppReviewCoreTests(unittest.TestCase):
                 {"fileName", "fileSize", "sha256"},
             )
 
+    def test_an_update_manifest_binds_the_listing_copy_it_declares_changed(self):
+        # EDW-34: the description must stop saying the child cannot change the
+        # wallet, so the next update's manifest declares that copy change.
+        baseline = json.loads((ROOT / "tools/app-review/manifests/0.1.22.json").read_text())
+        content = copy.deepcopy(baseline["content"])
+        content["listing"]["description"] = (
+            ROOT / "tools/app-review/listing/description.txt"
+        ).read_text().removesuffix("\n")
+        content["listing"]["whatsNew"] = "Next update notes."
+        candidate = {
+            **baseline["candidate"],
+            "version": "0.1.23",
+            "build": "26.1",
+            "baselineVersion": "0.1.22",
+        }
+
+        def build(candidate, listing):
+            return core.build_manifest(
+                candidate,
+                content,
+                approved_utc="2026-10-23T18:00:00Z",
+                approval_statement="Captain approved the corrected description.",
+                listing=listing,
+            )
+
+        manifest = build(candidate, {"screenshotWrites": True, "copyWrites": ["description"]})
+        self.assertEqual(
+            core.validate_manifest(manifest)["listing"]["copyWrites"], ["description"]
+        )
+        undeclared = copy.deepcopy(manifest)
+        del undeclared["listing"]["copyWrites"]
+        self.assert_refusal("E_MANIFEST", lambda: core.validate_manifest(undeclared))
+
+        for copy_writes in ([], ["subtitle"], ["description", "description"], "description"):
+            self.assert_refusal(
+                "E_MANIFEST",
+                lambda copy_writes=copy_writes: build(
+                    candidate, {"screenshotWrites": True, "copyWrites": copy_writes}
+                ),
+            )
+        first_release = {
+            key: value for key, value in candidate.items() if key != "baselineVersion"
+        }
+        first_release["firstRelease"] = True
+        self.assert_refusal(
+            "E_MANIFEST",
+            lambda: build(first_release, {"screenshotWrites": True, "copyWrites": ["description"]}),
+        )
+
     def test_trusted_context_requires_repo_default_branch_dispatch_and_captain_when_requested(
         self,
     ):
