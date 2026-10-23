@@ -1,6 +1,6 @@
 # Eddie's Wallet
 
-Eddie's Wallet is a native SwiftUI app for iPhone and iPad. Marketing versions 0.1.17 and 0.1.19 have been submitted to App Review and approved; both manifests use release type AFTER_APPROVAL, so approval releases the version. 0.1.21 was submitted to App Review on 2026-10-12 with the same release type. The App Store listing, TestFlight pipeline, and App Review pipeline are documented in `docs/app-store-configuration.md`, `docs/release.md`, and `docs/app-review.md`.
+Eddie's Wallet is a native SwiftUI app for iPhone and iPad. Marketing versions 0.1.17, 0.1.19, and 0.1.21 have been submitted to App Review and approved; their manifests use release type AFTER_APPROVAL, so approval releases the version. 0.1.22 was submitted to App Review on 2026-10-22 with the same release type. The App Store listing, TestFlight pipeline, and App Review pipeline are documented in `docs/app-store-configuration.md`, `docs/release.md`, and `docs/app-review.md`.
 
 Every dollar the app displays is virtual, pretend, and nonredeemable. No real money ever moves through Eddie's Wallet. Optional Cloud is backup and sync for one parent household, billed as the auto-renewable subscriptions in `docs/app-store-configuration.md`. It is not a bank, a card, or a cash-out path.
 
