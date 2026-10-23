@@ -307,6 +307,50 @@ async function main() {
     assert.equal(mapped.some((file) => previousHashes.has(file.sha256)), false);
   });
 
+  // EDW-32 ("submit eddies wallet for app review"): the 0.1.22 dispatch pairs
+  // the approved 0.1.22 manifest with the committed config, so the adapter must
+  // accept that pair and hand the engine the bound redesign set.
+  await test("create-version accepts the 0.1.22 manifest with the committed config", async () => {
+    const manifest = approved.readManifest("0.1.22");
+    const config = approved.committedConfig();
+    const env = baseEnv();
+    env.EDDIES_APP_REVIEW_VERSION = "0.1.22";
+    env.EDDIES_APP_REVIEW_CONFIRM = "0.1.22";
+    env.APP_REVIEW_CONFIG = approved.CONFIG_PATH;
+    const calls = [];
+    try {
+      await adapter.runCreateVersion({
+        argv: ["--create-version"],
+        env,
+        loadEngineModules: () => ({ formatSuccess: () => "" }),
+        runSubmission: async (args, credentials, dependencies) => {
+          calls.push({ args, dependencies });
+          return {
+            result: { status: "version_created", submitted: false, remaining: "assemble" },
+          };
+        },
+      });
+    } finally {
+      fs.rmSync(env.RUNNER_TEMP, { recursive: true, force: true });
+    }
+    assert.equal(calls.length, 1);
+    const { args, dependencies } = calls[0];
+    assert.equal(args.createVersion, true);
+    assert.equal(args.firstRelease, false);
+    assert.equal(args.version, manifest.candidate.version);
+    assert.equal(args.build, manifest.candidate.build);
+    assert.equal(args.baselineVersion, manifest.candidate.baselineVersion);
+    assert.equal(args.expectedReleaseType, manifest.candidate.releaseType);
+    assert.equal(dependencies.source.metadata.whatsNew, manifest.content.listing.whatsNew);
+    const directory = path.join(ROOT, ...config.listing.screenshotDirectory);
+    const mapped = dependencies.source.screenshots.flatMap((set) => set.files);
+    const bound = manifest.content.screenshots.flatMap((set) => set.files);
+    assert.deepEqual(
+      mapped.map((file) => [file.filePath, file.sha256]),
+      bound.map((file) => [path.join(directory, file.fileName), file.sha256]),
+    );
+  });
+
   process.stdout.write("all create-version adapter tests passed\n");
 }
 
