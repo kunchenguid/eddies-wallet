@@ -871,6 +871,36 @@ class Reconciliation:
     state: str
 
 
+def reviewed_content_differences(approved: Mapping[str, Any], live: object) -> list[str]:
+    """Return bounded field paths, never values or keys supplied by Apple.
+
+    Walk only the validated manifest's shape. Array indices describe approved
+    slots; a missing/extra field or slot names its parent. Hashing is unchanged.
+    """
+    validate_source_content(approved)
+    differences: list[str] = []
+
+    def walk(expected: object, actual: object, path: str) -> None:
+        if len(differences) >= 8:
+            return
+        if isinstance(expected, dict) and isinstance(actual, dict):
+            if set(expected) != set(actual):
+                differences.append(path)
+            for key in expected:
+                if key in actual:
+                    walk(expected[key], actual[key], f"{path}.{key}")
+        elif isinstance(expected, list) and isinstance(actual, list):
+            if len(expected) != len(actual):
+                differences.append(path)
+            for index, (left, right) in enumerate(zip(expected, actual)):
+                walk(left, right, f"{path}[{index}]")
+        elif canonical_bytes(expected) != canonical_bytes(actual):
+            differences.append(path)
+
+    walk(approved, live, "content")
+    return differences
+
+
 def reconcile_manifest_with_live_state(
     manifest: Mapping[str, Any], live: LiveReadState
 ) -> Reconciliation:
@@ -913,12 +943,13 @@ def reconcile_manifest_with_live_state(
         "E_RECONCILIATION",
         "ASC candidate has no readable reviewed content",
     )
-    validate_source_content(live.content)
+    differences = reviewed_content_differences(valid_manifest["content"], live.content)
     require(
-        canonical_bytes(live.content) == canonical_bytes(valid_manifest["content"]),
+        not differences,
         "E_RECONCILIATION",
-        "ASC reviewed content differs from the approved manifest",
+        "ASC reviewed content differs from the approved manifest at " + ", ".join(differences),
     )
+    validate_source_content(live.content)
     require(
         source_content_hash(live.content) == valid_manifest["contentHash"],
         "E_RECONCILIATION",
