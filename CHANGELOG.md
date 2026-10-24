@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.23](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.22...eddies-wallet-v0.1.23) (2026-10-23)
+
+
+### Bug Fixes
+
+* **app-review:** close delivered review outcome issues automatically ([5b362de](https://github.com/kunchenguid/eddies-wallet/commit/5b362de8ed5d48f876b884cf21678fca5daaf132))
+* **app-review:** stop the store description saying the child cannot change the wallet ([ec36a73](https://github.com/kunchenguid/eddies-wallet/commit/ec36a73f813331c06621e7a2d11cd84b45233085))
+
 ## [0.1.22](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.21...eddies-wallet-v0.1.22) (2026-10-22)
 
 
