@@ -4,33 +4,69 @@ name: App Review submit-read diagnostic
 # It reissues the submit-phase GET shapes and prints Apple's raw errors[] body.
 # This workflow performs NO mutation and NO submission.
 #
-# It checks out the DEFAULT branch (not a pinned manifest commit) so the
-# diagnostic reflects current code, and wires the three read credentials exactly
-# as app-review-demo-preflight.yml does.
+# Code comes from the explicitly dispatched ref, allowing a reader repair to be
+# proven before merge. Reconciliation exports approved content from main's last
+# manifest change, never from the feature branch. No issue token is mapped.
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Read-only diagnostic to run
+        type: choice
+        options: [submit-reads, reconciliation]
+        default: submit-reads
+      version:
+        description: Approved marketing version for reconciliation
+        type: string
+        default: "0.1.23"
 
 permissions:
   contents: read
 
 jobs:
   diagnose:
-    name: Capture Apple's raw errors[] for the submit reconcile-read 400
-    if: github.repository == 'kunchenguid/eddies-wallet'
+    name: Read-only App Review diagnosis
+    if: github.repository == 'kunchenguid/eddies-wallet' && github.actor == 'kunchenguid'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - name: Checkout default branch
+      - name: Checkout dispatched ref
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Export the approved manifest and files from main
+        if: inputs.mode == 'reconciliation'
+        env:
+          REVIEW_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$REVIEW_VERSION" =~ ^[0-9]+([.][0-9]+){1,2}$ ]]
+          manifest="tools/app-review/manifests/${REVIEW_VERSION}.json"
+          git cat-file -e "origin/main:${manifest}"
+          approved="$(git log -1 --format=%H origin/main -- "$manifest")"
+          [[ "$approved" =~ ^[0-9a-f]{40}$ ]]
+          source_root="$(mktemp -d "$RUNNER_TEMP/approved-review.XXXXXX")"
+          git archive "$approved" tools/app-review | tar -x -C "$source_root"
+          printf 'APPROVED_SOURCE_ROOT=%s\n' "$source_root" >> "$GITHUB_ENV"
+
+      - name: Compare reviewed content without changing Apple or the journal
+        if: inputs.mode == 'reconciliation'
+        env:
+          REVIEW_VERSION: ${{ inputs.version }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: python3 tools/app-review/diagnose_reconciliation.py "$REVIEW_VERSION" --source-root "$APPROVED_SOURCE_ROOT"
 
       # ubuntu-latest ships python3, used directly by every other App Review
       # workflow in this repo (app-review-demo-preflight.yml, -submit.yml).
       - name: Reissue the submit-phase reads and print Apple's errors[]
+        if: inputs.mode != 'reconciliation'
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}

@@ -14,6 +14,7 @@ Run the deterministic suites locally:
 
 ```sh
 python3 test/app-review-core-test.py
+python3 test/app-review-reconciliation-test.py
 python3 test/app-review-pipeline-test.py
 python3 test/app-review-lanes-test.py
 python3 test/app-review-eula-append-test.py
@@ -35,13 +36,14 @@ Store Connect. `test/release-checks.sh` runs these suites.
 
 | Module | Owns |
 | --- | --- |
-| `core.py` | The credential-free deterministic core: manifest schema and self-binding hashes, reviewed-content hashing, trusted-context assertions, the GET-only App Store Connect client type, exact manifest-versus-live reconciliation, and the durable GitHub issue journal. It has no environment, credential, network, or mutation path. |
+| `core.py` | The credential-free deterministic core: manifest schema and self-binding hashes, reviewed-content hashing, trusted-context assertions, the GET-only App Store Connect client type, manifest-versus-live reconciliation (display-type sets align by identity, images within each set stay ordered), bounded differing-field paths, and the durable GitHub issue journal. It has no environment, credential, network, or mutation path. |
 | `runtime.py` | The dispatch gate every Python entrypoint applies first: trusted repository, default branch, manual dispatch, the double-confirm version, the manifest-approved commit the workflow pinned, and loading the approved manifest. |
 | `content.py` | The two byte-level bindings: recomputing every approved image's bytes from the pinned commit, and normalizing live App Store Connect state into the exact document shape `core` reconciles. |
 | `asc_read.py` | The GET-only App Store Connect boundary - credential loading, JWT signing, URL safety, pagination. It can construct no other method. |
 | `github_api.py` | The durable issue-record boundary on `GITHUB_TOKEN`. The post-acceptance monitor-variable handoff is in the Node engine, injected only on the gated submit job. |
 | `evidence.py` | Bounded nonsecret reviewer-path readiness evidence: built by the preflight, re-bound and freshness-checked by verify, assemble, upload, and submit. Create-version does not take evidence. |
-| `prepare.py`, `demo_preflight.py`, `verify.py` | The Python workflow entrypoints. Verify is credential-free. |
+| `prepare.py`, `demo_preflight.py`, `verify.py` | The Python workflow entrypoints. Verify is credential-free. Prepare restores `core.py` and `content.py` from the trusted dispatch after pinning the approved files. |
+| `diagnose_reconciliation.py` | GET-only prepare diagnostic against an exported approved source root. Prints bounded field paths and reconciliation, never values or raw responses, and never opens a journal. `app-review-diagnose.yml` selects it with `mode=reconciliation`; that workflow exports content from the last main commit changing the selected manifest while running code from the dispatched ref. |
 | `first_release_args.py` | Credential-free: prints `--first-release` only when the pinned captain-approved manifest has `firstRelease: true`. Update manifests (`baselineVersion`) emit nothing. |
 | `screenshot_preflight.py` | Eddie-side listing-screenshot validation before any live write: required display types, RGB8 dimensions, unique bytes per size, and checksums matching the captain-approved manifest. |
 | `list_app_store_versions.py` | GET-only iOS App Store version listing. |
