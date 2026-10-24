@@ -1,6 +1,6 @@
 name: App Review submission
 
-# Trusted default-branch assembly and optional captain-gated submit of one
+# Trusted default-branch assembly and submit of one
 # captain-approved Eddie's Wallet App Store version. The automation can only
 # assemble or submit what the captain already approved:
 # tools/app-review/manifests/<version>.json binds the exact version, build,
@@ -11,7 +11,8 @@ name: App Review submission
 #
 # The gate is deliberately SSHHIP-shaped and uses NO GitHub Environment:
 #   1. the captain merges the content-bound manifest on main,
-#   2. the captain dispatches this workflow manually and types the version twice,
+#   2. this workflow is dispatched manually under the captain's account with the
+#      version typed twice (a version binding, not a second captain approval),
 #   3. fresh readiness evidence from app-review-demo-preflight.yml must bind the
 #      same candidate for verify, upload, assemble, and submit, and
 #   4. the mutation-capable App Store Connect credential exists only inside the

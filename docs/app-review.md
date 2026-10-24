@@ -83,7 +83,10 @@ it, so the next update manifest declares `listing.copyWrites: ["description"]`.
 
 ## The gate
 
-Submission is gated by two independent things, and both are the captain's.
+The captain approves one thing: the version's manifest pull request. Once it
+is merged on `main`, the fleet runs prepare, create-version (for a missing
+update), demo-preflight, verify, assemble, and submit in that order without
+asking the captain again, and stops to report only when a step fails.
 
 1. **A captain-approved manifest merged on `main`.** `tools/app-review/manifests/<version>.json`
    pins the exact version, build, source commit, baseline, release behavior, the
@@ -92,9 +95,11 @@ Submission is gated by two independent things, and both are the captain's.
    hash and a manifest self-hash. Every workflow detaches to the commit that
    last changed that file, so a later push to `main` cannot change what a
    submission uses.
-2. **The captain's explicit double-confirm dispatch.** `app-review-submit.yml`
-   is manual only, requires the version to be typed twice, and defaults to the
-   `verify` dry run. `mode=create-version` creates a missing App Store update
+2. **A double-confirm dispatch.** Every workflow here is manual only and runs
+   under the captain's GitHub account; `app-review-submit.yml` requires the
+   version to be typed twice and defaults to the `verify` dry run. The
+   double-confirm binds the run to one exact version. It is not a second
+   approval. `mode=create-version` creates a missing App Store update
    version without reviewer-path evidence (`create_version.js --create-version`
    onto `runSubmission({ createVersion: true })`, with
    `CREATE_VERSION_ENGINE_ARGV` pinned to
@@ -124,13 +129,13 @@ Submission is gated by two independent things, and both are the captain's.
    already-approved Cloud subscriptions on update assemble,
    [`#22`](https://github.com/kunchenguid/app-review-submit/pull/22) full
    localization, and [`#19`](https://github.com/kunchenguid/app-review-submit/pull/19)).
-   `mode=submit` is a separate captain-gated dispatch that asks
-   the engine to submit for review. Default remains `verify`.
+   `mode=submit` is the separate dispatch that asks the engine to submit for
+   review. Default remains `verify`.
 
-There is deliberately **no protected GitHub Environment**. Adding one would give
-the captain a second approval prompt for a run the captain just started by hand,
-which is ceremony rather than a boundary. The manifest is the content gate and
-the dispatch is the intent gate.
+There is deliberately **no protected GitHub Environment**, and no per-step
+captain go. Either would ask the captain to approve again what the merged
+manifest already approved, which is ceremony rather than a boundary. The
+manifest is the gate; the dispatch only names the exact version it runs.
 
 The App Review create-version, assemble, upload, and submit mutation credential belongs to
 `app-review-submit.yml`'s create-version, assemble, upload, and submit jobs; the GET-only shared monitor
@@ -149,8 +154,8 @@ for `kunchenguid/app-review-submit`, not a console chore.
 
 ### True irreducibles (captain only)
 
-- Approving what ships: a captain-approved manifest on `main` plus the
-  double-confirm dispatch.
+- Approving what ships: merging the version's manifest pull request on `main`.
+  The dispatches after it are the fleet's and need no further captain go.
 - Credentials, the Paid Apps agreement, and tax/banking: already in place on
   the shared team. Never re-request them.
 - App Privacy / nutrition-label answers: Apple exposes no public App Store
@@ -160,8 +165,6 @@ for `kunchenguid/app-review-submit`, not a console chore.
   if the declarations are incomplete or collection has changed.
 - Physical-device proof of Sign in with Apple, the Parent gate, and a sandbox
   Cloud purchase. Both steps are user-mediated; a runner cannot do them.
-- Pasting demo-preflight evidence into the GitHub dispatch `evidence` input.
-  That is a GitHub gate, not App Store Connect.
 
 ### Automated shared-engine behavior (create-version / assemble / upload / submit)
 
@@ -283,8 +286,8 @@ rating as console follow-ups when attach fails.
 ## Readiness evidence
 
 The preflight prints a base64 document naming the candidate, the manifest hashes,
-a UTC timestamp, and its allowlisted check names. Paste it into the submit
-dispatch's `evidence` input for verify, upload, assemble, and submit.
+a UTC timestamp, and its allowlisted check names. The fleet passes it as the
+submit dispatch's `evidence` input for verify, upload, assemble, and submit.
 `mode=create-version` is evidence-free. Submission refuses evidence for another
 candidate, another manifest, or one older than six hours.
 
@@ -353,8 +356,9 @@ marketing version). Assemble-only does not write that variable; the gated
 
 ## What this pipeline will never do
 
-- Submit because a release PR merged. TestFlight and App Review stay separate
-  captain gates.
+- Submit because a release PR merged. Merging the release PR (TestFlight) and
+  merging the version's manifest PR (App Review) stay separate captain
+  decisions.
 - Release. The manifest may only choose `MANUAL` or `AFTER_APPROVAL`.
 - Send the captain to App Store Connect for an API-able step. Listing copy
   stays `observe` unless an approved update manifest declares
@@ -372,4 +376,4 @@ marketing version). Assemble-only does not write that variable; the gated
   receipt, raw Apple response, or reviewer contact detail into git, an issue, a
   log, an artifact, a workflow input, or a runner argument.
 - Fall back to a browser submission. After assemble-only has staged the review
-  submission, `mode=submit` is the remaining captain-gated action.
+  submission, `mode=submit` is the remaining step.

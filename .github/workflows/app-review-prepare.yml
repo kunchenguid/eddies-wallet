@@ -12,9 +12,9 @@ name: App Review preparation
 #               credential through the deterministic core's structurally GET-only
 #               client, which has no mutation method to call.
 #
-# No GitHub Environment is used anywhere in the App Review pipeline. The gate is
-# the captain-approved manifest merged on main plus the captain's explicit
-# double-confirm dispatch of app-review-submit.yml.
+# No GitHub Environment is used anywhere in the App Review pipeline. The only
+# captain approval is merging the manifest on main; each double-confirm
+# dispatch binds a run to that exact version and needs no further captain go.
 
 on:
   workflow_dispatch:

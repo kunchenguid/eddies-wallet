@@ -89,7 +89,7 @@ This repository contains only the client. A complete free wallet is stored local
 - [Client README](EddysWallet/README.md): API configuration, keychain behavior, signing prerequisites, and the manual test sequence.
 - [Release pipeline](docs/release.md): the release-please and TestFlight automation, its approval boundary, and its one-time setup.
 - [App Store Connect configuration](docs/app-store-configuration.md): the optional Cloud products and policies configured in the live store, plus the work that remains unproven.
-- [App Review submission](docs/app-review.md): captain-gated create-version, upload, assemble, and submit. Merging a release PR does not submit.
+- [App Review submission](docs/app-review.md): create-version, upload, assemble, and submit, run once the captain merges the version's manifest. Merging a release PR does not submit.
 - [App Store review monitor](docs/app-store-review-monitor.md): the four-hour poll and how it notifies the captain, then closes its own outcome issue.
 
 ## License

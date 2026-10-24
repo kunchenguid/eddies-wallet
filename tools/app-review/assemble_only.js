@@ -626,7 +626,7 @@ async function main(argv = process.argv.slice(2)) {
     process.stdout.write(assembled.output);
     process.stdout.write(
       "help: Review submission is assembled and unsubmitted. "
-      + "The remaining action is a captain-gated mode=submit dispatch.\n",
+      + "The remaining action is the mode=submit dispatch.\n",
     );
     return 0;
   } catch (error) {
