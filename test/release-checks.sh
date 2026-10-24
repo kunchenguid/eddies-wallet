@@ -529,6 +529,11 @@ fi
 # logic against a fake App Store Connect; the lane suite parses the workflows
 # into a model and proves the credential lanes and trust boundaries. Neither
 # reads a credential or contacts anything.
+if python3 test/app-review-reconciliation-test.py >/dev/null 2>&1; then
+  pass "App Review approved-update reconciliation tests"
+else
+  fail "App Review approved-update reconciliation tests"
+fi
 if python3 test/app-review-pipeline-test.py >/dev/null 2>&1; then
   pass "App Review pipeline fake-boundary tests"
 else
