@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "app": {
+    "appId": "6795664301",
+    "bundleId": "com.kunchenguid.eddieswallet",
+    "platform": "IOS"
+  },
+  "candidate": {
+    "version": "0.1.23",
+    "build": "26.1",
+    "baselineVersion": "0.1.22",
+    "sourceCommit": "9b82a1aa68c9a5500ec6788725da1613865af610",
+    "releaseType": "AFTER_APPROVAL"
+  },
+  "listing": {
+    "screenshotWrites": true,
+    "copyWrites": [
+      "description"
+    ]
+  },
+  "content": {
+    "listing": {
+      "appName": "Eddie's Wallet",
+      "subtitle": "Virtual allowance practice",
+      "promotionalText": "A parent-managed virtual allowance wallet for one child. Balances are pretend, nonredeemable, and never move real money.",
+      "description": "Eddie's Wallet is a calm, parent-managed allowance ledger that helps one child practice everyday money ideas. Every balance is virtual, pretend, and nonredeemable. No real money moves through the app, and it never connects to banks, cards, cash-out, or payment services.\n\nKID-FIRST BY DESIGN\n\nThe child's wallet is the home screen. A child can see an allowance balance, recent activity, and an open loan in clear everyday language. A child can also pay back an open loan from the virtual dollars in the wallet. Apart from that payment, the child cannot change the wallet, sign in, or make a purchase.\n\nPARENTS RECORD THE CHANGES\n\nA parent signs in with Apple to set up the wallet and chooses a four-digit PIN for the Parent area. From there, a parent can set an allowance and record virtual deposits, withdrawals, loans, and repayments. Every parent money flow makes clear that the dollars are practice only and cannot be redeemed.\n\nFREE ON ONE DEVICE\n\nThe complete free wallet is stored on the device. After setup, it works without a network connection, so a family can keep recording and reviewing virtual allowance activity offline.\n\nOPTIONAL CLOUD BACKUP AND SYNC\n\nCloud is an optional auto-renewable subscription for one household. It backs up the wallet and syncs it across devices signed in with the same parent Apple Account. The free wallet remains useful without Cloud, and ending Cloud does not delete the wallet already on the device.\n\n- Cloud monthly: US$2.99 per month\n- Cloud annual: US$24.99 per year\n\nPayment is charged to your Apple Account at confirmation of purchase. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Your account is charged for renewal within 24 hours before the end of the current period. You can manage or cancel subscriptions in your Apple Account settings after purchase.\n\nTerms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/\n\nVIRTUAL MONEY ONLY\n\nAllowances, deposits, withdrawals, and loans in Eddie's Wallet are a family practice ledger. They cannot be transferred, spent, exchanged, or redeemed for anything of value.",
+      "keywords": "allowance,pocket money,kids,family,parent,pretend money,practice,ledger,saving,loan",
+      "privacyPolicyUrl": "https://eddies-wallet.kunchenguid.com/privacy/",
+      "supportUrl": "https://eddies-wallet.kunchenguid.com/",
+      "whatsNew": "A child can now pay back their own loan. While a loan is open and the wallet has dollars, Pay back on the child's loan card pays any amount up to what is left on the loan and what is in the wallet. The Parent area shows the payment under the child's nickname. Like every balance in the app, these dollars are virtual and pretend."
+    },
+    "screenshots": [
+      {
+        "displayType": "APP_IPHONE_67",
+        "width": 1320,
+        "height": 2868,
+        "files": [
+          {
+            "fileName": "iphone-6.9-kid-home.png",
+            "fileSize": 499683,
+            "sha256": "a7120cab225835314b36cd62fdea20e15bad9bf5af006fbf6cf1739377ce2647"
+          },
+          {
+            "fileName": "iphone-6.9-parent-area.png",
+            "fileSize": 606783,
+            "sha256": "ad8e50fa012d89879aeb81ea588131567548f5e657b63d0064d1b9f1dec389f9"
+          },
+          {
+            "fileName": "iphone-6.9-parent-loan-payments.png",
+            "fileSize": 621182,
+            "sha256": "57d1e9c6a2ee5101d82a597c8f5290244b08db976411163169ad9a8b02ea3008"
+          },
+          {
+            "fileName": "iphone-6.9-money-flow-review.png",
+            "fileSize": 249958,
+            "sha256": "d4423e36ce1b46f1055a5b3f427b08e311eed6de664ee23e86fb039f0bf30ff6"
+          },
+          {
+            "fileName": "iphone-6.9-cloud-plans.png",
+            "fileSize": 745423,
+            "sha256": "74dd1868d07e9486b82c94530e9b4ac222f6fdff6a983443ccb7a4c1e4f7084d"
+          }
+        ]
+      },
+      {
+        "displayType": "APP_IPAD_PRO_3GEN_129",
+        "width": 2064,
+        "height": 2752,
+        "files": [
+          {
+            "fileName": "ipad-13-kid-home.png",
+            "fileSize": 365636,
+            "sha256": "9e938b130f54d28a444f8ff0498290fc8052f19c9242bf654f24a968402b7441"
+          },
+          {
+            "fileName": "ipad-13-parent-area.png",
+            "fileSize": 643472,
+            "sha256": "811aa0a05a9d6d7a29974193b52dee8f4c3033af12153211cd2fbc3db04a252f"
+          },
+          {
+            "fileName": "ipad-13-parent-loan-payments.png",
+            "fileSize": 730098,
+            "sha256": "046eeab24e1694470c4326d5b1f99da618256eb3fd09bdd26ca079f85c5de22a"
+          },
+          {
+            "fileName": "ipad-13-money-flow-review.png",
+            "fileSize": 748787,
+            "sha256": "349dfee80f33cb8e1454896e84d08cb62666b31e2ffd31021f2303fd68f2f915"
+          },
+          {
+            "fileName": "ipad-13-cloud-plans.png",
+            "fileSize": 527329,
+            "sha256": "4fc591b12b3ed3d64ac1aa89521348ccf8aa238a61d58677218c79be9e4694cb"
+          }
+        ]
+      }
+    ],
+    "inAppPurchases": [
+      {
+        "productId": "com.kunchenguid.eddieswallet.cloud.monthly",
+        "reviewNotes": "Cloud monthly is an optional auto-renewable subscription for one parent household. It backs up the virtual wallet and syncs it on devices signed in with the same parent Apple Account. The wallet, allowance, loans, activity history, and local offline mode remain useful without Cloud. Find it at: child's wallet > Parent > enter the parent PIN > Cloud backup & sync > Cloud monthly. The reviewer may use Apple's review or sandbox purchase flow with their own Apple Account. No demo account or password is provided.",
+        "reviewScreenshot": {
+          "path": "tools/app-review/assets/screenshots/0.1.19/iap-review-cloud-plans-priced-iphone-6.9.png",
+          "bytes": 724668,
+          "sha256": "d86ed63c09a0d24321332f3b8626cbd6b642501b2318f50a66a81b23ea5689df"
+        }
+      },
+      {
+        "productId": "com.kunchenguid.eddieswallet.cloud.annual",
+        "reviewNotes": "Cloud annual is an optional auto-renewable subscription for one parent household. It backs up the virtual wallet and syncs it on devices signed in with the same parent Apple Account. The wallet, allowance, loans, activity history, and local offline mode remain useful without Cloud. Find it at: child's wallet > Parent > enter the parent PIN > Cloud backup & sync > Cloud annual. The reviewer may use Apple's review or sandbox purchase flow with their own Apple Account. No demo account or password is provided.",
+        "reviewScreenshot": {
+          "path": "tools/app-review/assets/screenshots/0.1.19/iap-review-cloud-plans-priced-iphone-6.9.png",
+          "bytes": 724668,
+          "sha256": "d86ed63c09a0d24321332f3b8626cbd6b642501b2318f50a66a81b23ea5689df"
+        }
+      }
+    ],
+    "appReview": {
+      "notes": "Eddie's Wallet has no shared demo account, username, password, or supplied PIN. Please use your own Apple Account in the native Sign in with Apple sheet and create synthetic data on the review device.\n\n1. Launch the app and choose Sign in with Apple. The child does not sign in.\n2. Create a synthetic child nickname and a new four-digit parent PIN. Both are chosen on the review device.\n3. The app opens to the child's wallet. It is read-only except for Pay back: once a loan exists and the wallet holds virtual dollars, the child can pay part or all of the loan from the loan card without the PIN. Tap Parent and enter the PIN you chose. The Parent area shows the balance with Add deposit, Record withdrawal, Create loan (Pay toward loan once a loan exists), and Allowance right below it. Each one opens a single sheet to record a virtual deposit, withdrawal, loan, repayment, or weekly allowance.\n4. To review the optional subscription, tap the gear (Settings) at the top left of the Parent area. Cloud backup & sync is the first card there. Choose either Cloud monthly or Cloud annual and use Apple's App Review or sandbox purchase flow with your own Apple Account. Cloud is optional and the free wallet remains usable without it.\n5. A Cloud purchase is confirmed by the service before backup and sync activate. If a plan does not load, use Check again on the Cloud card; do not use a shared account or credential.\n\nAll balances and money actions in this app are virtual, pretend, and nonredeemable. The app does not connect to banks, cards, payment processors, cash-out, or real-money transfers. Parent access is a device-local PIN gate that ends when the app backgrounds.",
+      "demoAccountRequired": false,
+      "identity": "REVIEWER_OWNED_SIGN_IN_WITH_APPLE",
+      "parentPin": "REVIEWER_CREATED_ON_DEVICE",
+      "cloudPurchase": "APPLE_REVIEW_OR_SANDBOX"
+    }
+  },
+  "contentHash": "f9f31026e4a588bb43b183bc72f087cca490e5fc460b70a665c15f0529ec7fc3",
+  "approval": {
+    "approved": true,
+    "approvedBy": "kunchenguid",
+    "approvedUtc": "2026-10-24T03:20:00Z",
+    "statement": "0.1.23 update of live 0.1.22. Candidate build 26.1 (VALID) at 9b82a1aa68c9a5500ec6788725da1613865af610. Only the description is new: it no longer says the child cannot change the wallet, since the child can pay back their own loan. Everything else is the live 0.1.22 content byte for byte. copyWrites is [description]; listingPolicy stays observe. Not submitted."
+  },
+  "binding": {
+    "algorithm": "eddies-wallet-app-review-manifest-v1",
+    "manifestHash": "ae85782732a7a44c6ae9e01749730a2a99d7e5a6952a675b6605a69a7c5182bb"
+  }
+}

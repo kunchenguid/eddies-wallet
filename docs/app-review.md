@@ -49,6 +49,14 @@ live baseline for the next update. Read the live monitor issue before claiming
 a newer review state. This file's step list is the procedure for the next
 version; it is not a claim that review is still held.
 
+`tools/app-review/manifests/0.1.23.json` is the update manifest after that
+(baseline 0.1.22, build 26.1 from the 0.1.23 release tag, release type
+AFTER_APPROVAL). Its only new content is the corrected description, declared in
+`listing.copyWrites: ["description"]`; every other listing field, the
+screenshots, the Cloud review content and the App Review notes are the live
+0.1.22 content. Nothing has been dispatched for it until the captain says so;
+read the live monitor issue before claiming a review state.
+
 ## Listing copy changes
 
 Live listing copy changes only through an update manifest that declares the
