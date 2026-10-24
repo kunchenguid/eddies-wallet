@@ -432,6 +432,35 @@ async function main() {
     assert.deepEqual(outcome.created.copyWrites, ["description"]);
   });
 
+  // EDW-37: the real 0.1.23 manifest declares the description write, so the
+  // adapter must accept it against its 0.1.22 baseline and the committed config.
+  await test("create-version accepts the 0.1.23 manifest and writes only its declared description", async () => {
+    const manifest = approved.readManifest("0.1.23");
+    const env = baseEnv();
+    env.EDDIES_APP_REVIEW_VERSION = "0.1.23";
+    env.EDDIES_APP_REVIEW_CONFIRM = "0.1.23";
+    env.APP_REVIEW_CONFIG = approved.CONFIG_PATH;
+    const calls = [];
+    try {
+      await adapter.runCreateVersion({
+        argv: ["--create-version"],
+        env,
+        loadEngineModules: () => ({ formatSuccess: () => "" }),
+        runSubmission: async (args, credentials, dependencies) => {
+          calls.push({ args, dependencies });
+          return { result: { status: "version_created", submitted: false, remaining: "assemble" } };
+        },
+      });
+    } finally {
+      fs.rmSync(env.RUNNER_TEMP, { recursive: true, force: true });
+    }
+    assert.equal(calls.length, 1);
+    assert.deepEqual(manifest.listing.copyWrites, ["description"]);
+    assert.equal(calls[0].args.baselineVersion, "0.1.22");
+    assert.equal(calls[0].dependencies.source.metadata.description, approvedDescription());
+    assert.equal(calls[0].dependencies.source.metadata.keywords, manifest.content.listing.keywords);
+  });
+
   await test("create-version keeps listing copy observe-only when the manifest declares no copy writes", async () => {
     const root = nextUpdateCheckout(() => {});
     let outcome;
