@@ -43,19 +43,20 @@ from `main`: a resubmission of 0.1.21 needs its own new manifest.
 0.1.22 was submitted on 2026-10-22 Pacific (the submit job finished at
 2026-10-23T03:48:52Z) with Apple reporting `WAITING_FOR_REVIEW`. Its
 create-version run left only assemble to do, so that cycle needed no
-`mode=upload` either, and the monitor variable `APP_REVIEW_MONITOR_VERSION` is
-`0.1.22`. 0.1.22 was approved on 2026-10-23 (monitor issue #174) and is the
-live baseline for the next update. Read the live monitor issue before claiming
-a newer review state. This file's step list is the procedure for the next
-version; it is not a claim that review is still held.
+`mode=upload` either. 0.1.22 was approved on 2026-10-23 (monitor issue #174)
+and is the live baseline for 0.1.23. This file's step list is the procedure
+for the next version; it is not a claim that review is still held.
 
 `tools/app-review/manifests/0.1.23.json` is the update manifest after that
 (baseline 0.1.22, build 26.1 from the 0.1.23 release tag, release type
 AFTER_APPROVAL). Its only new content is the corrected description, declared in
 `listing.copyWrites: ["description"]`; every other listing field, the
 screenshots, the Cloud review content and the App Review notes are the live
-0.1.22 content. Nothing has been dispatched for it until the captain says so;
-read the live monitor issue before claiming a review state.
+0.1.22 content. 0.1.23 was submitted on 2026-10-23 Pacific (the submit job
+finished at 2026-10-24T03:33:56Z) with Apple reporting `WAITING_FOR_REVIEW`.
+Like 0.1.22, its create-version run left only assemble, so it needed no
+`mode=upload`, and the monitor variable `APP_REVIEW_MONITOR_VERSION` is
+`0.1.23`. Read the live monitor issue before claiming a newer review state.
 
 ## Listing copy changes
 
@@ -79,7 +80,8 @@ description; a manifest's `content.listing.description` is that file's text
 without its final newline. Its current text no longer says the child cannot
 change the wallet: since 0.1.22 the child can pay back their own loan
 (`docs/product-requirements.md` 8.9). The live 0.1.22 description still says
-it, so the next update manifest declares `listing.copyWrites: ["description"]`.
+it, so the 0.1.23 manifest declares `listing.copyWrites: ["description"]`, and
+0.1.23 carries the corrected description to App Review.
 
 ## The gate
 
@@ -234,7 +236,7 @@ ever drift, the fix is an engine write, not a console paste.
 
 | Surface | Current engine | 0.1.17 |
 | --- | --- | --- |
-| Listing copy (description, keywords, what's new, URLs, name, subtitle) | Writes only if `listingWritesAllowed("listing")`, which the adapters turn on for a manifest that declares `listing.copyWrites`. Otherwise `observe`. | Live matches, including the standard EULA line. The description's read-only child sentence changes with the next update ([Listing copy changes](#listing-copy-changes)). |
+| Listing copy (description, keywords, what's new, URLs, name, subtitle) | Writes only if `listingWritesAllowed("listing")`, which the adapters turn on for a manifest that declares `listing.copyWrites`. Otherwise `observe`. | Live matches, including the standard EULA line. The description's read-only child sentence changes with 0.1.23, submitted 2026-10-23 ([Listing copy changes](#listing-copy-changes)). |
 | Cloud IAP review screenshots | Asserts products reviewable and attaches them. Does not upload review screenshots. Demo-preflight requires delivered bytes. | Both products `COMPLETE` (historical API upload). |
 | Age rating | GET-validates present. Does not PATCH `ageRatingDeclarations`. | Already saved. |
 | Content rights / Made for Kids | GET-validates `config.protected`. Does not PATCH. | Live matches. |
