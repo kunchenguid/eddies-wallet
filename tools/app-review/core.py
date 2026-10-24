@@ -60,7 +60,13 @@ SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 SAFE_ACTOR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
 
 DRAFT_STATES = frozenset(("PREPARE_FOR_SUBMISSION", "READY_FOR_REVIEW"))
-SUBMITTED_STATES = frozenset(("WAITING_FOR_REVIEW", "IN_REVIEW"))
+# A successful submission remains submitted after Apple approves it. This is a
+# read-only recovery classification, never permission to release or submit again.
+SUBMITTED_STATES = frozenset((
+    "WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_DEVELOPER_RELEASE",
+    "PENDING_APPLE_RELEASE", "PROCESSING_FOR_DISTRIBUTION",
+    "READY_FOR_DISTRIBUTION", "READY_FOR_SALE",
+))
 JOURNAL_PHASES = frozenset(("prepared", "reconciled"))
 JOURNAL_RECONCILIATIONS = frozenset(
     ("not_read", "absent", "matching_draft", "already_submitted")
@@ -871,6 +877,27 @@ class Reconciliation:
     state: str
 
 
+def align_live_screenshot_sets(approved: Mapping[str, Any], live: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Align only the unordered display-type collection to the approved order.
+
+    Apple's appScreenshotSets collection has no presentation order across device
+    sizes. Each set's appScreenshots relationship does: never sort those files.
+    Missing, extra, duplicate or malformed sets remain untouched and must refuse.
+    Manifest bytes and hashes are never normalized or regenerated.
+    """
+    sets = live.get("screenshots")
+    if not isinstance(sets, list) or any(not isinstance(item, dict) for item in sets):
+        return live
+    types = [item.get("displayType") for item in sets]
+    if any(not isinstance(kind, str) for kind in types) or len(set(types)) != len(types):
+        return live
+    expected = [item["displayType"] for item in approved["screenshots"]]
+    if set(types) != set(expected):
+        return live
+    by_type = dict(zip(types, sets))
+    return {**live, "screenshots": [by_type[kind] for kind in expected]}
+
+
 def reviewed_content_differences(approved: Mapping[str, Any], live: object) -> list[str]:
     """Return bounded field paths, never values or keys supplied by Apple.
 
@@ -943,15 +970,16 @@ def reconcile_manifest_with_live_state(
         "E_RECONCILIATION",
         "ASC candidate has no readable reviewed content",
     )
-    differences = reviewed_content_differences(valid_manifest["content"], live.content)
+    normalized = align_live_screenshot_sets(valid_manifest["content"], live.content)
+    differences = reviewed_content_differences(valid_manifest["content"], normalized)
     require(
         not differences,
         "E_RECONCILIATION",
         "ASC reviewed content differs from the approved manifest at " + ", ".join(differences),
     )
-    validate_source_content(live.content)
+    validate_source_content(normalized)
     require(
-        source_content_hash(live.content) == valid_manifest["contentHash"],
+        source_content_hash(normalized) == valid_manifest["contentHash"],
         "E_RECONCILIATION",
         "ASC reviewed content hash differs from the approved manifest",
     )

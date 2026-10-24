@@ -32,8 +32,14 @@ def diagnose(version: str, source_root: Path) -> int:
         content.CandidateReadTransport(session, manifest["candidate"], files)
     )
     live = client.read_candidate(manifest["candidate"])
-    for path in core.reviewed_content_differences(manifest["content"], live.content):
-        runtime.emit(f"difference={path}")
+    if live.content is not None:
+        normalized = core.align_live_screenshot_sets(manifest["content"], live.content)
+        order_changed = core.canonical_bytes(live.content) != core.canonical_bytes(normalized)
+        runtime.emit("screenshot_set_order=" + ("differs" if order_changed else "unchanged"))
+        differences = core.reviewed_content_differences(manifest["content"], normalized)
+        runtime.emit("reviewed_content=" + ("differs" if differences else "matching"))
+        for path in differences:
+            runtime.emit(f"difference={path}")
     result = core.reconcile_manifest_with_live_state(manifest, live)
     runtime.emit(f"reconciliation={result.outcome} live_state={result.state}")
     runtime.emit("asc_capability=get-only mutations=0 journal=untouched")

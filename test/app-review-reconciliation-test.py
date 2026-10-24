@@ -7,7 +7,6 @@ copy. Adverse cases change one fact at the readback boundary.
 import contextlib
 import copy
 import io
-import json
 from pathlib import Path
 import sys
 import unittest
@@ -36,6 +35,46 @@ class ReconciliationTests(unittest.TestCase):
             with self.subTest(state=state):
                 self.assertEqual(self.reconcile(state).outcome,
                     "matching_draft" if state in core.DRAFT_STATES else "already_submitted")
+
+    def test_display_type_collection_order_is_not_screenshot_slot_order(self):
+        # Apple's 0.1.23 read (run 40121137200) returned display types in a
+        # different collection order. The per-display files remain ordered.
+        original_hash = core.source_content_hash(self.content)
+        self.content["screenshots"].reverse()
+        self.assertNotEqual(core.source_content_hash(self.content), original_hash)
+        for state in ("READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "READY_FOR_DISTRIBUTION"):
+            self.assertIn(self.reconcile(state).outcome, ("matching_draft", "already_submitted"))
+        self.assertEqual(self.manifest["contentHash"], original_hash)
+        self.content["screenshots"][0]["files"].reverse()
+        with self.assertRaises(core.AppReviewError) as caught:
+            self.reconcile()
+        self.assertIn(".files[0].fileName", str(caught.exception))
+
+    def test_missing_extra_duplicate_or_changed_sets_never_match(self):
+        for mutation in ("missing", "extra", "duplicate", "width", "checksum"):
+            with self.subTest(mutation=mutation):
+                self.setUp()
+                sets = self.content["screenshots"]
+                if mutation == "missing":
+                    sets.pop()
+                elif mutation == "extra":
+                    sets.append(copy.deepcopy(sets[0]))
+                    sets[-1]["displayType"] = "APP_UNKNOWN"
+                elif mutation == "duplicate":
+                    sets[1] = copy.deepcopy(sets[0])
+                elif mutation == "width":
+                    sets[0]["width"] += 1
+                else:
+                    sets[0]["files"][0]["sha256"] = "0" * 64
+                with self.assertRaises(core.AppReviewError) as caught:
+                    self.reconcile()
+                self.assertEqual(caught.exception.code, "E_RECONCILIATION")
+                self.assertIn("content.screenshots", str(caught.exception))
+
+    def test_rejected_or_unknown_states_do_not_become_already_submitted(self):
+        for state in ("REJECTED", "DEVELOPER_REJECTED", "REMOVED_FROM_SALE", "UNKNOWN"):
+            with self.assertRaises(core.AppReviewError):
+                self.reconcile(state)
 
     def test_every_listing_field_names_its_path_without_its_value(self):
         for field in core.LISTING_FIELDS:
