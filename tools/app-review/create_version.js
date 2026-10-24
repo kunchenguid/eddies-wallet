@@ -104,7 +104,7 @@ async function main(argv = process.argv.slice(2), deps = {}) {
     process.stdout.write(created.output);
     process.stdout.write(
       "help: The missing App Store version was created without submitting. "
-        + "Next is demo-preflight evidence, then a captain-gated mode=assemble dispatch.\n",
+        + "Next is demo-preflight evidence, then the mode=assemble dispatch.\n",
     );
     return 0;
   } catch (error) {

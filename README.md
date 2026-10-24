@@ -1,6 +1,6 @@
 # Eddie's Wallet
 
-Eddie's Wallet is a native SwiftUI app for iPhone and iPad. Marketing versions 0.1.17, 0.1.19, and 0.1.21 have been submitted to App Review and approved; their manifests use release type AFTER_APPROVAL, so approval releases the version. 0.1.22 was submitted to App Review on 2026-10-22 with the same release type. The App Store listing, TestFlight pipeline, and App Review pipeline are documented in `docs/app-store-configuration.md`, `docs/release.md`, and `docs/app-review.md`.
+Eddie's Wallet is a native SwiftUI app for iPhone and iPad. Marketing versions 0.1.17, 0.1.19, 0.1.21, and 0.1.22 have been submitted to App Review and approved; their manifests use release type AFTER_APPROVAL, so approval releases the version. 0.1.23 was submitted to App Review on 2026-10-23 with the same release type. The App Store listing, TestFlight pipeline, and App Review pipeline are documented in `docs/app-store-configuration.md`, `docs/release.md`, and `docs/app-review.md`.
 
 Every dollar the app displays is virtual, pretend, and nonredeemable. No real money ever moves through Eddie's Wallet. Optional Cloud is backup and sync for one parent household, billed as the auto-renewable subscriptions in `docs/app-store-configuration.md`. It is not a bank, a card, or a cash-out path.
 
@@ -89,7 +89,7 @@ This repository contains only the client. A complete free wallet is stored local
 - [Client README](EddysWallet/README.md): API configuration, keychain behavior, signing prerequisites, and the manual test sequence.
 - [Release pipeline](docs/release.md): the release-please and TestFlight automation, its approval boundary, and its one-time setup.
 - [App Store Connect configuration](docs/app-store-configuration.md): the optional Cloud products and policies configured in the live store, plus the work that remains unproven.
-- [App Review submission](docs/app-review.md): captain-gated create-version, upload, assemble, and submit. Merging a release PR does not submit.
+- [App Review submission](docs/app-review.md): create-version, upload, assemble, and submit, run once the captain merges the version's manifest. Merging a release PR does not submit.
 - [App Store review monitor](docs/app-store-review-monitor.md): the four-hour poll and how it notifies the captain, then closes its own outcome issue.
 
 ## License

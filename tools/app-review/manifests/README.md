@@ -2,7 +2,7 @@
 
 One file per App Store marketing version, named exactly `<version>.json`, for
 example `0.2.0.json`. Merging that file on `main` after captain review **is** the
-content half of the submission gate: `app-review-prepare.yml`,
+submission gate, and the captain's only approval for that version: `app-review-prepare.yml`,
 `app-review-demo-preflight.yml`, and `app-review-submit.yml` all detach to the
 commit that last changed it, and refuse any candidate it does not pin.
 

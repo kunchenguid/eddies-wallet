@@ -43,19 +43,20 @@ from `main`: a resubmission of 0.1.21 needs its own new manifest.
 0.1.22 was submitted on 2026-10-22 Pacific (the submit job finished at
 2026-10-23T03:48:52Z) with Apple reporting `WAITING_FOR_REVIEW`. Its
 create-version run left only assemble to do, so that cycle needed no
-`mode=upload` either, and the monitor variable `APP_REVIEW_MONITOR_VERSION` is
-`0.1.22`. 0.1.22 was approved on 2026-10-23 (monitor issue #174) and is the
-live baseline for the next update. Read the live monitor issue before claiming
-a newer review state. This file's step list is the procedure for the next
-version; it is not a claim that review is still held.
+`mode=upload` either. 0.1.22 was approved on 2026-10-23 (monitor issue #174)
+and is the live baseline for 0.1.23. This file's step list is the procedure
+for the next version; it is not a claim that review is still held.
 
 `tools/app-review/manifests/0.1.23.json` is the update manifest after that
 (baseline 0.1.22, build 26.1 from the 0.1.23 release tag, release type
 AFTER_APPROVAL). Its only new content is the corrected description, declared in
 `listing.copyWrites: ["description"]`; every other listing field, the
 screenshots, the Cloud review content and the App Review notes are the live
-0.1.22 content. Nothing has been dispatched for it until the captain says so;
-read the live monitor issue before claiming a review state.
+0.1.22 content. 0.1.23 was submitted on 2026-10-23 Pacific (the submit job
+finished at 2026-10-24T03:33:56Z) with Apple reporting `WAITING_FOR_REVIEW`.
+Like 0.1.22, its create-version run left only assemble, so it needed no
+`mode=upload`, and the monitor variable `APP_REVIEW_MONITOR_VERSION` is
+`0.1.23`. Read the live monitor issue before claiming a newer review state.
 
 ## Listing copy changes
 
@@ -79,11 +80,15 @@ description; a manifest's `content.listing.description` is that file's text
 without its final newline. Its current text no longer says the child cannot
 change the wallet: since 0.1.22 the child can pay back their own loan
 (`docs/product-requirements.md` 8.9). The live 0.1.22 description still says
-it, so the next update manifest declares `listing.copyWrites: ["description"]`.
+it, so the 0.1.23 manifest declares `listing.copyWrites: ["description"]`, and
+0.1.23 carries the corrected description to App Review.
 
 ## The gate
 
-Submission is gated by two independent things, and both are the captain's.
+The captain approves one thing: the version's manifest pull request. Once it
+is merged on `main`, the fleet runs prepare, create-version (for a missing
+update), demo-preflight, verify, assemble, and submit in that order without
+asking the captain again, and stops to report only when a step fails.
 
 1. **A captain-approved manifest merged on `main`.** `tools/app-review/manifests/<version>.json`
    pins the exact version, build, source commit, baseline, release behavior, the
@@ -92,9 +97,11 @@ Submission is gated by two independent things, and both are the captain's.
    hash and a manifest self-hash. Every workflow detaches to the commit that
    last changed that file, so a later push to `main` cannot change what a
    submission uses.
-2. **The captain's explicit double-confirm dispatch.** `app-review-submit.yml`
-   is manual only, requires the version to be typed twice, and defaults to the
-   `verify` dry run. `mode=create-version` creates a missing App Store update
+2. **A double-confirm dispatch.** Every workflow here is manual only and runs
+   under the captain's GitHub account; `app-review-submit.yml` requires the
+   version to be typed twice and defaults to the `verify` dry run. The
+   double-confirm binds the run to one exact version. It is not a second
+   approval. `mode=create-version` creates a missing App Store update
    version without reviewer-path evidence (`create_version.js --create-version`
    onto `runSubmission({ createVersion: true })`, with
    `CREATE_VERSION_ENGINE_ARGV` pinned to
@@ -124,13 +131,13 @@ Submission is gated by two independent things, and both are the captain's.
    already-approved Cloud subscriptions on update assemble,
    [`#22`](https://github.com/kunchenguid/app-review-submit/pull/22) full
    localization, and [`#19`](https://github.com/kunchenguid/app-review-submit/pull/19)).
-   `mode=submit` is a separate captain-gated dispatch that asks
-   the engine to submit for review. Default remains `verify`.
+   `mode=submit` is the separate dispatch that asks the engine to submit for
+   review. Default remains `verify`.
 
-There is deliberately **no protected GitHub Environment**. Adding one would give
-the captain a second approval prompt for a run the captain just started by hand,
-which is ceremony rather than a boundary. The manifest is the content gate and
-the dispatch is the intent gate.
+There is deliberately **no protected GitHub Environment**, and no per-step
+captain go. Either would ask the captain to approve again what the merged
+manifest already approved, which is ceremony rather than a boundary. The
+manifest is the gate; the dispatch only names the exact version it runs.
 
 The App Review create-version, assemble, upload, and submit mutation credential belongs to
 `app-review-submit.yml`'s create-version, assemble, upload, and submit jobs; the GET-only shared monitor
@@ -149,8 +156,8 @@ for `kunchenguid/app-review-submit`, not a console chore.
 
 ### True irreducibles (captain only)
 
-- Approving what ships: a captain-approved manifest on `main` plus the
-  double-confirm dispatch.
+- Approving what ships: merging the version's manifest pull request on `main`.
+  The dispatches after it are the fleet's and need no further captain go.
 - Credentials, the Paid Apps agreement, and tax/banking: already in place on
   the shared team. Never re-request them.
 - App Privacy / nutrition-label answers: Apple exposes no public App Store
@@ -160,8 +167,6 @@ for `kunchenguid/app-review-submit`, not a console chore.
   if the declarations are incomplete or collection has changed.
 - Physical-device proof of Sign in with Apple, the Parent gate, and a sandbox
   Cloud purchase. Both steps are user-mediated; a runner cannot do them.
-- Pasting demo-preflight evidence into the GitHub dispatch `evidence` input.
-  That is a GitHub gate, not App Store Connect.
 
 ### Automated shared-engine behavior (create-version / assemble / upload / submit)
 
@@ -231,7 +236,7 @@ ever drift, the fix is an engine write, not a console paste.
 
 | Surface | Current engine | 0.1.17 |
 | --- | --- | --- |
-| Listing copy (description, keywords, what's new, URLs, name, subtitle) | Writes only if `listingWritesAllowed("listing")`, which the adapters turn on for a manifest that declares `listing.copyWrites`. Otherwise `observe`. | Live matches, including the standard EULA line. The description's read-only child sentence changes with the next update ([Listing copy changes](#listing-copy-changes)). |
+| Listing copy (description, keywords, what's new, URLs, name, subtitle) | Writes only if `listingWritesAllowed("listing")`, which the adapters turn on for a manifest that declares `listing.copyWrites`. Otherwise `observe`. | Live matches, including the standard EULA line. The description's read-only child sentence changes with 0.1.23, submitted 2026-10-23 ([Listing copy changes](#listing-copy-changes)). |
 | Cloud IAP review screenshots | Asserts products reviewable and attaches them. Does not upload review screenshots. Demo-preflight requires delivered bytes. | Both products `COMPLETE` (historical API upload). |
 | Age rating | GET-validates present. Does not PATCH `ageRatingDeclarations`. | Already saved. |
 | Content rights / Made for Kids | GET-validates `config.protected`. Does not PATCH. | Live matches. |
@@ -283,8 +288,8 @@ rating as console follow-ups when attach fails.
 ## Readiness evidence
 
 The preflight prints a base64 document naming the candidate, the manifest hashes,
-a UTC timestamp, and its allowlisted check names. Paste it into the submit
-dispatch's `evidence` input for verify, upload, assemble, and submit.
+a UTC timestamp, and its allowlisted check names. The fleet passes it as the
+submit dispatch's `evidence` input for verify, upload, assemble, and submit.
 `mode=create-version` is evidence-free. Submission refuses evidence for another
 candidate, another manifest, or one older than six hours.
 
@@ -353,8 +358,9 @@ marketing version). Assemble-only does not write that variable; the gated
 
 ## What this pipeline will never do
 
-- Submit because a release PR merged. TestFlight and App Review stay separate
-  captain gates.
+- Submit because a release PR merged. Merging the release PR (TestFlight) and
+  merging the version's manifest PR (App Review) stay separate captain
+  decisions.
 - Release. The manifest may only choose `MANUAL` or `AFTER_APPROVAL`.
 - Send the captain to App Store Connect for an API-able step. Listing copy
   stays `observe` unless an approved update manifest declares
@@ -372,4 +378,4 @@ marketing version). Assemble-only does not write that variable; the gated
   receipt, raw Apple response, or reviewer contact detail into git, an issue, a
   log, an artifact, a workflow input, or a runner argument.
 - Fall back to a browser submission. After assemble-only has staged the review
-  submission, `mode=submit` is the remaining captain-gated action.
+  submission, `mode=submit` is the remaining step.
