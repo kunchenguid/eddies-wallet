@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.23...eddies-wallet-v0.1.24) (2026-10-24)
+
+
+### Bug Fixes
+
+* **app-review:** reconcile matching content and name differing fields ([42ac901](https://github.com/kunchenguid/eddies-wallet/commit/42ac9010143523cb4d0bff64a8e50f32ac26ce42))
+
 ## [0.1.23](https://github.com/kunchenguid/eddies-wallet/compare/eddies-wallet-v0.1.22...eddies-wallet-v0.1.23) (2026-10-23)
 
 
