@@ -975,7 +975,9 @@ def reconcile_manifest_with_live_state(
     require(
         not differences,
         "E_RECONCILIATION",
-        "ASC reviewed content differs from the approved manifest at " + ", ".join(differences),
+        "ASC reviewed content differs from the approved manifest at "
+        + (differences[0] if differences else "content")
+        + (" (additional fields differ)" if len(differences) > 1 else ""),
     )
     validate_source_content(normalized)
     require(

@@ -316,9 +316,11 @@ order across device sizes. It still compares every ordered image within each
 set, every reviewed string and asset descriptor, and the approved content hash.
 Missing, extra or duplicate sets and reordered images refuse. Manifest hashes
 retain their original order; they are never regenerated to accommodate Apple.
-Differences name bounded paths such as `content.listing.description` or
-`content.screenshots[0].files[1].fileName`; indices follow the approved manifest.
-No values or raw Apple responses enter those diagnostics.
+A refusal names the first differing field, with a bounded path such as
+`content.listing.description` or `content.screenshots[0].files[1].fileName`, and
+says when other fields differ. Indices follow the approved manifest. The
+standalone diagnostic lists up to eight paths, one per line. No values or raw
+Apple responses enter those diagnostics.
 
 Matching `PREPARE_FOR_SUBMISSION` and `READY_FOR_REVIEW` versions return
 `matching_draft`. Matching `WAITING_FOR_REVIEW`, `IN_REVIEW`, and approved

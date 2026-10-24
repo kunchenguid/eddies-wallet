@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """EDW-39: prepare must identify reviewed drift and recognize approved updates.
 
-The approved 0.1.23 content and image bytes are the fixture, not made-up listing
-copy. Adverse cases change one fact at the readback boundary.
+The approved 0.1.23 content and image descriptors are the fixture, not made-up
+listing copy. Adverse cases change one fact at the readback boundary.
 """
 import contextlib
 import copy
@@ -119,7 +119,8 @@ class ReconciliationTests(unittest.TestCase):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(runtime.run(self.reconcile), 1)
-        self.assertIn("content.listing.appName", stderr.getvalue())
+        self.assertIn("content.listing.appName (additional fields differ)", stderr.getvalue())
+        self.assertNotIn("content.listing.subtitle", stderr.getvalue())
         self.assertLess(len(stderr.getvalue()), 300)
 
 
