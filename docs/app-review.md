@@ -303,6 +303,47 @@ The prepare step opens one GitHub issue keyed by app, version, manifest binding
 hash, and manifest-approved commit, with a single mutable comment holding phase,
 reconciliation outcome, and timestamp. Nothing else is recorded there.
 
+Prepare's read job restores `core.py` and `content.py` from the trusted main
+dispatch after pinning the manifest commit. The manifest, config, image bytes and
+journal identity remain pinned, so a reader repair can apply to an older
+approved manifest without approving its content again. Verify is unchanged: it
+sets the journal to `not_read`; only a successful live read replaces that with a
+new reconciliation outcome. A failed rerun therefore does not claim that its
+previous observation is current.
+
+Reconcile matches screenshot sets by `displayType`, not Apple's collection
+order across device sizes. It still compares every ordered image within each
+set, every reviewed string and asset descriptor, and the approved content hash.
+Missing, extra or duplicate sets and reordered images refuse. Manifest hashes
+retain their original order; they are never regenerated to accommodate Apple.
+Differences name bounded paths such as `content.listing.description` or
+`content.screenshots[0].files[1].fileName`; indices follow the approved manifest.
+No values or raw Apple responses enter those diagnostics.
+
+Matching `PREPARE_FOR_SUBMISSION` and `READY_FOR_REVIEW` versions return
+`matching_draft`. Matching `WAITING_FOR_REVIEW`, `IN_REVIEW`, and approved
+post-submission states (`PENDING_DEVELOPER_RELEASE`, `PENDING_APPLE_RELEASE`,
+`PROCESSING_FOR_DISTRIBUTION`, `READY_FOR_DISTRIBUTION`, legacy `READY_FOR_SALE`)
+return `already_submitted`. Rejected or unknown states still refuse; this
+classification neither submits nor releases anything.
+
+The 0.1.23 refusal was a screenshot-set collection-order difference, not listing
+copy or Cloud review-note drift. GET-only diagnostic
+[run 40122168315](https://github.com/kunchenguid/eddies-wallet/actions/runs/40122168315)
+on 2026-10-24 reported `screenshot_set_order=differs`, `reviewed_content=matching`
+and `already_submitted` after aligning only set identity. Apple had meanwhile
+approved the version and reported `READY_FOR_DISTRIBUTION`, exposing the old
+reader's separate unsupported-approved-state refusal. That run changed neither
+Apple nor recovery issue #177. Draft recovery is covered by deterministic tests;
+the live proof used the actual approved state, not a manufactured draft.
+
+For a bounded GET-only comparison without touching the journal, dispatch
+`app-review-diagnose.yml` with `mode=reconciliation` and the approved version.
+This captain-dispatched diagnostic can run repaired code from a pushed branch,
+but exports the approved files from main's last manifest change. Its output
+contains comparison results and field names only. The default `submit-reads`
+mode remains the separate historical HTTP diagnostic.
+
 `mode=create-version` accepts a missing version or a `PREPARE_FOR_SUBMISSION`
 target. If the target is already `READY_FOR_REVIEW` and matches the manifest,
 skip create-version. Continue with demo-preflight, verify, upload only if a

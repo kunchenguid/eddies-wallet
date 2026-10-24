@@ -16,6 +16,8 @@ from __future__ import annotations
 import importlib
 import json
 import pathlib
+import os
+import tempfile
 import re
 import subprocess
 import sys
@@ -363,6 +365,66 @@ class PermissionAndPinTests(WorkflowModelCase):
                     ]
                     self.assertTrue(entrypoints)
                     self.assertLess(pin, min(entrypoints))
+
+    def test_prepare_restores_repaired_code_but_keeps_approved_content(self):
+        """EDW-39: a pre-existing manifest must actually use the fixed reader."""
+        steps = steps_of(self.jobs(PREPARE)["preflight"])
+        restore = next(step for step in steps if "DISPATCH_SHA" in step.get("env", {}))
+        pin_index = next(i for i, step in enumerate(steps)
+                         if "pin_app_review_manifest.sh" in step.get("run", ""))
+        read_index = next(i for i, step in enumerate(steps)
+                          if step.get("run") == "python3 tools/app-review/prepare.py preflight")
+        self.assertLess(pin_index, steps.index(restore))
+        self.assertLess(steps.index(restore), read_index)
+        self.assertEqual(restore["env"]["DISPATCH_SHA"], "${{ github.sha }}")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            tools = root / "tools/app-review"
+            (tools / "manifests").mkdir(parents=True)
+            manifest = TOOLS / "manifests/0.1.23.json"
+            (tools / "manifests/0.1.23.json").write_bytes(manifest.read_bytes())
+            (tools / "app-review.config.json").write_bytes(MONITOR_CONFIG.read_bytes())
+            # A stale reader must not survive pinning, even though its manifest does.
+            for name in ("core.py", "content.py"):
+                (tools / name).write_text('raise RuntimeError("stale reader")\n')
+            (tools / "asc_read.py").write_bytes((TOOLS / "asc_read.py").read_bytes())
+            env = {**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.invalid",
+                   "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.invalid"}
+            def run(*args, **kwargs):
+                return subprocess.run(args, cwd=root, env=env, capture_output=True,
+                                      text=True, check=True, **kwargs).stdout.strip()
+            run("git", "init", "-q")
+            run("git", "add", ".")
+            run("git", "-c", "commit.gpgsign=false", "commit", "-qm", "test: approved manifest")
+            approved = run("git", "rev-parse", "HEAD")
+            for name in ("core.py", "content.py"):
+                (tools / name).write_bytes((TOOLS / name).read_bytes())
+            # Dispatch config deliberately differs; the restore must not take it.
+            (tools / "app-review.config.json").write_text('{}')
+            run("git", "add", ".")
+            run("git", "-c", "commit.gpgsign=false", "commit", "-qm", "fix: repaired reader")
+            env["DISPATCH_SHA"] = run("git", "rev-parse", "HEAD")
+            env["EDDIES_APP_REVIEW_VERSION"] = "0.1.23"
+            env["GITHUB_ENV"] = str(root / "workflow-env")
+            run("bash", str(ROOT / ".github/scripts/pin_app_review_manifest.sh"))
+            self.assertEqual(run("git", "rev-parse", "HEAD"), approved)
+            run("bash", "-e", "-c", restore["run"])
+            self.assertEqual((tools / "manifests/0.1.23.json").read_bytes(), manifest.read_bytes())
+            self.assertEqual((tools / "app-review.config.json").read_bytes(), MONITOR_CONFIG.read_bytes())
+            program = """
+import copy, json, sys
+sys.path.insert(0, 'tools/app-review')
+import core, content
+manifest = json.load(open('tools/app-review/manifests/0.1.23.json'))
+live_content = copy.deepcopy(manifest['content'])
+live_content['screenshots'].reverse()
+candidate = manifest['candidate']
+live = core.LiveReadState(core.APP_ID, core.BUNDLE_ID, core.PLATFORM,
+    candidate['version'], candidate['build'], 'READY_FOR_REVIEW',
+    candidate['releaseType'], live_content)
+print(core.reconcile_manifest_with_live_state(manifest, live).outcome)
+"""
+            self.assertEqual(run(sys.executable, "-B", "-c", program), "matching_draft")
 
     def test_demo_preflight_restores_its_reader_from_dispatch_after_pinning(self):
         steps = steps_of(self.jobs(DEMO_PREFLIGHT)["readiness"])
@@ -1495,6 +1557,33 @@ class EulaAppendWorkflowTests(WorkflowModelCase):
                 self.assertIs(step["with"]["persist-credentials"], False)
 
 
+class ReconciliationDiagnosticLaneTests(unittest.TestCase):
+    def test_reconciliation_uses_get_only_code_and_no_journal_capability(self):
+        """EDW-39: the consented live proof must not mutate Apple or the journal."""
+        model = parse_workflow("app-review-diagnose.yml")
+        self.assertEqual(list(model["on"]), ["workflow_dispatch"])
+        self.assertEqual(model["permissions"], {"contents": "read"})
+        job = model["jobs"]["diagnose"]
+        self.assertEqual(job["permissions"], {"contents": "read"})
+        self.assertIn(REPOSITORY_GUARD, job["if"])
+        self.assertIn("github.actor == 'kunchenguid'", job["if"])
+        steps = steps_of(job)
+        read = next(step for step in steps if "diagnose_reconciliation.py" in step.get("run", ""))
+        self.assertEqual(read["if"], "inputs.mode == 'reconciliation'")
+        self.assertEqual(secrets_of(read), set(MUTATION_SECRETS))
+        self.assertNotIn("GITHUB_TOKEN", read["env"])
+        legacy = next(step for step in steps if "diagnose_submit_reads.py" in step.get("run", ""))
+        self.assertEqual(legacy["if"], "inputs.mode != 'reconciliation'")
+        export = next(step for step in steps if "git archive" in step.get("run", ""))
+        self.assertLess(steps.index(export), steps.index(read))
+        self.assertFalse(secrets_of(export))
+        self.assertIn("origin/main", export["run"])
+        for step in steps:
+            if "uses" in step:
+                self.assertRegex(step["uses"], PINNED_ACTION)
+                self.assertIs(step["with"]["persist-credentials"], False)
+
+
 class ImportBoundaryTests(unittest.TestCase):
     """The read-only entrypoints cannot even load the mutation modules."""
 
@@ -1517,6 +1606,7 @@ class ImportBoundaryTests(unittest.TestCase):
     def test_the_read_only_entrypoints_never_load_a_mutation_module(self):
         for entrypoint in (
             "prepare",
+            "diagnose_reconciliation",
             "demo_preflight",
             "verify",
             "screenshot_preflight",
